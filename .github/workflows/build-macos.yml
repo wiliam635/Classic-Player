@@ -1,1 +1,25 @@
+name: Build Classic Player - macOS
 
+on:
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-13
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: brew install fluid-synth openssl@3 ninja
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCLASSIC_PLAYER_FETCH_JUCE=ON -DCLASSIC_PLAYER_BUILD_WEBUI_APP=ON -DCLASSIC_PLAYER_STANDALONE_ONLY=OFF
+      - name: Build
+        run: cmake --build build --config Release --parallel 2
+      - name: Verify WebUI
+        run: test -f Resources/WebUI/index.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: classic-player-macos-build
+          path: |
+            build/**
+            Resources/WebUI/**
