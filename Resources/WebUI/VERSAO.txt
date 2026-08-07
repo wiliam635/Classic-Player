@@ -1,0 +1,25 @@
+Classic Player — Full HD 1920 × 1080
+Versão 49 — Protegida
+
+- Layout fixo Full HD com escala automática para PC, Mac, iOS e Android.
+- Sem menus ou submenus de navegação.
+- Quatro layers abertas e todos os parâmetros visíveis.
+- Interface otimizada para uso em orientação horizontal.
+- Layers adicionais com barra de rolagem horizontal e foco automático.
+- Master inicia em 100%.
+- Knobs giratórios com MIDI Learn independente para volume, cutoff, reverb, compressor e delay.
+- Reconhecimento corrigido de acordes menores com sétima, incluindo Bm7.
+- Visor de acordes com fundo preto sólido e letras sem brilho ou sombra.
+- Volume da layer somente no fader vertical, com botão MIDI Learn dedicado.
+- Troca transacional de SF2 na mesma layer, sem reaproveitar o timbre anterior.
+- Proteção contra carregamentos concorrentes e resultados fora de ordem.
+- Leitura ampliada de slash chords, acordes alterados e extensões menores 6/7/9/11.
+- Seleção individual do teclado MIDI em cada layer: todos os controladores ou apenas um dispositivo.
+- O roteamento por teclado e canal agora abrange notas, sustain, mod wheel, pitch bend, pressão e controles CC.
+- O teclado MIDI escolhido em cada layer fica salvo nas programações, inclusive quando está temporariamente desconectado.
+- MIDI Learn agora respeita o teclado e o canal atribuídos à layer.
+- Mensagens já mapeadas são consumidas pelo Learn e não acionam simultaneamente sustain, modulação ou outros controles do instrumento.
+- Teste de regressão incluído para impedir que um controle CC64 mapeado dispare o pedal sustain.
+- Tela de ativação obrigatória antes do uso do aplicativo.
+- Licenças offline assinadas por ECDSA P-256; o instalador contém somente a chave pública.
+- Validação persistente da licença e rejeição de códigos adulterados.

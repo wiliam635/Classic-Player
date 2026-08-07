@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+  <title>Classic Player</title>
+  <organization>com.classickeys.classicplayer</organization>
+  <domains enable_localSystem="true"/>
+  <options customize="never" require-scripts="false" rootVolumeOnly="true"/>
+  <choices-outline>
+    <line choice="classicplayer"/>
+  </choices-outline>
+  <choice id="classicplayer" visible="false" title="Classic Player">
+    <pkg-ref id="com.classickeys.classicplayer.standalone"/>
+  </choice>
+  <pkg-ref id="com.classickeys.classicplayer.standalone" version="1.6.0" onConclusion="none">ClassicPlayer-standalone.pkg</pkg-ref>
+</installer-gui-script>

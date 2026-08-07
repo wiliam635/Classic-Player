@@ -1,0 +1,11 @@
+Classic Player — ASIO SDK notice
+
+The Steinberg ASIO SDK files under third_party/asio-sdk are used under the
+GNU General Public License version 3, as permitted by the SDK's dual-license
+notice. See third_party/asio-sdk/LICENSE.txt and
+third_party/asio-sdk/common/LICENSE.txt for the complete copyright and
+licensing terms supplied by Steinberg Media Technologies GmbH.
+
+This notice does not remove any obligation of GPLv3 for a distribution that
+links the ASIO SDK into the application. The corresponding source code and
+license texts must remain available with such a distribution.
