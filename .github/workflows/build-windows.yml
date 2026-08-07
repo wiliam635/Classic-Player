@@ -1,1 +1,27 @@
+name: Build Classic Player - Windows
 
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lukka/get-cmake@latest
+      - name: Configure
+        shell: pwsh
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCLASSIC_PLAYER_FETCH_JUCE=ON -DCLASSIC_PLAYER_BUILD_WEBUI_APP=ON -DCLASSIC_PLAYER_STANDALONE_ONLY=OFF
+      - name: Build
+        shell: pwsh
+        run: cmake --build build --config Release --parallel 2
+      - name: Verify WebUI
+        shell: pwsh
+        run: if (-not (Test-Path "Resources/WebUI/index.html")) { throw "WebUI ausente" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: classic-player-windows-build
+          path: |
+            build/**
+            Resources/WebUI/**
