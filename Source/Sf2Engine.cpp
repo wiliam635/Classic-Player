@@ -32,6 +32,8 @@ void Sf2Engine::createSynth(Layer& layer)
     layer.synth.reset(new_fluid_synth(layer.settings.get()));
     layer.soundFontId = -1;
     layer.monoNote = -1;
+    layer.modulationAmount = 0.0f;
+    layer.modulationPhase = 0.0;
     layer.lastCutoff = -1;
     layer.lastReverb = -1;
     layer.lastRelease = -1;
@@ -136,6 +138,8 @@ juce::Result Sf2Engine::loadSoundFont(int index, const juce::File& file)
     layer.selectedBank = 0;
     layer.selectedProgram = 0;
     layer.filterState = { 0.0f, 0.0f };
+    layer.modulationAmount = 0.0f;
+    layer.modulationPhase = 0.0;
     return juce::Result::ok();
 }
 
@@ -150,6 +154,8 @@ void Sf2Engine::unloadSoundFont(int index)
     layer.soundFontPath.clear();
     layer.selectedBank = 0;
     layer.selectedProgram = 0;
+    layer.modulationAmount = 0.0f;
+    layer.modulationPhase = 0.0;
 }
 
 void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
@@ -190,6 +196,8 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
     {
         if (message.getControllerNumber() == 64 && !layer.config.sustainEnabled)
             return;
+        if (message.getControllerNumber() == 1)
+            layer.modulationAmount = message.getControllerValue() / 127.0f;
         fluid_synth_cc(layer.synth.get(), channel - 1,
                        message.getControllerNumber(), message.getControllerValue());
     }
@@ -240,6 +248,40 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         fluid_synth_write_float(layer.synth.get(), output.getNumSamples(),
                                 scratch.getWritePointer(0), 0, 1,
                                 scratch.getWritePointer(1), 0, 1);
+
+        // CC1 uses category-specific effects without adding knobs or changing
+        // the approved front-end: tremolo for electric pianos and fast rotary
+        // movement for organs. CC1 at zero keeps the layer dry.
+        const auto category = layer.soundFontPath.getParentDirectory().getFileName();
+        const auto mod = juce::jlimit(0.0f, 1.0f, layer.modulationAmount);
+        if (mod > 0.001f && (category == "Piano Eletrico" || category == "Organ"))
+        {
+            const auto tremolo = category == "Piano Eletrico";
+            const auto speedHz = tremolo ? 5.0f : 6.8f;
+            const auto phaseStep = juce::MathConstants<double>::twoPi * speedHz / currentSampleRate;
+            auto* left = scratch.getWritePointer(0);
+            auto* right = scratch.getWritePointer(1);
+            for (int sample = 0; sample < output.getNumSamples(); ++sample)
+            {
+                const auto wave = static_cast<float>(std::sin(layer.modulationPhase));
+                layer.modulationPhase += phaseStep;
+                if (layer.modulationPhase >= juce::MathConstants<double>::twoPi)
+                    layer.modulationPhase -= juce::MathConstants<double>::twoPi;
+
+                if (tremolo)
+                {
+                    const auto gain = 1.0f - mod * 0.58f * (0.5f + 0.5f * wave);
+                    left[sample] *= gain;
+                    right[sample] *= gain;
+                }
+                else
+                {
+                    const auto pan = wave * mod * 0.62f;
+                    left[sample] *= 1.0f - pan;
+                    right[sample] *= 1.0f + pan;
+                }
+            }
+        }
 
         const auto cutoffAmount = juce::jlimit(0.0f, 100.0f, layer.config.cutoff);
         if (cutoffAmount < 99.5f)
@@ -349,6 +391,8 @@ void Sf2Engine::sendController(int index, int controller, int value)
     const juce::ScopedLock guard(lock);
     auto& layer = layers[(size_t) index];
     if (!layer.synth || layer.soundFontId < 0) return;
+    if (controller == 1)
+        layer.modulationAmount = juce::jlimit(0, 127, value) / 127.0f;
     for (int channel = 0; channel < 16; ++channel)
         fluid_synth_cc(layer.synth.get(), channel, juce::jlimit(0, 127, controller),
                        juce::jlimit(0, 127, value));
