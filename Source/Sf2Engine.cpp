@@ -252,7 +252,7 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         // CC1 uses category-specific effects without adding knobs or changing
         // the approved front-end: tremolo for electric pianos and fast rotary
         // movement for organs. CC1 at zero keeps the layer dry.
-        const auto category = layer.soundFontPath.getParentDirectory().getFileName();
+        const auto category = juce::File { layer.soundFontPath }.getParentDirectory().getFileName();
         const auto mod = juce::jlimit(0.0f, 1.0f, layer.modulationAmount);
         if (mod > 0.001f && (category == "Piano Eletrico" || category == "Organ"))
         {
