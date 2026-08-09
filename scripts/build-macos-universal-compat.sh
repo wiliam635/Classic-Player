@@ -40,7 +40,8 @@ configure_and_build() {
   "$CMAKE" -S "$ROOT" -B "$build" -G "Unix Makefiles" \
     "${JUCE_ARGS[@]}" \
     -DFETCHCONTENT_BASE_DIR="$ROOT/build/fetch-content" \
-    -DCLASSIC_PLAYER_STANDALONE_ONLY=ON \
+    -DCLASSIC_PLAYER_STANDALONE_ONLY=OFF \
+    -DCLASSIC_PLAYER_BUILD_WEBUI_APP=OFF \
     -DCLASSIC_PLAYER_BUILD_TESTS=ON \
     -DCMAKE_PREFIX_PATH="$prefix" \
     -DCMAKE_C_COMPILER=/usr/bin/clang \
@@ -65,7 +66,9 @@ configure_and_build x86_64 x64-osx-classic 10.13
 
 find_standalone_app() {
   local build_dir="$1"
-  find "$build_dir" -type d -path "*ClassicPlayerApp_artefacts*/Classic Player.app" -print -quit
+  find "$build_dir" -type d \
+    \( -path "*/ClassicPlayer_artefacts/Release/Standalone/Classic Player.app" \
+       -o -path "*ClassicPlayerApp_artefacts*/Classic Player.app" \) -print -quit
 }
 
 ARM_APP="$(find_standalone_app "$ROOT/build/macos-compat-arm64")"
