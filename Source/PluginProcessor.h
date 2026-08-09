@@ -59,6 +59,7 @@ public:
     juce::Result importSoundFont(const juce::File&, const juce::String& category,
                                  juce::File& importedFile) const;
     juce::Array<juce::File> librarySoundFonts(const juce::String& category) const;
+    juce::Result deleteLibrarySoundFont(const juce::File&);
     void refreshActivation();
     bool isActivated() const { return activated.load(); }
     juce::AudioProcessorValueTreeState parameters;
