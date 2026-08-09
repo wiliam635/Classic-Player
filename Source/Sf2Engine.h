@@ -74,6 +74,8 @@ private:
         int lastCutoff = -1;
         int lastReverb = -1;
         int lastRelease = -1;
+        float modulationAmount = 0.0f;
+        double modulationPhase = 0.0;
         std::array<float, 2> filterState { 0.0f, 0.0f };
         std::atomic<float> peak { 0.0f };
     };
