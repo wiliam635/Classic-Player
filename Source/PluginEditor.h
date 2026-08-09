@@ -56,6 +56,7 @@ private:
 
     private:
         void chooseSoundFont();
+        void deleteSelectedSoundFont();
         void resetLayer();
         void rebuildPresets();
         void rebuildLibrary();
@@ -78,6 +79,7 @@ private:
         juce::TextButton resetButton { "RESET" };
         juce::TextButton removeButton { "X" };
         juce::TextButton loadButton { "IMPORTAR SF2" };
+        juce::TextButton deleteLibraryButton { "EXCLUIR SF2" };
         juce::Label fileLabel;
         juce::ComboBox categoryBox;
         juce::ComboBox libraryBox;
