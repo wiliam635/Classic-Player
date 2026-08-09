@@ -9,7 +9,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 option(CLASSIC_PLAYER_FETCH_JUCE "Download JUCE when JUCE_DIR is not supplied" ON)
 option(CLASSIC_PLAYER_STANDALONE_ONLY "Build only the standalone application" OFF)
 option(CLASSIC_PLAYER_BUILD_TESTS "Build the native SF2 smoke test" OFF)
-option(CLASSIC_PLAYER_BUILD_WEBUI_APP "Build the full WebUI standalone application" ON)
+option(CLASSIC_PLAYER_BUILD_WEBUI_APP "Build the legacy WebUI standalone application instead of the native editor" OFF)
 
 if(DEFINED JUCE_DIR)
     add_subdirectory("${JUCE_DIR}" JUCE)
@@ -35,13 +35,12 @@ else()
     message(FATAL_ERROR "FluidSynth was found, but its CMake target is unknown")
 endif()
 
-# The WebUI standalone is a separate application target.  Build it in every
-# normal package so Windows/macOS installers always contain the complete UI;
-# CLASSIC_PLAYER_STANDALONE_ONLY remains supported for legacy source bundles.
-if(CLASSIC_PLAYER_STANDALONE_ONLY)
+# The native editor in PluginEditor.cpp is the approved Classic Player interface.
+# Only the explicit legacy option builds the separate WebUI executable.
+if(CLASSIC_PLAYER_BUILD_WEBUI_APP)
     set(CLASSIC_PLAYER_FORMATS VST3)
 else()
-    set(CLASSIC_PLAYER_FORMATS VST3)
+    set(CLASSIC_PLAYER_FORMATS Standalone VST3)
     if(APPLE)
         list(APPEND CLASSIC_PLAYER_FORMATS AU)
     endif()
