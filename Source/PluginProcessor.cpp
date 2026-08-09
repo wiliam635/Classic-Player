@@ -379,6 +379,27 @@ juce::Array<juce::File> ClassicPlayerAudioProcessor::librarySoundFonts(
     return result;
 }
 
+juce::Result ClassicPlayerAudioProcessor::deleteLibrarySoundFont(const juce::File& file)
+{
+    if (!file.existsAsFile() || file.getFileExtension().toLowerCase() != ".sf2")
+        return juce::Result::fail("Selecione um SF2 valido da biblioteca");
+
+    const auto libraryRoot = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                                 .getChildFile("Classic Player").getChildFile("SoundFonts");
+    if (!file.isAChildOf(libraryRoot))
+        return juce::Result::fail("Apenas arquivos da biblioteca do Classic Player podem ser excluidos");
+
+    // A library item can be loaded in more than one layer. Unload every
+    // matching layer first so FluidSynth never keeps a handle to a deleted file.
+    for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
+        if (soundFontPath(layer) == file.getFullPathName())
+            unloadSoundFont(layer);
+
+    return file.deleteFile()
+               ? juce::Result::ok()
+               : juce::Result::fail("Nao foi possivel excluir o SF2 da biblioteca");
+}
+
 void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* source,
                                                              const juce::MidiMessage& message)
 {
