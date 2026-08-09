@@ -532,16 +532,17 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::deleteSelectedSoundFont()
                                        "Excluir SF2",
                                        "Excluir '" + file.getFileName() + "' da biblioteca?",
                                        "Excluir", "Cancelar", this,
-                                       [safe, file](int answer)
-                                       {
-                                           if (safe == nullptr || answer == 0) return;
-                                           const auto result = safe->processor.deleteLibrarySoundFont(file);
-                                           if (result.failed())
-                                               juce::AlertWindow::showMessageBoxAsync(
-                                                   juce::MessageBoxIconType::WarningIcon,
-                                                   "Falha ao excluir SF2", result.getErrorMessage());
-                                           safe->refresh();
-                                       });
+                                       juce::ModalCallbackFunction::create(
+                                           [safe, file](int answer)
+                                           {
+                                               if (safe == nullptr || answer == 0) return;
+                                               const auto result = safe->processor.deleteLibrarySoundFont(file);
+                                               if (result.failed())
+                                                   juce::AlertWindow::showMessageBoxAsync(
+                                                       juce::MessageBoxIconType::WarningIcon,
+                                                       "Falha ao excluir SF2", result.getErrorMessage());
+                                               safe->refresh();
+                                           }));
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::resetLayer()
