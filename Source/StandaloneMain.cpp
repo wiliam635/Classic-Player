@@ -332,9 +332,9 @@ public:
         const auto deviceName = uid.substring(separator + 1);
         auto* type = findType(typeName);
         if (type == nullptr) return result(false, "Tipo de driver não encontrado: " + typeName);
-        const auto error = deviceManager.setCurrentAudioDeviceType(typeName, true);
-        if (error.isNotEmpty())
-            return result(false, "Não foi possível abrir " + typeName + ": " + error);
+        // JUCE 9 switches the driver type through a void-returning API.
+        // The actual open result is reported by setAudioDeviceSetup below.
+        deviceManager.setCurrentAudioDeviceType(typeName, true);
         auto setup = deviceManager.getAudioDeviceSetup();
         setup.outputDeviceName = deviceName;
         setup.inputDeviceName.clear();
