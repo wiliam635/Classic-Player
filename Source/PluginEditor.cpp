@@ -242,7 +242,8 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     layerTitle.setColour(juce::Label::textColourId, juce::Colour(text));
     addAndMakeVisible(layerTitle);
 
-    for (auto* button : { &muteButton, &soloButton, &resetButton, &removeButton, &loadButton })
+    for (auto* button : { &muteButton, &soloButton, &resetButton, &removeButton, &loadButton,
+                          &deleteLibraryButton })
     {
         flatButton(*button);
         addAndMakeVisible(*button);
@@ -255,6 +256,9 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     removeButton.setTooltip("Excluir esta layer");
     removeButton.onClick = [this] { if (removeLayerCallback) removeLayerCallback(); };
     loadButton.onClick = [this] { chooseSoundFont(); };
+    deleteLibraryButton.setTooltip("Excluir o SF2 selecionado da biblioteca");
+    deleteLibraryButton.onClick = [this] { deleteSelectedSoundFont(); };
+    deleteLibraryButton.setEnabled(false);
 
     fileLabel.setJustificationType(juce::Justification::centred);
     fileLabel.setMinimumHorizontalScale(0.6f);
@@ -266,6 +270,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     libraryBox.onChange = [this]
     {
         const auto selected = libraryBox.getSelectedItemIndex();
+        deleteLibraryButton.setEnabled(juce::isPositiveAndBelow(selected, libraryFiles.size()));
         if (!juce::isPositiveAndBelow(selected, libraryFiles.size())) return;
         const auto result = processor.loadSoundFont(index, libraryFiles.getReference(selected));
         if (result.failed())
@@ -445,7 +450,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     area.removeFromTop(4);
     categoryBox.setBounds(area.removeFromTop(28));
     area.removeFromTop(4);
-    libraryBox.setBounds(area.removeFromTop(28));
+    auto libraryRow = area.removeFromTop(28);
+    deleteLibraryButton.setBounds(libraryRow.removeFromRight(76).reduced(1, 0));
+    libraryBox.setBounds(libraryRow.reduced(0, 0));
     area.removeFromTop(4);
     fileLabel.setBounds(area.removeFromTop(27));
     area.removeFromTop(4);
@@ -515,6 +522,28 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
         });
 }
 
+void ClassicPlayerAudioProcessorEditor::LayerStrip::deleteSelectedSoundFont()
+{
+    const auto selected = libraryBox.getSelectedItemIndex();
+    if (!juce::isPositiveAndBelow(selected, libraryFiles.size())) return;
+    const auto file = libraryFiles.getReference(selected);
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon,
+                                       "Excluir SF2",
+                                       "Excluir '" + file.getFileName() + "' da biblioteca?",
+                                       "Excluir", "Cancelar", this,
+                                       [safe, file](int answer)
+                                       {
+                                           if (safe == nullptr || answer == 0) return;
+                                           const auto result = safe->processor.deleteLibrarySoundFont(file);
+                                           if (result.failed())
+                                               juce::AlertWindow::showMessageBoxAsync(
+                                                   juce::MessageBoxIconType::WarningIcon,
+                                                   "Falha ao excluir SF2", result.getErrorMessage());
+                                           safe->refresh();
+                                       });
+}
+
 void ClassicPlayerAudioProcessorEditor::LayerStrip::resetLayer()
 {
     processor.unloadSoundFont(index);
@@ -564,6 +593,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::rebuildLibrary()
     }
     libraryBox.setTextWhenNothingSelected(libraryFiles.isEmpty() ? "CATEGORIA VAZIA" : "ESCOLHA O SF2");
     if (selectedId > 0) libraryBox.setSelectedId(selectedId, juce::dontSendNotification);
+    deleteLibraryButton.setEnabled(libraryBox.getSelectedItemIndex() >= 0);
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
@@ -722,7 +752,8 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
         classicProcessor.parameters, "master", master);
 
     layerViewport.setViewedComponent(&layerContent, false);
-    layerViewport.setScrollBarsShown(false, true);
+    // Keep all layer controls accessible on compact notebook displays.
+    layerViewport.setScrollBarsShown(true, true);
     layerViewport.setScrollBarThickness(9);
     layerViewport.setWantsKeyboardFocus(false);
     addAndMakeVisible(layerViewport);
@@ -959,7 +990,11 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
         220, (layerViewport.getWidth() - gap * (initiallyVisible - 1)) / initiallyVisible);
     const auto contentWidth = juce::jmax(
         layerViewport.getWidth(), count * stripWidth + juce::jmax(0, count - 1) * gap);
-    const auto contentHeight = juce::jmax(1, layerViewport.getHeight() - layerViewport.getScrollBarThickness());
+    // Full height required by LayerStrip::resized(); small displays use the
+    // viewport scrollbar instead of clipping routing and velocity controls.
+    constexpr int minimumStripHeight = 590;
+    const auto contentHeight = juce::jmax(minimumStripHeight,
+        layerViewport.getHeight() - layerViewport.getScrollBarThickness());
     layerContent.setSize(contentWidth, contentHeight);
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
