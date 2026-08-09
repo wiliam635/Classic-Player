@@ -50,7 +50,7 @@ configure_and_build() {
     -DCMAKE_OSX_ARCHITECTURES="$arch" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="$deployment" \
     -DCMAKE_BUILD_TYPE=Release
-  "$CMAKE" --build "$build" --target ClassicPlayerApp ClassicPlayerChordDetectorTest --parallel 4
+  "$CMAKE" --build "$build" --target ClassicPlayer_Standalone ClassicPlayerChordDetectorTest --parallel 4
   local test_executable="$build/ClassicPlayerChordDetectorTest_artefacts/Release/ClassicPlayerChordDetectorTest"
   if [[ "$arch" == "x86_64" ]]; then
     arch -x86_64 "$test_executable"
