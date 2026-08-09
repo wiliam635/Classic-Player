@@ -1,25 +1,49 @@
-name: Build Classic Player - macOS
+name: Build Classic Player - macOS Universal
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-macos:
-    runs-on: macos-13
+  build-macos-universal:
+    runs-on: macos-15
     timeout-minutes: 60
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: brew install fluid-synth openssl@3 ninja
-      - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCLASSIC_PLAYER_FETCH_JUCE=ON -DCLASSIC_PLAYER_BUILD_WEBUI_APP=ON -DCLASSIC_PLAYER_STANDALONE_ONLY=OFF
-      - name: Build
-        run: cmake --build build --config Release --parallel 2
-      - name: Verify WebUI
-        run: test -f Resources/WebUI/index.html
-      - uses: actions/upload-artifact@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up vcpkg
+        uses: lukka/run-vcpkg@v11
         with:
-          name: classic-player-macos-build
+          vcpkgGitCommitId: 39344dff01c5a5a0134caf2624cdd492f05d30ea
+          runVcpkgInstall: false
+
+      - name: Build universal standalone app
+        run: |
+          chmod +x scripts/build-macos-universal-compat.sh
+          scripts/build-macos-universal-compat.sh
+
+      - name: Package universal app
+        env:
+          APP_PATH: ${{ github.workspace }}/build/Classic Player 1.6.1 macOS Universal.app
+          OUTPUT_DIR: ${{ github.workspace }}/outputs/installers
+        run: |
+          chmod +x scripts/package-macos-universal-compat.sh
+          scripts/package-macos-universal-compat.sh
+
+      - name: Verify package and WebUI
+        run: |
+          test -f Resources/WebUI/index.html
+          grep -q "classic-responsive-fix" Resources/WebUI/index.html
+          test -d "build/Classic Player 1.6.1 macOS Universal.app"
+          test -f "outputs/installers/Classic-Player-1.6.1-macOS-High-Sierra-a-Tahoe-Universal.pkg"
+          test -f "outputs/installers/Classic-Player-1.6.1-macOS-High-Sierra-a-Tahoe-Universal-App.zip"
+
+      - name: Upload macOS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Classic-Player-1.6.1-macOS-Universal
+          if-no-files-found: error
           path: |
-            build/**
-            Resources/WebUI/**
+            outputs/installers/Classic-Player-1.6.1-macOS-High-Sierra-a-Tahoe-Universal.pkg
+            outputs/installers/Classic-Player-1.6.1-macOS-High-Sierra-a-Tahoe-Universal-App.zip
