@@ -63,10 +63,21 @@ install_dependencies x86_64 x64-osx-classic
 configure_and_build arm64 arm64-osx-classic 11.0
 configure_and_build x86_64 x64-osx-classic 10.13
 
-ARM_APP="$ROOT/build/macos-compat-arm64/ClassicPlayerApp_artefacts/Release/Standalone/Classic Player.app"
-X64_APP="$ROOT/build/macos-compat-x86_64/ClassicPlayerApp_artefacts/Release/Standalone/Classic Player.app"
+find_standalone_app() {
+  local build_dir="$1"
+  find "$build_dir" -type d -path "*ClassicPlayerApp_artefacts*/Classic Player.app" -print -quit
+}
+
+ARM_APP="$(find_standalone_app "$ROOT/build/macos-compat-arm64")"
+X64_APP="$(find_standalone_app "$ROOT/build/macos-compat-x86_64")"
 UNIVERSAL="$ROOT/build/Classic Player 1.6.1 macOS Universal.app"
 EXECUTABLE="$UNIVERSAL/Contents/MacOS/ClassicPlayer"
+
+if [[ -z "$ARM_APP" || ! -d "$ARM_APP" || -z "$X64_APP" || ! -d "$X64_APP" ]]; then
+  echo "Erro: Classic Player.app não encontrado após o build." >&2
+  find "$ROOT/build" -type d -name "Classic Player.app" -print >&2 || true
+  exit 1
+fi
 
 rm -rf "$UNIVERSAL"
 ditto "$ARM_APP" "$UNIVERSAL"
