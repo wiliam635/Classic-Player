@@ -31,10 +31,10 @@ jobs:
           chmod +x scripts/package-macos-universal-compat.sh
           scripts/package-macos-universal-compat.sh
 
-      - name: Verify package and WebUI
+      - name: Verify package and approved native interface
         run: |
-          test -f Resources/WebUI/index.html
-          grep -q "classic-responsive-fix" Resources/WebUI/index.html
+          grep -q "CLASSIC KEYS SF2 WORKSTATION" Source/PluginEditor.cpp
+          grep -q "set(CLASSIC_PLAYER_FORMATS Standalone VST3)" CMakeLists.txt
           test -d "build/Classic Player 1.6.1 macOS Universal.app"
           test -f "outputs/installers/Classic-Player-1.6.1-macOS-High-Sierra-a-Tahoe-Universal.pkg"
           test -f "outputs/installers/Classic-Player-1.6.1-macOS-High-Sierra-a-Tahoe-Universal-App.zip"
