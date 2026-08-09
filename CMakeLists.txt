@@ -152,7 +152,7 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES
     Source/LicenseVerifier.cpp Source/LicenseVerifier.h
     Source/ChordDetector.cpp Source/ChordDetector.h)
 
-if(CLASSIC_PLAYER_BUILD_WEBUI_APP OR CLASSIC_PLAYER_STANDALONE_ONLY)
+if(CLASSIC_PLAYER_BUILD_WEBUI_APP)
     juce_add_gui_app(ClassicPlayerApp
         PRODUCT_NAME "Classic Player"
         COMPANY_NAME "Classic Keys"
