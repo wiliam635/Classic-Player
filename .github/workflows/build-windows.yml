@@ -22,22 +22,38 @@ jobs:
         shell: pwsh
         run: cmake --preset windows-x64
 
-      - name: Build release
+      - name: Build native release
         shell: pwsh
         run: cmake --build --preset windows-release --parallel 2
 
-      - name: Verify WebUI source
+      - name: Verify native artifacts before packaging
         shell: pwsh
         run: |
-          if (-not (Test-Path "Resources/WebUI/index.html")) {
-            throw "Resources/WebUI/index.html ausente"
+          $standalone = "build\windows-x64\ClassicPlayer_artefacts\Release\Standalone\Classic Player.exe"
+          if (-not (Test-Path $standalone)) { throw "Standalone nativo não foi gerado: $standalone" }
+          if (-not (Test-Path "build\windows-x64\ClassicPlayer_artefacts\Release\VST3\Classic Player.vst3")) {
+            throw "VST3 não foi gerado."
           }
+          if (-not (Test-Path "Resources\WebUI\index.html")) { throw "Resources/WebUI/index.html ausente" }
 
-      - name: Upload build
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Package installer
+        shell: pwsh
+        run: scripts\package-windows.ps1
+
+      - name: Verify installer payload
+        shell: pwsh
+        run: |
+          $installer = "outputs\installers\Classic-Player-1.6.1-Windows-x64-Setup.exe"
+          if (-not (Test-Path $installer)) { throw "Instalador não foi criado." }
+          Get-FileHash -Algorithm SHA256 $installer
+
+      - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: classic-player-windows-build
+          name: Classic-Player-1.6.1-Windows-x64
           if-no-files-found: error
-          path: |
-            build/windows-x64/**
-            Resources/WebUI/**
+          path: outputs/installers/Classic-Player-1.6.1-Windows-x64-Setup.exe
