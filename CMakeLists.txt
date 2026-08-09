@@ -159,6 +159,7 @@ if(CLASSIC_PLAYER_BUILD_WEBUI_APP OR CLASSIC_PLAYER_STANDALONE_ONLY)
         COMPANY_NAME "Classic Keys"
         BUNDLE_ID "com.classickeys.classicplayer"
         VERSION "${PROJECT_VERSION}"
+        NEEDS_WEBVIEW2 TRUE
         ICON_BIG "Resources/classic-player-app-icon.png"
         ICON_SMALL "Resources/classic-player-app-icon.png")
 
