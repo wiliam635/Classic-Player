@@ -36,6 +36,9 @@ jobs:
           if ($processorHeader -notmatch "saveProgram") { throw "API de programação salva ausente" }
           if ($processorHeader -notmatch "loadProgram") { throw "API de carregamento de programação ausente" }
           if ((Get-Content "Source\ExternalInstrumentHost.cpp" -Raw) -notmatch "findInstalledInstruments") { throw "Busca automática de VST ausente" }
+          $editorSource = Get-Content "Source\PluginEditor.cpp" -Raw
+          if ($editorSource -notmatch "if \(externalEditorWindow != nullptr\)") { throw "Proteção de reabertura do editor VST ausente" }
+          if ($editorSource -notmatch "externalEditorWindow->toFront\(true\)") { throw "Reutilização da janela do editor VST ausente" }
           if ($cmake -notmatch "ExternalInstrumentHost.cpp") { throw "Host externo ausente do CMake" }
 
       - name: Set up CMake
