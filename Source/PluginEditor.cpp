@@ -807,7 +807,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMidiLearnState()
     {
         const auto learning = processor.isMidiLearning(index, target);
         const auto cc = processor.midiLearnCC(index, target);
-        button->setButtonText(learning ? "MOVA O CC" : cc >= 0 ? "CC " + juce::String(cc) : "LEARN");
+        const auto channel = processor.midiLearnChannel(index, target);
+        const auto mappingText = cc < 0 ? juce::String("LEARN")
+            : "CC " + juce::String(cc) + (channel > 0 ? " C" + juce::String(channel) : juce::String{});
+        button->setButtonText(learning ? "MOVA O CC" : mappingText);
         button->setColour(juce::TextButton::buttonColourId,
                           learning ? juce::Colour(yellow)
                                    : cc >= 0 ? juce::Colour(0xff1b554e) : juce::Colour(panelLight));
