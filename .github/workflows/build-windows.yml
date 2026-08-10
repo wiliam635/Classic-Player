@@ -29,7 +29,8 @@ jobs:
           $cmake = Get-Content "CMakeLists.txt" -Raw
           if ($hostHeader -notmatch "juce_audio_processors/juce_audio_processors.h") { throw "Include JUCE do host ausente" }
           if ($hostHeader -match "JuceHeader.h") { throw "JuceHeader.h não pode ser usado no host externo" }
-          if ($processorHeader -notmatch "loadExternalInstrument|createExternalInstrumentEditor") { throw "API de host externo incompleta" }
+          if ($processorHeader -notmatch "loadExternalInstrument") { throw "API loadExternalInstrument ausente" }
+          if ($processorHeader -notmatch "createExternalInstrumentEditor") { throw "API createExternalInstrumentEditor ausente" }
           if ($processorSource -notmatch "learnChannel") { throw "Persistência MIDI Learn incompleta" }
           if ($cmake -notmatch "ExternalInstrumentHost.cpp") { throw "Host externo ausente do CMake" }
 
