@@ -645,6 +645,8 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         const auto key = "sf2Layer" + juce::String(i + 1);
         const auto path = engine.getSoundFontPath(i);
         state.setProperty(key, path.isNotEmpty() ? path : savedPaths[(size_t) i], nullptr);
+        state.setProperty("externalInstrument" + juce::String(i + 1),
+                          externalInstruments[(size_t) i].getPath(), nullptr);
         const auto config = engine.getConfig(i);
         state.setProperty("low" + juce::String(i), config.lowNote, nullptr);
         state.setProperty("high" + juce::String(i), config.highNote, nullptr);
@@ -733,6 +735,24 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             for (int i = 0; i < Sf2Engine::layerCount; ++i)
             {
                 savedPaths[(size_t) i] = state.getProperty("sf2Layer" + juce::String(i + 1)).toString();
+                const auto externalPath = state.getProperty(
+                    "externalInstrument" + juce::String(i + 1)).toString();
+                externalInstruments[(size_t) i].unload();
+                if (externalPath.isNotEmpty() && supportsExternalInstruments())
+                {
+                    const auto result = externalInstruments[(size_t) i].loadInstrument(
+                        juce::File(externalPath), currentSampleRate, currentBlockSize);
+                    if (result.wasOk())
+                    {
+                        engine.unloadSoundFont(i);
+                        savedPaths[(size_t) i].clear();
+                    }
+                    else
+                    {
+                        juce::Logger::writeToLog("Não foi possível restaurar instrumento externo: "
+                                                 + result.getErrorMessage());
+                    }
+                }
                 auto config = engine.getConfig(i);
                 config.lowNote = state.getProperty("low" + juce::String(i), 0);
                 config.highNote = state.getProperty("high" + juce::String(i), 127);
