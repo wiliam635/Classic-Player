@@ -35,6 +35,10 @@ jobs:
           if ($processorSource -match "isChannelMessage") { throw "API MIDI incompatível com JUCE 9" }
           if ($processorHeader -notmatch "saveProgram") { throw "API de programação salva ausente" }
           if ($processorHeader -notmatch "loadProgram") { throw "API de carregamento de programação ausente" }
+          $editorSource = Get-Content "Source\PluginEditor.cpp" -Raw
+          if ($editorSource -notmatch "NOVA PROGRAMAÇÃO") { throw "Campo de programas salvos ausente" }
+          if ($editorSource -notmatch "refreshProgramLibrary") { throw "Lista de programas salvos ausente" }
+          if ($editorSource -notmatch "loadSelectedProgram") { throw "Carregamento de programas salvos ausente" }
           if ((Get-Content "Source\ExternalInstrumentHost.cpp" -Raw) -notmatch "findInstalledInstruments") { throw "Busca automática de VST ausente" }
           $editorSource = Get-Content "Source\PluginEditor.cpp" -Raw
           if ($editorSource -notmatch "if \(externalEditorWindow != nullptr\)") { throw "Proteção de reabertura do editor VST ausente" }
