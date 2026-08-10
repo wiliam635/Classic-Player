@@ -226,8 +226,9 @@ void ClassicPlayerAudioProcessor::appendExternalMidi(int layer, const juce::Midi
     for (const auto metadata : incoming)
     {
         auto message = metadata.getMessage();
-        if (config.midiChannel > 0 && message.isChannelMessage()
-            && message.getChannel() != config.midiChannel)
+        // JUCE exposes the channel for every MIDI message. System messages
+        // use channel 0, so a channel-specific layer naturally ignores them.
+        if (config.midiChannel > 0 && message.getChannel() != config.midiChannel)
             continue;
         if (message.isController() && message.getControllerNumber() == 64 && !config.sustainEnabled)
             continue;
