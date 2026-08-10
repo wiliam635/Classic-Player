@@ -75,7 +75,10 @@ private:
     juce::dsp::Limiter<float> outputLimiter;
     std::array<juce::String, Sf2Engine::layerCount> savedPaths;
     static constexpr int learnTargetCount = static_cast<int>(LearnTarget::count);
+    // A MIDI controller is identified by CC *and* channel. Some keyboards
+    // send the same CC from several faders on different Part channels.
     std::array<std::array<std::atomic<int>, learnTargetCount>, Sf2Engine::layerCount> learnedCCs {};
+    std::array<std::array<std::atomic<int>, learnTargetCount>, Sf2Engine::layerCount> learnedChannels {};
     std::array<std::array<std::atomic<float>, learnTargetCount>, Sf2Engine::layerCount> pendingCCValues {};
     std::atomic<int> activeMidiLearn { -1 };
     std::array<juce::MidiMessageCollector, Sf2Engine::layerCount> routedMidiCollectors;
