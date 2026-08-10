@@ -12,6 +12,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Preflight native source
+        run: |
+          test -f Source/ExternalInstrumentHost.h
+          test -f Source/ExternalInstrumentHost.cpp
+          test -f Source/PluginProcessor.cpp
+          grep -q "juce_audio_processors/juce_audio_processors.h" Source/ExternalInstrumentHost.h
+          ! grep -q "JuceHeader.h" Source/ExternalInstrumentHost.h
+          grep -q "loadExternalInstrument" Source/PluginProcessor.h
+          grep -q "createExternalInstrumentEditor" Source/PluginProcessor.h
+          grep -q "learnChannel" Source/PluginProcessor.cpp
+          grep -q "ExternalInstrumentHost.cpp" CMakeLists.txt
+
       - name: Set up vcpkg
         uses: lukka/run-vcpkg@v11
         with:
