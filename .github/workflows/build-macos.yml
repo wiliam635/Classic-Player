@@ -22,6 +22,8 @@ jobs:
           grep -q "loadExternalInstrument" Source/PluginProcessor.h
           grep -q "createExternalInstrumentEditor" Source/PluginProcessor.h
           grep -q "learnChannel" Source/PluginProcessor.cpp
+          grep -q "midiLearnChannel" Source/PluginProcessor.cpp
+          grep -q "binarySustainEvent" Source/PluginProcessor.cpp
           ! grep -q "isChannelMessage" Source/PluginProcessor.cpp
           grep -q "saveProgram" Source/PluginProcessor.h
           grep -q "loadProgram" Source/PluginProcessor.h
