@@ -625,6 +625,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::deleteSelectedSoundFont()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::resetLayer()
 {
     processor.unloadSoundFont(index);
+    processor.unloadExternalInstrument(index);
     muted = solo = false;
     muteButton.setToggleState(false, juce::dontSendNotification);
     soloButton.setToggleState(false, juce::dontSendNotification);
