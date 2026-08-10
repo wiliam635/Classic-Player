@@ -622,6 +622,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseExternalInstrument()
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::openExternalInstrumentEditor()
 {
+    // Closing a hosted editor only hides its DocumentWindow. Reuse that same
+    // window/editor on the next click: asking JUCE for another editor before
+    // destroying the hidden window can hand out the existing editor pointer.
+    if (externalEditorWindow != nullptr)
+    {
+        externalEditorWindow->setVisible(true);
+        externalEditorWindow->toFront(true);
+        return;
+    }
+
     if (auto* editor = processor.createExternalInstrumentEditor(index))
     {
         externalEditorWindow = std::make_unique<HostedInstrumentEditorWindow>(
