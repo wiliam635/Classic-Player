@@ -62,6 +62,7 @@ private:
         void resetLayer();
         void rebuildPresets();
         void rebuildLibrary();
+        void rebuildExternalInstrumentLibrary();
         void applyConfig();
         void initialiseComboBoxes();
         void updateMidiLearnState();
@@ -74,6 +75,7 @@ private:
         bool solo = false;
         std::vector<Sf2Engine::Preset> presets;
         juce::Array<juce::File> libraryFiles;
+        juce::Array<juce::File> externalInstrumentFiles;
 
         juce::Label layerTitle;
         juce::TextButton muteButton { "M" };
@@ -82,7 +84,9 @@ private:
         juce::TextButton removeButton { "X" };
         juce::TextButton loadButton { "IMPORTAR SF2" };
         juce::TextButton externalInstrumentButton { "CARREGAR VST" };
+        juce::TextButton refreshExternalInstrumentButton { "ATUALIZAR VST" };
         juce::TextButton openExternalEditorButton { "ABRIR EDITOR" };
+        juce::ComboBox externalInstrumentBox;
         juce::TextButton deleteLibraryButton { "EXCLUIR SF2" };
         juce::Label fileLabel;
         juce::ComboBox categoryBox;
@@ -124,6 +128,9 @@ private:
     void handleNoteOff(juce::MidiKeyboardState*, int, int, float) override;
     void handleAsyncUpdate() override;
     void applyMixerStates();
+    void refreshProgramLibrary();
+    void saveProgram();
+    void loadSelectedProgram();
     void addLayer();
     void removeLayer(int layer);
     void layoutLayerStrips();
@@ -137,7 +144,11 @@ private:
     juce::Label chordCaption;
     juce::TextButton chordColourButton { "COR ACORDE" };
     juce::TextButton keyColourButton { "COR TECLAS" };
+    juce::ComboBox programBox;
+    juce::TextButton saveProgramButton { "SALVAR" };
+    juce::TextButton loadProgramButton { "CARREGAR" };
     juce::TextButton addLayerButton { "+ LAYER" };
+    juce::Array<juce::File> programFiles;
     juce::Slider master;
     juce::Label masterLabel;
     LevelMeter masterMeter;
