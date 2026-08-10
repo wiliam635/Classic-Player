@@ -19,9 +19,6 @@ juce::Array<juce::File> ExternalInstrumentHost::findInstalledInstruments()
     juce::Array<juce::File> roots;
    #if JUCE_WINDOWS
     roots.add(juce::File("C:\\Program Files\\Common Files\\VST3"));
-    const auto commonFiles = juce::SystemStats::getEnvironmentVariable("COMMONPROGRAMFILES", {});
-    if (commonFiles.isNotEmpty())
-        roots.addIfNotAlreadyThere(juce::File(commonFiles).getChildFile("VST3"));
    #elif JUCE_MAC
     roots.add(juce::File("/Library/Audio/Plug-Ins/VST3"));
     roots.add(juce::File("/Library/Audio/Plug-Ins/Components"));
