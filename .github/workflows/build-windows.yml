@@ -34,6 +34,7 @@ jobs:
           if ($processorSource -notmatch "learnChannel") { throw "Persistência MIDI Learn incompleta" }
           if ($processorSource -notmatch "midiLearnChannel") { throw "Canal MIDI aprendido não é exposto" }
           if ($processorSource -notmatch "binarySustainEvent") { throw "Proteção para pedal e fader CC64 ausente" }
+          if ($processorSource -notmatch "learnedCC == 64 && binarySustainEvent") { throw "Isolamento do sustain para fader CC64 ausente" }
           if ($processorSource -match "isChannelMessage") { throw "API MIDI incompatível com JUCE 9" }
           if ($processorHeader -notmatch "saveProgram") { throw "API de programação salva ausente" }
           if ($processorHeader -notmatch "loadProgram") { throw "API de carregamento de programação ausente" }
