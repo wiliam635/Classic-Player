@@ -352,6 +352,14 @@ int ClassicPlayerAudioProcessor::midiLearnCC(int layer, LearnTarget target) cons
     return learnedCCs[(size_t) layer][(size_t) targetIndex].load(std::memory_order_relaxed);
 }
 
+int ClassicPlayerAudioProcessor::midiLearnChannel(int layer, LearnTarget target) const
+{
+    const auto targetIndex = static_cast<int>(target);
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount) ||
+        !juce::isPositiveAndBelow(targetIndex, learnTargetCount)) return -1;
+    return learnedChannels[(size_t) layer][(size_t) targetIndex].load(std::memory_order_relaxed);
+}
+
 bool ClassicPlayerAudioProcessor::isMidiLearning(int layer, LearnTarget target) const
 {
     return activeMidiLearn.load(std::memory_order_relaxed) ==
@@ -392,17 +400,15 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
     const auto cc = message.getControllerNumber();
     const auto channel = message.getChannel();
 
-    // Sustain and the other pedal switches are deliberately excluded. A pedal
-    // cannot become a learned fader by accident and its musical message still
-    // reaches the selected layer unchanged.
-    if (cc >= 64 && cc <= 69)
-    {
-        if (active >= 0)
-            juce::Logger::writeToLog("MIDI Learn ignorou pedal CC" + juce::String(cc));
-        return;
-    }
+    // Some controllers use CC64–67 for physical faders. Permit those
+    // mappings while refusing the usual binary CC64 pedal event during Learn.
+    // A pedal sends only off/on (0 or 127); a fader can be learned by moving it
+    // to any intermediate position. Already learned mappings still receive all
+    // values, including fader endpoints.
+    const auto controllerValue = message.getControllerValue();
+    const auto binarySustainEvent = cc == 64 && (controllerValue == 0 || controllerValue == 127);
 
-    if (active >= 0)
+    if (active >= 0 && !binarySustainEvent)
     {
         const auto layer = active / learnTargetCount;
         const auto target = active % learnTargetCount;
@@ -419,7 +425,7 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
         }
     }
 
-    const auto normalised = static_cast<float>(message.getControllerValue()) / 127.0f;
+    const auto normalised = static_cast<float>(controllerValue) / 127.0f;
     const auto firstLayer = layerFilter >= 0 ? layerFilter : 0;
     const auto lastLayer = layerFilter >= 0 ? layerFilter + 1 : activeLayerCount();
     for (int layer = firstLayer; layer < lastLayer; ++layer)
