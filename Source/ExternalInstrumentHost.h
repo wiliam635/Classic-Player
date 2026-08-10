@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <memory>
 
 // Hosts one external virtual instrument for a Classic Player layer.
 // Instances are created only from the standalone application's UI thread.
