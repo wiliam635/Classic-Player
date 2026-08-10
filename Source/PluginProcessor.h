@@ -61,6 +61,7 @@ public:
     bool removeLayer(int layer);
     void beginMidiLearn(int layer, LearnTarget target);
     int midiLearnCC(int layer, LearnTarget target) const;
+    int midiLearnChannel(int layer, LearnTarget target) const;
     bool isMidiLearning(int layer, LearnTarget target) const;
     void consumeMidiControlUpdates();
     void attachStandaloneMidiRouting(juce::AudioDeviceManager&, juce::MidiInputCallback& defaultCallback);
