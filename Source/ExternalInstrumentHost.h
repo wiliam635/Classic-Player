@@ -15,6 +15,10 @@ public:
                                 int maximumBlockSize);
     void unload();
 
+    // Move a loaded instrument when a layer is removed and the final layer
+    // takes its place. The destination keeps its own registered formats.
+    void moveFrom(ExternalInstrumentHost& source);
+
     bool isLoaded() const noexcept { return instance != nullptr; }
     juce::String getName() const;
     juce::String getPath() const { return pluginPath; }
