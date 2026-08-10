@@ -60,6 +60,7 @@ public:
     bool addLayer();
     bool removeLayer(int layer);
     void beginMidiLearn(int layer, LearnTarget target);
+    void resetMidiLearn(int layer);
     int midiLearnCC(int layer, LearnTarget target) const;
     int midiLearnChannel(int layer, LearnTarget target) const;
     bool isMidiLearning(int layer, LearnTarget target) const;
