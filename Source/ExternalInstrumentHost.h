@@ -11,6 +11,9 @@ public:
     ExternalInstrumentHost();
     ~ExternalInstrumentHost();
 
+    // Searches only standard VST3/AU locations. It never scans VST2.
+    static juce::Array<juce::File> findInstalledInstruments();
+
     juce::Result loadInstrument(const juce::File& pluginFile,
                                 double sampleRate,
                                 int maximumBlockSize);
