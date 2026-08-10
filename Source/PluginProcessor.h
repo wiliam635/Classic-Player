@@ -71,6 +71,13 @@ public:
                                  juce::File& importedFile) const;
     juce::Array<juce::File> librarySoundFonts(const juce::String& category) const;
     juce::Result deleteLibrarySoundFont(const juce::File&);
+
+    // Persistent Classic Player programs are standalone files, independent
+    // from DAW session state, and work on both macOS and Windows.
+    juce::Array<juce::File> savedPrograms() const;
+    juce::Result saveProgram(const juce::String& name, juce::File& savedFile);
+    juce::Result loadProgram(const juce::File& programFile);
+
     void refreshActivation();
     bool isActivated() const { return activated.load(); }
     juce::AudioProcessorValueTreeState parameters;
