@@ -66,7 +66,13 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
 {
     juce::Logger::writeToLog("prepareToPlay: sampleRate=" + juce::String(sampleRate)
                              + " buffer=" + juce::String(samplesPerBlock));
+    currentSampleRate = sampleRate;
+    currentBlockSize = samplesPerBlock;
     engine.prepare(sampleRate, samplesPerBlock);
+    for (auto& hosted : externalInstruments) hosted.prepare(sampleRate, samplesPerBlock);
+    for (auto& scratch : externalScratch)
+        scratch.setSize(2, samplesPerBlock, false, true, true);
+    for (auto& midiBuffer : externalMidi) midiBuffer.ensureSize(4096);
     for (auto& collector : routedMidiCollectors) collector.reset(sampleRate);
     visualMidiCollector.reset(sampleRate);
     outputLimiter.prepare({ sampleRate, (juce::uint32) samplesPerBlock, 2 });
@@ -75,7 +81,12 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     restoreLayerPaths();
 }
 
-void ClassicPlayerAudioProcessor::releaseResources() { engine.reset(); outputLimiter.reset(); }
+void ClassicPlayerAudioProcessor::releaseResources()
+{
+    engine.reset();
+    for (auto& hosted : externalInstruments) hosted.releaseResources();
+    outputLimiter.reset();
+}
 
 bool ClassicPlayerAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
@@ -127,6 +138,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         engine.setConfig(i, config);
     }
     engine.process(buffer, midi, &routedMidiBuffers);
+    renderExternalInstruments(buffer, midi);
     buffer.applyGain(parameters.getRawParameterValue("master")->load() / 100.0f);
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> context(block);
@@ -140,6 +152,9 @@ void ClassicPlayerAudioProcessor::refreshActivation()
 
 juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::File& file)
 {
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
+        return juce::Result::fail("Layer inválida.");
+    externalInstruments[(size_t) layer].unload();
     const auto result = engine.loadSoundFont(layer, file);
     if (result.wasOk()) savedPaths[(size_t) layer] = file.getFullPathName();
     return result;
@@ -149,6 +164,92 @@ void ClassicPlayerAudioProcessor::unloadSoundFont(int layer)
 {
     engine.unloadSoundFont(layer);
     if (juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) savedPaths[(size_t) layer].clear();
+}
+
+bool ClassicPlayerAudioProcessor::supportsExternalInstruments() const noexcept
+{
+    return juce::PluginHostType::getPluginLoadedAs()
+           == juce::AudioProcessor::wrapperType_Standalone;
+}
+
+juce::Result ClassicPlayerAudioProcessor::loadExternalInstrument(int layer, const juce::File& file)
+{
+    if (!supportsExternalInstruments())
+        return juce::Result::fail("Instrumentos externos só podem ser carregados no Classic Player standalone.");
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
+        return juce::Result::fail("Layer inválida.");
+
+    const auto result = externalInstruments[(size_t) layer].loadInstrument(
+        file, currentSampleRate, currentBlockSize);
+    if (result.wasOk()) unloadSoundFont(layer);
+    return result;
+}
+
+void ClassicPlayerAudioProcessor::unloadExternalInstrument(int layer)
+{
+    if (juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
+        externalInstruments[(size_t) layer].unload();
+}
+
+bool ClassicPlayerAudioProcessor::hasExternalInstrument(int layer) const
+{
+    return juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)
+        && externalInstruments[(size_t) layer].isLoaded();
+}
+
+juce::String ClassicPlayerAudioProcessor::externalInstrumentName(int layer) const
+{
+    return juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)
+        ? externalInstruments[(size_t) layer].getName() : juce::String{};
+}
+
+juce::AudioProcessorEditor* ClassicPlayerAudioProcessor::createExternalInstrumentEditor(int layer)
+{
+    return juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)
+        ? externalInstruments[(size_t) layer].createEditor() : nullptr;
+}
+
+void ClassicPlayerAudioProcessor::appendExternalMidi(int layer, const juce::MidiBuffer& incoming,
+                                                      juce::MidiBuffer& destination)
+{
+    const auto config = engine.getConfig(layer);
+    for (const auto metadata : incoming)
+    {
+        auto message = metadata.getMessage();
+        if (config.midiChannel > 0 && message.isChannelMessage()
+            && message.getChannel() != config.midiChannel)
+            continue;
+        if (message.isController() && message.getControllerNumber() == 64 && !config.sustainEnabled)
+            continue;
+
+        if (message.isNoteOn() || message.isNoteOff())
+        {
+            const auto note = message.getNoteNumber();
+            if (note < config.lowNote || note > config.highNote) continue;
+            message.setNoteNumber(juce::jlimit(0, 127, note + config.octave * 12));
+        }
+        destination.addEvent(message, metadata.samplePosition);
+    }
+}
+
+void ClassicPlayerAudioProcessor::renderExternalInstruments(juce::AudioBuffer<float>& output,
+                                                             const juce::MidiBuffer& hostMidi)
+{
+    for (int layer = 0; layer < activeLayerCount(); ++layer)
+    {
+        if (!externalInstruments[(size_t) layer].isLoaded()) continue;
+        if (!engine.getConfig(layer).enabled) continue;
+
+        auto& scratch = externalScratch[(size_t) layer];
+        auto& midi = externalMidi[(size_t) layer];
+        scratch.clear();
+        midi.clear();
+        appendExternalMidi(layer, hostMidi, midi);
+        appendExternalMidi(layer, routedMidiBuffers[(size_t) layer], midi);
+        externalInstruments[(size_t) layer].process(scratch, midi);
+        for (int channel = 0; channel < juce::jmin(output.getNumChannels(), scratch.getNumChannels()); ++channel)
+            output.addFrom(channel, 0, scratch, channel, 0, output.getNumSamples());
+    }
 }
 
 juce::String ClassicPlayerAudioProcessor::soundFontPath(int layer) const { return engine.getSoundFontPath(layer); }
