@@ -883,7 +883,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     addAndMakeVisible(keyColourButton);
 
     programBox.setEditableText(true);
-    programBox.setTextWhenNothingSelected("NOVA PROGRAMAÇÃO");
+    programBox.setTextWhenNothingSelected("NOVO PROGRAMA");
     addAndMakeVisible(programBox);
     flatButton(saveProgramButton);
     flatButton(loadProgramButton);
@@ -1116,7 +1116,7 @@ void ClassicPlayerAudioProcessorEditor::refreshProgramLibrary()
         programBox.addItem(name, item + 1);
         if (name == currentName) selectedId = item + 1;
     }
-    programBox.setTextWhenNothingSelected("NOVA PROGRAMAÇÃO");
+    programBox.setTextWhenNothingSelected("NOVO PROGRAMA");
     if (selectedId > 0)
         programBox.setSelectedId(selectedId, juce::dontSendNotification);
     else if (currentName.isNotEmpty())
