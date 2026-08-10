@@ -254,7 +254,13 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     soloButton.onClick = [this] { solo = soloButton.getToggleState(); mixStateChanged(); };
     resetButton.onClick = [this] { resetLayer(); };
     removeButton.setTooltip("Excluir esta layer");
-    removeButton.onClick = [this] { if (removeLayerCallback) removeLayerCallback(); };
+    removeButton.onClick = [this]
+    {
+        // The editor belongs to the hosted instrument and must close before
+        // the layer releases or moves that instrument.
+        externalEditorWindow.reset();
+        if (removeLayerCallback) removeLayerCallback();
+    };
     loadButton.onClick = [this] { chooseSoundFont(); };
     externalInstrumentButton.onClick = [this] { chooseExternalInstrument(); };
     openExternalEditorButton.onClick = [this] { openExternalInstrumentEditor(); };
@@ -519,6 +525,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
         {
             const auto file = chooser.getResult();
             if (file == juce::File{}) return;
+            externalEditorWindow.reset();
             loadButton.setEnabled(false);
             fileLabel.setText("Carregando...", juce::dontSendNotification);
             juce::File importedFile;
@@ -574,6 +581,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseExternalInstrument()
         {
             const auto file = chooser.getResult();
             if (file == juce::File{}) return;
+            externalEditorWindow.reset();
             externalInstrumentButton.setEnabled(false);
             fileLabel.setText("Carregando instrumento...", juce::dontSendNotification);
             const auto result = processor.loadExternalInstrument(index, file);
@@ -624,6 +632,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::deleteSelectedSoundFont()
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::resetLayer()
 {
+    externalEditorWindow.reset();
     processor.unloadSoundFont(index);
     processor.unloadExternalInstrument(index);
     muted = solo = false;
