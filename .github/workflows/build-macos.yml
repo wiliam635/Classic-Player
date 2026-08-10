@@ -26,6 +26,8 @@ jobs:
           grep -q "saveProgram" Source/PluginProcessor.h
           grep -q "loadProgram" Source/PluginProcessor.h
           grep -q "findInstalledInstruments" Source/ExternalInstrumentHost.cpp
+          grep -q "if (externalEditorWindow != nullptr)" Source/PluginEditor.cpp
+          grep -q "externalEditorWindow->toFront(true)" Source/PluginEditor.cpp
           grep -q "ExternalInstrumentHost.cpp" CMakeLists.txt
 
       - name: Set up vcpkg
