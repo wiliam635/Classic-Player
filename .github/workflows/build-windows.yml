@@ -35,8 +35,8 @@ jobs:
           if ($processorSource -notmatch "midiLearnChannel") { throw "Canal MIDI aprendido não é exposto" }
           if ($processorSource -notmatch "resetMidiLearn") { throw "Reset de MIDI Learn ausente" }
           if ((Get-Content "Source\PluginEditor.cpp" -Raw) -notmatch "resetMidiLearnButton") { throw "Botão RESET CC ausente" }
-          if ($processorSource -notmatch "binarySustainEvent") { throw "Proteção para pedal e fader CC64 ausente" }
-          if ($processorSource -notmatch "learnedCC == 64 && binarySustainEvent") { throw "Isolamento do sustain para fader CC64 ausente" }
+          if ($processorSource -notmatch "cc == 64") { throw "Reserva do CC64 para sustain ausente" }
+          if ($processorSource -notmatch "externalPeaks") { throw "Medidor de VST por layer ausente" }
           if ($processorSource -match "isChannelMessage") { throw "API MIDI incompatível com JUCE 9" }
           if ($processorHeader -notmatch "saveProgram") { throw "API de programação salva ausente" }
           if ($processorHeader -notmatch "loadProgram") { throw "API de carregamento de programação ausente" }
