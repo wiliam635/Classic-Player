@@ -184,7 +184,13 @@ juce::Result ClassicPlayerAudioProcessor::loadExternalInstrument(int layer, cons
 
     const auto result = externalInstruments[(size_t) layer].loadInstrument(
         file, currentSampleRate, currentBlockSize);
-    if (result.wasOk()) unloadSoundFont(layer);
+    if (result.wasOk())
+    {
+        // The callback lock is already held here; do not call unloadSoundFont(),
+        // which also locks it. Loading an external instrument replaces the SF2.
+        engine.unloadSoundFont(layer);
+        savedPaths[(size_t) layer].clear();
+    }
     return result;
 }
 
