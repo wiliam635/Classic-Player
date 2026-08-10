@@ -93,6 +93,8 @@ target_sources(ClassicPlayer PRIVATE
     Source/PluginEditor.h
     Source/Sf2Engine.cpp
     Source/Sf2Engine.h
+    Source/ExternalInstrumentHost.cpp
+    Source/ExternalInstrumentHost.h
     Source/LicenseVerifier.cpp
     Source/LicenseVerifier.h
     Source/ChordDetector.cpp
@@ -101,8 +103,13 @@ target_sources(ClassicPlayer PRIVATE
 target_compile_definitions(ClassicPlayer PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
+    JUCE_PLUGINHOST_VST3=1
     JUCE_VST3_CAN_REPLACE_VST2=0
     CLASSIC_PLAYER_VERSION="${PROJECT_VERSION}")
+
+if(APPLE)
+    target_compile_definitions(ClassicPlayer PUBLIC JUCE_PLUGINHOST_AU=1)
+endif()
 
 if(WIN32)
     # A local SDK copy may be supplied for developer builds.  It is deliberately
@@ -149,6 +156,7 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES
     Source/PluginProcessor.cpp Source/PluginProcessor.h
     Source/PluginEditor.cpp Source/PluginEditor.h
     Source/Sf2Engine.cpp Source/Sf2Engine.h
+    Source/ExternalInstrumentHost.cpp Source/ExternalInstrumentHost.h
     Source/LicenseVerifier.cpp Source/LicenseVerifier.h
     Source/ChordDetector.cpp Source/ChordDetector.h)
 
