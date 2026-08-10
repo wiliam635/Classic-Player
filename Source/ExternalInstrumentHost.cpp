@@ -1,5 +1,6 @@
 #include "ExternalInstrumentHost.h"
 #include <utility>
+#include <algorithm>
 
 ExternalInstrumentHost::ExternalInstrumentHost()
 {
@@ -11,6 +12,45 @@ ExternalInstrumentHost::ExternalInstrumentHost()
 ExternalInstrumentHost::~ExternalInstrumentHost()
 {
     unload();
+}
+
+juce::Array<juce::File> ExternalInstrumentHost::findInstalledInstruments()
+{
+    juce::Array<juce::File> roots;
+   #if JUCE_WINDOWS
+    roots.add(juce::File("C:\\Program Files\\Common Files\\VST3"));
+    const auto commonFiles = juce::SystemStats::getEnvironmentVariable("COMMONPROGRAMFILES", {});
+    if (commonFiles.isNotEmpty())
+        roots.addIfNotAlreadyThere(juce::File(commonFiles).getChildFile("VST3"));
+   #elif JUCE_MAC
+    roots.add(juce::File("/Library/Audio/Plug-Ins/VST3"));
+    roots.add(juce::File("/Library/Audio/Plug-Ins/Components"));
+    const auto userPlugins = juce::File::getSpecialLocation(juce::File::userHomeDirectory)
+                                 .getChildFile("Library").getChildFile("Audio").getChildFile("Plug-Ins");
+    roots.add(userPlugins.getChildFile("VST3"));
+    roots.add(userPlugins.getChildFile("Components"));
+   #endif
+
+    juce::Array<juce::File> candidates;
+    for (const auto& root : roots)
+    {
+        if (!root.isDirectory()) continue;
+        root.findChildFiles(candidates, juce::File::findFilesAndDirectories, true, "*.vst3");
+       #if JUCE_MAC
+        root.findChildFiles(candidates, juce::File::findFilesAndDirectories, true, "*.component");
+       #endif
+    }
+
+    juce::Array<juce::File> result;
+    for (const auto& candidate : candidates)
+        if (!result.contains(candidate))
+            result.add(candidate);
+
+    std::sort(result.begin(), result.end(), [](const auto& a, const auto& b)
+    {
+        return a.getFileName().compareNatural(b.getFileName()) < 0;
+    });
+    return result;
 }
 
 juce::Result ExternalInstrumentHost::loadInstrument(const juce::File& pluginFile,
