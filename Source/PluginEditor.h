@@ -101,6 +101,7 @@ private:
         juce::Label compressorLabel;
         juce::Label routingLabel;
         juce::TextButton volumeLearn { "LEARN CC" };
+        juce::TextButton resetMidiLearnButton { "RESET CC" };
         juce::TextButton cutoffLearn { "LEARN" };
         juce::TextButton reverbLearn { "LEARN" };
         juce::TextButton compressorLearn { "LEARN" };
