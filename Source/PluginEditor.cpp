@@ -243,7 +243,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     addAndMakeVisible(layerTitle);
 
     for (auto* button : { &muteButton, &soloButton, &resetButton, &removeButton, &loadButton,
-                          &deleteLibraryButton })
+                          &externalInstrumentButton, &openExternalEditorButton, &deleteLibraryButton })
     {
         flatButton(*button);
         addAndMakeVisible(*button);
@@ -256,6 +256,12 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     removeButton.setTooltip("Excluir esta layer");
     removeButton.onClick = [this] { if (removeLayerCallback) removeLayerCallback(); };
     loadButton.onClick = [this] { chooseSoundFont(); };
+    externalInstrumentButton.onClick = [this] { chooseExternalInstrument(); };
+    openExternalEditorButton.onClick = [this] { openExternalInstrumentEditor(); };
+    externalInstrumentButton.setTooltip("Carregar instrumento VST3/AU nesta layer");
+    openExternalEditorButton.setTooltip("Abrir a janela de configuração do instrumento virtual");
+    externalInstrumentButton.setVisible(processor.supportsExternalInstruments());
+    openExternalEditorButton.setVisible(processor.supportsExternalInstruments());
     deleteLibraryButton.setTooltip("Excluir o SF2 selecionado da biblioteca");
     deleteLibraryButton.onClick = [this] { deleteSelectedSoundFont(); };
     deleteLibraryButton.setEnabled(false);
@@ -448,6 +454,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     area.removeFromTop(5);
     loadButton.setBounds(area.removeFromTop(28));
     area.removeFromTop(4);
+    auto externalRow = area.removeFromTop(28);
+    externalInstrumentButton.setBounds(externalRow.removeFromLeft(externalRow.getWidth() / 2).reduced(1, 0));
+    openExternalEditorButton.setBounds(externalRow.reduced(1, 0));
+    area.removeFromTop(4);
     categoryBox.setBounds(area.removeFromTop(28));
     area.removeFromTop(4);
     auto libraryRow = area.removeFromTop(28);
@@ -520,6 +530,73 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
                                                        "Falha ao carregar SF2", result.getErrorMessage());
             refresh();
         });
+}
+
+namespace
+{
+class HostedInstrumentEditorWindow final : public juce::DocumentWindow
+{
+public:
+    HostedInstrumentEditorWindow(const juce::String& title, juce::AudioProcessorEditor* editor)
+        : DocumentWindow(title, juce::Colour(0xff111820), DocumentWindow::allButtons)
+    {
+        setUsingNativeTitleBar(true);
+        setContentOwned(editor, true);
+        centreWithSize(juce::jmax(420, getWidth()), juce::jmax(300, getHeight()));
+        setVisible(true);
+    }
+
+    void closeButtonPressed() override { setVisible(false); }
+};
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseExternalInstrument()
+{
+    if (!processor.supportsExternalInstruments())
+    {
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                               "Instrumento externo",
+                                               "O carregamento de VST/AU está disponível apenas no aplicativo standalone.");
+        return;
+    }
+
+   #if JUCE_MAC
+    const auto filters = "*.vst3;*.component";
+   #else
+    const auto filters = "*.vst3";
+   #endif
+    fileChooser = std::make_unique<juce::FileChooser>("Escolha um instrumento virtual",
+                                                      juce::File{}, filters);
+    fileChooser->launchAsync(juce::FileBrowserComponent::openMode
+                             | juce::FileBrowserComponent::canSelectFiles
+                             | juce::FileBrowserComponent::canSelectDirectories,
+        [this](const juce::FileChooser& chooser)
+        {
+            const auto file = chooser.getResult();
+            if (file == juce::File{}) return;
+            externalInstrumentButton.setEnabled(false);
+            fileLabel.setText("Carregando instrumento...", juce::dontSendNotification);
+            const auto result = processor.loadExternalInstrument(index, file);
+            externalInstrumentButton.setEnabled(true);
+            if (result.failed())
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                       "Falha ao carregar instrumento", result.getErrorMessage());
+            refresh();
+        });
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::openExternalInstrumentEditor()
+{
+    if (auto* editor = processor.createExternalInstrumentEditor(index))
+    {
+        externalEditorWindow = std::make_unique<HostedInstrumentEditorWindow>(
+            processor.externalInstrumentName(index), editor);
+        return;
+    }
+
+    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                           "Editor indisponível",
+                                           "Este instrumento virtual não possui uma janela de edição.");
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::deleteSelectedSoundFont()
@@ -600,6 +677,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::rebuildLibrary()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
 {
     const auto path = processor.soundFontPath(index);
+    const auto externalName = processor.externalInstrumentName(index);
     if (path.isNotEmpty())
     {
         const auto parentCategory = juce::File(path).getParentDirectory().getFileName();
@@ -608,12 +686,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
         if (categoryIndex >= 0) categoryBox.setSelectedId(categoryIndex + 1, juce::dontSendNotification);
     }
     rebuildLibrary();
-    fileLabel.setText(path.isNotEmpty() ? juce::File(path).getFileName() : "Sem SoundFont",
+    const auto hasSource = path.isNotEmpty() || externalName.isNotEmpty();
+    fileLabel.setText(path.isNotEmpty() ? juce::File(path).getFileName()
+                                        : (externalName.isNotEmpty() ? externalName : "Sem SoundFont"),
                       juce::dontSendNotification);
     fileLabel.setColour(juce::Label::backgroundColourId,
-                        path.isNotEmpty() ? juce::Colour(yellow) : juce::Colour(0xff0b1218));
+                        hasSource ? juce::Colour(yellow) : juce::Colour(0xff0b1218));
     fileLabel.setColour(juce::Label::textColourId,
-                        path.isNotEmpty() ? juce::Colours::black : juce::Colour(mutedText));
+                        hasSource ? juce::Colours::black : juce::Colour(mutedText));
+    openExternalEditorButton.setEnabled(processor.supportsExternalInstruments()
+                                        && processor.hasExternalInstrument(index));
     const auto config = processor.layerConfig(index);
     mode.setSelectedId(config.mono ? 2 : 1, juce::dontSendNotification);
     sustain.setSelectedId(config.sustainEnabled ? 1 : 2, juce::dontSendNotification);
