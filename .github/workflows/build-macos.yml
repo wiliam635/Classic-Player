@@ -27,7 +27,7 @@ jobs:
           ! grep -q "isChannelMessage" Source/PluginProcessor.cpp
           grep -q "saveProgram" Source/PluginProcessor.h
           grep -q "loadProgram" Source/PluginProcessor.h
-          grep -q "NOVA PROGRAMAÇÃO" Source/PluginEditor.cpp
+          grep -q "NOVO PROGRAMA" Source/PluginEditor.cpp
           grep -q "refreshProgramLibrary" Source/PluginEditor.cpp
           grep -q "loadSelectedProgram" Source/PluginEditor.cpp
           grep -q "findInstalledInstruments" Source/ExternalInstrumentHost.cpp
