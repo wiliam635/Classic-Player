@@ -100,6 +100,7 @@ private:
     juce::Array<juce::File> externalInstrumentLibrary;
     std::array<juce::AudioBuffer<float>, Sf2Engine::layerCount> externalScratch;
     std::array<juce::MidiBuffer, Sf2Engine::layerCount> externalMidi;
+    std::array<std::atomic<float>, Sf2Engine::layerCount> externalPeaks {};
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;
     juce::dsp::Limiter<float> outputLimiter;
