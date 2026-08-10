@@ -869,6 +869,17 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     };
     addAndMakeVisible(keyColourButton);
 
+    programBox.setEditableText(true);
+    programBox.setTextWhenNothingSelected("NOVA PROGRAMAÇÃO");
+    addAndMakeVisible(programBox);
+    flatButton(saveProgramButton);
+    flatButton(loadProgramButton);
+    saveProgramButton.onClick = [this] { saveProgram(); };
+    loadProgramButton.onClick = [this] { loadSelectedProgram(); };
+    addAndMakeVisible(saveProgramButton);
+    addAndMakeVisible(loadProgramButton);
+    refreshProgramLibrary();
+
     flatButton(addLayerButton);
     addLayerButton.onClick = [this] { addLayer(); };
     addAndMakeVisible(addLayerButton);
@@ -968,7 +979,8 @@ void ClassicPlayerAudioProcessorEditor::resized()
     auto header = area.removeFromTop(96);
     appIcon.setBounds(header.removeFromLeft(78).reduced(4));
     header.removeFromLeft(8);
-    auto brand = header.removeFromLeft(330);
+    const auto brandWidth = juce::jlimit(230, 330, getWidth() / 4);
+    auto brand = header.removeFromLeft(brandWidth);
     brand.removeFromTop(16);
     title.setBounds(brand.removeFromTop(38));
     subtitle.setBounds(brand.removeFromTop(25));
@@ -988,9 +1000,15 @@ void ClassicPlayerAudioProcessorEditor::resized()
     chordColourButton.setBounds(colourControls.removeFromTop(30));
     colourControls.removeFromTop(5);
     keyColourButton.setBounds(colourControls.removeFromTop(30));
+
+    auto programRow = chordArea.removeFromBottom(28);
+    loadProgramButton.setBounds(programRow.removeFromRight(76).reduced(1, 0));
+    saveProgramButton.setBounds(programRow.removeFromRight(62).reduced(1, 0));
+    programBox.setBounds(programRow.reduced(1, 0));
+
     auto chordBox = chordArea.reduced(2, 0);
-        chordCaption.setBounds({});
-        chordLabel.setBounds(chordBox);
+    chordCaption.setBounds({});
+    chordLabel.setBounds(chordBox);
 
     area.removeFromTop(12);
     auto footer = area.removeFromBottom(54);
@@ -1071,6 +1089,71 @@ juce::String ClassicPlayerAudioProcessorEditor::detectedChord() const
     for (int note = 0; note < 128; ++note)
         if (heldNotes[(size_t) note].load()) notes.push_back(note);
     return ClassicChordDetector::detect(notes);
+}
+
+void ClassicPlayerAudioProcessorEditor::refreshProgramLibrary()
+{
+    programFiles = classicProcessor.savedPrograms();
+    const auto currentName = programBox.getText();
+    programBox.clear(juce::dontSendNotification);
+    int selectedId = 0;
+    for (int item = 0; item < programFiles.size(); ++item)
+    {
+        const auto name = programFiles.getReference(item).getFileNameWithoutExtension();
+        programBox.addItem(name, item + 1);
+        if (name == currentName) selectedId = item + 1;
+    }
+    programBox.setTextWhenNothingSelected("NOVA PROGRAMAÇÃO");
+    if (selectedId > 0)
+        programBox.setSelectedId(selectedId, juce::dontSendNotification);
+    else if (currentName.isNotEmpty())
+        programBox.setText(currentName, juce::dontSendNotification);
+}
+
+void ClassicPlayerAudioProcessorEditor::saveProgram()
+{
+    juce::File savedFile;
+    const auto result = classicProcessor.saveProgram(programBox.getText(), savedFile);
+    if (result.failed())
+    {
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                               "Falha ao salvar programação", result.getErrorMessage());
+        return;
+    }
+
+    programBox.setText(savedFile.getFileNameWithoutExtension(), juce::dontSendNotification);
+    refreshProgramLibrary();
+}
+
+void ClassicPlayerAudioProcessorEditor::loadSelectedProgram()
+{
+    const auto selected = programBox.getSelectedItemIndex();
+    if (!juce::isPositiveAndBelow(selected, programFiles.size()))
+    {
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                               "Carregar programação",
+                                               "Selecione uma programação salva na lista.");
+        return;
+    }
+
+    const auto result = classicProcessor.loadProgram(programFiles.getReference(selected));
+    if (result.failed())
+    {
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                               "Falha ao carregar programação", result.getErrorMessage());
+        return;
+    }
+
+    displayedLayerCount = classicProcessor.activeLayerCount();
+    for (int i = 0; i < Sf2Engine::layerCount; ++i)
+    {
+        if (strips[(size_t) i] == nullptr) continue;
+        strips[(size_t) i]->setVisible(i < displayedLayerCount);
+        strips[(size_t) i]->refresh();
+    }
+    addLayerButton.setEnabled(displayedLayerCount < Sf2Engine::layerCount);
+    layoutLayerStrips();
+    applyMixerStates();
 }
 
 void ClassicPlayerAudioProcessorEditor::applyMixerStates()
