@@ -46,6 +46,8 @@ public:
     bool hasExternalInstrument(int layer) const;
     juce::String externalInstrumentName(int layer) const;
     juce::AudioProcessorEditor* createExternalInstrumentEditor(int layer);
+    juce::Array<juce::File> availableExternalInstruments() const;
+    void refreshExternalInstrumentLibrary();
 
     juce::String soundFontPath(int layer) const;
     Sf2Engine::LayerConfig layerConfig(int layer) const;
@@ -93,6 +95,7 @@ private:
 
     Sf2Engine engine;
     std::array<ExternalInstrumentHost, Sf2Engine::layerCount> externalInstruments;
+    juce::Array<juce::File> externalInstrumentLibrary;
     std::array<juce::AudioBuffer<float>, Sf2Engine::layerCount> externalScratch;
     std::array<juce::MidiBuffer, Sf2Engine::layerCount> externalMidi;
     double currentSampleRate = 44100.0;
