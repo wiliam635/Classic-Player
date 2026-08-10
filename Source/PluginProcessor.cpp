@@ -14,6 +14,7 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor()
         for (auto& channel : layer) channel.store(-1);
     for (auto& layer : pendingCCValues)
         for (auto& value : layer) value.store(-1.0f);
+    for (auto& peak : externalPeaks) peak.store(0.0f);
     for (int layer = Sf2Engine::defaultLayerCount; layer < Sf2Engine::layerCount; ++layer)
     {
         auto config = engine.getConfig(layer);
@@ -262,10 +263,17 @@ void ClassicPlayerAudioProcessor::appendExternalMidi(int layer, const juce::Midi
 void ClassicPlayerAudioProcessor::renderExternalInstruments(juce::AudioBuffer<float>& output,
                                                              const juce::MidiBuffer& hostMidi)
 {
-    for (int layer = 0; layer < activeLayerCount(); ++layer)
+    for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
     {
-        if (!externalInstruments[(size_t) layer].isLoaded()) continue;
-        if (!engine.getConfig(layer).enabled) continue;
+        auto& peak = externalPeaks[(size_t) layer];
+        if (layer >= activeLayerCount()
+            || !externalInstruments[(size_t) layer].isLoaded()
+            || !engine.getConfig(layer).enabled)
+        {
+            peak.store(peak.load(std::memory_order_relaxed) * 0.82f,
+                       std::memory_order_relaxed);
+            continue;
+        }
 
         auto& scratch = externalScratch[(size_t) layer];
         auto& midi = externalMidi[(size_t) layer];
@@ -276,6 +284,15 @@ void ClassicPlayerAudioProcessor::renderExternalInstruments(juce::AudioBuffer<fl
         externalInstruments[(size_t) layer].process(scratch, midi);
         // External instruments share the same layer volume and mixer state as SF2 layers.
         scratch.applyGain(engine.getConfig(layer).gain);
+
+        const auto renderedPeak = juce::jmax(
+            scratch.getMagnitude(0, 0, scratch.getNumSamples()),
+            scratch.getNumChannels() > 1
+                ? scratch.getMagnitude(1, 0, scratch.getNumSamples()) : 0.0f);
+        peak.store(juce::jmax(renderedPeak,
+                               peak.load(std::memory_order_relaxed) * 0.82f),
+                   std::memory_order_relaxed);
+
         for (int channel = 0; channel < juce::jmin(output.getNumChannels(), scratch.getNumChannels()); ++channel)
             output.addFrom(channel, 0, scratch, channel, 0, output.getNumSamples());
     }
@@ -287,7 +304,12 @@ void ClassicPlayerAudioProcessor::setLayerConfig(int layer, const Sf2Engine::Lay
 std::vector<Sf2Engine::Preset> ClassicPlayerAudioProcessor::layerPresets(int layer) const { return engine.getPresets(layer); }
 void ClassicPlayerAudioProcessor::selectLayerPreset(int layer, int bank, int program) { engine.selectPreset(layer, bank, program); }
 void ClassicPlayerAudioProcessor::sendLayerController(int layer, int controller, int value) { engine.sendController(layer, controller, value); }
-float ClassicPlayerAudioProcessor::layerPeak(int layer) const { return engine.getLayerPeak(layer); }
+float ClassicPlayerAudioProcessor::layerPeak(int layer) const
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return 0.0f;
+    return juce::jmax(engine.getLayerPeak(layer),
+                      externalPeaks[(size_t) layer].load(std::memory_order_relaxed));
+}
 
 bool ClassicPlayerAudioProcessor::addLayer()
 {
@@ -365,7 +387,8 @@ int ClassicPlayerAudioProcessor::midiLearnCC(int layer, LearnTarget target) cons
     const auto targetIndex = static_cast<int>(target);
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount) ||
         !juce::isPositiveAndBelow(targetIndex, learnTargetCount)) return -1;
-    return learnedCCs[(size_t) layer][(size_t) targetIndex].load(std::memory_order_relaxed);
+    const auto cc = learnedCCs[(size_t) layer][(size_t) targetIndex].load(std::memory_order_relaxed);
+    return cc == 64 ? -1 : cc;
 }
 
 int ClassicPlayerAudioProcessor::midiLearnChannel(int layer, LearnTarget target) const
@@ -415,16 +438,18 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
 
     const auto cc = message.getControllerNumber();
     const auto channel = message.getChannel();
-
-    // Some controllers use CC64–67 for physical faders. Permit those
-    // mappings while refusing the usual binary CC64 pedal event during Learn.
-    // A pedal sends only off/on (0 or 127); a fader can be learned by moving it
-    // to any intermediate position. Already learned mappings still receive all
-    // values, including fader endpoints.
     const auto controllerValue = message.getControllerValue();
-    const auto binarySustainEvent = cc == 64 && (controllerValue == 0 || controllerValue == 127);
 
-    if (active >= 0 && !binarySustainEvent)
+    // CC64 is reserved for sustain. It never participates in MIDI Learn or
+    // parameter automation, so a pedal cannot alter a learned layer control.
+    if (cc == 64)
+    {
+        if (active >= 0)
+            juce::Logger::writeToLog("MIDI Learn ignores CC64 because it is reserved for sustain");
+        return;
+    }
+
+    if (active >= 0)
     {
         const auto layer = active / learnTargetCount;
         const auto target = active % learnTargetCount;
@@ -450,12 +475,6 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
             const auto learnedCC = learnedCCs[(size_t) layer][(size_t) target].load(std::memory_order_relaxed);
             const auto learnedChannel = learnedChannels[(size_t) layer][(size_t) target].load(std::memory_order_relaxed);
             if (learnedCC != cc || (learnedChannel >= 0 && learnedChannel != channel))
-                continue;
-
-            // A regular sustain pedal sends binary CC64 values only. Do not
-            // apply those switch events to a parameter learned from a CC64
-            // fader; the MIDI sustain message itself remains routed normally.
-            if (learnedCC == 64 && binarySustainEvent)
                 continue;
 
             pendingCCValues[(size_t) layer][(size_t) target].store(normalised,
@@ -794,8 +813,12 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 setLayerMidiDevice(i, state.getProperty("midiDevice" + juce::String(i)).toString());
                 for (int target = 0; target < learnTargetCount; ++target)
                 {
+                    const auto restoredCC = static_cast<int>(state.getProperty(
+                        "learn" + juce::String(i) + "_" + juce::String(target), -1));
+                    // Migration: old CC64 mappings are removed because CC64 is
+                    // exclusively reserved for sustain in Classic Player.
                     learnedCCs[(size_t) i][(size_t) target].store(
-                        state.getProperty("learn" + juce::String(i) + "_" + juce::String(target), -1));
+                        restoredCC == 64 ? -1 : restoredCC);
                     // Projects saved before channel-aware Learn remain compatible
                     // and continue to accept the learned CC on every channel.
                     learnedChannels[(size_t) i][(size_t) target].store(
