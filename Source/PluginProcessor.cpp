@@ -219,6 +219,22 @@ juce::AudioProcessorEditor* ClassicPlayerAudioProcessor::createExternalInstrumen
         ? externalInstruments[(size_t) layer].createEditor() : nullptr;
 }
 
+juce::Array<juce::File> ClassicPlayerAudioProcessor::availableExternalInstruments() const
+{
+    return externalInstrumentLibrary;
+}
+
+void ClassicPlayerAudioProcessor::refreshExternalInstrumentLibrary()
+{
+    if (!supportsExternalInstruments())
+    {
+        externalInstrumentLibrary.clear();
+        return;
+    }
+
+    externalInstrumentLibrary = ExternalInstrumentHost::findInstalledInstruments();
+}
+
 void ClassicPlayerAudioProcessor::appendExternalMidi(int layer, const juce::MidiBuffer& incoming,
                                                       juce::MidiBuffer& destination)
 {
