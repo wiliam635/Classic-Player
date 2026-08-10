@@ -4,6 +4,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
 #include "Sf2Engine.h"
+#include "ExternalInstrumentHost.h"
 #include <atomic>
 
 class ClassicPlayerAudioProcessor final : public juce::AudioProcessor,
@@ -70,8 +71,15 @@ private:
     void restoreLayerPaths();
     void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage&) override;
     void processMidiControlMessage(const juce::MidiMessage&, int layerFilter = -1);
+    void renderExternalInstruments(juce::AudioBuffer<float>&, const juce::MidiBuffer&);
+    void appendExternalMidi(int layer, const juce::MidiBuffer&, juce::MidiBuffer&);
 
     Sf2Engine engine;
+    std::array<ExternalInstrumentHost, Sf2Engine::layerCount> externalInstruments;
+    std::array<juce::AudioBuffer<float>, Sf2Engine::layerCount> externalScratch;
+    std::array<juce::MidiBuffer, Sf2Engine::layerCount> externalMidi;
+    double currentSampleRate = 44100.0;
+    int currentBlockSize = 512;
     juce::dsp::Limiter<float> outputLimiter;
     std::array<juce::String, Sf2Engine::layerCount> savedPaths;
     static constexpr int learnTargetCount = static_cast<int>(LearnTarget::count);
