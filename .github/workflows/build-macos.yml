@@ -23,6 +23,8 @@ jobs:
           grep -q "createExternalInstrumentEditor" Source/PluginProcessor.h
           grep -q "learnChannel" Source/PluginProcessor.cpp
           grep -q "midiLearnChannel" Source/PluginProcessor.cpp
+          grep -q "resetMidiLearn" Source/PluginProcessor.cpp
+          grep -q "resetMidiLearnButton" Source/PluginEditor.cpp
           grep -q "binarySustainEvent" Source/PluginProcessor.cpp
           grep -q "learnedCC == 64 && binarySustainEvent" Source/PluginProcessor.cpp
           ! grep -q "isChannelMessage" Source/PluginProcessor.cpp
