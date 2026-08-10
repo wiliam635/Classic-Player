@@ -10,6 +10,8 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor()
     juce::Logger::writeToLog("ClassicPlayer processor criado (instrumento MIDI, saída estéreo)");
     for (auto& layer : learnedCCs)
         for (auto& cc : layer) cc.store(-1);
+    for (auto& layer : learnedChannels)
+        for (auto& channel : layer) channel.store(-1);
     for (auto& layer : pendingCCValues)
         for (auto& value : layer) value.store(-1.0f);
     for (int layer = Sf2Engine::defaultLayerCount; layer < Sf2Engine::layerCount; ++layer)
@@ -239,14 +241,31 @@ void ClassicPlayerAudioProcessor::consumeMidiControlUpdates()
 void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMessage& message,
                                                              int layerFilter)
 {
-    if (!message.isController()) return;
+    auto active = activeMidiLearn.load(std::memory_order_relaxed);
+
+    // Preserve a useful diagnosis in the application log when a controller
+    // sends something other than a normal CC (for example NRPN/SysEx).
+    if (!message.isController())
+    {
+        if (active >= 0)
+            juce::Logger::writeToLog("MIDI Learn ignorou mensagem não-CC: "
+                                     + message.getDescription());
+        return;
+    }
+
     const auto cc = message.getControllerNumber();
+    const auto channel = message.getChannel();
+
     // Sustain and the other pedal switches are deliberately excluded. A pedal
     // cannot become a learned fader by accident and its musical message still
     // reaches the selected layer unchanged.
-    if (cc >= 64 && cc <= 69) return;
+    if (cc >= 64 && cc <= 69)
+    {
+        if (active >= 0)
+            juce::Logger::writeToLog("MIDI Learn ignorou pedal CC" + juce::String(cc));
+        return;
+    }
 
-    auto active = activeMidiLearn.load(std::memory_order_relaxed);
     if (active >= 0)
     {
         const auto layer = active / learnTargetCount;
@@ -256,6 +275,10 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
             juce::isPositiveAndBelow(target, learnTargetCount))
         {
             learnedCCs[(size_t) layer][(size_t) target].store(cc, std::memory_order_relaxed);
+            learnedChannels[(size_t) layer][(size_t) target].store(channel, std::memory_order_relaxed);
+            juce::Logger::writeToLog("MIDI Learn: layer=" + juce::String(layer + 1)
+                                     + " CC=" + juce::String(cc)
+                                     + " canal=" + juce::String(channel));
             activeMidiLearn.compare_exchange_strong(active, -1);
         }
     }
@@ -265,9 +288,13 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
     const auto lastLayer = layerFilter >= 0 ? layerFilter + 1 : activeLayerCount();
     for (int layer = firstLayer; layer < lastLayer; ++layer)
         for (int target = 0; target < learnTargetCount; ++target)
-            if (learnedCCs[(size_t) layer][(size_t) target].load(std::memory_order_relaxed) == cc)
+        {
+            const auto learnedCC = learnedCCs[(size_t) layer][(size_t) target].load(std::memory_order_relaxed);
+            const auto learnedChannel = learnedChannels[(size_t) layer][(size_t) target].load(std::memory_order_relaxed);
+            if (learnedCC == cc && (learnedChannel < 0 || learnedChannel == channel))
                 pendingCCValues[(size_t) layer][(size_t) target].store(normalised,
-                                                                      std::memory_order_relaxed);
+                                                                          std::memory_order_relaxed);
+        }
 }
 
 void ClassicPlayerAudioProcessor::attachStandaloneMidiRouting(
@@ -438,6 +465,8 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         for (int target = 0; target < learnTargetCount; ++target)
             state.setProperty("learn" + juce::String(i) + "_" + juce::String(target),
                               learnedCCs[(size_t) i][(size_t) target].load(), nullptr);
+            state.setProperty("learnChannel" + juce::String(i) + "_" + juce::String(target),
+                              learnedChannels[(size_t) i][(size_t) target].load(), nullptr);
     }
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, destination);
 }
@@ -520,8 +549,14 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 engine.setConfig(i, config);
                 setLayerMidiDevice(i, state.getProperty("midiDevice" + juce::String(i)).toString());
                 for (int target = 0; target < learnTargetCount; ++target)
+                {
                     learnedCCs[(size_t) i][(size_t) target].store(
                         state.getProperty("learn" + juce::String(i) + "_" + juce::String(target), -1));
+                    // Projects saved before channel-aware Learn remain compatible
+                    // and continue to accept the learned CC on every channel.
+                    learnedChannels[(size_t) i][(size_t) target].store(
+                        state.getProperty("learnChannel" + juce::String(i) + "_" + juce::String(target), -1));
+                }
             }
             const auto restoredLayerCount = juce::jlimit(
                 Sf2Engine::defaultLayerCount, Sf2Engine::layerCount,
