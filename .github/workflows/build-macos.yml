@@ -23,6 +23,9 @@ jobs:
           grep -q "createExternalInstrumentEditor" Source/PluginProcessor.h
           grep -q "learnChannel" Source/PluginProcessor.cpp
           ! grep -q "isChannelMessage" Source/PluginProcessor.cpp
+          grep -q "saveProgram" Source/PluginProcessor.h
+          grep -q "loadProgram" Source/PluginProcessor.h
+          grep -q "findInstalledInstruments" Source/ExternalInstrumentHost.cpp
           grep -q "ExternalInstrumentHost.cpp" CMakeLists.txt
 
       - name: Set up vcpkg
