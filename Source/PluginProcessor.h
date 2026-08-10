@@ -37,6 +37,16 @@ public:
 
     juce::Result loadSoundFont(int layer, const juce::File& file);
     void unloadSoundFont(int layer);
+
+    // Hosting is intentionally available only to the standalone application.
+    // The Classic Player VST3/AU remains an instrument for the DAW, not a host.
+    bool supportsExternalInstruments() const noexcept;
+    juce::Result loadExternalInstrument(int layer, const juce::File& file);
+    void unloadExternalInstrument(int layer);
+    bool hasExternalInstrument(int layer) const;
+    juce::String externalInstrumentName(int layer) const;
+    juce::AudioProcessorEditor* createExternalInstrumentEditor(int layer);
+
     juce::String soundFontPath(int layer) const;
     Sf2Engine::LayerConfig layerConfig(int layer) const;
     void setLayerConfig(int layer, const Sf2Engine::LayerConfig& config);
