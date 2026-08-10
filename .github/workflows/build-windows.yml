@@ -12,6 +12,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Preflight native source
+        shell: pwsh
+        run: |
+          $required = @(
+            "Source\ExternalInstrumentHost.h",
+            "Source\ExternalInstrumentHost.cpp",
+            "Source\PluginProcessor.cpp"
+          )
+          foreach ($file in $required) {
+            if (-not (Test-Path $file)) { throw "Arquivo obrigatório ausente: $file" }
+          }
+          $hostHeader = Get-Content "Source\ExternalInstrumentHost.h" -Raw
+          $processorHeader = Get-Content "Source\PluginProcessor.h" -Raw
+          $processorSource = Get-Content "Source\PluginProcessor.cpp" -Raw
+          $cmake = Get-Content "CMakeLists.txt" -Raw
+          if ($hostHeader -notmatch "juce_audio_processors/juce_audio_processors.h") { throw "Include JUCE do host ausente" }
+          if ($hostHeader -match "JuceHeader.h") { throw "JuceHeader.h não pode ser usado no host externo" }
+          if ($processorHeader -notmatch "loadExternalInstrument|createExternalInstrumentEditor") { throw "API de host externo incompleta" }
+          if ($processorSource -notmatch "learnChannel") { throw "Persistência MIDI Learn incompleta" }
+          if ($cmake -notmatch "ExternalInstrumentHost.cpp") { throw "Host externo ausente do CMake" }
+
       - name: Set up CMake
         uses: lukka/get-cmake@latest
 
