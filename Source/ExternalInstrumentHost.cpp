@@ -57,6 +57,21 @@ void ExternalInstrumentHost::unload()
     pluginPath.clear();
 }
 
+void ExternalInstrumentHost::moveFrom(ExternalInstrumentHost& source)
+{
+    if (this == &source) return;
+
+    unload();
+    instance = std::move(source.instance);
+    description = source.description;
+    pluginPath = source.pluginPath;
+    preparedSampleRate = source.preparedSampleRate;
+    preparedBlockSize = source.preparedBlockSize;
+
+    source.description = {};
+    source.pluginPath.clear();
+}
+
 juce::String ExternalInstrumentHost::getName() const
 {
     return instance != nullptr ? description.name : juce::String{};
