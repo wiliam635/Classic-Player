@@ -247,6 +247,8 @@ void ClassicPlayerAudioProcessor::renderExternalInstruments(juce::AudioBuffer<fl
         appendExternalMidi(layer, hostMidi, midi);
         appendExternalMidi(layer, routedMidiBuffers[(size_t) layer], midi);
         externalInstruments[(size_t) layer].process(scratch, midi);
+        // External instruments share the same layer volume and mixer state as SF2 layers.
+        scratch.applyGain(engine.getConfig(layer).gain);
         for (int channel = 0; channel < juce::jmin(output.getNumChannels(), scratch.getNumChannels()); ++channel)
             output.addFrom(channel, 0, scratch, channel, 0, output.getNumSamples());
     }
