@@ -582,10 +582,12 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("sustain" + juce::String(i), config.sustainEnabled, nullptr);
         state.setProperty("midiDevice" + juce::String(i), layerMidiDevice(i), nullptr);
         for (int target = 0; target < learnTargetCount; ++target)
+        {
             state.setProperty("learn" + juce::String(i) + "_" + juce::String(target),
                               learnedCCs[(size_t) i][(size_t) target].load(), nullptr);
             state.setProperty("learnChannel" + juce::String(i) + "_" + juce::String(target),
                               learnedChannels[(size_t) i][(size_t) target].load(), nullptr);
+        }
     }
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, destination);
 }
