@@ -344,6 +344,22 @@ void ClassicPlayerAudioProcessor::beginMidiLearn(int layer, LearnTarget target)
     activeMidiLearn.store(layer * learnTargetCount + targetIndex, std::memory_order_relaxed);
 }
 
+void ClassicPlayerAudioProcessor::resetMidiLearn(int layer)
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return;
+
+    for (int target = 0; target < learnTargetCount; ++target)
+    {
+        learnedCCs[(size_t) layer][(size_t) target].store(-1, std::memory_order_relaxed);
+        learnedChannels[(size_t) layer][(size_t) target].store(-1, std::memory_order_relaxed);
+        pendingCCValues[(size_t) layer][(size_t) target].store(-1.0f, std::memory_order_relaxed);
+    }
+
+    auto active = activeMidiLearn.load(std::memory_order_relaxed);
+    if (active >= 0 && active / learnTargetCount == layer)
+        activeMidiLearn.compare_exchange_strong(active, -1, std::memory_order_relaxed);
+}
+
 int ClassicPlayerAudioProcessor::midiLearnCC(int layer, LearnTarget target) const
 {
     const auto targetIndex = static_cast<int>(target);
