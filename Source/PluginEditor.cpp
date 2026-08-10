@@ -370,6 +370,14 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     cutoffLearn.onClick = [this] { processor.beginMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::cutoff); };
     reverbLearn.onClick = [this] { processor.beginMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::reverb); };
     compressorLearn.onClick = [this] { processor.beginMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::compressor); };
+    flatButton(resetMidiLearnButton);
+    resetMidiLearnButton.setTooltip("Apagar todos os endereçamentos MIDI Learn desta layer");
+    resetMidiLearnButton.onClick = [this]
+    {
+        processor.resetMidiLearn(index);
+        refresh();
+    };
+    addAndMakeVisible(resetMidiLearnButton);
 
     initialiseComboBoxes();
     refresh();
@@ -524,7 +532,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     placeKnob(knobs, compressorLabel, compressor, &compressorLearn);
 
     controls.removeFromTop(5);
-    routingLabel.setBounds(controls.removeFromTop(22));
+    auto routingRow = controls.removeFromTop(22);
+    resetMidiLearnButton.setBounds(routingRow.removeFromRight(76).reduced(1, 1));
+    routingLabel.setBounds(routingRow);
     controls.removeFromTop(6);
     auto row = controls.removeFromTop(31);
     mode.setBounds(row.removeFromLeft(row.getWidth() / 2).reduced(2, 1));
