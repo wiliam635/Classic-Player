@@ -433,9 +433,17 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
         {
             const auto learnedCC = learnedCCs[(size_t) layer][(size_t) target].load(std::memory_order_relaxed);
             const auto learnedChannel = learnedChannels[(size_t) layer][(size_t) target].load(std::memory_order_relaxed);
-            if (learnedCC == cc && (learnedChannel < 0 || learnedChannel == channel))
-                pendingCCValues[(size_t) layer][(size_t) target].store(normalised,
-                                                                          std::memory_order_relaxed);
+            if (learnedCC != cc || (learnedChannel >= 0 && learnedChannel != channel))
+                continue;
+
+            // A regular sustain pedal sends binary CC64 values only. Do not
+            // apply those switch events to a parameter learned from a CC64
+            // fader; the MIDI sustain message itself remains routed normally.
+            if (learnedCC == 64 && binarySustainEvent)
+                continue;
+
+            pendingCCValues[(size_t) layer][(size_t) target].store(normalised,
+                                                                      std::memory_order_relaxed);
         }
 }
 
