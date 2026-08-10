@@ -32,6 +32,7 @@ jobs:
           if ($processorHeader -notmatch "loadExternalInstrument") { throw "API loadExternalInstrument ausente" }
           if ($processorHeader -notmatch "createExternalInstrumentEditor") { throw "API createExternalInstrumentEditor ausente" }
           if ($processorSource -notmatch "learnChannel") { throw "Persistência MIDI Learn incompleta" }
+          if ($processorSource -match "isChannelMessage") { throw "API MIDI incompatível com JUCE 9" }
           if ($cmake -notmatch "ExternalInstrumentHost.cpp") { throw "Host externo ausente do CMake" }
 
       - name: Set up CMake
