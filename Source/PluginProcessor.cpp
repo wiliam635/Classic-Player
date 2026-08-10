@@ -152,6 +152,7 @@ void ClassicPlayerAudioProcessor::refreshActivation()
 
 juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::File& file)
 {
+    const juce::ScopedLock callbackLock(getCallbackLock());
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
         return juce::Result::fail("Layer inválida.");
     externalInstruments[(size_t) layer].unload();
@@ -162,6 +163,7 @@ juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::F
 
 void ClassicPlayerAudioProcessor::unloadSoundFont(int layer)
 {
+    const juce::ScopedLock callbackLock(getCallbackLock());
     engine.unloadSoundFont(layer);
     if (juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) savedPaths[(size_t) layer].clear();
 }
@@ -174,6 +176,7 @@ bool ClassicPlayerAudioProcessor::supportsExternalInstruments() const noexcept
 
 juce::Result ClassicPlayerAudioProcessor::loadExternalInstrument(int layer, const juce::File& file)
 {
+    const juce::ScopedLock callbackLock(getCallbackLock());
     if (!supportsExternalInstruments())
         return juce::Result::fail("Instrumentos externos só podem ser carregados no Classic Player standalone.");
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
@@ -187,6 +190,7 @@ juce::Result ClassicPlayerAudioProcessor::loadExternalInstrument(int layer, cons
 
 void ClassicPlayerAudioProcessor::unloadExternalInstrument(int layer)
 {
+    const juce::ScopedLock callbackLock(getCallbackLock());
     if (juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
         externalInstruments[(size_t) layer].unload();
 }
@@ -280,6 +284,7 @@ bool ClassicPlayerAudioProcessor::addLayer()
 
 bool ClassicPlayerAudioProcessor::removeLayer(int layer)
 {
+    const juce::ScopedLock callbackLock(getCallbackLock());
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return false;
     auto count = activeLayers.load(std::memory_order_relaxed);
     if (layer >= count || count <= 1) return false;
