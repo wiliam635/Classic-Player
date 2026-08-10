@@ -56,6 +56,8 @@ private:
 
     private:
         void chooseSoundFont();
+        void chooseExternalInstrument();
+        void openExternalInstrumentEditor();
         void deleteSelectedSoundFont();
         void resetLayer();
         void rebuildPresets();
@@ -79,6 +81,8 @@ private:
         juce::TextButton resetButton { "RESET" };
         juce::TextButton removeButton { "X" };
         juce::TextButton loadButton { "IMPORTAR SF2" };
+        juce::TextButton externalInstrumentButton { "CARREGAR VST" };
+        juce::TextButton openExternalEditorButton { "ABRIR EDITOR" };
         juce::TextButton deleteLibraryButton { "EXCLUIR SF2" };
         juce::Label fileLabel;
         juce::ComboBox categoryBox;
@@ -110,6 +114,7 @@ private:
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> reverbAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> compressorAttachment;
         std::unique_ptr<juce::FileChooser> fileChooser;
+        std::unique_ptr<juce::DocumentWindow> externalEditorWindow;
         juce::String midiDeviceFingerprint;
         juce::Array<juce::MidiDeviceInfo> midiDevices;
     };
