@@ -564,6 +564,61 @@ void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* sou
     if (routed) visualMidiCollector.addMessageToQueue(message);
 }
 
+juce::Array<juce::File> ClassicPlayerAudioProcessor::savedPrograms() const
+{
+    juce::Array<juce::File> result;
+    const auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                            .getChildFile("Classic Player").getChildFile("Programs");
+    folder.findChildFiles(result, juce::File::findFiles, false, "*.ckprogram");
+    std::sort(result.begin(), result.end(), [](const auto& a, const auto& b)
+    {
+        return a.getFileName().compareNatural(b.getFileName()) < 0;
+    });
+    return result;
+}
+
+juce::Result ClassicPlayerAudioProcessor::saveProgram(const juce::String& requestedName,
+                                                       juce::File& savedFile)
+{
+    auto name = requestedName.trim();
+    name = name.retainCharacters("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_()");
+    if (name.isEmpty())
+        return juce::Result::fail("Digite um nome para a programação.");
+
+    const auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                            .getChildFile("Classic Player").getChildFile("Programs");
+    if (const auto result = folder.createDirectory(); result.failed())
+        return result;
+
+    juce::MemoryBlock data;
+    getStateInformation(data);
+    if (data.getSize() == 0)
+        return juce::Result::fail("Não foi possível preparar a programação.");
+
+    const auto destination = folder.getChildFile(name + ".ckprogram");
+    if (!destination.replaceWithData(data.getData(), data.getSize()))
+        return juce::Result::fail("Não foi possível salvar a programação.");
+
+    savedFile = destination;
+    return juce::Result::ok();
+}
+
+juce::Result ClassicPlayerAudioProcessor::loadProgram(const juce::File& programFile)
+{
+    if (!programFile.existsAsFile() || programFile.getFileExtension().toLowerCase() != ".ckprogram")
+        return juce::Result::fail("Selecione uma programação válida do Classic Player.");
+
+    juce::MemoryBlock data;
+    if (!programFile.loadFileAsData(data) || data.getSize() == 0)
+        return juce::Result::fail("Não foi possível ler a programação.");
+
+    if (auto xml = getXmlFromBinary(data.getData(), static_cast<int>(data.getSize())); xml == nullptr)
+        return juce::Result::fail("A programação está corrompida ou é incompatível.");
+
+    setStateInformation(data.getData(), static_cast<int>(data.getSize()));
+    return juce::Result::ok();
+}
+
 void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
 {
     auto state = parameters.copyState();
@@ -595,6 +650,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
 
 void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size)
 {
+    const juce::ScopedLock callbackLock(getCallbackLock());
     if (auto xml = getXmlFromBinary(data, size))
     {
         auto state = juce::ValueTree::fromXml(*xml);
