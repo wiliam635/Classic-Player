@@ -292,6 +292,11 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         engine.setConfig(layer, sourceConfig);
         savedPaths[(size_t) layer] = savedPaths[(size_t) (count - 1)];
         layerMidiDeviceIds[(size_t) layer] = layerMidiDeviceIds[(size_t) (count - 1)];
+        externalInstruments[(size_t) layer].moveFrom(externalInstruments[(size_t) (count - 1)]);
+    }
+    else
+    {
+        externalInstruments[(size_t) layer].unload();
     }
     engine.unloadSoundFont(count - 1);
     auto disabled = engine.getConfig(count - 1);
