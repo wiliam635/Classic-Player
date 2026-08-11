@@ -14,6 +14,8 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor()
         for (auto& channel : layer) channel.store(-1);
     for (auto& layer : pendingCCValues)
         for (auto& value : layer) value.store(-1.0f);
+    for (auto& cc : learnedLiveSetBankCCs) cc.store(-1, std::memory_order_relaxed);
+    for (auto& channel : learnedLiveSetBankChannels) channel.store(-1, std::memory_order_relaxed);
     for (auto& peak : externalPeaks) peak.store(0.0f);
     for (int layer = Sf2Engine::defaultLayerCount; layer < Sf2Engine::layerCount; ++layer)
     {
@@ -110,7 +112,11 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // activation refresh must never make the MIDI UI appear disconnected.
     keyboardState.processNextMidiBuffer(midi, 0, buffer.getNumSamples(), true);
 
-    for (const auto metadata : midi) processMidiControlMessage(metadata.getMessage());
+    for (const auto metadata : midi)
+    {
+        processLiveSetBankMidiMessage(metadata.getMessage());
+        processMidiControlMessage(metadata.getMessage());
+    }
 
     for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
     {
@@ -483,6 +489,87 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
         }
 }
 
+void ClassicPlayerAudioProcessor::processLiveSetBankMidiMessage(const juce::MidiMessage& message)
+{
+    if (!message.isController()) return;
+
+    const auto cc = message.getControllerNumber();
+    const auto channel = message.getChannel();
+    const auto value = message.getControllerValue();
+
+    // CC64 remains exclusively assigned to sustain, including in the Live Set.
+    if (cc == 64) return;
+
+    auto learningBank = activeLiveSetBankMidiLearn.load(std::memory_order_relaxed);
+    if (juce::isPositiveAndBelow(learningBank, liveSetBankCount))
+    {
+        learnedLiveSetBankCCs[(size_t) learningBank].store(cc, std::memory_order_relaxed);
+        learnedLiveSetBankChannels[(size_t) learningBank].store(channel, std::memory_order_relaxed);
+        activeLiveSetBankMidiLearn.compare_exchange_strong(learningBank, -1,
+                                                            std::memory_order_relaxed);
+        saveLiveSetState();
+        juce::Logger::writeToLog("Live Set MIDI Learn: banco="
+                                 + juce::String(learningBank + 1)
+                                 + " CC=" + juce::String(cc)
+                                 + " canal=" + juce::String(channel));
+        return;
+    }
+
+    // Buttons/pads normally send 127 on press and 0 on release.  Requiring
+    // the upper half prevents a release message from changing the bank.
+    if (value < 64) return;
+    for (int bank = 0; bank < liveSetBankCount; ++bank)
+    {
+        const auto learnedCC = learnedLiveSetBankCCs[(size_t) bank].load(std::memory_order_relaxed);
+        const auto learnedChannel = learnedLiveSetBankChannels[(size_t) bank].load(std::memory_order_relaxed);
+        if (learnedCC == cc && (learnedChannel < 0 || learnedChannel == channel))
+        {
+            requestedLiveSetBank.store(bank, std::memory_order_relaxed);
+            break;
+        }
+    }
+}
+
+void ClassicPlayerAudioProcessor::beginLiveSetBankMidiLearn(int bank)
+{
+    if (!juce::isPositiveAndBelow(bank, liveSetBankCount)) return;
+    activeLiveSetBankMidiLearn.store(bank, std::memory_order_relaxed);
+}
+
+void ClassicPlayerAudioProcessor::resetLiveSetBankMidiLearn(int bank)
+{
+    if (!juce::isPositiveAndBelow(bank, liveSetBankCount)) return;
+    learnedLiveSetBankCCs[(size_t) bank].store(-1, std::memory_order_relaxed);
+    learnedLiveSetBankChannels[(size_t) bank].store(-1, std::memory_order_relaxed);
+    auto learningBank = activeLiveSetBankMidiLearn.load(std::memory_order_relaxed);
+    if (learningBank == bank)
+        activeLiveSetBankMidiLearn.compare_exchange_strong(learningBank, -1,
+                                                            std::memory_order_relaxed);
+    saveLiveSetState();
+}
+
+int ClassicPlayerAudioProcessor::liveSetBankMidiLearnCC(int bank) const
+{
+    return juce::isPositiveAndBelow(bank, liveSetBankCount)
+        ? learnedLiveSetBankCCs[(size_t) bank].load(std::memory_order_relaxed) : -1;
+}
+
+int ClassicPlayerAudioProcessor::liveSetBankMidiLearnChannel(int bank) const
+{
+    return juce::isPositiveAndBelow(bank, liveSetBankCount)
+        ? learnedLiveSetBankChannels[(size_t) bank].load(std::memory_order_relaxed) : -1;
+}
+
+bool ClassicPlayerAudioProcessor::isLiveSetBankMidiLearning(int bank) const
+{
+    return activeLiveSetBankMidiLearn.load(std::memory_order_relaxed) == bank;
+}
+
+int ClassicPlayerAudioProcessor::consumeRequestedLiveSetBank()
+{
+    return requestedLiveSetBank.exchange(-1, std::memory_order_relaxed);
+}
+
 void ClassicPlayerAudioProcessor::attachStandaloneMidiRouting(
     juce::AudioDeviceManager& manager, juce::MidiInputCallback& defaultCallback)
 {
@@ -617,6 +704,7 @@ void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* sou
                                                              const juce::MidiMessage& message)
 {
     const auto sourceId = source != nullptr ? source->getIdentifier() : juce::String{};
+    processLiveSetBankMidiMessage(message);
     const juce::ScopedLock guard(midiRoutingLock);
     auto routed = false;
     for (int layer = 0; layer < activeLayerCount(); ++layer)
@@ -659,6 +747,15 @@ void ClassicPlayerAudioProcessor::loadLiveSetState()
         if (index >= 0)
             liveSetPrograms[(size_t) index] = slot->getStringAttribute("program");
     }
+    forEachXmlChildElementWithTagName(*xml, bank, "BANK")
+    {
+        const auto index = bank->getIntAttribute("index", -1);
+        if (!juce::isPositiveAndBelow(index, liveSetBankCount)) continue;
+        learnedLiveSetBankCCs[(size_t) index].store(bank->getIntAttribute("cc", -1),
+                                                     std::memory_order_relaxed);
+        learnedLiveSetBankChannels[(size_t) index].store(bank->getIntAttribute("channel", -1),
+                                                          std::memory_order_relaxed);
+    }
 }
 
 void ClassicPlayerAudioProcessor::saveLiveSetState() const
@@ -667,7 +764,7 @@ void ClassicPlayerAudioProcessor::saveLiveSetState() const
     if (file.getParentDirectory().createDirectory().failed()) return;
 
     juce::XmlElement xml("CLASSIC_PLAYER_LIVE_SET");
-    xml.setAttribute("version", 1);
+    xml.setAttribute("version", 2);
     {
         const juce::ScopedLock lock(liveSetLock);
         for (int bank = 0; bank < liveSetBankCount; ++bank)
@@ -682,6 +779,16 @@ void ClassicPlayerAudioProcessor::saveLiveSetState() const
                 item->setAttribute("slot", slot);
                 item->setAttribute("program", path);
             }
+        }
+        for (int bank = 0; bank < liveSetBankCount; ++bank)
+        {
+            const auto cc = learnedLiveSetBankCCs[(size_t) bank].load(std::memory_order_relaxed);
+            if (cc < 0) continue;
+            auto* item = xml.createNewChildElement("BANK");
+            item->setAttribute("index", bank);
+            item->setAttribute("cc", cc);
+            item->setAttribute("channel",
+                learnedLiveSetBankChannels[(size_t) bank].load(std::memory_order_relaxed));
         }
     }
     xml.writeTo(file);
