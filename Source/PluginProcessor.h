@@ -97,6 +97,8 @@ public:
     int liveSetBankMidiLearnChannel(int bank) const;
     bool isLiveSetBankMidiLearning(int bank) const;
     int consumeRequestedLiveSetBank();
+    bool consumeLiveSetBankMidiLearnChanged();
+    void saveLiveSetBankMidiLearnState() const;
 
     void refreshActivation();
     bool isActivated() const { return activated.load(); }
@@ -137,6 +139,7 @@ private:
     std::array<std::atomic<int>, liveSetBankCount> learnedLiveSetBankChannels {};
     std::atomic<int> activeLiveSetBankMidiLearn { -1 };
     std::atomic<int> requestedLiveSetBank { -1 };
+    std::atomic<bool> liveSetBankMidiLearnChanged { false };
     std::array<juce::MidiMessageCollector, Sf2Engine::layerCount> routedMidiCollectors;
     std::array<juce::MidiBuffer, Sf2Engine::layerCount> routedMidiBuffers;
     juce::MidiMessageCollector visualMidiCollector;
