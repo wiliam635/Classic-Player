@@ -162,8 +162,8 @@ private:
     juce::TextButton liveSetButton { "LIVE SET" };
     juce::TextButton editLiveSetButton { "EDITAR LIVE SET" };
     std::array<juce::TextButton, ClassicPlayerAudioProcessor::liveSetBankCount> liveSetBankButtons;
-    std::array<juce::TextButton, ClassicPlayerAudioProcessor::liveSetBankCount> liveSetBankLearnButtons;
     std::array<juce::TextButton, ClassicPlayerAudioProcessor::liveSetSlotsPerBank> liveSetSlotButtons;
+    std::array<juce::TextButton, ClassicPlayerAudioProcessor::liveSetSlotsPerBank> liveSetSlotLearnButtons;
     juce::Array<juce::File> programFiles;
     juce::Slider master;
     juce::Label masterLabel;
