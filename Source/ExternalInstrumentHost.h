@@ -34,6 +34,12 @@ public:
     bool hasEditor() const;
     juce::AudioProcessorEditor* createEditor();
 
+    // Program changes preserve a loaded instrument whenever possible. Its
+    // state is stored separately so the host never needs to recreate the
+    // plugin merely to restore a Classic Player program.
+    juce::MemoryBlock getState() const;
+    bool restoreState(const juce::MemoryBlock& state);
+
 private:
     juce::AudioPluginFormatManager formatManager;
     std::unique_ptr<juce::AudioPluginInstance> instance;
