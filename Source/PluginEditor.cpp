@@ -958,6 +958,17 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
             refreshLiveSet();
         };
         addAndMakeVisible(button);
+
+        auto& learnButton = liveSetBankLearnButtons[(size_t) bank];
+        flatButton(learnButton);
+        learnButton.setButtonText("LEARN CC");
+        learnButton.setTooltip("Clique e mova um controle MIDI para selecionar este banco");
+        learnButton.onClick = [this, bank]
+        {
+            classicProcessor.beginLiveSetBankMidiLearn(bank);
+            refreshLiveSet();
+        };
+        addAndMakeVisible(learnButton);
     }
     for (int slot = 0; slot < ClassicPlayerAudioProcessor::liveSetSlotsPerBank; ++slot)
     {
@@ -1114,12 +1125,16 @@ void ClassicPlayerAudioProcessorEditor::resized()
     if (showingLiveSet)
     {
         auto liveArea = area.reduced(4, 2);
-        auto banks = liveArea.removeFromTop(38);
+        auto banks = liveArea.removeFromTop(62);
         const auto bankWidth = banks.getWidth() / ClassicPlayerAudioProcessor::liveSetBankCount;
         for (int bank = 0; bank < ClassicPlayerAudioProcessor::liveSetBankCount; ++bank)
-            liveSetBankButtons[(size_t) bank].setBounds(
-                banks.removeFromLeft(bank == ClassicPlayerAudioProcessor::liveSetBankCount - 1
-                                     ? banks.getWidth() : bankWidth).reduced(2, 2));
+        {
+            auto bankArea = banks.removeFromLeft(bank == ClassicPlayerAudioProcessor::liveSetBankCount - 1
+                                                  ? banks.getWidth() : bankWidth).reduced(2, 1);
+            liveSetBankButtons[(size_t) bank].setBounds(bankArea.removeFromTop(32));
+            bankArea.removeFromTop(2);
+            liveSetBankLearnButtons[(size_t) bank].setBounds(bankArea);
+        }
 
         auto editArea = liveArea.removeFromBottom(46);
         editLiveSetButton.setBounds(editArea.removeFromRight(168).reduced(2, 4));
@@ -1161,6 +1176,19 @@ void ClassicPlayerAudioProcessorEditor::resized()
 void ClassicPlayerAudioProcessorEditor::timerCallback()
 {
     classicProcessor.consumeMidiControlUpdates();
+    if (classicProcessor.consumeLiveSetBankMidiLearnChanged())
+    {
+        classicProcessor.saveLiveSetBankMidiLearnState();
+        refreshLiveSet();
+    }
+    if (const auto requestedBank = classicProcessor.consumeRequestedLiveSetBank();
+        juce::isPositiveAndBelow(requestedBank, ClassicPlayerAudioProcessor::liveSetBankCount))
+    {
+        activeLiveSetBank = requestedBank;
+        activeLiveSetSlot = -1;
+        if (!showingLiveSet) showLiveSet(true);
+        else refreshLiveSet();
+    }
     float masterLevel = 0.0f;
     for (int i = 0; i < classicProcessor.activeLayerCount(); ++i)
     {
@@ -1273,6 +1301,7 @@ void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
 
     editLiveSetButton.setVisible(show);
     for (auto& button : liveSetBankButtons) button.setVisible(show);
+    for (auto& button : liveSetBankLearnButtons) button.setVisible(show);
     for (auto& button : liveSetSlotButtons) button.setVisible(show);
     if (show) refreshLiveSet();
     resized();
@@ -1290,6 +1319,21 @@ void ClassicPlayerAudioProcessorEditor::refreshLiveSet()
                          bank == activeLiveSetBank ? juce::Colour(yellow) : juce::Colour(teal));
         button.setColour(juce::TextButton::textColourOffId,
                          bank == activeLiveSetBank ? juce::Colour(background) : juce::Colour(text));
+
+        auto& learnButton = liveSetBankLearnButtons[(size_t) bank];
+        const auto cc = classicProcessor.liveSetBankMidiLearnCC(bank);
+        const auto learning = classicProcessor.isLiveSetBankMidiLearning(bank);
+        learnButton.setButtonText(learning ? "AGUARDANDO..." : (cc >= 0 ? "CC " + juce::String(cc) : "LEARN CC"));
+        learnButton.setColour(juce::TextButton::buttonColourId,
+                              learning ? juce::Colour(teal) : juce::Colour(panelLight));
+        learnButton.setColour(juce::TextButton::textColourOffId,
+                              learning ? juce::Colour(background) : juce::Colour(text));
+        learnButton.setTooltip(learning ? "Mova agora um controle MIDI CC"
+                                        : (cc >= 0 ? "CC " + juce::String(cc)
+                                                   + " no canal "
+                                                   + juce::String(classicProcessor.liveSetBankMidiLearnChannel(bank))
+                                                   + ". Clique para reaprender."
+                                                   : "Clique e mova um controle MIDI para selecionar este banco"));
     }
 
     for (int slot = 0; slot < ClassicPlayerAudioProcessor::liveSetSlotsPerBank; ++slot)
