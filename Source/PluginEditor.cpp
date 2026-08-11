@@ -951,7 +951,12 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
         auto& button = liveSetBankButtons[(size_t) bank];
         flatButton(button);
         button.setButtonText("BANCO " + juce::String(bank + 1));
-        button.onClick = [this, bank] { activeLiveSetBank = bank; refreshLiveSet(); };
+        button.onClick = [this, bank]
+        {
+            activeLiveSetBank = bank;
+            activeLiveSetSlot = -1;
+            refreshLiveSet();
+        };
         addAndMakeVisible(button);
     }
     for (int slot = 0; slot < ClassicPlayerAudioProcessor::liveSetSlotsPerBank; ++slot)
@@ -1076,7 +1081,10 @@ void ClassicPlayerAudioProcessorEditor::resized()
 
     auto addLayerArea = header.removeFromRight(100);
     addLayerButton.setBounds(addLayerArea.withSizeKeepingCentre(88, 32));
-    liveSetButton.setBounds(addLayerArea.withSizeKeepingCentre(88, 32));
+    header.removeFromRight(4);
+
+    auto liveSetArea = header.removeFromRight(100);
+    liveSetButton.setBounds(liveSetArea.withSizeKeepingCentre(88, 32));
     header.removeFromRight(4);
 
     auto accidentalArea = header.removeFromRight(126);
