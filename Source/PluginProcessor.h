@@ -91,14 +91,14 @@ public:
     juce::Result assignLiveSetSlot(int bank, int slot, const juce::File& programFile);
     void clearLiveSetSlot(int bank, int slot);
     juce::Result loadLiveSetSlot(int bank, int slot);
-    void beginLiveSetBankMidiLearn(int bank);
-    void resetLiveSetBankMidiLearn(int bank);
-    int liveSetBankMidiLearnCC(int bank) const;
-    int liveSetBankMidiLearnChannel(int bank) const;
-    bool isLiveSetBankMidiLearning(int bank) const;
-    int consumeRequestedLiveSetBank();
-    bool consumeLiveSetBankMidiLearnChanged();
-    void saveLiveSetBankMidiLearnState() const;
+    void beginLiveSetSlotMidiLearn(int bank, int slot);
+    void resetLiveSetSlotMidiLearn(int bank, int slot);
+    int liveSetSlotMidiLearnCC(int bank, int slot) const;
+    int liveSetSlotMidiLearnChannel(int bank, int slot) const;
+    bool isLiveSetSlotMidiLearning(int bank, int slot) const;
+    int consumeRequestedLiveSetSlot();
+    bool consumeLiveSetSlotMidiLearnChanged();
+    void saveLiveSetSlotMidiLearnState() const;
 
     void refreshActivation();
     bool isActivated() const { return activated.load(); }
@@ -110,7 +110,7 @@ private:
     void restoreLayerPaths();
     void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage&) override;
     void processMidiControlMessage(const juce::MidiMessage&, int layerFilter = -1);
-    void processLiveSetBankMidiMessage(const juce::MidiMessage&);
+    void processLiveSetSlotMidiMessage(const juce::MidiMessage&);
     void renderExternalInstruments(juce::AudioBuffer<float>&, const juce::MidiBuffer&);
     void appendExternalMidi(int layer, const juce::MidiBuffer&, juce::MidiBuffer&);
     int liveSetIndex(int bank, int slot) const;
@@ -135,11 +135,12 @@ private:
     std::array<std::array<std::atomic<int>, learnTargetCount>, Sf2Engine::layerCount> learnedChannels {};
     std::array<std::array<std::atomic<float>, learnTargetCount>, Sf2Engine::layerCount> pendingCCValues {};
     std::atomic<int> activeMidiLearn { -1 };
-    std::array<std::atomic<int>, liveSetBankCount> learnedLiveSetBankCCs {};
-    std::array<std::atomic<int>, liveSetBankCount> learnedLiveSetBankChannels {};
-    std::atomic<int> activeLiveSetBankMidiLearn { -1 };
-    std::atomic<int> requestedLiveSetBank { -1 };
-    std::atomic<bool> liveSetBankMidiLearnChanged { false };
+    static constexpr int liveSetSlotCount = liveSetBankCount * liveSetSlotsPerBank;
+    std::array<std::atomic<int>, liveSetSlotCount> learnedLiveSetSlotCCs {};
+    std::array<std::atomic<int>, liveSetSlotCount> learnedLiveSetSlotChannels {};
+    std::atomic<int> activeLiveSetSlotMidiLearn { -1 };
+    std::atomic<int> requestedLiveSetSlot { -1 };
+    std::atomic<bool> liveSetSlotMidiLearnChanged { false };
     std::array<juce::MidiMessageCollector, Sf2Engine::layerCount> routedMidiCollectors;
     std::array<juce::MidiBuffer, Sf2Engine::layerCount> routedMidiBuffers;
     juce::MidiMessageCollector visualMidiCollector;
