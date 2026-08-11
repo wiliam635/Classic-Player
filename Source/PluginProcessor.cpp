@@ -1045,6 +1045,14 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     if (externalState.getSize() > 0)
                         externalInstruments[(size_t) i].restoreState(externalState);
                 }
+                else
+                {
+                    // A program may have fewer layers than the previously
+                    // loaded one. Clear the old SoundFont now; restoreLayerPaths()
+                    // below will load only the files explicitly stored by the
+                    // selected program.
+                    engine.unloadSoundFont(i);
+                }
                 auto config = engine.getConfig(i);
                 config.lowNote = state.getProperty("low" + juce::String(i), 0);
                 config.highNote = state.getProperty("high" + juce::String(i), 127);
@@ -1076,6 +1084,15 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             {
                 auto config = engine.getConfig(i);
                 config.enabled = i < restoredLayerCount;
+                if (i >= restoredLayerCount)
+                {
+                    // Never leave an inactive layer holding the instrument from
+                    // the previous performance. This releases both SF2 and VST
+                    // resources before the next Live Set selection.
+                    engine.unloadSoundFont(i);
+                    externalInstruments[(size_t) i].unload();
+                    savedPaths[(size_t) i].clear();
+                }
                 engine.setConfig(i, config);
             }
             restoreLayerPaths();
