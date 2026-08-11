@@ -49,6 +49,7 @@ private:
         void refresh();
         void updateMeter();
         void refreshMidiDevices();
+        void refreshExternalInstrumentLibrary();
         void setEngineEnabled(bool);
         bool isMuted() const { return muted; }
         bool isSolo() const { return solo; }
@@ -84,7 +85,6 @@ private:
         juce::TextButton removeButton { "X" };
         juce::TextButton loadButton { "IMPORTAR SF2" };
         juce::TextButton externalInstrumentButton { "CARREGAR VST" };
-        juce::TextButton refreshExternalInstrumentButton { "ATUALIZAR VST" };
         juce::TextButton openExternalEditorButton { "ABRIR EDITOR" };
         juce::ComboBox externalInstrumentBox;
         juce::TextButton deleteLibraryButton { "EXCLUIR SF2" };
@@ -130,6 +130,7 @@ private:
     void handleAsyncUpdate() override;
     void applyMixerStates();
     void refreshProgramLibrary();
+    void refreshExternalInstrumentLibrary();
     void saveProgram();
     void loadSelectedProgram();
     void addLayer();
@@ -145,6 +146,8 @@ private:
     juce::Label chordCaption;
     juce::TextButton chordColourButton { "COR ACORDE" };
     juce::TextButton keyColourButton { "COR TECLAS" };
+    juce::TextButton refreshExternalInstrumentButton { "ATUALIZAR VST" };
+    juce::ComboBox accidentalStyleBox;
     juce::ComboBox programBox;
     juce::TextButton saveProgramButton { "SALVAR" };
     juce::TextButton loadProgramButton { "CARREGAR" };
@@ -157,6 +160,7 @@ private:
     juce::ImageComponent classicKeysLogo;
     juce::ImageComponent willamSilvaLogo;
     juce::Colour chordColour { 0xffffd84a };
+    ClassicChordDetector::AccidentalStyle accidentalStyle { ClassicChordDetector::AccidentalStyle::mixed };
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterAttachment;
     juce::Viewport layerViewport;
     juce::Component layerContent;
