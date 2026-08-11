@@ -51,6 +51,7 @@ private:
         void updateMeter();
         void refreshMidiDevices();
         void refreshExternalInstrumentLibrary();
+        void closeExternalInstrumentEditor();
         void setEngineEnabled(bool);
         bool isMuted() const { return muted; }
         bool isSolo() const { return solo; }
