@@ -687,7 +687,7 @@ juce::Result ClassicPlayerAudioProcessor::loadProgram(const juce::File& programF
 void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
 {
     auto state = parameters.copyState();
-    state.setProperty("stateVersion", 162, nullptr);
+    state.setProperty("stateVersion", 163, nullptr);
     state.setProperty("activeLayers", activeLayerCount(), nullptr);
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
@@ -696,6 +696,10 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty(key, path.isNotEmpty() ? path : savedPaths[(size_t) i], nullptr);
         state.setProperty("externalInstrument" + juce::String(i + 1),
                           externalInstruments[(size_t) i].getPath(), nullptr);
+        // Save the instrument's own preset/state separately. Reusing the
+        // existing instance avoids plugin crashes while changing programs.
+        state.setProperty("externalInstrumentState" + juce::String(i + 1),
+                          externalInstruments[(size_t) i].getState().toBase64Encoding(), nullptr);
         const auto config = engine.getConfig(i);
         state.setProperty("low" + juce::String(i), config.lowNote, nullptr);
         state.setProperty("high" + juce::String(i), config.highNote, nullptr);
@@ -779,28 +783,46 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                         writeParameter(gainId, 80.0f);
                 }
             }
-            state.setProperty("stateVersion", 162, nullptr);
+            state.setProperty("stateVersion", 163, nullptr);
             parameters.replaceState(state);
             for (int i = 0; i < Sf2Engine::layerCount; ++i)
             {
                 savedPaths[(size_t) i] = state.getProperty("sf2Layer" + juce::String(i + 1)).toString();
                 const auto externalPath = state.getProperty(
                     "externalInstrument" + juce::String(i + 1)).toString();
-                externalInstruments[(size_t) i].unload();
-                if (externalPath.isNotEmpty() && supportsExternalInstruments())
+                const auto externalStateText = state.getProperty(
+                    "externalInstrumentState" + juce::String(i + 1)).toString();
+                juce::MemoryBlock externalState;
+                externalState.fromBase64Encoding(externalStateText);
+
+                // Do not destroy/recreate an already loaded VST merely because
+                // a Classic Player program is selected. Some instruments,
+                // including Pianoteq, keep native window resources that are
+                // invalidated by this unnecessary recreation.
+                const auto keepLoadedInstrument = externalPath.isNotEmpty()
+                    && supportsExternalInstruments()
+                    && externalInstruments[(size_t) i].isLoaded()
+                    && externalInstruments[(size_t) i].getPath() == externalPath;
+
+                if (!keepLoadedInstrument)
                 {
-                    const auto result = externalInstruments[(size_t) i].loadInstrument(
-                        juce::File(externalPath), currentSampleRate, currentBlockSize);
-                    if (result.wasOk())
+                    externalInstruments[(size_t) i].unload();
+                    if (externalPath.isNotEmpty() && supportsExternalInstruments())
                     {
-                        engine.unloadSoundFont(i);
-                        savedPaths[(size_t) i].clear();
+                        const auto result = externalInstruments[(size_t) i].loadInstrument(
+                            juce::File(externalPath), currentSampleRate, currentBlockSize);
+                        if (result.failed())
+                            juce::Logger::writeToLog("Não foi possível restaurar instrumento externo: "
+                                                     + result.getErrorMessage());
                     }
-                    else
-                    {
-                        juce::Logger::writeToLog("Não foi possível restaurar instrumento externo: "
-                                                 + result.getErrorMessage());
-                    }
+                }
+
+                if (externalInstruments[(size_t) i].isLoaded())
+                {
+                    engine.unloadSoundFont(i);
+                    savedPaths[(size_t) i].clear();
+                    if (externalState.getSize() > 0)
+                        externalInstruments[(size_t) i].restoreState(externalState);
                 }
                 auto config = engine.getConfig(i);
                 config.lowNote = state.getProperty("low" + juce::String(i), 0);
