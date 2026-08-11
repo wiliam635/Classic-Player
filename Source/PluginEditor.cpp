@@ -621,6 +621,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseExternalInstrument()
         });
 }
 
+void ClassicPlayerAudioProcessorEditor::LayerStrip::closeExternalInstrumentEditor()
+{
+    // The plug-in owns this native editor. It must be gone before a saved
+    // program can unload, replace, or restore the hosted instrument.
+    externalEditorWindow.reset();
+}
+
 void ClassicPlayerAudioProcessorEditor::LayerStrip::openExternalInstrumentEditor()
 {
     // Closing a hosted editor only hides its DocumentWindow. Reuse that same
@@ -1193,6 +1200,13 @@ void ClassicPlayerAudioProcessorEditor::loadSelectedProgram()
                                                "Selecione uma programação salva na lista.");
         return;
     }
+
+    // Close every hosted native editor before the processor restores the
+    // program. This prevents a VST editor from retaining pointers to an
+    // instrument instance that may be replaced by the selected program.
+    for (auto& strip : strips)
+        if (strip != nullptr)
+            strip->closeExternalInstrumentEditor();
 
     const auto result = classicProcessor.loadProgram(programFiles.getReference(selected));
     if (result.failed())
