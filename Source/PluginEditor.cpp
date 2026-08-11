@@ -888,6 +888,29 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     };
     addAndMakeVisible(keyColourButton);
 
+    flatButton(refreshExternalInstrumentButton);
+    refreshExternalInstrumentButton.setTooltip("Atualizar a lista global de instrumentos VST3/AU");
+    refreshExternalInstrumentButton.onClick = [this] { refreshExternalInstrumentLibrary(); };
+    refreshExternalInstrumentButton.setVisible(classicProcessor.supportsExternalInstruments());
+    addAndMakeVisible(refreshExternalInstrumentButton);
+
+    accidentalStyleBox.addItem("MISTO", 1);
+    accidentalStyleBox.addItem("SUSTENIDO", 2);
+    accidentalStyleBox.addItem("BEMOL", 3);
+    accidentalStyleBox.setSelectedId(1, juce::dontSendNotification);
+    accidentalStyleBox.setTooltip("Formato dos acidentes exibidos no visor de acordes");
+    accidentalStyleBox.onChange = [this]
+    {
+        switch (accidentalStyleBox.getSelectedId())
+        {
+            case 2: accidentalStyle = ClassicChordDetector::AccidentalStyle::sharp; break;
+            case 3: accidentalStyle = ClassicChordDetector::AccidentalStyle::flat; break;
+            default: accidentalStyle = ClassicChordDetector::AccidentalStyle::mixed; break;
+        }
+        triggerAsyncUpdate();
+    };
+    addAndMakeVisible(accidentalStyleBox);
+
     programBox.setEditableText(true);
     programBox.setTextWhenNothingSelected("NOVO PROGRAMA");
     addAndMakeVisible(programBox);
@@ -1014,11 +1037,17 @@ void ClassicPlayerAudioProcessorEditor::resized()
     addLayerButton.setBounds(addLayerArea.withSizeKeepingCentre(88, 32));
     header.removeFromRight(4);
 
+    auto accidentalArea = header.removeFromRight(126);
+    accidentalStyleBox.setBounds(accidentalArea.withSizeKeepingCentre(118, 32));
+    header.removeFromRight(4);
+
     auto chordArea = header.reduced(4, 1);
     auto colourControls = chordArea.removeFromRight(106).reduced(5, 2);
     chordColourButton.setBounds(colourControls.removeFromTop(30));
-    colourControls.removeFromTop(5);
+    colourControls.removeFromTop(4);
     keyColourButton.setBounds(colourControls.removeFromTop(30));
+    colourControls.removeFromTop(4);
+    refreshExternalInstrumentButton.setBounds(colourControls.reduced(0, 0));
 
     auto programRow = chordArea.removeFromBottom(28);
     loadProgramButton.setBounds(programRow.removeFromRight(76).reduced(1, 0));
@@ -1093,11 +1122,11 @@ void ClassicPlayerAudioProcessorEditor::handleNoteOff(juce::MidiKeyboardState*, 
 
 void ClassicPlayerAudioProcessorEditor::handleAsyncUpdate()
 {
-    const auto chord = detectedChord();
-    const auto fontSize = chord.length() <= 5 ? 48.0f
-                         : chord.length() <= 9 ? 39.0f
-                         : chord.length() <= 13 ? 30.0f
-                         : chord.length() <= 18 ? 23.0f : 18.0f;
+    const auto chord = ClassicChordDetector::formatAccidentals(detectedChord(), accidentalStyle);
+    const auto fontSize = chord.length() <= 5 ? 56.0f
+                         : chord.length() <= 9 ? 46.0f
+                         : chord.length() <= 13 ? 36.0f
+                         : chord.length() <= 18 ? 28.0f : 21.0f;
     chordLabel.setFont(juce::FontOptions(fontSize, juce::Font::bold));
     chordLabel.setText(chord, juce::dontSendNotification);
 }
@@ -1108,6 +1137,16 @@ juce::String ClassicPlayerAudioProcessorEditor::detectedChord() const
     for (int note = 0; note < 128; ++note)
         if (heldNotes[(size_t) note].load()) notes.push_back(note);
     return ClassicChordDetector::detect(notes);
+}
+
+void ClassicPlayerAudioProcessorEditor::refreshExternalInstrumentLibrary()
+{
+    if (!classicProcessor.supportsExternalInstruments()) return;
+
+    classicProcessor.refreshExternalInstrumentLibrary();
+    for (auto& strip : strips)
+        if (strip != nullptr)
+            strip->refreshExternalInstrumentLibrary();
 }
 
 void ClassicPlayerAudioProcessorEditor::refreshProgramLibrary()
