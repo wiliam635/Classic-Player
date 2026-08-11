@@ -507,7 +507,7 @@ void ClassicPlayerAudioProcessor::processLiveSetBankMidiMessage(const juce::Midi
         learnedLiveSetBankChannels[(size_t) learningBank].store(channel, std::memory_order_relaxed);
         activeLiveSetBankMidiLearn.compare_exchange_strong(learningBank, -1,
                                                             std::memory_order_relaxed);
-        saveLiveSetState();
+        liveSetBankMidiLearnChanged.store(true, std::memory_order_release);
         juce::Logger::writeToLog("Live Set MIDI Learn: banco="
                                  + juce::String(learningBank + 1)
                                  + " CC=" + juce::String(cc)
@@ -568,6 +568,16 @@ bool ClassicPlayerAudioProcessor::isLiveSetBankMidiLearning(int bank) const
 int ClassicPlayerAudioProcessor::consumeRequestedLiveSetBank()
 {
     return requestedLiveSetBank.exchange(-1, std::memory_order_relaxed);
+}
+
+bool ClassicPlayerAudioProcessor::consumeLiveSetBankMidiLearnChanged()
+{
+    return liveSetBankMidiLearnChanged.exchange(false, std::memory_order_acq_rel);
+}
+
+void ClassicPlayerAudioProcessor::saveLiveSetBankMidiLearnState() const
+{
+    saveLiveSetState();
 }
 
 void ClassicPlayerAudioProcessor::attachStandaloneMidiRouting(
