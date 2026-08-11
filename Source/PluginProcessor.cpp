@@ -489,6 +489,20 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
         }
 }
 
+void ClassicPlayerAudioProcessor::clearPendingPerformanceMidi()
+{
+    // The standalone MIDI callback can be writing to these collectors while a
+    // Live Set selection is made. Guard the reset so an old Note On cannot be
+    // delivered to the newly restored SoundFont/VST layer.
+    const juce::ScopedLock guard(midiRoutingLock);
+    for (auto& collector : routedMidiCollectors)
+        collector.reset(currentSampleRate);
+    for (auto& buffer : routedMidiBuffers)
+        buffer.clear();
+    visualMidiCollector.reset(currentSampleRate);
+    visualMidiBuffer.clear();
+}
+
 void ClassicPlayerAudioProcessor::processLiveSetSlotMidiMessage(const juce::MidiMessage& message)
 {
     if (!message.isController()) return;
@@ -925,6 +939,9 @@ juce::Result ClassicPlayerAudioProcessor::loadProgram(const juce::File& programF
     if (auto xml = getXmlFromBinary(data.getData(), static_cast<int>(data.getSize())); xml == nullptr)
         return juce::Result::fail("A programação está corrompida ou é incompatível.");
 
+    // Do not route a note that was queued for the previous performance
+    // into freshly loaded layers. The player must wait for the next key press.
+    clearPendingPerformanceMidi();
     setStateInformation(data.getData(), static_cast<int>(data.getSize()));
     return juce::Result::ok();
 }
