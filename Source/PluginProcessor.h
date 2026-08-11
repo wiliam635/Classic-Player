@@ -88,6 +88,7 @@ public:
     static constexpr int liveSetSlotsPerBank = 8;
     juce::File liveSetSlotProgram(int bank, int slot) const;
     juce::String liveSetSlotName(int bank, int slot) const;
+    juce::String liveSetSlotLayerSummary(int bank, int slot) const;
     juce::Result assignLiveSetSlot(int bank, int slot, const juce::File& programFile);
     void clearLiveSetSlot(int bank, int slot);
     juce::Result loadLiveSetSlot(int bank, int slot);
