@@ -243,8 +243,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     addAndMakeVisible(layerTitle);
 
     for (auto* button : { &muteButton, &soloButton, &resetButton, &removeButton, &loadButton,
-                          &externalInstrumentButton, &refreshExternalInstrumentButton,
-                          &openExternalEditorButton, &deleteLibraryButton })
+                          &externalInstrumentButton, &openExternalEditorButton, &deleteLibraryButton })
     {
         flatButton(*button);
         addAndMakeVisible(*button);
@@ -264,18 +263,11 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     };
     loadButton.onClick = [this] { chooseSoundFont(); };
     externalInstrumentButton.onClick = [this] { chooseExternalInstrument(); };
-    refreshExternalInstrumentButton.onClick = [this]
-    {
-        processor.refreshExternalInstrumentLibrary();
-        rebuildExternalInstrumentLibrary();
-    };
     openExternalEditorButton.onClick = [this] { openExternalInstrumentEditor(); };
     externalInstrumentButton.setTooltip("Escolher manualmente um instrumento VST3/AU");
-    refreshExternalInstrumentButton.setTooltip("Procurar instrumentos VST3/AU instalados");
     openExternalEditorButton.setTooltip("Abrir a janela de configuração do instrumento virtual");
     const auto canHost = processor.supportsExternalInstruments();
     externalInstrumentButton.setVisible(canHost);
-    refreshExternalInstrumentButton.setVisible(canHost);
     openExternalEditorButton.setVisible(canHost);
     externalInstrumentBox.setVisible(canHost);
     externalInstrumentBox.setTextWhenNothingSelected("VST INSTALADO");
@@ -492,7 +484,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     loadButton.setBounds(area.removeFromTop(28));
     area.removeFromTop(4);
     auto externalLibraryRow = area.removeFromTop(28);
-    refreshExternalInstrumentButton.setBounds(externalLibraryRow.removeFromRight(92).reduced(1, 0));
     externalInstrumentBox.setBounds(externalLibraryRow.reduced(1, 0));
     area.removeFromTop(4);
     auto externalRow = area.removeFromTop(28);
@@ -724,6 +715,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::rebuildExternalInstrumentLib
         externalInstrumentFiles.isEmpty() ? "NENHUM VST ENCONTRADO" : "VST INSTALADO");
 }
 
+void ClassicPlayerAudioProcessorEditor::LayerStrip::refreshExternalInstrumentLibrary()
+{
+    rebuildExternalInstrumentLibrary();
+}
+
 void ClassicPlayerAudioProcessorEditor::LayerStrip::rebuildLibrary()
 {
     const auto currentPath = processor.soundFontPath(index);
@@ -856,7 +852,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     subtitle.setColour(juce::Label::textColourId, juce::Colour(mutedText));
     addAndMakeVisible(subtitle);
     chordLabel.setText("-", juce::dontSendNotification);
-    chordLabel.setFont(juce::FontOptions(28.0f, juce::Font::bold));
+    chordLabel.setFont(juce::FontOptions(36.0f, juce::Font::bold));
     chordLabel.setJustificationType(juce::Justification::centred);
     chordLabel.setColour(juce::Label::backgroundColourId, juce::Colours::black);
     chordLabel.setColour(juce::Label::textColourId, chordColour);
