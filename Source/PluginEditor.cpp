@@ -941,7 +941,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     editLiveSetButton.onClick = [this]
     {
         editingLiveSet = !editingLiveSet;
-        editLiveSetButton.setButtonText(editingLiveSet ? "CONCLUIR EDIÇÃO" : "EDITAR LIVE SET");
+        editLiveSetButton.setButtonText(editingLiveSet ? "CONCLUIR EDICAO" : "EDITAR LIVE SET");
         refreshLiveSet();
     };
     addAndMakeVisible(editLiveSetButton);
@@ -1326,8 +1326,10 @@ void ClassicPlayerAudioProcessorEditor::refreshLiveSet()
     {
         auto& button = liveSetSlotButtons[(size_t) slot];
         const auto name = classicProcessor.liveSetSlotName(activeLiveSetBank, slot);
+        const auto layers = classicProcessor.liveSetSlotLayerSummary(activeLiveSetBank, slot);
         button.setButtonText(juce::String(slot + 1).paddedLeft('0', 2)
-                             + "\n" + (name.isNotEmpty() ? name : "SEM PERFORMANCE"));
+                             + "\n" + (name.isNotEmpty() ? name : "SEM PERFORMANCE")
+                             + (layers.isNotEmpty() ? "\n" + layers : juce::String{}));
         const auto active = slot == activeLiveSetSlot;
         button.setColour(juce::TextButton::buttonColourId,
                          active ? juce::Colour(yellow) : juce::Colour(panel));
