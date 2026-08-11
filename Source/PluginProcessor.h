@@ -112,7 +112,6 @@ private:
     void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage&) override;
     void processMidiControlMessage(const juce::MidiMessage&, int layerFilter = -1);
     void processLiveSetSlotMidiMessage(const juce::MidiMessage&);
-    void clearPendingPerformanceMidi();
     void renderExternalInstruments(juce::AudioBuffer<float>&, const juce::MidiBuffer&);
     void appendExternalMidi(int layer, const juce::MidiBuffer&, juce::MidiBuffer&);
     int liveSetIndex(int bank, int slot) const;
