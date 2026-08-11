@@ -21,6 +21,7 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor()
         config.enabled = false;
         engine.setConfig(layer, config);
     }
+    loadLiveSetState();
     refreshActivation();
 }
 
@@ -627,6 +628,113 @@ void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* sou
         routed = true;
     }
     if (routed) visualMidiCollector.addMessageToQueue(message);
+}
+
+juce::File ClassicPlayerAudioProcessor::liveSetStorageFile() const
+{
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("Classic Player").getChildFile("LiveSet.xml");
+}
+
+int ClassicPlayerAudioProcessor::liveSetIndex(int bank, int slot) const
+{
+    return (juce::isPositiveAndBelow(bank, liveSetBankCount)
+            && juce::isPositiveAndBelow(slot, liveSetSlotsPerBank))
+        ? bank * liveSetSlotsPerBank + slot : -1;
+}
+
+void ClassicPlayerAudioProcessor::loadLiveSetState()
+{
+    const auto file = liveSetStorageFile();
+    if (!file.existsAsFile()) return;
+
+    const std::unique_ptr<juce::XmlElement> xml(juce::XmlDocument::parse(file));
+    if (xml == nullptr || !xml->hasTagName("CLASSIC_PLAYER_LIVE_SET")) return;
+
+    const juce::ScopedLock lock(liveSetLock);
+    forEachXmlChildElementWithTagName(*xml, slot, "SLOT")
+    {
+        const auto index = liveSetIndex(slot->getIntAttribute("bank", -1),
+                                        slot->getIntAttribute("slot", -1));
+        if (index >= 0)
+            liveSetPrograms[(size_t) index] = slot->getStringAttribute("program");
+    }
+}
+
+void ClassicPlayerAudioProcessor::saveLiveSetState() const
+{
+    const auto file = liveSetStorageFile();
+    if (file.getParentDirectory().createDirectory().failed()) return;
+
+    juce::XmlElement xml("CLASSIC_PLAYER_LIVE_SET");
+    xml.setAttribute("version", 1);
+    {
+        const juce::ScopedLock lock(liveSetLock);
+        for (int bank = 0; bank < liveSetBankCount; ++bank)
+        {
+            for (int slot = 0; slot < liveSetSlotsPerBank; ++slot)
+            {
+                const auto index = liveSetIndex(bank, slot);
+                const auto& path = liveSetPrograms[(size_t) index];
+                if (path.isEmpty()) continue;
+                auto* item = xml.createNewChildElement("SLOT");
+                item->setAttribute("bank", bank);
+                item->setAttribute("slot", slot);
+                item->setAttribute("program", path);
+            }
+        }
+    }
+    xml.writeTo(file);
+}
+
+juce::File ClassicPlayerAudioProcessor::liveSetSlotProgram(int bank, int slot) const
+{
+    const auto index = liveSetIndex(bank, slot);
+    if (index < 0) return {};
+    const juce::ScopedLock lock(liveSetLock);
+    return juce::File(liveSetPrograms[(size_t) index]);
+}
+
+juce::String ClassicPlayerAudioProcessor::liveSetSlotName(int bank, int slot) const
+{
+    const auto file = liveSetSlotProgram(bank, slot);
+    return file.existsAsFile() ? file.getFileNameWithoutExtension() : juce::String{};
+}
+
+juce::Result ClassicPlayerAudioProcessor::assignLiveSetSlot(int bank, int slot,
+                                                            const juce::File& programFile)
+{
+    const auto index = liveSetIndex(bank, slot);
+    if (index < 0)
+        return juce::Result::fail("Posição inválida no Live Set.");
+    if (!programFile.existsAsFile() || programFile.getFileExtension().toLowerCase() != ".ckprogram")
+        return juce::Result::fail("Selecione uma programação salva válida.");
+
+    {
+        const juce::ScopedLock lock(liveSetLock);
+        liveSetPrograms[(size_t) index] = programFile.getFullPathName();
+    }
+    saveLiveSetState();
+    return juce::Result::ok();
+}
+
+void ClassicPlayerAudioProcessor::clearLiveSetSlot(int bank, int slot)
+{
+    const auto index = liveSetIndex(bank, slot);
+    if (index < 0) return;
+    {
+        const juce::ScopedLock lock(liveSetLock);
+        liveSetPrograms[(size_t) index].clear();
+    }
+    saveLiveSetState();
+}
+
+juce::Result ClassicPlayerAudioProcessor::loadLiveSetSlot(int bank, int slot)
+{
+    const auto program = liveSetSlotProgram(bank, slot);
+    if (!program.existsAsFile())
+        return juce::Result::fail("Esta posição do Live Set não possui uma programação salva.");
+    return loadProgram(program);
 }
 
 juce::Array<juce::File> ClassicPlayerAudioProcessor::savedPrograms() const
