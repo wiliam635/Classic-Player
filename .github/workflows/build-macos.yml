@@ -25,6 +25,9 @@ jobs:
           grep -q "midiLearnChannel" Source/PluginProcessor.cpp
           grep -q "resetMidiLearn" Source/PluginProcessor.cpp
           grep -q "resetMidiLearnButton" Source/PluginEditor.cpp
+          grep -q "refreshExternalInstrumentLibrary" Source/PluginEditor.cpp
+          grep -q "accidentalStyleBox" Source/PluginEditor.cpp
+          grep -q "formatAccidentals" Source/ChordDetector.cpp
           grep -q "cc == 64" Source/PluginProcessor.cpp
           grep -q "externalPeaks" Source/PluginProcessor.cpp
           ! grep -q "isChannelMessage" Source/PluginProcessor.cpp
