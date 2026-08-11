@@ -135,6 +135,11 @@ private:
     void refreshExternalInstrumentLibrary();
     void saveProgram();
     void loadSelectedProgram();
+    void refreshAfterProgramLoad();
+    void showLiveSet(bool show);
+    void refreshLiveSet();
+    void chooseLiveSetSlot(int slot);
+    void loadLiveSetSlot(int slot);
     void addLayer();
     void removeLayer(int layer);
     void layoutLayerStrips();
@@ -154,6 +159,10 @@ private:
     juce::TextButton saveProgramButton { "SALVAR" };
     juce::TextButton loadProgramButton { "CARREGAR" };
     juce::TextButton addLayerButton { "+ LAYER" };
+    juce::TextButton liveSetButton { "LIVE SET" };
+    juce::TextButton editLiveSetButton { "EDITAR LIVE SET" };
+    std::array<juce::TextButton, ClassicPlayerAudioProcessor::liveSetBankCount> liveSetBankButtons;
+    std::array<juce::TextButton, ClassicPlayerAudioProcessor::liveSetSlotsPerBank> liveSetSlotButtons;
     juce::Array<juce::File> programFiles;
     juce::Slider master;
     juce::Label masterLabel;
@@ -178,6 +187,10 @@ private:
     std::array<std::atomic<bool>, 128> heldNotes {};
     int timerTicks = 0;
     int displayedLayerCount = Sf2Engine::defaultLayerCount;
+    int activeLiveSetBank = 0;
+    int activeLiveSetSlot = -1;
+    bool showingLiveSet = false;
+    bool editingLiveSet = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ClassicPlayerAudioProcessorEditor)
 };
