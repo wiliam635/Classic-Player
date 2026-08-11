@@ -814,6 +814,30 @@ juce::String ClassicPlayerAudioProcessor::liveSetSlotName(int bank, int slot) co
     return file.existsAsFile() ? file.getFileNameWithoutExtension() : juce::String{};
 }
 
+juce::String ClassicPlayerAudioProcessor::liveSetSlotLayerSummary(int bank, int slot) const
+{
+    const auto program = liveSetSlotProgram(bank, slot);
+    if (!program.existsAsFile()) return {};
+
+    juce::MemoryBlock data;
+    if (!program.loadFileAsData(data) || data.getSize() == 0) return {};
+    const std::unique_ptr<juce::XmlElement> xml(
+        getXmlFromBinary(data.getData(), static_cast<int>(data.getSize())));
+    if (xml == nullptr) return {};
+
+    juce::StringArray instruments;
+    for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
+    {
+        const auto number = juce::String(layer + 1);
+        auto path = xml->getStringAttribute("externalInstrument" + number);
+        if (path.isEmpty())
+            path = xml->getStringAttribute("sf2Layer" + number);
+        if (path.isNotEmpty())
+            instruments.add(juce::File(path).getFileNameWithoutExtension());
+    }
+    return instruments.joinIntoString(" + ");
+}
+
 juce::Result ClassicPlayerAudioProcessor::assignLiveSetSlot(int bank, int slot,
                                                             const juce::File& programFile)
 {
@@ -846,7 +870,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLiveSetSlot(int bank, int slot)
 {
     const auto program = liveSetSlotProgram(bank, slot);
     if (!program.existsAsFile())
-        return juce::Result::fail("Esta posição do Live Set não possui uma programação salva.");
+        return juce::Result::fail("Esta posicao do Live Set nao possui uma programacao salva.");
     return loadProgram(program);
 }
 
