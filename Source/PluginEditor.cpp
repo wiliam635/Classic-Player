@@ -933,6 +933,40 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     addLayerButton.onClick = [this] { addLayer(); };
     addAndMakeVisible(addLayerButton);
 
+    flatButton(liveSetButton);
+    liveSetButton.onClick = [this] { showLiveSet(!showingLiveSet); };
+    addAndMakeVisible(liveSetButton);
+
+    flatButton(editLiveSetButton);
+    editLiveSetButton.onClick = [this]
+    {
+        editingLiveSet = !editingLiveSet;
+        editLiveSetButton.setButtonText(editingLiveSet ? "CONCLUIR EDIÇÃO" : "EDITAR LIVE SET");
+        refreshLiveSet();
+    };
+    addAndMakeVisible(editLiveSetButton);
+
+    for (int bank = 0; bank < ClassicPlayerAudioProcessor::liveSetBankCount; ++bank)
+    {
+        auto& button = liveSetBankButtons[(size_t) bank];
+        flatButton(button);
+        button.setButtonText("BANCO " + juce::String(bank + 1));
+        button.onClick = [this, bank] { activeLiveSetBank = bank; refreshLiveSet(); };
+        addAndMakeVisible(button);
+    }
+    for (int slot = 0; slot < ClassicPlayerAudioProcessor::liveSetSlotsPerBank; ++slot)
+    {
+        auto& button = liveSetSlotButtons[(size_t) slot];
+        flatButton(button);
+        button.onClick = [this, slot]
+        {
+            if (editingLiveSet) chooseLiveSetSlot(slot);
+            else loadLiveSetSlot(slot);
+        };
+        addAndMakeVisible(button);
+    }
+    showLiveSet(false);
+
     master.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     master.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 64, 18);
     master.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(teal));
@@ -1042,6 +1076,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
 
     auto addLayerArea = header.removeFromRight(100);
     addLayerButton.setBounds(addLayerArea.withSizeKeepingCentre(88, 32));
+    liveSetButton.setBounds(addLayerArea.withSizeKeepingCentre(88, 32));
     header.removeFromRight(4);
 
     auto accidentalArea = header.removeFromRight(126);
@@ -1068,11 +1103,38 @@ void ClassicPlayerAudioProcessorEditor::resized()
     area.removeFromTop(12);
     auto footer = area.removeFromBottom(54);
 
-    auto keyboardArea = area.removeFromBottom(112);
-    keyboard.setBounds(keyboardArea.reduced(0, 4));
-    area.removeFromBottom(8);
-    layerViewport.setBounds(area);
-    layoutLayerStrips();
+    if (showingLiveSet)
+    {
+        auto liveArea = area.reduced(4, 2);
+        auto banks = liveArea.removeFromTop(38);
+        const auto bankWidth = banks.getWidth() / ClassicPlayerAudioProcessor::liveSetBankCount;
+        for (int bank = 0; bank < ClassicPlayerAudioProcessor::liveSetBankCount; ++bank)
+            liveSetBankButtons[(size_t) bank].setBounds(
+                banks.removeFromLeft(bank == ClassicPlayerAudioProcessor::liveSetBankCount - 1
+                                     ? banks.getWidth() : bankWidth).reduced(2, 2));
+
+        auto editArea = liveArea.removeFromBottom(46);
+        editLiveSetButton.setBounds(editArea.removeFromRight(168).reduced(2, 4));
+        const auto tileHeight = liveArea.getHeight() / 2;
+        const auto tileWidth = liveArea.getWidth() / 4;
+        for (int slot = 0; slot < ClassicPlayerAudioProcessor::liveSetSlotsPerBank; ++slot)
+        {
+            const auto column = slot % 4;
+            const auto row = slot / 4;
+            liveSetSlotButtons[(size_t) slot].setBounds(
+                liveArea.getX() + column * tileWidth + 3,
+                liveArea.getY() + row * tileHeight + 3,
+                tileWidth - 6, tileHeight - 6);
+        }
+    }
+    else
+    {
+        auto keyboardArea = area.removeFromBottom(112);
+        keyboard.setBounds(keyboardArea.reduced(0, 4));
+        area.removeFromBottom(8);
+        layerViewport.setBounds(area);
+        layoutLayerStrips();
+    }
 
     activationPanel.setBounds(getLocalBounds());
     auto activation = activationPanel.getLocalBounds().withSizeKeepingCentre(
@@ -1188,6 +1250,109 @@ void ClassicPlayerAudioProcessorEditor::saveProgram()
 
     programBox.setText(savedFile.getFileNameWithoutExtension(), juce::dontSendNotification);
     refreshProgramLibrary();
+}
+
+void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
+{
+    showingLiveSet = show;
+    liveSetButton.setButtonText(show ? "VOLTAR" : "LIVE SET");
+    layerViewport.setVisible(!show);
+    keyboard.setVisible(!show);
+    programBox.setVisible(!show);
+    saveProgramButton.setVisible(!show);
+    loadProgramButton.setVisible(!show);
+    addLayerButton.setVisible(!show);
+
+    editLiveSetButton.setVisible(show);
+    for (auto& button : liveSetBankButtons) button.setVisible(show);
+    for (auto& button : liveSetSlotButtons) button.setVisible(show);
+    if (show) refreshLiveSet();
+    resized();
+}
+
+void ClassicPlayerAudioProcessorEditor::refreshLiveSet()
+{
+    for (int bank = 0; bank < ClassicPlayerAudioProcessor::liveSetBankCount; ++bank)
+    {
+        auto& button = liveSetBankButtons[(size_t) bank];
+        button.setToggleState(bank == activeLiveSetBank, juce::dontSendNotification);
+        button.setColour(juce::TextButton::buttonColourId,
+                         bank == activeLiveSetBank ? juce::Colour(teal) : juce::Colour(panelLight));
+        button.setColour(juce::TextButton::textColourOffId,
+                         bank == activeLiveSetBank ? juce::Colour(background) : juce::Colour(text));
+    }
+
+    for (int slot = 0; slot < ClassicPlayerAudioProcessor::liveSetSlotsPerBank; ++slot)
+    {
+        auto& button = liveSetSlotButtons[(size_t) slot];
+        const auto name = classicProcessor.liveSetSlotName(activeLiveSetBank, slot);
+        button.setButtonText(juce::String(slot + 1).paddedLeft('0', 2)
+                             + "\n" + (name.isNotEmpty() ? name : "SEM PERFORMANCE"));
+        const auto active = slot == activeLiveSetSlot;
+        button.setColour(juce::TextButton::buttonColourId,
+                         active ? juce::Colour(0xff173d42) : juce::Colour(panel));
+        button.setColour(juce::TextButton::buttonOnColourId, juce::Colour(teal));
+        button.setColour(juce::TextButton::textColourOffId, juce::Colour(text));
+        button.setTooltip(editingLiveSet ? "Clique para atribuir uma programação salva"
+                                         : (name.isEmpty() ? "Posição vazia" : "Carregar " + name));
+    }
+}
+
+void ClassicPlayerAudioProcessorEditor::chooseLiveSetSlot(int slot)
+{
+    refreshProgramLibrary();
+    juce::PopupMenu menu;
+    menu.addItem(1, "Limpar posição");
+    menu.addSeparator();
+    for (int item = 0; item < programFiles.size(); ++item)
+        menu.addItem(item + 2, programFiles.getReference(item).getFileNameWithoutExtension());
+
+    const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
+    const auto bank = activeLiveSetBank;
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(liveSetSlotButtons[(size_t) slot]),
+        [safe, bank, slot](int selected)
+        {
+            if (safe == nullptr || selected == 0) return;
+            if (selected == 1)
+                safe->classicProcessor.clearLiveSetSlot(bank, slot);
+            else
+            {
+                const auto item = selected - 2;
+                if (juce::isPositiveAndBelow(item, safe->programFiles.size()))
+                {
+                    const auto result = safe->classicProcessor.assignLiveSetSlot(
+                        bank, slot, safe->programFiles.getReference(item));
+                    if (result.failed())
+                        juce::AlertWindow::showMessageBoxAsync(
+                            juce::MessageBoxIconType::WarningIcon,
+                            "Live Set", result.getErrorMessage());
+                }
+            }
+            safe->refreshLiveSet();
+        });
+}
+
+void ClassicPlayerAudioProcessorEditor::refreshAfterProgramLoad()
+{
+    refreshAfterProgramLoad();
+}
+
+void ClassicPlayerAudioProcessorEditor::loadLiveSetSlot(int slot)
+{
+    for (auto& strip : strips)
+        if (strip != nullptr)
+            strip->closeExternalInstrumentEditor();
+
+    const auto result = classicProcessor.loadLiveSetSlot(activeLiveSetBank, slot);
+    if (result.failed())
+    {
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                               "Live Set", result.getErrorMessage());
+        return;
+    }
+    activeLiveSetSlot = slot;
+    refreshAfterProgramLoad();
+    refreshLiveSet();
 }
 
 void ClassicPlayerAudioProcessorEditor::loadSelectedProgram()
