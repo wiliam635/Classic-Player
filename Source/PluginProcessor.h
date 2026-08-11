@@ -82,6 +82,16 @@ public:
     juce::Result saveProgram(const juce::String& name, juce::File& savedFile);
     juce::Result loadProgram(const juce::File& programFile);
 
+    // Live Set stores only references to saved programs. Instruments are loaded
+    // only when a Performance is selected, never when a bank is opened.
+    static constexpr int liveSetBankCount = 8;
+    static constexpr int liveSetSlotsPerBank = 8;
+    juce::File liveSetSlotProgram(int bank, int slot) const;
+    juce::String liveSetSlotName(int bank, int slot) const;
+    juce::Result assignLiveSetSlot(int bank, int slot, const juce::File& programFile);
+    void clearLiveSetSlot(int bank, int slot);
+    juce::Result loadLiveSetSlot(int bank, int slot);
+
     void refreshActivation();
     bool isActivated() const { return activated.load(); }
     juce::AudioProcessorValueTreeState parameters;
@@ -94,6 +104,10 @@ private:
     void processMidiControlMessage(const juce::MidiMessage&, int layerFilter = -1);
     void renderExternalInstruments(juce::AudioBuffer<float>&, const juce::MidiBuffer&);
     void appendExternalMidi(int layer, const juce::MidiBuffer&, juce::MidiBuffer&);
+    int liveSetIndex(int bank, int slot) const;
+    juce::File liveSetStorageFile() const;
+    void loadLiveSetState();
+    void saveLiveSetState() const;
 
     Sf2Engine engine;
     std::array<ExternalInstrumentHost, Sf2Engine::layerCount> externalInstruments;
@@ -123,6 +137,8 @@ private:
     juce::MidiInputCallback* standaloneDefaultMidiCallback = nullptr;
     juce::String registeredMidiFingerprint;
     juce::StringArray registeredMidiInputIds;
+    std::array<juce::String, liveSetBankCount * liveSetSlotsPerBank> liveSetPrograms;
+    mutable juce::CriticalSection liveSetLock;
     std::atomic<bool> activated { false };
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ClassicPlayerAudioProcessor)
 };
