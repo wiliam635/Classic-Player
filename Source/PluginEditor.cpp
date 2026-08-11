@@ -1285,7 +1285,9 @@ void ClassicPlayerAudioProcessorEditor::refreshLiveSet()
         auto& button = liveSetBankButtons[(size_t) bank];
         button.setToggleState(bank == activeLiveSetBank, juce::dontSendNotification);
         button.setColour(juce::TextButton::buttonColourId,
-                         bank == activeLiveSetBank ? juce::Colour(teal) : juce::Colour(panelLight));
+                         bank == activeLiveSetBank ? juce::Colour(yellow) : juce::Colour(panelLight));
+        button.setColour(juce::TextButton::buttonOnColourId,
+                         bank == activeLiveSetBank ? juce::Colour(yellow) : juce::Colour(teal));
         button.setColour(juce::TextButton::textColourOffId,
                          bank == activeLiveSetBank ? juce::Colour(background) : juce::Colour(text));
     }
@@ -1342,7 +1344,16 @@ void ClassicPlayerAudioProcessorEditor::chooseLiveSetSlot(int slot)
 
 void ClassicPlayerAudioProcessorEditor::refreshAfterProgramLoad()
 {
-    refreshAfterProgramLoad();
+    displayedLayerCount = classicProcessor.activeLayerCount();
+    for (int i = 0; i < Sf2Engine::layerCount; ++i)
+    {
+        if (strips[(size_t) i] == nullptr) continue;
+        strips[(size_t) i]->setVisible(i < displayedLayerCount);
+        strips[(size_t) i]->refresh();
+    }
+    addLayerButton.setEnabled(displayedLayerCount < Sf2Engine::layerCount);
+    layoutLayerStrips();
+    applyMixerStates();
 }
 
 void ClassicPlayerAudioProcessorEditor::loadLiveSetSlot(int slot)
