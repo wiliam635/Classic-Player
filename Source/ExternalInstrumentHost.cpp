@@ -145,3 +145,20 @@ juce::AudioProcessorEditor* ExternalInstrumentHost::createEditor()
 {
     return hasEditor() ? instance->createEditorIfNeeded() : nullptr;
 }
+
+juce::MemoryBlock ExternalInstrumentHost::getState() const
+{
+    juce::MemoryBlock state;
+    if (instance != nullptr)
+        instance->getStateInformation(state);
+    return state;
+}
+
+bool ExternalInstrumentHost::restoreState(const juce::MemoryBlock& state)
+{
+    if (instance == nullptr || state.getSize() == 0)
+        return false;
+
+    instance->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+    return true;
+}
