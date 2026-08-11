@@ -5,5 +5,8 @@
 
 namespace ClassicChordDetector
 {
+enum class AccidentalStyle { mixed, sharp, flat };
+
 juce::String detect(const std::vector<int>& midiNotes);
+juce::String formatAccidentals(const juce::String& chord, AccidentalStyle style);
 }
