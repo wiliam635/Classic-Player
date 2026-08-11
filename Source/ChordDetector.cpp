@@ -176,6 +176,24 @@ std::optional<juce::String> upperStructure(const std::vector<int>& notes, int ba
 }
 }
 
+juce::String ClassicChordDetector::formatAccidentals(const juce::String& chord,
+                                                   AccidentalStyle style)
+{
+    auto result = chord;
+    switch (style)
+    {
+        case AccidentalStyle::mixed:
+            break;
+        case AccidentalStyle::sharp:
+            result = result.replace("Eb", "D#").replace("Ab", "G#").replace("Bb", "A#");
+            break;
+        case AccidentalStyle::flat:
+            result = result.replace("C#", "Db").replace("F#", "Gb");
+            break;
+    }
+    return result;
+}
+
 juce::String ClassicChordDetector::detect(const std::vector<int>& midiNotes)
 {
     auto notes = midiNotes;
