@@ -14,8 +14,8 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor()
         for (auto& channel : layer) channel.store(-1);
     for (auto& layer : pendingCCValues)
         for (auto& value : layer) value.store(-1.0f);
-    for (auto& cc : learnedLiveSetBankCCs) cc.store(-1, std::memory_order_relaxed);
-    for (auto& channel : learnedLiveSetBankChannels) channel.store(-1, std::memory_order_relaxed);
+    for (auto& cc : learnedLiveSetSlotCCs) cc.store(-1, std::memory_order_relaxed);
+    for (auto& channel : learnedLiveSetSlotChannels) channel.store(-1, std::memory_order_relaxed);
     for (auto& peak : externalPeaks) peak.store(0.0f);
     for (int layer = Sf2Engine::defaultLayerCount; layer < Sf2Engine::layerCount; ++layer)
     {
@@ -114,7 +114,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
     for (const auto metadata : midi)
     {
-        processLiveSetBankMidiMessage(metadata.getMessage());
+        processLiveSetSlotMidiMessage(metadata.getMessage());
         processMidiControlMessage(metadata.getMessage());
     }
 
@@ -489,7 +489,7 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
         }
 }
 
-void ClassicPlayerAudioProcessor::processLiveSetBankMidiMessage(const juce::MidiMessage& message)
+void ClassicPlayerAudioProcessor::processLiveSetSlotMidiMessage(const juce::MidiMessage& message)
 {
     if (!message.isController()) return;
 
@@ -500,82 +500,86 @@ void ClassicPlayerAudioProcessor::processLiveSetBankMidiMessage(const juce::Midi
     // CC64 remains exclusively assigned to sustain, including in the Live Set.
     if (cc == 64) return;
 
-    auto learningBank = activeLiveSetBankMidiLearn.load(std::memory_order_relaxed);
-    if (juce::isPositiveAndBelow(learningBank, liveSetBankCount))
+    auto learningSlot = activeLiveSetSlotMidiLearn.load(std::memory_order_relaxed);
+    if (juce::isPositiveAndBelow(learningSlot, liveSetSlotCount))
     {
-        learnedLiveSetBankCCs[(size_t) learningBank].store(cc, std::memory_order_relaxed);
-        learnedLiveSetBankChannels[(size_t) learningBank].store(channel, std::memory_order_relaxed);
-        activeLiveSetBankMidiLearn.compare_exchange_strong(learningBank, -1,
+        learnedLiveSetSlotCCs[(size_t) learningSlot].store(cc, std::memory_order_relaxed);
+        learnedLiveSetSlotChannels[(size_t) learningSlot].store(channel, std::memory_order_relaxed);
+        activeLiveSetSlotMidiLearn.compare_exchange_strong(learningSlot, -1,
                                                             std::memory_order_relaxed);
-        liveSetBankMidiLearnChanged.store(true, std::memory_order_release);
-        juce::Logger::writeToLog("Live Set MIDI Learn: banco="
-                                 + juce::String(learningBank + 1)
+        liveSetSlotMidiLearnChanged.store(true, std::memory_order_release);
+        juce::Logger::writeToLog("Live Set MIDI Learn: performance="
+                                 + juce::String(learningSlot + 1)
                                  + " CC=" + juce::String(cc)
                                  + " canal=" + juce::String(channel));
         return;
     }
 
-    // Buttons/pads normally send 127 on press and 0 on release.  Requiring
-    // the upper half prevents a release message from changing the bank.
+    // Buttons/pads normally send 127 on press and 0 on release. Requiring
+    // the upper half prevents the release message from recalling a program.
     if (value < 64) return;
-    for (int bank = 0; bank < liveSetBankCount; ++bank)
+    for (int slot = 0; slot < liveSetSlotCount; ++slot)
     {
-        const auto learnedCC = learnedLiveSetBankCCs[(size_t) bank].load(std::memory_order_relaxed);
-        const auto learnedChannel = learnedLiveSetBankChannels[(size_t) bank].load(std::memory_order_relaxed);
+        const auto learnedCC = learnedLiveSetSlotCCs[(size_t) slot].load(std::memory_order_relaxed);
+        const auto learnedChannel = learnedLiveSetSlotChannels[(size_t) slot].load(std::memory_order_relaxed);
         if (learnedCC == cc && (learnedChannel < 0 || learnedChannel == channel))
         {
-            requestedLiveSetBank.store(bank, std::memory_order_relaxed);
+            requestedLiveSetSlot.store(slot, std::memory_order_relaxed);
             break;
         }
     }
 }
 
-void ClassicPlayerAudioProcessor::beginLiveSetBankMidiLearn(int bank)
+void ClassicPlayerAudioProcessor::beginLiveSetSlotMidiLearn(int bank, int slot)
 {
-    if (!juce::isPositiveAndBelow(bank, liveSetBankCount)) return;
-    activeLiveSetBankMidiLearn.store(bank, std::memory_order_relaxed);
+    const auto index = liveSetIndex(bank, slot);
+    if (index < 0) return;
+    activeLiveSetSlotMidiLearn.store(index, std::memory_order_relaxed);
 }
 
-void ClassicPlayerAudioProcessor::resetLiveSetBankMidiLearn(int bank)
+void ClassicPlayerAudioProcessor::resetLiveSetSlotMidiLearn(int bank, int slot)
 {
-    if (!juce::isPositiveAndBelow(bank, liveSetBankCount)) return;
-    learnedLiveSetBankCCs[(size_t) bank].store(-1, std::memory_order_relaxed);
-    learnedLiveSetBankChannels[(size_t) bank].store(-1, std::memory_order_relaxed);
-    auto learningBank = activeLiveSetBankMidiLearn.load(std::memory_order_relaxed);
-    if (learningBank == bank)
-        activeLiveSetBankMidiLearn.compare_exchange_strong(learningBank, -1,
+    const auto index = liveSetIndex(bank, slot);
+    if (index < 0) return;
+    learnedLiveSetSlotCCs[(size_t) index].store(-1, std::memory_order_relaxed);
+    learnedLiveSetSlotChannels[(size_t) index].store(-1, std::memory_order_relaxed);
+    auto learningSlot = activeLiveSetSlotMidiLearn.load(std::memory_order_relaxed);
+    if (learningSlot == index)
+        activeLiveSetSlotMidiLearn.compare_exchange_strong(learningSlot, -1,
                                                             std::memory_order_relaxed);
     saveLiveSetState();
 }
 
-int ClassicPlayerAudioProcessor::liveSetBankMidiLearnCC(int bank) const
+int ClassicPlayerAudioProcessor::liveSetSlotMidiLearnCC(int bank, int slot) const
 {
-    return juce::isPositiveAndBelow(bank, liveSetBankCount)
-        ? learnedLiveSetBankCCs[(size_t) bank].load(std::memory_order_relaxed) : -1;
+    const auto index = liveSetIndex(bank, slot);
+    return index >= 0 ? learnedLiveSetSlotCCs[(size_t) index].load(std::memory_order_relaxed) : -1;
 }
 
-int ClassicPlayerAudioProcessor::liveSetBankMidiLearnChannel(int bank) const
+int ClassicPlayerAudioProcessor::liveSetSlotMidiLearnChannel(int bank, int slot) const
 {
-    return juce::isPositiveAndBelow(bank, liveSetBankCount)
-        ? learnedLiveSetBankChannels[(size_t) bank].load(std::memory_order_relaxed) : -1;
+    const auto index = liveSetIndex(bank, slot);
+    return index >= 0 ? learnedLiveSetSlotChannels[(size_t) index].load(std::memory_order_relaxed) : -1;
 }
 
-bool ClassicPlayerAudioProcessor::isLiveSetBankMidiLearning(int bank) const
+bool ClassicPlayerAudioProcessor::isLiveSetSlotMidiLearning(int bank, int slot) const
 {
-    return activeLiveSetBankMidiLearn.load(std::memory_order_relaxed) == bank;
+    const auto index = liveSetIndex(bank, slot);
+    return index >= 0
+        && activeLiveSetSlotMidiLearn.load(std::memory_order_relaxed) == index;
 }
 
-int ClassicPlayerAudioProcessor::consumeRequestedLiveSetBank()
+int ClassicPlayerAudioProcessor::consumeRequestedLiveSetSlot()
 {
-    return requestedLiveSetBank.exchange(-1, std::memory_order_relaxed);
+    return requestedLiveSetSlot.exchange(-1, std::memory_order_relaxed);
 }
 
-bool ClassicPlayerAudioProcessor::consumeLiveSetBankMidiLearnChanged()
+bool ClassicPlayerAudioProcessor::consumeLiveSetSlotMidiLearnChanged()
 {
-    return liveSetBankMidiLearnChanged.exchange(false, std::memory_order_acq_rel);
+    return liveSetSlotMidiLearnChanged.exchange(false, std::memory_order_acq_rel);
 }
 
-void ClassicPlayerAudioProcessor::saveLiveSetBankMidiLearnState() const
+void ClassicPlayerAudioProcessor::saveLiveSetSlotMidiLearnState() const
 {
     saveLiveSetState();
 }
@@ -714,7 +718,7 @@ void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* sou
                                                              const juce::MidiMessage& message)
 {
     const auto sourceId = source != nullptr ? source->getIdentifier() : juce::String{};
-    processLiveSetBankMidiMessage(message);
+    processLiveSetSlotMidiMessage(message);
     const juce::ScopedLock guard(midiRoutingLock);
     auto routed = false;
     for (int layer = 0; layer < activeLayerCount(); ++layer)
@@ -754,16 +758,11 @@ void ClassicPlayerAudioProcessor::loadLiveSetState()
     {
         const auto index = liveSetIndex(slot->getIntAttribute("bank", -1),
                                         slot->getIntAttribute("slot", -1));
-        if (index >= 0)
-            liveSetPrograms[(size_t) index] = slot->getStringAttribute("program");
-    }
-    forEachXmlChildElementWithTagName(*xml, bank, "BANK")
-    {
-        const auto index = bank->getIntAttribute("index", -1);
-        if (!juce::isPositiveAndBelow(index, liveSetBankCount)) continue;
-        learnedLiveSetBankCCs[(size_t) index].store(bank->getIntAttribute("cc", -1),
+        if (index < 0) continue;
+        liveSetPrograms[(size_t) index] = slot->getStringAttribute("program");
+        learnedLiveSetSlotCCs[(size_t) index].store(slot->getIntAttribute("cc", -1),
                                                      std::memory_order_relaxed);
-        learnedLiveSetBankChannels[(size_t) index].store(bank->getIntAttribute("channel", -1),
+        learnedLiveSetSlotChannels[(size_t) index].store(slot->getIntAttribute("channel", -1),
                                                           std::memory_order_relaxed);
     }
 }
@@ -783,22 +782,19 @@ void ClassicPlayerAudioProcessor::saveLiveSetState() const
             {
                 const auto index = liveSetIndex(bank, slot);
                 const auto& path = liveSetPrograms[(size_t) index];
-                if (path.isEmpty()) continue;
+                const auto cc = learnedLiveSetSlotCCs[(size_t) index].load(std::memory_order_relaxed);
+                if (path.isEmpty() && cc < 0) continue;
                 auto* item = xml.createNewChildElement("SLOT");
                 item->setAttribute("bank", bank);
                 item->setAttribute("slot", slot);
                 item->setAttribute("program", path);
+                if (cc >= 0)
+                {
+                    item->setAttribute("cc", cc);
+                    item->setAttribute("channel",
+                        learnedLiveSetSlotChannels[(size_t) index].load(std::memory_order_relaxed));
+                }
             }
-        }
-        for (int bank = 0; bank < liveSetBankCount; ++bank)
-        {
-            const auto cc = learnedLiveSetBankCCs[(size_t) bank].load(std::memory_order_relaxed);
-            if (cc < 0) continue;
-            auto* item = xml.createNewChildElement("BANK");
-            item->setAttribute("index", bank);
-            item->setAttribute("cc", cc);
-            item->setAttribute("channel",
-                learnedLiveSetBankChannels[(size_t) bank].load(std::memory_order_relaxed));
         }
     }
     xml.writeTo(file);
