@@ -913,6 +913,47 @@ juce::Result ClassicPlayerAudioProcessor::saveProgram(const juce::String& reques
     return juce::Result::ok();
 }
 
+juce::Result ClassicPlayerAudioProcessor::deleteProgram(const juce::File& programFile)
+{
+    const auto programsFolder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                                    .getChildFile("Classic Player").getChildFile("Programs");
+    if (!programFile.existsAsFile() || programFile.getParentDirectory() != programsFolder
+        || programFile.getFileExtension().toLowerCase() != ".ckprogram")
+        return juce::Result::fail("Selecione uma programacao salva valida.");
+
+    if (!programFile.deleteFile())
+        return juce::Result::fail("Nao foi possivel excluir a programacao.");
+
+    bool liveSetChanged = false;
+    {
+        const juce::ScopedLock lock(liveSetLock);
+        for (auto& path : liveSetPrograms)
+        {
+            if (path == programFile.getFullPathName())
+            {
+                path.clear();
+                liveSetChanged = true;
+            }
+        }
+    }
+    if (liveSetChanged) saveLiveSetState();
+    return juce::Result::ok();
+}
+
+void ClassicPlayerAudioProcessor::stopAllSoundsBeforeProgramChange()
+{
+    const juce::ScopedLock callbackLock(getCallbackLock());
+    engine.stopAllSounds();
+    for (auto& instrument : externalInstruments)
+        instrument.stopAllSounds();
+
+    const juce::ScopedLock midiLock(midiRoutingLock);
+    for (auto& collector : routedMidiCollectors) collector.reset(currentSampleRate);
+    for (auto& buffer : routedMidiBuffers) buffer.clear();
+    visualMidiCollector.reset(currentSampleRate);
+    visualMidiBuffer.clear();
+}
+
 juce::Result ClassicPlayerAudioProcessor::loadProgram(const juce::File& programFile)
 {
     if (!programFile.existsAsFile() || programFile.getFileExtension().toLowerCase() != ".ckprogram")
@@ -925,6 +966,9 @@ juce::Result ClassicPlayerAudioProcessor::loadProgram(const juce::File& programF
     if (auto xml = getXmlFromBinary(data.getData(), static_cast<int>(data.getSize())); xml == nullptr)
         return juce::Result::fail("A programação está corrompida ou é incompatível.");
 
+    // A performance change is a hard stop: sustained notes from the previous
+    // SF2 or external instrument must never remain audible in the next one.
+    stopAllSoundsBeforeProgramChange();
     setStateInformation(data.getData(), static_cast<int>(data.getSize()));
     return juce::Result::ok();
 }
