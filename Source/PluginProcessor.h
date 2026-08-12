@@ -80,6 +80,7 @@ public:
     // from DAW session state, and work on both macOS and Windows.
     juce::Array<juce::File> savedPrograms() const;
     juce::Result saveProgram(const juce::String& name, juce::File& savedFile);
+    juce::Result deleteProgram(const juce::File& programFile);
     juce::Result loadProgram(const juce::File& programFile);
 
     // Live Set stores only references to saved programs. Instruments are loaded
@@ -109,6 +110,7 @@ public:
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameters();
     void restoreLayerPaths();
+    void stopAllSoundsBeforeProgramChange();
     void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage&) override;
     void processMidiControlMessage(const juce::MidiMessage&, int layerFilter = -1);
     void processLiveSetSlotMidiMessage(const juce::MidiMessage&);
