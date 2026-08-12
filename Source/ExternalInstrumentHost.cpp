@@ -129,6 +129,24 @@ void ExternalInstrumentHost::releaseResources()
         instance->releaseResources();
 }
 
+void ExternalInstrumentHost::stopAllSounds()
+{
+    if (instance == nullptr) return;
+
+    juce::MidiBuffer panic;
+    for (int channel = 1; channel <= 16; ++channel)
+    {
+        panic.addEvent(juce::MidiMessage::controllerEvent(channel, 64, 0), 0);
+        panic.addEvent(juce::MidiMessage::allNotesOff(channel), 0);
+        panic.addEvent(juce::MidiMessage::allSoundOff(channel), 0);
+    }
+
+    juce::AudioBuffer<float> discard(2, juce::jmax(1, preparedBlockSize));
+    discard.clear();
+    instance->processBlock(discard, panic);
+    instance->reset();
+}
+
 void ExternalInstrumentHost::process(juce::AudioBuffer<float>& output, juce::MidiBuffer& midi)
 {
     output.clear();
