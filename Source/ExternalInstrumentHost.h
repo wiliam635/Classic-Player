@@ -29,6 +29,8 @@ public:
 
     void prepare(double sampleRate, int maximumBlockSize);
     void releaseResources();
+    // Forces a hosted VST/AU to release sustained notes before program changes.
+    void stopAllSounds();
     void process(juce::AudioBuffer<float>& output, juce::MidiBuffer& midi);
 
     bool hasEditor() const;
