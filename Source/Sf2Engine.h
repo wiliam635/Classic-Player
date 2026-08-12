@@ -46,6 +46,8 @@ public:
     void reset();
     juce::Result loadSoundFont(int layer, const juce::File& file);
     void unloadSoundFont(int layer);
+    // Sends an explicit panic to every synth before a performance is replaced.
+    void stopAllSounds();
     void process(juce::AudioBuffer<float>& output, const juce::MidiBuffer& midi,
                  const std::array<juce::MidiBuffer, layerCount>* routedMidi = nullptr);
 
