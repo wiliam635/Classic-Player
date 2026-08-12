@@ -134,6 +134,7 @@ private:
     void refreshProgramLibrary();
     void refreshExternalInstrumentLibrary();
     void saveProgram();
+    void deleteSelectedProgram();
     void loadSelectedProgram();
     void refreshAfterProgramLoad();
     void showLiveSet(bool show);
@@ -157,6 +158,7 @@ private:
     juce::ComboBox accidentalStyleBox;
     juce::ComboBox programBox;
     juce::TextButton saveProgramButton { "SALVAR" };
+    juce::TextButton deleteProgramButton { "EXCLUIR" };
     juce::TextButton loadProgramButton { "CARREGAR" };
     juce::TextButton addLayerButton { "+ LAYER" };
     juce::TextButton liveSetButton { "LIVE SET" };
