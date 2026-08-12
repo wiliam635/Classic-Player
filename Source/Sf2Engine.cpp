@@ -143,6 +143,22 @@ juce::Result Sf2Engine::loadSoundFont(int index, const juce::File& file)
     return juce::Result::ok();
 }
 
+void Sf2Engine::stopAllSounds()
+{
+    const juce::ScopedLock guard(lock);
+    for (auto& layer : layers)
+    {
+        if (layer.synth == nullptr) continue;
+        for (int channel = 0; channel < 16; ++channel)
+        {
+            fluid_synth_cc(layer.synth.get(), channel, 64, 0);
+            fluid_synth_all_notes_off(layer.synth.get(), channel);
+            fluid_synth_all_sounds_off(layer.synth.get(), channel);
+        }
+        layer.monoNote = -1;
+    }
+}
+
 void Sf2Engine::unloadSoundFont(int index)
 {
     if (!juce::isPositiveAndBelow(index, layerCount)) return;
