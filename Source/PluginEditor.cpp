@@ -922,10 +922,13 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     programBox.setTextWhenNothingSelected("NOVO PROGRAMA");
     addAndMakeVisible(programBox);
     flatButton(saveProgramButton);
+    flatButton(deleteProgramButton);
     flatButton(loadProgramButton);
     saveProgramButton.onClick = [this] { saveProgram(); };
+    deleteProgramButton.onClick = [this] { deleteSelectedProgram(); };
     loadProgramButton.onClick = [this] { loadSelectedProgram(); };
     addAndMakeVisible(saveProgramButton);
+    addAndMakeVisible(deleteProgramButton);
     addAndMakeVisible(loadProgramButton);
     refreshProgramLibrary();
 
@@ -1112,6 +1115,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
 
     auto programRow = chordArea.removeFromBottom(28);
     loadProgramButton.setBounds(programRow.removeFromRight(76).reduced(1, 0));
+    deleteProgramButton.setBounds(programRow.removeFromRight(70).reduced(1, 0));
     saveProgramButton.setBounds(programRow.removeFromRight(62).reduced(1, 0));
     programBox.setBounds(programRow.reduced(1, 0));
 
@@ -1289,6 +1293,30 @@ void ClassicPlayerAudioProcessorEditor::saveProgram()
     refreshProgramLibrary();
 }
 
+void ClassicPlayerAudioProcessorEditor::deleteSelectedProgram()
+{
+    const auto selected = programBox.getSelectedItemIndex();
+    if (!juce::isPositiveAndBelow(selected, programFiles.size()))
+    {
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                               "Excluir programacao",
+                                               "Seleciona uma programacao salva na lista.");
+        return;
+    }
+
+    const auto result = classicProcessor.deleteProgram(programFiles.getReference(selected));
+    if (result.failed())
+    {
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                               "Falha ao excluir programacao", result.getErrorMessage());
+        return;
+    }
+
+    programBox.clear(juce::dontSendNotification);
+    refreshProgramLibrary();
+    refreshLiveSet();
+}
+
 void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
 {
     showingLiveSet = show;
@@ -1297,6 +1325,7 @@ void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
     keyboard.setVisible(!show);
     programBox.setVisible(!show);
     saveProgramButton.setVisible(!show);
+    deleteProgramButton.setVisible(!show);
     loadProgramButton.setVisible(!show);
     addLayerButton.setVisible(!show);
 
