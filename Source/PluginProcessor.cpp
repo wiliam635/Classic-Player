@@ -17,6 +17,7 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor()
     for (auto& cc : learnedLiveSetSlotCCs) cc.store(-1, std::memory_order_relaxed);
     for (auto& channel : learnedLiveSetSlotChannels) channel.store(-1, std::memory_order_relaxed);
     for (auto& peak : externalPeaks) peak.store(0.0f);
+    for (auto& type : layerTypes) type.store(static_cast<int>(LayerType::sf2));
     for (int layer = Sf2Engine::defaultLayerCount; layer < Sf2Engine::layerCount; ++layer)
     {
         auto config = engine.getConfig(layer);
@@ -73,6 +74,7 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     currentSampleRate = sampleRate;
     currentBlockSize = samplesPerBlock;
     engine.prepare(sampleRate, samplesPerBlock);
+    dx7Engine.prepare(sampleRate, samplesPerBlock);
     for (auto& hosted : externalInstruments) hosted.prepare(sampleRate, samplesPerBlock);
     for (auto& scratch : externalScratch)
         scratch.setSize(2, samplesPerBlock, false, true, true);
@@ -88,6 +90,7 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
 void ClassicPlayerAudioProcessor::releaseResources()
 {
     engine.reset();
+    dx7Engine.stopAllSounds();
     for (auto& hosted : externalInstruments) hosted.releaseResources();
     outputLimiter.reset();
 }
@@ -144,9 +147,11 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         config.reverb = parameters.getRawParameterValue(prefix + "Reverb")->load();
         config.compressor = parameters.getRawParameterValue(prefix + "Comp")->load();
         engine.setConfig(i, config);
+        dx7LayerConfigs[(size_t) i] = config;
     }
     engine.process(buffer, midi, &routedMidiBuffers);
     renderExternalInstruments(buffer, midi);
+    dx7Engine.process(buffer, midi, &routedMidiBuffers, dx7LayerConfigs);
     buffer.applyGain(parameters.getRawParameterValue("master")->load() / 100.0f);
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> context(block);
@@ -165,7 +170,12 @@ juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::F
         return juce::Result::fail("Layer inválida.");
     externalInstruments[(size_t) layer].unload();
     const auto result = engine.loadSoundFont(layer, file);
-    if (result.wasOk()) savedPaths[(size_t) layer] = file.getFullPathName();
+    if (result.wasOk())
+    {
+        dx7Engine.unload(layer);
+        layerTypes[(size_t) layer].store(static_cast<int>(LayerType::sf2));
+        savedPaths[(size_t) layer] = file.getFullPathName();
+    }
     return result;
 }
 
@@ -197,6 +207,8 @@ juce::Result ClassicPlayerAudioProcessor::loadExternalInstrument(int layer, cons
         // The callback lock is already held here; do not call unloadSoundFont(),
         // which also locks it. Loading an external instrument replaces the SF2.
         engine.unloadSoundFont(layer);
+        dx7Engine.unload(layer);
+        layerTypes[(size_t) layer].store(static_cast<int>(LayerType::vst));
         savedPaths[(size_t) layer].clear();
     }
     return result;
@@ -318,7 +330,47 @@ float ClassicPlayerAudioProcessor::layerPeak(int layer) const
                       externalPeaks[(size_t) layer].load(std::memory_order_relaxed));
 }
 
-bool ClassicPlayerAudioProcessor::addLayer()
+ClassicPlayerAudioProcessor::LayerType ClassicPlayerAudioProcessor::layerType(int layer) const
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return LayerType::sf2;
+    const auto value = layerTypes[(size_t) layer].load(std::memory_order_relaxed);
+    return static_cast<LayerType>(juce::jlimit(0, 2, value));
+}
+
+void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
+{
+    if (juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
+        layerTypes[(size_t) layer].store(static_cast<int>(type), std::memory_order_relaxed);
+}
+
+juce::Result ClassicPlayerAudioProcessor::loadDx7(int layer, const juce::File& file)
+{
+    const juce::ScopedLock callbackLock(getCallbackLock());
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
+        return juce::Result::fail("Layer inválida.");
+    externalInstruments[(size_t) layer].unload();
+    engine.unloadSoundFont(layer);
+    const auto result = dx7Engine.loadSysEx(layer, file);
+    if (result.wasOk())
+    {
+        savedPaths[(size_t) layer].clear();
+        layerTypes[(size_t) layer].store(static_cast<int>(LayerType::dx7), std::memory_order_relaxed);
+    }
+    return result;
+}
+
+void ClassicPlayerAudioProcessor::unloadDx7(int layer)
+{
+    const juce::ScopedLock callbackLock(getCallbackLock());
+    if (juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
+        dx7Engine.unload(layer);
+}
+
+bool ClassicPlayerAudioProcessor::hasDx7(int layer) const { return dx7Engine.isLoaded(layer); }
+juce::String ClassicPlayerAudioProcessor::dx7PatchName(int layer) const { return dx7Engine.patchName(layer); }
+juce::String ClassicPlayerAudioProcessor::dx7Path(int layer) const { return dx7Engine.path(layer); }
+
+bool ClassicPlayerAudioProcessor::addLayer(LayerType type)
 {
     auto count = activeLayers.load(std::memory_order_relaxed);
     while (count < Sf2Engine::layerCount)
@@ -328,6 +380,7 @@ bool ClassicPlayerAudioProcessor::addLayer()
             auto config = engine.getConfig(count);
             config.enabled = true;
             engine.setConfig(count, config);
+            layerTypes[(size_t) count].store(static_cast<int>(type), std::memory_order_relaxed);
             return true;
         }
     }
@@ -944,6 +997,7 @@ void ClassicPlayerAudioProcessor::stopAllSoundsBeforeProgramChange()
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
     engine.stopAllSounds();
+    dx7Engine.stopAllSounds();
     for (auto& instrument : externalInstruments)
         instrument.stopAllSounds();
 
@@ -980,6 +1034,9 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
     state.setProperty("activeLayers", activeLayerCount(), nullptr);
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
+        state.setProperty("layerType" + juce::String(i + 1),
+                          layerTypes[(size_t) i].load(std::memory_order_relaxed), nullptr);
+        state.setProperty("dx7Layer" + juce::String(i + 1), dx7Engine.path(i), nullptr);
         const auto key = "sf2Layer" + juce::String(i + 1);
         const auto path = engine.getSoundFontPath(i);
         state.setProperty(key, path.isNotEmpty() ? path : savedPaths[(size_t) i], nullptr);
@@ -1076,9 +1133,13 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             parameters.replaceState(state);
             for (int i = 0; i < Sf2Engine::layerCount; ++i)
             {
-                savedPaths[(size_t) i] = state.getProperty("sf2Layer" + juce::String(i + 1)).toString();
-                const auto externalPath = state.getProperty(
-                    "externalInstrument" + juce::String(i + 1)).toString();
+                const auto savedType = juce::jlimit(0, 2, static_cast<int>(state.getProperty(
+                    "layerType" + juce::String(i + 1), static_cast<int>(LayerType::sf2))));
+                layerTypes[(size_t) i].store(savedType, std::memory_order_relaxed);
+                savedPaths[(size_t) i] = savedType == static_cast<int>(LayerType::sf2)
+                    ? state.getProperty("sf2Layer" + juce::String(i + 1)).toString() : juce::String{};
+                const auto externalPath = savedType == static_cast<int>(LayerType::vst)
+                    ? state.getProperty("externalInstrument" + juce::String(i + 1)).toString() : juce::String{};
                 const auto externalStateText = state.getProperty(
                     "externalInstrumentState" + juce::String(i + 1)).toString();
                 juce::MemoryBlock externalState;
@@ -1121,6 +1182,16 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     // selected program.
                     engine.unloadSoundFont(i);
                 }
+                dx7Engine.unload(i);
+                if (savedType == static_cast<int>(LayerType::dx7))
+                {
+                    const auto dx7Path = state.getProperty("dx7Layer" + juce::String(i + 1)).toString();
+                    if (dx7Path.isNotEmpty())
+                    {
+                        const auto result = dx7Engine.loadSysEx(i, juce::File(dx7Path));
+                        if (result.failed()) juce::Logger::writeToLog("Não foi possível restaurar DX7: " + result.getErrorMessage());
+                    }
+                }
                 auto config = engine.getConfig(i);
                 config.lowNote = state.getProperty("low" + juce::String(i), 0);
                 config.highNote = state.getProperty("high" + juce::String(i), 127);
@@ -1159,7 +1230,9 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     // resources before the next Live Set selection.
                     engine.unloadSoundFont(i);
                     externalInstruments[(size_t) i].unload();
+                    dx7Engine.unload(i);
                     savedPaths[(size_t) i].clear();
+                    layerTypes[(size_t) i].store(static_cast<int>(LayerType::sf2), std::memory_order_relaxed);
                 }
                 engine.setConfig(i, config);
             }
@@ -1171,7 +1244,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
 void ClassicPlayerAudioProcessor::restoreLayerPaths()
 {
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
-        if (savedPaths[(size_t) i].isNotEmpty())
+        if (layerType(i) == LayerType::sf2 && savedPaths[(size_t) i].isNotEmpty())
             engine.loadSoundFont(i, juce::File(savedPaths[(size_t) i]));
 }
 
