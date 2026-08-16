@@ -17,6 +17,8 @@ jobs:
           test -f Source/ExternalInstrumentHost.h
           test -f Source/ExternalInstrumentHost.cpp
           test -f Source/PluginProcessor.cpp
+  test -f Source/Dx7Engine.h
+  test -f Source/Dx7Engine.cpp
           grep -q "juce_audio_processors/juce_audio_processors.h" Source/ExternalInstrumentHost.h
           ! grep -q "JuceHeader.h" Source/ExternalInstrumentHost.h
           grep -q "loadExternalInstrument" Source/PluginProcessor.h
@@ -40,6 +42,11 @@ jobs:
           grep -q "if (externalEditorWindow != nullptr)" Source/PluginEditor.cpp
           grep -q "externalEditorWindow->toFront(true)" Source/PluginEditor.cpp
           grep -q "ExternalInstrumentHost.cpp" CMakeLists.txt
+  grep -q "Dx7Engine.cpp" CMakeLists.txt
+  grep -q "startAudioRecording" Source/PluginProcessor.cpp
+  grep -q "stopAudioRecording" Source/PluginProcessor.cpp
+  grep -q "WavAudioFormat" Source/PluginProcessor.cpp
+  grep -q "recordingButton" Source/PluginEditor.cpp
 
       - name: Set up vcpkg
         uses: lukka/run-vcpkg@v11
