@@ -4,6 +4,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
 #include "Sf2Engine.h"
+#include "Dx7Engine.h"
 #include "ExternalInstrumentHost.h"
 #include <atomic>
 
@@ -12,6 +13,9 @@ class ClassicPlayerAudioProcessor final : public juce::AudioProcessor,
 {
 public:
     enum class LearnTarget { volume = 0, cutoff, reverb, compressor, release, count };
+    // A source is chosen only when a new layer is created. The initial four
+    // layers are SF2 by design.
+    enum class LayerType { sf2 = 0, vst, dx7 };
     ClassicPlayerAudioProcessor();
     ~ClassicPlayerAudioProcessor() override;
 
@@ -57,8 +61,15 @@ public:
     void sendLayerController(int layer, int controller, int value);
     float layerPeak(int layer) const;
     int activeLayerCount() const { return activeLayers.load(std::memory_order_relaxed); }
-    bool addLayer();
+    bool addLayer(LayerType type = LayerType::sf2);
     bool removeLayer(int layer);
+    LayerType layerType(int layer) const;
+    void setLayerType(int layer, LayerType type);
+    juce::Result loadDx7(int layer, const juce::File& file);
+    void unloadDx7(int layer);
+    bool hasDx7(int layer) const;
+    juce::String dx7PatchName(int layer) const;
+    juce::String dx7Path(int layer) const;
     void beginMidiLearn(int layer, LearnTarget target);
     void resetMidiLearn(int layer);
     int midiLearnCC(int layer, LearnTarget target) const;
@@ -122,6 +133,10 @@ private:
     void saveLiveSetState() const;
 
     Sf2Engine engine;
+    Dx7Engine dx7Engine;
+    // Stored independently from the audio parameters so switching a source
+    // never changes the layer routing, split or controller assignments.
+    std::array<std::atomic<int>, Sf2Engine::layerCount> layerTypes {};
     std::array<ExternalInstrumentHost, Sf2Engine::layerCount> externalInstruments;
     juce::Array<juce::File> externalInstrumentLibrary;
     std::array<juce::AudioBuffer<float>, Sf2Engine::layerCount> externalScratch;
