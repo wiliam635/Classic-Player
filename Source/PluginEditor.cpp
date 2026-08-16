@@ -1241,7 +1241,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
     auto footer = area.removeFromBottom(54);
     auto recordingArea = footer.removeFromTop(27);
     recordingButton.setBounds(recordingArea.removeFromLeft(128).reduced(1, 0));
-    recordingStatus.setBounds(recordingArea.reduced(6, 0));
+    recordingStatus.setBounds(recordingArea.removeFromLeft(210).reduced(6, 0));
     recordingButton.setVisible(!showingLiveSet);
     recordingStatus.setVisible(!showingLiveSet);
 
