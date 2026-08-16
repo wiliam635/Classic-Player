@@ -30,6 +30,8 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor()
 
 ClassicPlayerAudioProcessor::~ClassicPlayerAudioProcessor()
 {
+    stopAudioRecording();
+    recordingThread.stopThread(2000);
     if (standaloneDeviceManager != nullptr)
     {
         for (const auto& identifier : registeredMidiInputIds)
@@ -156,6 +158,64 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> context(block);
     outputLimiter.process(context);
+
+    // The threaded writer queues this final post-limiter mix. It never performs
+    // disk I/O directly in the real-time audio callback.
+    if (auto* writer = activeRecordingWriter.load(std::memory_order_acquire))
+        writer->write(buffer.getArrayOfReadPointers(), buffer.getNumSamples());
+}
+
+juce::Result ClassicPlayerAudioProcessor::startAudioRecording()
+{
+    const juce::ScopedLock callbackLock(getCallbackLock());
+    if (activeRecordingWriter.load(std::memory_order_acquire) != nullptr)
+        return juce::Result::fail("A gravação já está em andamento.");
+
+    auto folder = juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
+                      .getChildFile("Classic Player Recordings");
+    if (!folder.createDirectory())
+        return juce::Result::fail("Não foi possível criar a pasta de gravações na Área de Trabalho.");
+
+    const auto timestamp = juce::Time::getCurrentTime().formatted("%Y-%m-%d %H-%M-%S");
+    recordingFile = folder.getNonexistentChildFile("Classic Player " + timestamp, ".wav", false);
+    auto stream = std::unique_ptr<juce::FileOutputStream>(recordingFile.createOutputStream());
+    if (stream == nullptr)
+        return juce::Result::fail("Não foi possível criar o arquivo WAV.");
+
+    juce::WavAudioFormat wav;
+    auto writer = std::unique_ptr<juce::AudioFormatWriter>(wav.createWriterFor(
+        stream.release(), currentSampleRate, 2, 24, {}, 0));
+    if (writer == nullptr)
+    {
+        recordingFile.deleteFile();
+        recordingFile = {};
+        return juce::Result::fail("Não foi possível iniciar o codificador WAV.");
+    }
+
+    if (!recordingThread.isThreadRunning()) recordingThread.startThread(3);
+    recordingWriter = std::make_unique<juce::AudioFormatWriter::ThreadedWriter>(
+        writer.release(), recordingThread, 32768);
+    activeRecordingWriter.store(recordingWriter.get(), std::memory_order_release);
+    juce::Logger::writeToLog("Gravação WAV iniciada: " + recordingFile.getFullPathName());
+    return juce::Result::ok();
+}
+
+void ClassicPlayerAudioProcessor::stopAudioRecording()
+{
+    const juce::ScopedLock callbackLock(getCallbackLock());
+    if (activeRecordingWriter.exchange(nullptr, std::memory_order_acq_rel) == nullptr) return;
+    recordingWriter.reset();
+    juce::Logger::writeToLog("Gravação WAV finalizada: " + recordingFile.getFullPathName());
+}
+
+bool ClassicPlayerAudioProcessor::isAudioRecording() const noexcept
+{
+    return activeRecordingWriter.load(std::memory_order_acquire) != nullptr;
+}
+
+juce::String ClassicPlayerAudioProcessor::recordingFilePath() const
+{
+    return recordingFile.getFullPathName();
 }
 
 void ClassicPlayerAudioProcessor::refreshActivation()
