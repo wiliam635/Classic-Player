@@ -1,5 +1,6 @@
 #include "Dx7Engine.h"
 #include <cmath>
+#include <cstdint>
 
 void Dx7Engine::prepare(double newSampleRate, int)
 {
