@@ -178,7 +178,7 @@ juce::Result ClassicPlayerAudioProcessor::startAudioRecording()
 
     const auto timestamp = juce::Time::getCurrentTime().formatted("%Y-%m-%d %H-%M-%S");
     recordingFile = folder.getNonexistentChildFile("Classic Player " + timestamp, ".wav", false);
-    auto stream = std::unique_ptr<juce::FileOutputStream>(recordingFile.createOutputStream());
+    auto stream = recordingFile.createOutputStream();
     if (stream == nullptr)
         return juce::Result::fail("Não foi possível criar o arquivo WAV.");
 
