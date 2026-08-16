@@ -243,7 +243,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     addAndMakeVisible(layerTitle);
 
     for (auto* button : { &muteButton, &soloButton, &resetButton, &removeButton, &loadButton,
-                          &externalInstrumentButton, &openExternalEditorButton, &deleteLibraryButton })
+                          &externalInstrumentButton, &dx7Button, &openExternalEditorButton, &deleteLibraryButton })
     {
         flatButton(*button);
         addAndMakeVisible(*button);
@@ -263,9 +263,11 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     };
     loadButton.onClick = [this] { chooseSoundFont(); };
     externalInstrumentButton.onClick = [this] { chooseExternalInstrument(); };
+    dx7Button.onClick = [this] { chooseDx7(); };
     openExternalEditorButton.onClick = [this] { openExternalInstrumentEditor(); };
     externalInstrumentButton.setTooltip("Escolher manualmente um instrumento VST3/AU");
     openExternalEditorButton.setTooltip("Abrir a janela de configuração do instrumento virtual");
+    dx7Button.setTooltip("Carregar banco ou voz DX7 em formato SysEx (.syx)");
     const auto canHost = processor.supportsExternalInstruments();
     externalInstrumentButton.setVisible(canHost);
     openExternalEditorButton.setVisible(canHost);
@@ -481,24 +483,37 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     resetButton.setBounds(top.removeFromRight(52).reduced(1));
     removeButton.setBounds(top.removeFromRight(24).reduced(1));
     area.removeFromTop(5);
-    loadButton.setBounds(area.removeFromTop(28));
-    area.removeFromTop(4);
-    auto externalLibraryRow = area.removeFromTop(28);
-    externalInstrumentBox.setBounds(externalLibraryRow.reduced(1, 0));
-    area.removeFromTop(4);
-    auto externalRow = area.removeFromTop(28);
-    externalInstrumentButton.setBounds(externalRow.removeFromLeft(externalRow.getWidth() / 2).reduced(1, 0));
-    openExternalEditorButton.setBounds(externalRow.reduced(1, 0));
-    area.removeFromTop(4);
-    categoryBox.setBounds(area.removeFromTop(28));
-    area.removeFromTop(4);
-    auto libraryRow = area.removeFromTop(28);
-    deleteLibraryButton.setBounds(libraryRow.removeFromRight(76).reduced(1, 0));
-    libraryBox.setBounds(libraryRow.reduced(0, 0));
-    area.removeFromTop(4);
-    fileLabel.setBounds(area.removeFromTop(27));
-    area.removeFromTop(4);
-    presetBox.setBounds(area.removeFromTop(28));
+    const auto type = processor.layerType(index);
+    if (type == ClassicPlayerAudioProcessor::LayerType::sf2)
+    {
+        loadButton.setBounds(area.removeFromTop(28));
+        area.removeFromTop(4);
+        categoryBox.setBounds(area.removeFromTop(28));
+        area.removeFromTop(4);
+        auto libraryRow = area.removeFromTop(28);
+        deleteLibraryButton.setBounds(libraryRow.removeFromRight(76).reduced(1, 0));
+        libraryBox.setBounds(libraryRow);
+        area.removeFromTop(4);
+        fileLabel.setBounds(area.removeFromTop(27));
+        area.removeFromTop(4);
+        presetBox.setBounds(area.removeFromTop(28));
+    }
+    else if (type == ClassicPlayerAudioProcessor::LayerType::vst)
+    {
+        externalInstrumentBox.setBounds(area.removeFromTop(28));
+        area.removeFromTop(4);
+        auto externalRow = area.removeFromTop(28);
+        externalInstrumentButton.setBounds(externalRow.removeFromLeft(externalRow.getWidth() / 2).reduced(1, 0));
+        openExternalEditorButton.setBounds(externalRow.reduced(1, 0));
+        area.removeFromTop(4);
+        fileLabel.setBounds(area.removeFromTop(27));
+    }
+    else
+    {
+        dx7Button.setBounds(area.removeFromTop(28));
+        area.removeFromTop(4);
+        fileLabel.setBounds(area.removeFromTop(27));
+    }
     area.removeFromTop(10);
 
     auto controls = area;
@@ -621,6 +636,46 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseExternalInstrument()
         });
 }
 
+void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseDx7()
+{
+    fileChooser = std::make_unique<juce::FileChooser>("Escolha um arquivo DX7 SysEx",
+                                                      juce::File{}, "*.syx;*.SYX");
+    fileChooser->launchAsync(juce::FileBrowserComponent::openMode
+                             | juce::FileBrowserComponent::canSelectFiles,
+        [this](const juce::FileChooser& chooser)
+        {
+            const auto file = chooser.getResult();
+            if (file == juce::File{}) return;
+            dx7Button.setEnabled(false);
+            fileLabel.setText("Carregando DX7...", juce::dontSendNotification);
+            const auto result = processor.loadDx7(index, file);
+            dx7Button.setEnabled(true);
+            if (result.failed())
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                    "Falha ao carregar DX7", result.getErrorMessage());
+            refresh();
+        });
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
+{
+    const auto type = processor.layerType(index);
+    const auto isSf2 = type == ClassicPlayerAudioProcessor::LayerType::sf2;
+    const auto isVst = type == ClassicPlayerAudioProcessor::LayerType::vst;
+    const auto isDx7 = type == ClassicPlayerAudioProcessor::LayerType::dx7;
+    loadButton.setVisible(isSf2);
+    categoryBox.setVisible(isSf2);
+    libraryBox.setVisible(isSf2);
+    deleteLibraryButton.setVisible(isSf2);
+    presetBox.setVisible(isSf2);
+    externalInstrumentBox.setVisible(isVst && processor.supportsExternalInstruments());
+    externalInstrumentButton.setVisible(isVst && processor.supportsExternalInstruments());
+    openExternalEditorButton.setVisible(isVst && processor.supportsExternalInstruments());
+    dx7Button.setVisible(isDx7);
+    fileLabel.setVisible(true);
+    resized();
+}
+
 void ClassicPlayerAudioProcessorEditor::LayerStrip::closeExternalInstrumentEditor()
 {
     // The plug-in owns this native editor. It must be gone before a saved
@@ -680,6 +735,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resetLayer()
     externalEditorWindow.reset();
     processor.unloadSoundFont(index);
     processor.unloadExternalInstrument(index);
+    processor.unloadDx7(index);
+    processor.setLayerType(index, ClassicPlayerAudioProcessor::LayerType::sf2);
     muted = solo = false;
     muteButton.setToggleState(false, juce::dontSendNotification);
     soloButton.setToggleState(false, juce::dontSendNotification);
@@ -746,20 +803,33 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::rebuildLibrary()
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
 {
+    const auto type = processor.layerType(index);
     const auto path = processor.soundFontPath(index);
     const auto externalName = processor.externalInstrumentName(index);
-    if (path.isNotEmpty())
+    const auto dx7Name = processor.dx7PatchName(index);
+    if (type == ClassicPlayerAudioProcessor::LayerType::sf2)
     {
-        const auto parentCategory = juce::File(path).getParentDirectory().getFileName();
-        const auto categories = ClassicPlayerAudioProcessor::soundFontCategories();
-        const auto categoryIndex = categories.indexOf(parentCategory);
-        if (categoryIndex >= 0) categoryBox.setSelectedId(categoryIndex + 1, juce::dontSendNotification);
+        if (path.isNotEmpty())
+        {
+            const auto parentCategory = juce::File(path).getParentDirectory().getFileName();
+            const auto categories = ClassicPlayerAudioProcessor::soundFontCategories();
+            const auto categoryIndex = categories.indexOf(parentCategory);
+            if (categoryIndex >= 0) categoryBox.setSelectedId(categoryIndex + 1, juce::dontSendNotification);
+        }
+        rebuildLibrary();
+        rebuildPresets();
     }
-    rebuildLibrary();
-    rebuildExternalInstrumentLibrary();
-    const auto hasSource = path.isNotEmpty() || externalName.isNotEmpty();
-    fileLabel.setText(path.isNotEmpty() ? juce::File(path).getFileName()
-                                        : (externalName.isNotEmpty() ? externalName : "Sem SoundFont"),
+    else if (type == ClassicPlayerAudioProcessor::LayerType::vst)
+        rebuildExternalInstrumentLibrary();
+
+    const auto hasSource = type == ClassicPlayerAudioProcessor::LayerType::sf2 ? path.isNotEmpty()
+        : type == ClassicPlayerAudioProcessor::LayerType::vst ? externalName.isNotEmpty()
+        : processor.hasDx7(index);
+    fileLabel.setText(type == ClassicPlayerAudioProcessor::LayerType::sf2
+                        ? (path.isNotEmpty() ? juce::File(path).getFileName() : "Sem SoundFont")
+                        : type == ClassicPlayerAudioProcessor::LayerType::vst
+                            ? (externalName.isNotEmpty() ? externalName : "Sem VST")
+                            : (dx7Name.isNotEmpty() ? dx7Name : "Sem DX7"),
                       juce::dontSendNotification);
     fileLabel.setColour(juce::Label::backgroundColourId,
                         hasSource ? juce::Colour(yellow) : juce::Colour(0xff0b1218));
@@ -775,7 +845,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
     lowNote.setSelectedId(config.lowNote + 1, juce::dontSendNotification);
     highNote.setSelectedId(config.highNote + 1, juce::dontSendNotification);
     velocityCurve.setSelectedId(config.velocityCurve + 1, juce::dontSendNotification);
-    rebuildPresets();
+    updateSourceTypeVisibility();
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::applyConfig()
@@ -933,7 +1003,21 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     refreshProgramLibrary();
 
     flatButton(addLayerButton);
-    addLayerButton.onClick = [this] { addLayer(); };
+    addLayerButton.onClick = [this]
+    {
+        juce::PopupMenu menu;
+        menu.addItem(1, "Layer SF2");
+        menu.addItem(2, "Layer VST", classicProcessor.supportsExternalInstruments());
+        menu.addItem(3, "Layer DX7 (.syx)");
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addLayerButton),
+            [safeThis = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this)](int choice)
+            {
+                if (safeThis == nullptr || choice == 0) return;
+                safeThis->addLayer(choice == 1 ? ClassicPlayerAudioProcessor::LayerType::sf2
+                                   : choice == 2 ? ClassicPlayerAudioProcessor::LayerType::vst
+                                                 : ClassicPlayerAudioProcessor::LayerType::dx7);
+            });
+    };
     addAndMakeVisible(addLayerButton);
 
     flatButton(liveSetButton);
@@ -1503,10 +1587,10 @@ void ClassicPlayerAudioProcessorEditor::applyMixerStates()
     }
 }
 
-void ClassicPlayerAudioProcessorEditor::addLayer()
+void ClassicPlayerAudioProcessorEditor::addLayer(ClassicPlayerAudioProcessor::LayerType type)
 {
     const auto newLayerIndex = classicProcessor.activeLayerCount();
-    if (!classicProcessor.addLayer()) return;
+    if (!classicProcessor.addLayer(type)) return;
     displayedLayerCount = classicProcessor.activeLayerCount();
     if (strips[(size_t) newLayerIndex] != nullptr)
     {
