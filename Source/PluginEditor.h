@@ -164,6 +164,8 @@ private:
     juce::TextButton deleteProgramButton { "EXCLUIR" };
     juce::TextButton loadProgramButton { "CARREGAR" };
     juce::TextButton addLayerButton { "+ LAYER" };
+    juce::TextButton recordingButton { "● GRAVAR WAV" };
+    juce::Label recordingStatus;
     juce::TextButton liveSetButton { "LIVE SET" };
     juce::TextButton editLiveSetButton { "EDITAR LIVE SET" };
     std::array<juce::TextButton, ClassicPlayerAudioProcessor::liveSetBankCount> liveSetBankButtons;
@@ -197,6 +199,7 @@ private:
     int activeLiveSetSlot = -1;
     bool showingLiveSet = false;
     bool editingLiveSet = false;
+    juce::int64 recordingStartedAtMs = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ClassicPlayerAudioProcessorEditor)
 };
