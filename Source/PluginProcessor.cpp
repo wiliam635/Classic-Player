@@ -188,11 +188,11 @@ juce::Result ClassicPlayerAudioProcessor::startAudioRecording()
     if (writer == nullptr)
     {
         recordingFile.deleteFile();
-        recordingFile = {};
+        recordingFile = juce::File{};
         return juce::Result::fail("Não foi possível iniciar o codificador WAV.");
     }
 
-    if (!recordingThread.isThreadRunning()) recordingThread.startThread(3);
+    if (!recordingThread.isThreadRunning()) recordingThread.startThread();
     recordingWriter = std::make_unique<juce::AudioFormatWriter::ThreadedWriter>(
         writer.release(), recordingThread, 32768);
     activeRecordingWriter.store(recordingWriter.get(), std::memory_order_release);
@@ -470,7 +470,7 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         else if (sourceType == LayerType::dx7 && sourceDx7Path.isNotEmpty())
             dx7Engine.loadSysEx(layer, juce::File(sourceDx7Path));
         else if (sourceType == LayerType::vst)
-            externalInstruments[(size_t) layer].moveFrom(externalInstruments[(size_t) last);
+            externalInstruments[(size_t) layer].moveFrom(externalInstruments[(size_t) last]);
 
         engine.setConfig(layer, sourceConfig);
         savedPaths[(size_t) layer] = sourceType == LayerType::sf2
