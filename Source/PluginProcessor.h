@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
+#include <juce_audio_formats/juce_audio_formats.h>
 #include "Sf2Engine.h"
 #include "Dx7Engine.h"
 #include "ExternalInstrumentHost.h"
@@ -70,6 +71,12 @@ public:
     bool hasDx7(int layer) const;
     juce::String dx7PatchName(int layer) const;
     juce::String dx7Path(int layer) const;
+
+    // Records the final stereo mix to the Desktop without blocking the audio callback.
+    juce::Result startAudioRecording();
+    void stopAudioRecording();
+    bool isAudioRecording() const noexcept;
+    juce::String recordingFilePath() const;
     void beginMidiLearn(int layer, LearnTarget target);
     void resetMidiLearn(int layer);
     int midiLearnCC(int layer, LearnTarget target) const;
@@ -146,6 +153,10 @@ private:
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;
     juce::dsp::Limiter<float> outputLimiter;
+    juce::TimeSliceThread recordingThread { "Classic Player WAV Writer" };
+    std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> recordingWriter;
+    std::atomic<juce::AudioFormatWriter::ThreadedWriter*> activeRecordingWriter { nullptr };
+    juce::File recordingFile;
     std::array<juce::String, Sf2Engine::layerCount> savedPaths;
     static constexpr int learnTargetCount = static_cast<int>(LearnTarget::count);
     // A MIDI controller is identified by CC *and* channel. Some keyboards
