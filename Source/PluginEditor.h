@@ -60,6 +60,8 @@ private:
     private:
         void chooseSoundFont();
         void chooseExternalInstrument();
+        void chooseDx7();
+        void updateSourceTypeVisibility();
         void openExternalInstrumentEditor();
         void deleteSelectedSoundFont();
         void resetLayer();
@@ -87,6 +89,7 @@ private:
         juce::TextButton removeButton { "X" };
         juce::TextButton loadButton { "IMPORTAR SF2" };
         juce::TextButton externalInstrumentButton { "CARREGAR VST" };
+        juce::TextButton dx7Button { "CARREGAR DX7" };
         juce::TextButton openExternalEditorButton { "ABRIR EDITOR" };
         juce::ComboBox externalInstrumentBox;
         juce::TextButton deleteLibraryButton { "EXCLUIR SF2" };
@@ -141,7 +144,7 @@ private:
     void refreshLiveSet();
     void chooseLiveSetSlot(int slot);
     void loadLiveSetSlot(int slot);
-    void addLayer();
+    void addLayer(ClassicPlayerAudioProcessor::LayerType type = ClassicPlayerAudioProcessor::LayerType::sf2);
     void removeLayer(int layer);
     void layoutLayerStrips();
     void activate();
