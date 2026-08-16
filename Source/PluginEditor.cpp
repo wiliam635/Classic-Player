@@ -1020,6 +1020,36 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     };
     addAndMakeVisible(addLayerButton);
 
+    flatButton(recordingButton);
+    recordingButton.setTooltip("Gravar a saída completa do Classic Player em WAV");
+    recordingButton.onClick = [this]
+    {
+        if (classicProcessor.isAudioRecording())
+        {
+            classicProcessor.stopAudioRecording();
+            recordingStatus.setText("WAV salvo na Área de Trabalho", juce::dontSendNotification);
+            recordingButton.setButtonText("● GRAVAR WAV");
+            return;
+        }
+
+        const auto result = classicProcessor.startAudioRecording();
+        if (result.failed())
+        {
+            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                   "Não foi possível gravar", result.getErrorMessage());
+            return;
+        }
+        recordingStartedAtMs = juce::Time::currentTimeMillis();
+        recordingStatus.setText("GRAVANDO 00:00", juce::dontSendNotification);
+        recordingButton.setButtonText("■ PARAR");
+    };
+    addAndMakeVisible(recordingButton);
+    recordingStatus.setJustificationType(juce::Justification::centredLeft);
+    recordingStatus.setColour(juce::Label::textColourId, juce::Colour(mutedText));
+    recordingStatus.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+    recordingStatus.setText("WAV: Área de Trabalho", juce::dontSendNotification);
+    addAndMakeVisible(recordingStatus);
+
     flatButton(liveSetButton);
     liveSetButton.onClick = [this] { showLiveSet(!showingLiveSet); };
     addAndMakeVisible(liveSetButton);
@@ -1209,6 +1239,11 @@ void ClassicPlayerAudioProcessorEditor::resized()
 
     area.removeFromTop(12);
     auto footer = area.removeFromBottom(54);
+    auto recordingArea = footer.removeFromTop(27);
+    recordingButton.setBounds(recordingArea.removeFromLeft(128).reduced(1, 0));
+    recordingStatus.setBounds(recordingArea.reduced(6, 0));
+    recordingButton.setVisible(!showingLiveSet);
+    recordingStatus.setVisible(!showingLiveSet);
 
     if (showingLiveSet)
     {
@@ -1300,6 +1335,15 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
             if (strip != nullptr) strip->refreshMidiDevices();
     }
     masterMeter.setLevel(std::sqrt(juce::jlimit(0.0f, 1.0f, masterLevel)));
+
+    if (classicProcessor.isAudioRecording())
+    {
+        const auto elapsed = juce::jmax<juce::int64>(0, juce::Time::currentTimeMillis() - recordingStartedAtMs) / 1000;
+        recordingStatus.setText("GRAVANDO " + juce::String(elapsed / 60).paddedLeft('0', 2)
+                                + ":" + juce::String(elapsed % 60).paddedLeft('0', 2),
+                                juce::dontSendNotification);
+        recordingButton.setButtonText("■ PARAR");
+    }
 }
 
 void ClassicPlayerAudioProcessorEditor::handleNoteOn(juce::MidiKeyboardState*, int, int note, float)
