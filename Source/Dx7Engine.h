@@ -4,6 +4,7 @@
 #include <juce_core/juce_core.h>
 #include "Sf2Engine.h"
 #include <array>
+#include <cstdint>
 
 // Lightweight native DX7-compatible SysEx reader and six-operator FM player.
 // It accepts Yamaha DX7 .syx banks and keeps the player independent of GPL code.
