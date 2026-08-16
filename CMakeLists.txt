@@ -137,6 +137,7 @@ target_link_libraries(ClassicPlayer PRIVATE
     ${CLASSIC_PLAYER_FLUID_TARGET}
     OpenSSL::Crypto
     juce::juce_audio_utils
+    juce::juce_audio_formats
     juce::juce_dsp
     juce::juce_gui_extra
     PUBLIC
