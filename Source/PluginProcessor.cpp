@@ -391,30 +391,44 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return false;
-    auto count = activeLayers.load(std::memory_order_relaxed);
+    const auto count = activeLayers.load(std::memory_order_relaxed);
     if (layer >= count || count <= 1) return false;
-    if (layer != count - 1)
+
+    const auto last = count - 1;
+    if (layer != last)
     {
-        const auto sourcePath = engine.getSoundFontPath(count - 1);
-        const auto sourceConfig = engine.getConfig(count - 1);
-        engine.unloadSoundFont(layer);
-        if (sourcePath.isNotEmpty()) engine.loadSoundFont(layer, juce::File(sourcePath));
-        engine.setConfig(layer, sourceConfig);
-        savedPaths[(size_t) layer] = savedPaths[(size_t) (count - 1)];
-        layerMidiDeviceIds[(size_t) layer] = layerMidiDeviceIds[(size_t) (count - 1)];
-        externalInstruments[(size_t) layer].moveFrom(externalInstruments[(size_t) (count - 1)]);
-    }
-    else
-    {
+        const auto sourceType = layerType(last);
+        const auto sourcePath = engine.getSoundFontPath(last);
+        const auto sourceDx7Path = dx7Engine.path(last);
+        const auto sourceConfig = engine.getConfig(last);
+
         externalInstruments[(size_t) layer].unload();
+        engine.unloadSoundFont(layer);
+        dx7Engine.unload(layer);
+        if (sourceType == LayerType::sf2 && sourcePath.isNotEmpty())
+            engine.loadSoundFont(layer, juce::File(sourcePath));
+        else if (sourceType == LayerType::dx7 && sourceDx7Path.isNotEmpty())
+            dx7Engine.loadSysEx(layer, juce::File(sourceDx7Path));
+        else if (sourceType == LayerType::vst)
+            externalInstruments[(size_t) layer].moveFrom(externalInstruments[(size_t) last);
+
+        engine.setConfig(layer, sourceConfig);
+        savedPaths[(size_t) layer] = sourceType == LayerType::sf2
+            ? savedPaths[(size_t) last] : juce::String{};
+        layerMidiDeviceIds[(size_t) layer] = layerMidiDeviceIds[(size_t) last];
+        layerTypes[(size_t) layer].store(static_cast<int>(sourceType), std::memory_order_relaxed);
     }
-    engine.unloadSoundFont(count - 1);
-    auto disabled = engine.getConfig(count - 1);
+
+    externalInstruments[(size_t) last].unload();
+    engine.unloadSoundFont(last);
+    dx7Engine.unload(last);
+    auto disabled = engine.getConfig(last);
     disabled.enabled = false;
-    engine.setConfig(count - 1, disabled);
-    savedPaths[(size_t) (count - 1)].clear();
-    layerMidiDeviceIds[(size_t) (count - 1)].clear();
-    activeLayers.store(count - 1, std::memory_order_relaxed);
+    engine.setConfig(last, disabled);
+    savedPaths[(size_t) last].clear();
+    layerMidiDeviceIds[(size_t) last].clear();
+    layerTypes[(size_t) last].store(static_cast<int>(LayerType::sf2), std::memory_order_relaxed);
+    activeLayers.store(last, std::memory_order_relaxed);
     return true;
 }
 
