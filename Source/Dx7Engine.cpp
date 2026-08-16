@@ -14,7 +14,7 @@ juce::String Dx7Engine::decodeName(const uint8_t* data, int size)
     for (int i = 0; i < size; ++i)
     {
         const auto c = data[i] & 0x7f;
-        if (c >= 32 && c <= 126) name << juce::String::charToString((juce_wchar) c);
+        if (c >= 32 && c <= 126) name << juce::String::charToString((juce::juce_wchar) c);
     }
     return name.trim();
 }
