@@ -123,8 +123,19 @@ juce::Result Sf2Engine::loadSoundFont(int index, const juce::File& file)
     if (!layer.synth)
         createSynth(layer);
 
+    // A new program/layer must never inherit held notes or sustain from the
+    // previous SoundFont. This is especially audible with long pad releases.
     if (layer.soundFontId >= 0)
+    {
+        for (int channel = 0; channel < 16; ++channel)
+        {
+            fluid_synth_cc(layer.synth.get(), channel, 64, 0);
+            fluid_synth_all_notes_off(layer.synth.get(), channel);
+            fluid_synth_all_sounds_off(layer.synth.get(), channel);
+        }
+        layer.monoNote = -1;
         fluid_synth_sfunload(layer.synth.get(), layer.soundFontId, 1);
+    }
 
     const auto id = fluid_synth_sfload(layer.synth.get(), file.getFullPathName().toRawUTF8(), 1);
     if (id < 0)
@@ -166,7 +177,16 @@ void Sf2Engine::unloadSoundFont(int index)
     const juce::ScopedLock guard(lock);
     auto& layer = layers[(size_t) index];
     if (layer.synth && layer.soundFontId >= 0)
+    {
+        for (int channel = 0; channel < 16; ++channel)
+        {
+            fluid_synth_cc(layer.synth.get(), channel, 64, 0);
+            fluid_synth_all_notes_off(layer.synth.get(), channel);
+            fluid_synth_all_sounds_off(layer.synth.get(), channel);
+        }
+        layer.monoNote = -1;
         fluid_synth_sfunload(layer.synth.get(), layer.soundFontId, 1);
+    }
     layer.soundFontId = -1;
     layer.soundFontPath.clear();
     layer.selectedBank = 0;
