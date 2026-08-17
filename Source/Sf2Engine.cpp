@@ -37,7 +37,8 @@ void Sf2Engine::createSynth(Layer& layer)
     layer.lastCutoff = -1;
     layer.lastReverb = -1;
     layer.lastRelease = -1;
-    layer.lastPortamento = 0;
+    layer.lastPortamento = -1;
+    layer.lastMono = -1;
     layer.filterState = { 0.0f, 0.0f };
 }
 
@@ -265,8 +266,11 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         const auto cutoff = juce::jlimit(0, 127, static_cast<int>(std::round(layer.config.cutoff * 1.27f)));
         const auto reverb = juce::jlimit(0, 127, static_cast<int>(std::round(layer.config.reverb * 1.27f)));
         const auto portamento = layer.config.portamento ? 127 : 0;
+        // Portamento is always monophonic. Mono Legato uses the same single
+        // voice policy but retains the instantaneous pitch transition.
+        const auto mono = (layer.config.mono || layer.config.portamento) ? 1 : 0;
         if (cutoff != layer.lastCutoff || reverb != layer.lastReverb
-            || portamento != layer.lastPortamento)
+            || portamento != layer.lastPortamento || mono != layer.lastMono)
         {
             for (int channel = 0; channel < 16; ++channel)
             {
@@ -277,10 +281,17 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
                     fluid_synth_cc(layer.synth.get(), channel, 65, portamento);
                     fluid_synth_cc(layer.synth.get(), channel, 5, 32);
                 }
+                if (mono != layer.lastMono)
+                {
+                    // MIDI channel mode: CC126 enables one voice. CC127
+                    // restores polyphony when either legato mode is disabled.
+                    fluid_synth_cc(layer.synth.get(), channel, mono ? 126 : 127, mono ? 1 : 0);
+                }
             }
             layer.lastCutoff = cutoff;
             layer.lastReverb = reverb;
             layer.lastPortamento = portamento;
+            layer.lastMono = mono;
         }
 
         for (const auto metadata : midi)
