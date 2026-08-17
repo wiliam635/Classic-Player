@@ -26,21 +26,36 @@ Dx7Engine::Patch Dx7Engine::parsePackedPatch(const uint8_t* voice)
     Patch patch;
     patch.name = decodeName(voice + 118, 10);
     patch.algorithm = voice[110] & 0x1f;
+    patch.feedback = (voice[111] >> 3) & 0x07;
     for (int op = 0; op < 6; ++op)
     {
-        // DX7 bulk voices compress each operator from 21 bytes to 17:
-        // output level is byte 14, followed by mode/coarse and fine frequency.
+        // A 128-byte DX7 bulk voice stores operators 6 through 1 in 17 bytes.
+        // Keep the native order: the DX7 algorithm routing table uses this same
+        // order. The old renderer converted fixed oscillators to musical ratios,
+        // which created unrelated high-frequency tones in many electric pianos
+        // and organs.
         const auto offset = op * 17;
-        const auto outputLevel = voice[offset + 14];
         const auto modeAndCoarse = voice[offset + 15];
         const auto coarse = (modeAndCoarse >> 1) & 0x1f;
-        const auto fine = voice[offset + 16];
+        const auto fine = juce::jlimit(0, 99, (int) voice[offset + 16]);
+        const auto fixed = (modeAndCoarse & 0x01) != 0;
         patch.levels[(size_t) op] = juce::jlimit(0.0f, 1.0f,
-            (float) outputLevel / 99.0f);
-        // Fixed-frequency operators are represented as ratios here as a
-        // practical fallback. Ratio mode remains exact enough for DX7 banks.
-        patch.ratios[(size_t) op] = coarse == 0 ? 0.5f
-            : (float) coarse + (float) fine / 100.0f;
+            (float) juce::jlimit(0, 99, (int) voice[offset + 14]) / 99.0f);
+        const auto ratioBase = coarse == 0 ? 0.5f : (float) coarse;
+        patch.ratios[(size_t) op] = ratioBase * (1.0f + (float) fine / 100.0f);
+        patch.fixedMode[(size_t) op] = fixed;
+        // DX7 fixed mode is logarithmic in Hz: 10 ^ (coarse + fine / 100).
+        // Only the low two coarse bits are meaningful in fixed mode.
+        patch.fixedFrequency[(size_t) op] = fixed
+            ? std::pow(10.0f, (float) (coarse & 0x03) + (float) fine / 100.0f)
+            : 0.0f;
+        for (int stage = 0; stage < 4; ++stage)
+        {
+            patch.egRates[(size_t) op][(size_t) stage]
+                = (float) juce::jlimit(0, 99, (int) voice[offset + stage]) / 99.0f;
+            patch.egLevels[(size_t) op][(size_t) stage]
+                = (float) juce::jlimit(0, 99, (int) voice[offset + 4 + stage]) / 99.0f;
+        }
     }
     if (patch.name.isEmpty()) patch.name = "DX7 Voice";
     return patch;
@@ -53,22 +68,33 @@ Dx7Engine::Patch Dx7Engine::parseSinglePatch(const uint8_t* voice, int size)
     {
         patch.name = decodeName(voice + 145, 10);
         patch.algorithm = voice[134] & 0x1f;
+        patch.feedback = voice[135] & 0x07;
         for (int op = 0; op < 6; ++op)
         {
             const auto offset = op * 21;
-            if (offset + 18 >= size) break;
             const auto coarse = voice[offset + 18] & 0x1f;
-            const auto fine = voice[offset + 19];
+            const auto fine = juce::jlimit(0, 99, (int) voice[offset + 19]);
+            const auto fixed = voice[offset + 17] != 0;
             patch.levels[(size_t) op] = juce::jlimit(0.0f, 1.0f,
-                (float) voice[offset + 16] / 99.0f);
-            patch.ratios[(size_t) op] = coarse == 0 ? 0.5f
-                : (float) coarse + (float) fine / 100.0f;
+                (float) juce::jlimit(0, 99, (int) voice[offset + 16]) / 99.0f);
+            const auto ratioBase = coarse == 0 ? 0.5f : (float) coarse;
+            patch.ratios[(size_t) op] = ratioBase * (1.0f + (float) fine / 100.0f);
+            patch.fixedMode[(size_t) op] = fixed;
+            patch.fixedFrequency[(size_t) op] = fixed
+                ? std::pow(10.0f, (float) (coarse & 0x03) + (float) fine / 100.0f)
+                : 0.0f;
+            for (int stage = 0; stage < 4; ++stage)
+            {
+                patch.egRates[(size_t) op][(size_t) stage]
+                    = (float) juce::jlimit(0, 99, (int) voice[offset + stage]) / 99.0f;
+                patch.egLevels[(size_t) op][(size_t) stage]
+                    = (float) juce::jlimit(0, 99, (int) voice[offset + 4 + stage]) / 99.0f;
+            }
         }
     }
     if (patch.name.isEmpty()) patch.name = "DX7 Single Voice";
     return patch;
 }
-
 juce::Result Dx7Engine::loadSysEx(int index, const juce::File& file)
 {
     if (!juce::isPositiveAndBelow(index, layerCount))
