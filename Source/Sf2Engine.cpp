@@ -243,15 +243,23 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
 
         const auto cutoff = juce::jlimit(0, 127, static_cast<int>(std::round(layer.config.cutoff * 1.27f)));
         const auto reverb = juce::jlimit(0, 127, static_cast<int>(std::round(layer.config.reverb * 1.27f)));
-        if (cutoff != layer.lastCutoff || reverb != layer.lastReverb)
+        const auto portamento = layer.config.portamento ? 127 : 0;
+        if (cutoff != layer.lastCutoff || reverb != layer.lastReverb
+            || portamento != layer.lastPortamento)
         {
             for (int channel = 0; channel < 16; ++channel)
             {
                 if (cutoff != layer.lastCutoff) fluid_synth_cc(layer.synth.get(), channel, 74, cutoff);
                 if (reverb != layer.lastReverb) fluid_synth_cc(layer.synth.get(), channel, 91, reverb);
+                if (portamento != layer.lastPortamento)
+                {
+                    fluid_synth_cc(layer.synth.get(), channel, 65, portamento);
+                    fluid_synth_cc(layer.synth.get(), channel, 5, 32);
+                }
             }
             layer.lastCutoff = cutoff;
             layer.lastReverb = reverb;
+            layer.lastPortamento = portamento;
         }
 
         for (const auto metadata : midi)
