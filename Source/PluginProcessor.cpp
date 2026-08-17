@@ -1194,6 +1194,9 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("high" + juce::String(i), config.highNote, nullptr);
         state.setProperty("octave" + juce::String(i), config.octave, nullptr);
         state.setProperty("velocityCurve" + juce::String(i), config.velocityCurve, nullptr);
+        // Mono Legato and Portamento are distinct layer modes and must remain
+        // distinct when a performance is saved and restored.
+        state.setProperty("mono" + juce::String(i), config.mono, nullptr);
         state.setProperty("portamento" + juce::String(i), config.portamento, nullptr);
         state.setProperty("sustain" + juce::String(i), config.sustainEnabled, nullptr);
         state.setProperty("midiDevice" + juce::String(i), layerMidiDevice(i), nullptr);
@@ -1342,9 +1345,11 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.highNote = state.getProperty("high" + juce::String(i), 127);
                 config.octave = state.getProperty("octave" + juce::String(i), 0);
                 config.velocityCurve = state.getProperty("velocityCurve" + juce::String(i), 0);
-                config.mono = false;
-                config.portamento = state.getProperty("portamento" + juce::String(i),
-                                                       state.getProperty("mono" + juce::String(i), false));
+                // State created before the separate Portamento mode used the
+                // legacy "mono" property. Preserve it as Mono Legato rather
+                // than silently changing the player's selected mode.
+                config.mono = state.getProperty("mono" + juce::String(i), false);
+                config.portamento = state.getProperty("portamento" + juce::String(i), false);
                 config.sustainEnabled = state.getProperty("sustain" + juce::String(i), true);
                 engine.setConfig(i, config);
                 setLayerMidiDevice(i, state.getProperty("midiDevice" + juce::String(i)).toString());
