@@ -402,7 +402,9 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::initialiseComboBoxes()
 {
-    mode.addItem("PORTAMENTO OFF", 1); mode.addItem("PORTAMENTO ON", 2);
+    mode.addItem("POLI", 1);
+    mode.addItem("MONO LEGATO", 2);
+    mode.addItem("PORTAMENTO", 3);
     sustain.addItem("SUSTAIN ON", 1); sustain.addItem("SUSTAIN OFF", 2);
     midiChannel.addItem("MIDI OMNI", 1);
     for (int channel = 1; channel <= 16; ++channel)
@@ -926,7 +928,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
     openExternalEditorButton.setEnabled(processor.supportsExternalInstruments()
                                         && processor.hasExternalInstrument(index));
     const auto config = processor.layerConfig(index);
-    mode.setSelectedId(config.portamento ? 2 : 1, juce::dontSendNotification);
+    mode.setSelectedId(config.portamento ? 3 : (config.mono ? 2 : 1),
+                       juce::dontSendNotification);
     sustain.setSelectedId(config.sustainEnabled ? 1 : 2, juce::dontSendNotification);
     midiChannel.setSelectedId(config.midiChannel + 1, juce::dontSendNotification);
     octave.setSelectedId(config.octave + 5, juce::dontSendNotification);
@@ -939,8 +942,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::applyConfig()
 {
     auto config = processor.layerConfig(index);
-    config.mono = false;
-    config.portamento = mode.getSelectedId() == 2;
+    config.mono = mode.getSelectedId() >= 2;
+    config.portamento = mode.getSelectedId() == 3;
     config.sustainEnabled = sustain.getSelectedId() != 2;
     config.midiChannel = juce::jlimit(0, 16, midiChannel.getSelectedId() - 1);
     config.octave = octave.getSelectedId() - 5;
