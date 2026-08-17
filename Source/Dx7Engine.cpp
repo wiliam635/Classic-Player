@@ -353,6 +353,34 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
     target->envelope = 0.0f;
 }
 
+
+void Dx7Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer& hostMidi,
+                        const std::array<juce::MidiBuffer, layerCount>* routedMidi,
+                        const std::array<Sf2Engine::LayerConfig, layerCount>& configs)
+{
+    const juce::ScopedLock guard(lock);
+
+    // The SF2 engine clears the mix before this engine is called. DX7 and
+    // external-instrument layers are additive, so do not clear output here.
+    for (int index = 0; index < layerCount; ++index)
+    {
+        auto& layer = layers[(size_t) index];
+        const auto& config = configs[(size_t) index];
+
+        if (!config.enabled || layer.patchesLoaded <= 0)
+            continue;
+
+        for (const auto metadata : hostMidi)
+            dispatch(layer, config, metadata.getMessage());
+
+        if (routedMidi != nullptr)
+            for (const auto metadata : (*routedMidi)[(size_t) index])
+                dispatch(layer, config, metadata.getMessage());
+
+        render(layer, config, output);
+    }
+}
+
 void Dx7Engine::render(Layer& layer, const Sf2Engine::LayerConfig& config,
                        juce::AudioBuffer<float>& output)
 {
