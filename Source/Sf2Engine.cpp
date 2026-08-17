@@ -32,6 +32,10 @@ void Sf2Engine::createSynth(Layer& layer)
     layer.synth.reset(new_fluid_synth(layer.settings.get()));
     layer.soundFontId = -1;
     layer.monoNote = -1;
+    layer.monoChannel = 1;
+    layer.sustainDown = false;
+    layer.heldNotes.fill(false);
+    layer.heldVelocities.fill(0.0f);
     layer.modulationAmount = 0.0f;
     layer.modulationPhase = 0.0;
     layer.lastCutoff = -1;
@@ -202,49 +206,122 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
     if (layer.config.midiChannel != 0 && channel != layer.config.midiChannel)
         return;
 
-    if (message.isNoteOnOrOff())
+    const auto monoMode = layer.config.mono || layer.config.portamento;
+    const auto highestHeld = [&layer] ()
     {
-        const auto sourceNote = message.getNoteNumber();
-        if (sourceNote < layer.config.lowNote || sourceNote > layer.config.highNote)
-            return;
-        const auto note = juce::jlimit(0, 127, sourceNote + layer.config.octave * 12);
-        if (message.isNoteOn())
-        {
-            auto velocity = juce::jlimit(0.0f, 1.0f, message.getFloatVelocity());
-            if (layer.config.velocityCurve == 1) velocity = std::sqrt(velocity);
-            else if (layer.config.velocityCurve == 2) velocity = velocity * velocity;
-            fluid_synth_noteon(layer.synth.get(), channel - 1, note,
-                               juce::jlimit(1, 127, (int) std::round(velocity * 127.0f)));
-            // In mono mode, start the new note before releasing the previous
-            // one. This preserves a continuous legato transition and avoids
-            // the first note being cut by an early note-off in some hosts.
-            if (layer.config.mono && layer.monoNote >= 0 && layer.monoNote != note)
-                fluid_synth_noteoff(layer.synth.get(), channel - 1, layer.monoNote);
-            if (layer.config.mono) layer.monoNote = note;
-        }
-        else
-        {
-            fluid_synth_noteoff(layer.synth.get(), channel - 1, note);
-            if (layer.monoNote == note) layer.monoNote = -1;
-        }
-        return;
-    }
+        for (int note = 127; note >= 0; --note)
+            if (layer.heldNotes[(size_t) note]) return note;
+        return -1;
+    };
+    const auto startMonoNote = [&layer] (int midiChannel, int note, float velocity)
+    {
+        const auto velocityValue = juce::jlimit(1, 127, (int) std::round(velocity * 127.0f));
+        fluid_synth_noteon(layer.synth.get(), midiChannel - 1, note, velocityValue);
+        if (layer.monoNote >= 0 && layer.monoNote != note)
+            fluid_synth_noteoff(layer.synth.get(), layer.monoChannel - 1, layer.monoNote);
+        layer.monoNote = note;
+        layer.monoChannel = midiChannel;
+    };
 
     if (message.isController())
     {
-        if (message.getControllerNumber() == 64 && !layer.config.sustainEnabled)
+        const auto cc = message.getControllerNumber();
+        const auto value = message.getControllerValue();
+        if (cc == 64)
+        {
+            if (!layer.config.sustainEnabled) return;
+            layer.sustainDown = value >= 64;
+            // FluidSynth still receives CC64, while this layer-level state
+            // decides when the mono note stack may actually release.
+            fluid_synth_cc(layer.synth.get(), channel - 1, cc, value);
+            if (!layer.sustainDown && monoMode && layer.monoNote >= 0)
+            {
+                const auto fallback = highestHeld();
+                if (fallback >= 0)
+                    startMonoNote(channel, fallback, layer.heldVelocities[(size_t) fallback]);
+                else
+                {
+                    fluid_synth_noteoff(layer.synth.get(), layer.monoChannel - 1, layer.monoNote);
+                    layer.monoNote = -1;
+                }
+            }
             return;
-        if (message.getControllerNumber() == 1)
-            layer.modulationAmount = message.getControllerValue() / 127.0f;
-        fluid_synth_cc(layer.synth.get(), channel - 1,
-                       message.getControllerNumber(), message.getControllerValue());
+        }
+        if (cc == 1)
+            layer.modulationAmount = value / 127.0f;
+        fluid_synth_cc(layer.synth.get(), channel - 1, cc, value);
+        return;
     }
-    else if (message.isPitchWheel())
-        fluid_synth_pitch_bend(layer.synth.get(), channel - 1, message.getPitchWheelValue());
-    else if (message.isProgramChange())
-        fluid_synth_program_change(layer.synth.get(), channel - 1, message.getProgramChangeNumber());
-    else if (message.isAllNotesOff() || message.isAllSoundOff())
+
+    if (message.isAllSoundOff())
+    {
+        layer.heldNotes.fill(false);
+        layer.sustainDown = false;
+        layer.monoNote = -1;
+        fluid_synth_all_sounds_off(layer.synth.get(), channel - 1);
+        return;
+    }
+    if (message.isAllNotesOff())
+    {
+        layer.heldNotes.fill(false);
+        if (monoMode) layer.monoNote = -1;
         fluid_synth_all_notes_off(layer.synth.get(), channel - 1);
+        return;
+    }
+
+    if (!message.isNoteOnOrOff())
+    {
+        if (message.isPitchWheel())
+            fluid_synth_pitch_bend(layer.synth.get(), channel - 1, message.getPitchWheelValue());
+        else if (message.isProgramChange())
+            fluid_synth_program_change(layer.synth.get(), channel - 1, message.getProgramChangeNumber());
+        return;
+    }
+
+    const auto sourceNote = message.getNoteNumber();
+    if (sourceNote < layer.config.lowNote || sourceNote > layer.config.highNote)
+        return;
+    const auto note = juce::jlimit(0, 127, sourceNote + layer.config.octave * 12);
+
+    if (message.isNoteOn())
+    {
+        auto velocity = juce::jlimit(0.0f, 1.0f, message.getFloatVelocity());
+        if (layer.config.velocityCurve == 1) velocity = std::sqrt(velocity);
+        else if (layer.config.velocityCurve == 2) velocity *= velocity;
+
+        if (!monoMode)
+        {
+            fluid_synth_noteon(layer.synth.get(), channel - 1, note,
+                               juce::jlimit(1, 127, (int) std::round(velocity * 127.0f)));
+            return;
+        }
+
+        layer.heldNotes[(size_t) note] = true;
+        layer.heldVelocities[(size_t) note] = velocity;
+        // The next note starts before the old one is released, producing a
+        // continuous legato change rather than a silent gap.
+        startMonoNote(channel, note, velocity);
+        return;
+    }
+
+    if (!monoMode)
+    {
+        fluid_synth_noteoff(layer.synth.get(), channel - 1, note);
+        return;
+    }
+
+    layer.heldNotes[(size_t) note] = false;
+    if (note != layer.monoNote) return;
+    if (layer.sustainDown) return;
+
+    const auto fallback = highestHeld();
+    if (fallback >= 0)
+        startMonoNote(channel, fallback, layer.heldVelocities[(size_t) fallback]);
+    else
+    {
+        fluid_synth_noteoff(layer.synth.get(), layer.monoChannel - 1, layer.monoNote);
+        layer.monoNote = -1;
+    }
 }
 
 void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer& midi,
@@ -265,17 +342,21 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
 
         const auto cutoff = juce::jlimit(0, 127, static_cast<int>(std::round(layer.config.cutoff * 1.27f)));
         const auto reverb = juce::jlimit(0, 127, static_cast<int>(std::round(layer.config.reverb * 1.27f)));
+        // CC72 is the General MIDI release-time controller. It gives SF2
+        // note-offs a small envelope tail instead of an abrupt click.
+        const auto release = juce::jlimit(0, 127, static_cast<int>(std::round(layer.config.release * 1.27f)));
         const auto portamento = layer.config.portamento ? 127 : 0;
         // Portamento is always monophonic. Mono Legato uses the same single
         // voice policy but retains the instantaneous pitch transition.
         const auto mono = (layer.config.mono || layer.config.portamento) ? 1 : 0;
-        if (cutoff != layer.lastCutoff || reverb != layer.lastReverb
+        if (cutoff != layer.lastCutoff || reverb != layer.lastReverb || release != layer.lastRelease
             || portamento != layer.lastPortamento || mono != layer.lastMono)
         {
             for (int channel = 0; channel < 16; ++channel)
             {
                 if (cutoff != layer.lastCutoff) fluid_synth_cc(layer.synth.get(), channel, 74, cutoff);
                 if (reverb != layer.lastReverb) fluid_synth_cc(layer.synth.get(), channel, 91, reverb);
+                if (release != layer.lastRelease) fluid_synth_cc(layer.synth.get(), channel, 72, release);
                 if (portamento != layer.lastPortamento)
                 {
                     fluid_synth_cc(layer.synth.get(), channel, 65, portamento);
@@ -290,6 +371,7 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
             }
             layer.lastCutoff = cutoff;
             layer.lastReverb = reverb;
+            layer.lastRelease = release;
             layer.lastPortamento = portamento;
             layer.lastMono = mono;
         }
