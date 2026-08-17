@@ -61,6 +61,9 @@ private:
         void chooseSoundFont();
         void chooseExternalInstrument();
         void chooseDx7();
+        void deleteSelectedDx7Bank();
+        void rebuildDx7Library();
+        void rebuildDx7Patches();
         void updateSourceTypeVisibility();
         void openExternalInstrumentEditor();
         void deleteSelectedSoundFont();
@@ -81,6 +84,7 @@ private:
         std::vector<Sf2Engine::Preset> presets;
         juce::Array<juce::File> libraryFiles;
         juce::Array<juce::File> externalInstrumentFiles;
+        juce::Array<juce::File> dx7LibraryFiles;
 
         juce::Label layerTitle;
         juce::TextButton muteButton { "M" };
@@ -89,9 +93,12 @@ private:
         juce::TextButton removeButton { "X" };
         juce::TextButton loadButton { "IMPORTAR SF2" };
         juce::TextButton externalInstrumentButton { "CARREGAR VST" };
-        juce::TextButton dx7Button { "CARREGAR DX7" };
+        juce::TextButton dx7Button { "IMPORTAR DX7" };
+        juce::TextButton deleteDx7LibraryButton { "EXCLUIR DX7" };
         juce::TextButton openExternalEditorButton { "ABRIR EDITOR" };
         juce::ComboBox externalInstrumentBox;
+        juce::ComboBox dx7LibraryBox;
+        juce::ComboBox dx7PatchBox;
         juce::TextButton deleteLibraryButton { "EXCLUIR SF2" };
         juce::Label fileLabel;
         juce::ComboBox categoryBox;
@@ -164,7 +171,7 @@ private:
     juce::TextButton deleteProgramButton { "EXCLUIR" };
     juce::TextButton loadProgramButton { "CARREGAR" };
     juce::TextButton addLayerButton { "+ LAYER" };
-    juce::TextButton recordingButton { "● GRAVAR WAV" };
+    juce::TextButton recordingButton { "GRAVAR WAV" };
     juce::Label recordingStatus;
     juce::TextButton liveSetButton { "LIVE SET" };
     juce::TextButton editLiveSetButton { "EDITAR LIVE SET" };
