@@ -243,7 +243,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     addAndMakeVisible(layerTitle);
 
     for (auto* button : { &muteButton, &soloButton, &resetButton, &removeButton, &loadButton,
-                          &externalInstrumentButton, &dx7Button, &openExternalEditorButton, &deleteLibraryButton })
+                          &externalInstrumentButton, &dx7Button, &deleteDx7LibraryButton, &openExternalEditorButton, &deleteLibraryButton })
     {
         flatButton(*button);
         addAndMakeVisible(*button);
@@ -267,7 +267,30 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     openExternalEditorButton.onClick = [this] { openExternalInstrumentEditor(); };
     externalInstrumentButton.setTooltip("Escolher manualmente um instrumento VST3/AU");
     openExternalEditorButton.setTooltip("Abrir a janela de configuração do instrumento virtual");
-    dx7Button.setTooltip("Carregar banco ou voz DX7 em formato SysEx (.syx)");
+    dx7Button.setTooltip("Importar banco ou voz DX7 em formato SysEx (.syx)");
+    deleteDx7LibraryButton.setTooltip("Excluir o banco DX7 selecionado da biblioteca");
+    deleteDx7LibraryButton.onClick = [this] { deleteSelectedDx7Bank(); };
+    dx7LibraryBox.setTextWhenNothingSelected("BIBLIOTECA DX7 VAZIA");
+    dx7LibraryBox.onChange = [this]
+    {
+        const auto selected = dx7LibraryBox.getSelectedItemIndex();
+        deleteDx7LibraryButton.setEnabled(juce::isPositiveAndBelow(selected, dx7LibraryFiles.size()));
+        if (!juce::isPositiveAndBelow(selected, dx7LibraryFiles.size())) return;
+        const auto result = processor.loadDx7(index, dx7LibraryFiles.getReference(selected));
+        if (result.failed())
+            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                   "Falha ao carregar DX7", result.getErrorMessage());
+        refresh();
+    };
+    dx7PatchBox.setTextWhenNothingSelected("SELECIONE O TIMBRE DX7");
+    dx7PatchBox.onChange = [this]
+    {
+        const auto patch = dx7PatchBox.getSelectedItemIndex();
+        if (processor.selectDx7Patch(index, patch)) refresh();
+    };
+    addAndMakeVisible(dx7LibraryBox);
+    addAndMakeVisible(dx7PatchBox);
+    addAndMakeVisible(deleteDx7LibraryButton);
     const auto canHost = processor.supportsExternalInstruments();
     externalInstrumentButton.setVisible(canHost);
     openExternalEditorButton.setVisible(canHost);
@@ -379,7 +402,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::initialiseComboBoxes()
 {
-    mode.addItem("POLI", 1); mode.addItem("MONO", 2);
+    mode.addItem("PORTAMENTO OFF", 1); mode.addItem("PORTAMENTO ON", 2);
     sustain.addItem("SUSTAIN ON", 1); sustain.addItem("SUSTAIN OFF", 2);
     midiChannel.addItem("MIDI OMNI", 1);
     for (int channel = 1; channel <= 16; ++channel)
@@ -512,7 +535,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     {
         dx7Button.setBounds(area.removeFromTop(28));
         area.removeFromTop(4);
+        auto bankRow = area.removeFromTop(28);
+        deleteDx7LibraryButton.setBounds(bankRow.removeFromRight(86).reduced(1, 0));
+        dx7LibraryBox.setBounds(bankRow);
+        area.removeFromTop(4);
         fileLabel.setBounds(area.removeFromTop(27));
+        area.removeFromTop(4);
+        dx7PatchBox.setBounds(area.removeFromTop(28));
     }
     area.removeFromTop(10);
 
@@ -647,8 +676,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseDx7()
             const auto file = chooser.getResult();
             if (file == juce::File{}) return;
             dx7Button.setEnabled(false);
-            fileLabel.setText("Carregando DX7...", juce::dontSendNotification);
-            const auto result = processor.loadDx7(index, file);
+            fileLabel.setText("Importando DX7...", juce::dontSendNotification);
+            juce::File importedFile;
+            auto result = processor.importDx7Bank(file, importedFile);
+            if (result.wasOk()) result = processor.loadDx7(index, importedFile);
             dx7Button.setEnabled(true);
             if (result.failed())
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
@@ -672,6 +703,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     externalInstrumentButton.setVisible(isVst && processor.supportsExternalInstruments());
     openExternalEditorButton.setVisible(isVst && processor.supportsExternalInstruments());
     dx7Button.setVisible(isDx7);
+    dx7LibraryBox.setVisible(isDx7);
+    dx7PatchBox.setVisible(isDx7);
+    deleteDx7LibraryButton.setVisible(isDx7);
     fileLabel.setVisible(true);
     resized();
 }
@@ -801,6 +835,55 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::rebuildLibrary()
     deleteLibraryButton.setEnabled(libraryBox.getSelectedItemIndex() >= 0);
 }
 
+void ClassicPlayerAudioProcessorEditor::LayerStrip::rebuildDx7Library()
+{
+    const auto currentPath = processor.dx7Path(index);
+    dx7LibraryFiles = processor.libraryDx7Banks();
+    dx7LibraryBox.clear(juce::dontSendNotification);
+    int selectedId = 0;
+    for (int item = 0; item < dx7LibraryFiles.size(); ++item)
+    {
+        const auto& file = dx7LibraryFiles.getReference(item);
+        dx7LibraryBox.addItem(file.getFileNameWithoutExtension(), item + 1);
+        if (file.getFullPathName() == currentPath) selectedId = item + 1;
+    }
+    dx7LibraryBox.setTextWhenNothingSelected(dx7LibraryFiles.isEmpty()
+        ? "BIBLIOTECA DX7 VAZIA" : "ESCOLHA O BANCO DX7");
+    if (selectedId > 0) dx7LibraryBox.setSelectedId(selectedId, juce::dontSendNotification);
+    deleteDx7LibraryButton.setEnabled(dx7LibraryBox.getSelectedItemIndex() >= 0);
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::rebuildDx7Patches()
+{
+    dx7PatchBox.clear(juce::dontSendNotification);
+    const auto count = processor.dx7PatchCount(index);
+    for (int patch = 0; patch < count; ++patch)
+        dx7PatchBox.addItem(juce::String(patch + 1) + ": " + processor.dx7PatchName(index, patch), patch + 1);
+    if (count > 0)
+        dx7PatchBox.setSelectedId(processor.dx7SelectedPatch(index) + 1, juce::dontSendNotification);
+    dx7PatchBox.setEnabled(count > 0);
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::deleteSelectedDx7Bank()
+{
+    const auto selected = dx7LibraryBox.getSelectedItemIndex();
+    if (!juce::isPositiveAndBelow(selected, dx7LibraryFiles.size())) return;
+    const auto file = dx7LibraryFiles.getReference(selected);
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon,
+        "Excluir DX7", "Excluir '" + file.getFileName() + "' da biblioteca?",
+        "Excluir", "Cancelar", this, juce::ModalCallbackFunction::create(
+        [safe, file](int answer)
+        {
+            if (safe == nullptr || answer == 0) return;
+            const auto result = safe->processor.deleteLibraryDx7Bank(file);
+            if (result.failed())
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                    "Falha ao excluir DX7", result.getErrorMessage());
+            safe->refresh();
+        }));
+}
+
 void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
 {
     const auto type = processor.layerType(index);
@@ -821,6 +904,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
     }
     else if (type == ClassicPlayerAudioProcessor::LayerType::vst)
         rebuildExternalInstrumentLibrary();
+    else if (type == ClassicPlayerAudioProcessor::LayerType::dx7)
+    {
+        rebuildDx7Library();
+        rebuildDx7Patches();
+    }
 
     const auto hasSource = type == ClassicPlayerAudioProcessor::LayerType::sf2 ? path.isNotEmpty()
         : type == ClassicPlayerAudioProcessor::LayerType::vst ? externalName.isNotEmpty()
@@ -838,7 +926,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
     openExternalEditorButton.setEnabled(processor.supportsExternalInstruments()
                                         && processor.hasExternalInstrument(index));
     const auto config = processor.layerConfig(index);
-    mode.setSelectedId(config.mono ? 2 : 1, juce::dontSendNotification);
+    mode.setSelectedId(config.portamento ? 2 : 1, juce::dontSendNotification);
     sustain.setSelectedId(config.sustainEnabled ? 1 : 2, juce::dontSendNotification);
     midiChannel.setSelectedId(config.midiChannel + 1, juce::dontSendNotification);
     octave.setSelectedId(config.octave + 5, juce::dontSendNotification);
@@ -851,7 +939,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::applyConfig()
 {
     auto config = processor.layerConfig(index);
-    config.mono = mode.getSelectedId() == 2;
+    config.mono = false;
+    config.portamento = mode.getSelectedId() == 2;
     config.sustainEnabled = sustain.getSelectedId() != 2;
     config.midiChannel = juce::jlimit(0, 16, midiChannel.getSelectedId() - 1);
     config.octave = octave.getSelectedId() - 5;
@@ -1027,8 +1116,8 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
         if (classicProcessor.isAudioRecording())
         {
             classicProcessor.stopAudioRecording();
-            recordingStatus.setText("WAV salvo na Área de Trabalho", juce::dontSendNotification);
-            recordingButton.setButtonText("● GRAVAR WAV");
+            recordingStatus.setText("WAV salvo na Area de Trabalho", juce::dontSendNotification);
+            recordingButton.setButtonText("GRAVAR WAV");
             return;
         }
 
@@ -1041,13 +1130,13 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
         }
         recordingStartedAtMs = juce::Time::currentTimeMillis();
         recordingStatus.setText("GRAVANDO 00:00", juce::dontSendNotification);
-        recordingButton.setButtonText("■ PARAR");
+        recordingButton.setButtonText("PARAR");
     };
     addAndMakeVisible(recordingButton);
     recordingStatus.setJustificationType(juce::Justification::centredLeft);
     recordingStatus.setColour(juce::Label::textColourId, juce::Colour(mutedText));
     recordingStatus.setFont(juce::FontOptions(11.0f, juce::Font::bold));
-    recordingStatus.setText("WAV: Área de Trabalho", juce::dontSendNotification);
+    recordingStatus.setText("WAV: Area de Trabalho", juce::dontSendNotification);
     addAndMakeVisible(recordingStatus);
 
     flatButton(liveSetButton);
@@ -1342,7 +1431,7 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
         recordingStatus.setText("GRAVANDO " + juce::String(elapsed / 60).paddedLeft('0', 2)
                                 + ":" + juce::String(elapsed % 60).paddedLeft('0', 2),
                                 juce::dontSendNotification);
-        recordingButton.setButtonText("■ PARAR");
+        recordingButton.setButtonText("PARAR");
     }
 }
 
