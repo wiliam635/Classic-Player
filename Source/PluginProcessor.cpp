@@ -319,6 +319,15 @@ void ClassicPlayerAudioProcessor::appendExternalMidi(int layer, const juce::Midi
                                                       juce::MidiBuffer& destination)
 {
     const auto config = engine.getConfig(layer);
+    const auto portamento = config.portamento ? 127 : 0;
+    if (lastExternalPortamento[(size_t) layer] != portamento)
+    {
+        destination.addEvent(juce::MidiMessage::controllerEvent(
+            config.midiChannel > 0 ? config.midiChannel : 1, 65, portamento), 0);
+        destination.addEvent(juce::MidiMessage::controllerEvent(
+            config.midiChannel > 0 ? config.midiChannel : 1, 5, 32), 0);
+        lastExternalPortamento[(size_t) layer] = portamento;
+    }
     for (const auto metadata : incoming)
     {
         auto message = metadata.getMessage();
@@ -428,7 +437,63 @@ void ClassicPlayerAudioProcessor::unloadDx7(int layer)
 
 bool ClassicPlayerAudioProcessor::hasDx7(int layer) const { return dx7Engine.isLoaded(layer); }
 juce::String ClassicPlayerAudioProcessor::dx7PatchName(int layer) const { return dx7Engine.patchName(layer); }
+juce::String ClassicPlayerAudioProcessor::dx7PatchName(int layer, int patch) const { return dx7Engine.patchName(layer, patch); }
+int ClassicPlayerAudioProcessor::dx7PatchCount(int layer) const { return dx7Engine.patchCount(layer); }
+int ClassicPlayerAudioProcessor::dx7SelectedPatch(int layer) const { return dx7Engine.selectedPatch(layer); }
+bool ClassicPlayerAudioProcessor::selectDx7Patch(int layer, int patch) { return dx7Engine.selectPatch(layer, patch); }
 juce::String ClassicPlayerAudioProcessor::dx7Path(int layer) const { return dx7Engine.path(layer); }
+
+juce::Result ClassicPlayerAudioProcessor::importDx7Bank(const juce::File& source,
+                                                         juce::File& importedFile) const
+{
+    if (!source.existsAsFile() || source.getFileExtension().toLowerCase() != ".syx")
+        return juce::Result::fail("Selecione um banco DX7 SysEx valido.");
+
+    auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                    .getChildFile("Classic Player").getChildFile("DX7 Banks");
+    if (const auto result = folder.createDirectory(); result.failed()) return result;
+
+    auto destination = folder.getChildFile(source.getFileName());
+    if (destination.existsAsFile())
+    {
+        if (source.hasIdenticalContentTo(destination))
+        {
+            importedFile = destination;
+            return juce::Result::ok();
+        }
+        destination = folder.getNonexistentChildFile(source.getFileNameWithoutExtension(), ".syx", true);
+    }
+    if (!source.copyFileTo(destination))
+        return juce::Result::fail("Nao foi possivel copiar o banco DX7 para a biblioteca.");
+    importedFile = destination;
+    return juce::Result::ok();
+}
+
+juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryDx7Banks() const
+{
+    juce::Array<juce::File> result;
+    const auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                            .getChildFile("Classic Player").getChildFile("DX7 Banks");
+    folder.findChildFiles(result, juce::File::findFiles, false, "*.syx;*.SYX");
+    std::sort(result.begin(), result.end(), [](const auto& a, const auto& b)
+    {
+        return a.getFileName().compareNatural(b.getFileName()) < 0;
+    });
+    return result;
+}
+
+juce::Result ClassicPlayerAudioProcessor::deleteLibraryDx7Bank(const juce::File& file)
+{
+    const auto root = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                        .getChildFile("Classic Player").getChildFile("DX7 Banks");
+    if (!file.existsAsFile() || file.getFileExtension().toLowerCase() != ".syx" || !file.isAChildOf(root))
+        return juce::Result::fail("Selecione um banco DX7 valido da biblioteca.");
+
+    for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
+        if (dx7Path(layer) == file.getFullPathName()) unloadDx7(layer);
+    return file.deleteFile() ? juce::Result::ok()
+                             : juce::Result::fail("Nao foi possivel excluir o banco DX7.");
+}
 
 bool ClassicPlayerAudioProcessor::addLayer(LayerType type)
 {
@@ -1104,13 +1169,14 @@ juce::Result ClassicPlayerAudioProcessor::loadProgram(const juce::File& programF
 void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
 {
     auto state = parameters.copyState();
-    state.setProperty("stateVersion", 163, nullptr);
+    state.setProperty("stateVersion", 164, nullptr);
     state.setProperty("activeLayers", activeLayerCount(), nullptr);
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
         state.setProperty("layerType" + juce::String(i + 1),
                           layerTypes[(size_t) i].load(std::memory_order_relaxed), nullptr);
         state.setProperty("dx7Layer" + juce::String(i + 1), dx7Engine.path(i), nullptr);
+        state.setProperty("dx7Patch" + juce::String(i + 1), dx7Engine.selectedPatch(i), nullptr);
         const auto key = "sf2Layer" + juce::String(i + 1);
         const auto path = engine.getSoundFontPath(i);
         state.setProperty(key, path.isNotEmpty() ? path : savedPaths[(size_t) i], nullptr);
@@ -1125,7 +1191,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("high" + juce::String(i), config.highNote, nullptr);
         state.setProperty("octave" + juce::String(i), config.octave, nullptr);
         state.setProperty("velocityCurve" + juce::String(i), config.velocityCurve, nullptr);
-        state.setProperty("mono" + juce::String(i), config.mono, nullptr);
+        state.setProperty("portamento" + juce::String(i), config.portamento, nullptr);
         state.setProperty("sustain" + juce::String(i), config.sustainEnabled, nullptr);
         state.setProperty("midiDevice" + juce::String(i), layerMidiDevice(i), nullptr);
         for (int target = 0; target < learnTargetCount; ++target)
@@ -1203,7 +1269,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                         writeParameter(gainId, 80.0f);
                 }
             }
-            state.setProperty("stateVersion", 163, nullptr);
+            state.setProperty("stateVersion", 164, nullptr);
             parameters.replaceState(state);
             for (int i = 0; i < Sf2Engine::layerCount; ++i)
             {
@@ -1264,6 +1330,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     {
                         const auto result = dx7Engine.loadSysEx(i, juce::File(dx7Path));
                         if (result.failed()) juce::Logger::writeToLog("Não foi possível restaurar DX7: " + result.getErrorMessage());
+                        else dx7Engine.selectPatch(i, static_cast<int>(state.getProperty(
+                            "dx7Patch" + juce::String(i + 1), 0)));
                     }
                 }
                 auto config = engine.getConfig(i);
@@ -1271,7 +1339,9 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.highNote = state.getProperty("high" + juce::String(i), 127);
                 config.octave = state.getProperty("octave" + juce::String(i), 0);
                 config.velocityCurve = state.getProperty("velocityCurve" + juce::String(i), 0);
-                config.mono = state.getProperty("mono" + juce::String(i), false);
+                config.mono = false;
+                config.portamento = state.getProperty("portamento" + juce::String(i),
+                                                       state.getProperty("mono" + juce::String(i), false));
                 config.sustainEnabled = state.getProperty("sustain" + juce::String(i), true);
                 engine.setConfig(i, config);
                 setLayerMidiDevice(i, state.getProperty("midiDevice" + juce::String(i)).toString());
