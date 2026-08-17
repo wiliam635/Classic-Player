@@ -39,9 +39,15 @@ private:
     struct Patch
     {
         juce::String name { "DX7 INIT" };
+        // Zero-based Yamaha DX7 algorithm number (0..31).
         int algorithm = 0;
+        int feedback = 0;
         std::array<float, 6> levels { 0.72f, 0.56f, 0.46f, 0.36f, 0.28f, 0.22f };
         std::array<float, 6> ratios { 1.0f, 1.0f, 2.0f, 1.0f, 3.0f, 0.5f };
+        std::array<bool, 6> fixedMode {};
+        std::array<float, 6> fixedFrequency {};
+        std::array<std::array<float, 4>, 6> egRates {};
+        std::array<std::array<float, 4>, 6> egLevels {};
     };
 
     struct Voice
@@ -54,6 +60,9 @@ private:
         double currentFrequency = 0.0;
         double targetFrequency = 0.0;
         std::array<double, 6> phase {};
+        std::array<float, 6> operatorEnvelope {};
+        std::array<int, 6> operatorStage {};
+        std::array<float, 6> feedback {};
     };
 
     struct Layer
