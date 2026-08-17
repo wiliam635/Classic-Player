@@ -37,6 +37,7 @@ void Sf2Engine::createSynth(Layer& layer)
     layer.lastCutoff = -1;
     layer.lastReverb = -1;
     layer.lastRelease = -1;
+    layer.lastPortamento = 0;
     layer.filterState = { 0.0f, 0.0f };
 }
 
@@ -369,7 +370,21 @@ void Sf2Engine::setConfig(int index, const LayerConfig& config)
 {
     if (!juce::isPositiveAndBelow(index, layerCount)) return;
     const juce::ScopedLock guard(lock);
-    layers[(size_t) index].config = config;
+    auto& layer = layers[(size_t) index];
+
+    // Muting/soloing or replacing a performance must never leave a sustained
+    // pad running in a disabled layer. Explicitly cancel sustain and voices.
+    if (layer.config.enabled && !config.enabled && layer.synth != nullptr)
+    {
+        for (int channel = 0; channel < 16; ++channel)
+        {
+            fluid_synth_cc(layer.synth.get(), channel, 64, 0);
+            fluid_synth_all_notes_off(layer.synth.get(), channel);
+            fluid_synth_all_sounds_off(layer.synth.get(), channel);
+        }
+        layer.monoNote = -1;
+    }
+    layer.config = config;
 }
 
 juce::String Sf2Engine::getSoundFontPath(int index) const
