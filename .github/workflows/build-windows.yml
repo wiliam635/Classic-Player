@@ -53,6 +53,9 @@ jobs:
           if ($editorSource -notmatch "if \(externalEditorWindow != nullptr\)") { throw "Proteção de reabertura do editor VST ausente" }
           if ($editorSource -notmatch "externalEditorWindow->toFront\(true\)") { throw "Reutilização da janela do editor VST ausente" }
           if ($cmake -notmatch "ExternalInstrumentHost.cpp") { throw "Host externo ausente do CMake" }
+          if ($processorSource -notmatch 'state\.setProperty\("mono"') { throw "Modo Mono Legato não é salvo" }
+          if ($processorSource -notmatch 'config\.mono = state\.getProperty\("mono"') { throw "Modo Mono Legato não é restaurado" }
+          if ($processorSource -notmatch 'config\.portamento = state\.getProperty\("portamento"') { throw "Modo Portamento não é restaurado" }
 
       - name: Set up CMake
         uses: lukka/get-cmake@latest
