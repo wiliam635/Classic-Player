@@ -6,12 +6,14 @@
 #include <array>
 #include <cstdint>
 
-// Lightweight native DX7-compatible SysEx reader and six-operator FM player.
-// It accepts Yamaha DX7 .syx banks and keeps the player independent of GPL code.
+// Native DX7-compatible SysEx reader and six-operator FM player.
+// A Yamaha bulk dump exposes all 32 voices; the selected voice is rendered
+// without relying on an external GPL instrument.
 class Dx7Engine
 {
 public:
     static constexpr int layerCount = Sf2Engine::layerCount;
+    static constexpr int maxPatches = 32;
 
     Dx7Engine() = default;
 
@@ -21,7 +23,11 @@ public:
     void stopAllSounds();
 
     bool isLoaded(int layer) const;
+    int patchCount(int layer) const;
+    int selectedPatch(int layer) const;
+    bool selectPatch(int layer, int patch);
     juce::String patchName(int layer) const;
+    juce::String patchName(int layer, int patch) const;
     juce::String path(int layer) const;
 
     void process(juce::AudioBuffer<float>& output,
@@ -43,20 +49,25 @@ private:
         bool active = false;
         int note = -1;
         float velocity = 0.0f;
+        double currentFrequency = 0.0;
+        double targetFrequency = 0.0;
         std::array<double, 6> phase {};
     };
 
     struct Layer
     {
         juce::String sourcePath;
-        Patch patch;
+        std::array<Patch, maxPatches> patches {};
+        int patchesLoaded = 0;
+        int selectedPatch = 0;
         std::array<Voice, 32> voices {};
     };
 
     static bool accepts(const Sf2Engine::LayerConfig&, const juce::MidiMessage&);
     static float shapedVelocity(const Sf2Engine::LayerConfig&, float velocity);
     static juce::String decodeName(const uint8_t* data, int size);
-    static Patch parsePatch(const juce::MemoryBlock& data);
+    static Patch parsePackedPatch(const uint8_t* voice);
+    static Patch parseSinglePatch(const uint8_t* voice, int size);
     static double noteFrequency(int midiNote);
 
     void dispatch(Layer&, const Sf2Engine::LayerConfig&, const juce::MidiMessage&);
