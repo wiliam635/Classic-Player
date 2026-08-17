@@ -54,6 +54,7 @@ jobs:
           if ($editorSource -notmatch "externalEditorWindow->toFront\(true\)") { throw "Reutilização da janela do editor VST ausente" }
           if ($cmake -notmatch "ExternalInstrumentHost.cpp") { throw "Host externo ausente do CMake" }
           $dx7Source = Get-Content "Source\Dx7Engine.cpp" -Raw
+          if ($dx7Source -notmatch "void Dx7Engine::process") { throw "Entrada de áudio DX7 não está implementada" }
           if ($dx7Source -notmatch "fixedFrequency") { throw "Frequência fixa DX7 não é renderizada" }
           if (-not $dx7Source.Contains("array<std::array<uint8_t, 6>, 32> algorithms")) { throw "32 algoritmos DX7 não são renderizados" }
           if ($dx7Source -notmatch "patch.feedback") { throw "Feedback DX7 não é renderizado" }
