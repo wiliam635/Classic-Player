@@ -48,7 +48,7 @@ jobs:
           grep -q "WavAudioFormat" Source/PluginProcessor.cpp
           grep -q "recordingButton" Source/PluginEditor.cpp
           grep -q "fixedFrequency" Source/Dx7Engine.cpp
-          grep -q "static constexpr std::array<std::array<uint8_t, 6>, 32> algorithms" Source/Dx7Engine.cpp
+          grep -Fq "static constexpr std::array<std::array<uint8_t, 6>, 32> algorithms" Source/Dx7Engine.cpp
           grep -q "patch.feedback" Source/Dx7Engine.cpp
           grep -q 'state.setProperty("mono"' Source/PluginProcessor.cpp
           grep -q 'config.mono = state.getProperty("mono"' Source/PluginProcessor.cpp
