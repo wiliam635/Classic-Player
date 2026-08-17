@@ -223,7 +223,9 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
     }
 
     Voice* target = nullptr;
-    if (config.portamento)
+    // Both Mono Legato and Portamento reuse the currently sounding voice.
+    // The difference is only whether frequency glides in render().
+    if (config.mono || config.portamento)
         for (auto& voice : layer.voices)
             if (voice.active) { target = &voice; break; }
     if (target == nullptr)
