@@ -358,16 +358,45 @@ void Dx7Engine::render(Layer& layer, const Sf2Engine::LayerConfig& config,
 {
     if (!juce::isPositiveAndBelow(layer.selectedPatch, layer.patchesLoaded)) return;
     const auto& patch = layer.patches[(size_t) layer.selectedPatch];
+
+    // DX7 algorithms are six-operator bus programs. These flags correspond to
+    // the published MSFA/Dexed Apache-2.0 algorithm representation:
+    // bits 0..1 output bus, bit 2 add, bits 4..5 input bus, bits 6..7 feedback.
+    // Keeping all 32 patterns avoids collapsing e.g. the Hammond algorithm 32
+    // into an unrelated six-carrier sound.
+    static constexpr std::array<std::array<uint8_t, 6>, 32> algorithms {{
+        {{0xc1,0x11,0x11,0x14,0x01,0x14}}, {{0x01,0x11,0x11,0x14,0xc1,0x14}},
+        {{0xc1,0x11,0x14,0x01,0x11,0x14}}, {{0xc1,0x11,0x94,0x01,0x11,0x14}},
+        {{0xc1,0x14,0x01,0x14,0x01,0x14}}, {{0xc1,0x94,0x01,0x14,0x01,0x14}},
+        {{0xc1,0x11,0x05,0x14,0x01,0x14}}, {{0x01,0x11,0xc5,0x14,0x01,0x14}},
+        {{0x01,0x11,0x05,0x14,0xc1,0x14}}, {{0x01,0x05,0x14,0xc1,0x11,0x14}},
+        {{0xc1,0x05,0x14,0x01,0x11,0x14}}, {{0x01,0x05,0x05,0x14,0xc1,0x14}},
+        {{0xc1,0x05,0x05,0x14,0x01,0x14}}, {{0xc1,0x05,0x11,0x14,0x01,0x14}},
+        {{0x01,0x05,0x11,0x14,0xc1,0x14}}, {{0xc1,0x11,0x02,0x25,0x05,0x14}},
+        {{0x01,0x11,0x02,0x25,0xc5,0x14}}, {{0x01,0x11,0x11,0xc5,0x05,0x14}},
+        {{0xc1,0x14,0x14,0x01,0x11,0x14}}, {{0x01,0x05,0x14,0xc1,0x14,0x14}},
+        {{0x01,0x14,0x14,0xc1,0x14,0x14}}, {{0xc1,0x14,0x14,0x14,0x01,0x14}},
+        {{0xc1,0x14,0x14,0x01,0x14,0x04}}, {{0xc1,0x14,0x14,0x14,0x04,0x04}},
+        {{0xc1,0x14,0x14,0x04,0x04,0x04}}, {{0xc1,0x05,0x14,0x01,0x14,0x04}},
+        {{0x01,0x05,0x14,0xc1,0x14,0x04}}, {{0x04,0xc1,0x11,0x14,0x01,0x14}},
+        {{0xc1,0x14,0x01,0x14,0x04,0x04}}, {{0x04,0xc1,0x11,0x14,0x04,0x04}},
+        {{0xc1,0x14,0x04,0x04,0x04,0x04}}, {{0xc4,0x04,0x04,0x04,0x04,0x04}}
+    }};
+    const auto& routing = algorithms[(size_t) juce::jlimit(0, 31, patch.algorithm)];
+    int carrierCount = 0;
+    for (const auto flags : routing)
+        if ((flags & 0x07) == 0x04) ++carrierCount;
+    carrierCount = juce::jmax(1, carrierCount);
+
     for (auto& voice : layer.voices)
     {
         if (!voice.active) continue;
         for (int sample = 0; sample < output.getNumSamples(); ++sample)
         {
-            // Short fade-in/fade-out prevents the discontinuity (click) caused
-            // by stopping an FM waveform at a non-zero sample.
             if (voice.releasing)
             {
-                voice.envelope = juce::jmax(0.0f, voice.envelope - (float) (1.0 / (sampleRate * 0.012)));
+                voice.envelope = juce::jmax(0.0f, voice.envelope
+                    - (float) (1.0 / (sampleRate * 0.020)));
                 if (voice.envelope <= 0.0f)
                 {
                     voice = {};
@@ -376,70 +405,70 @@ void Dx7Engine::render(Layer& layer, const Sf2Engine::LayerConfig& config,
             }
             else
             {
-                voice.envelope = juce::jmin(1.0f, voice.envelope + (float) (1.0 / (sampleRate * 0.003)));
+                voice.envelope = juce::jmin(1.0f, voice.envelope
+                    + (float) (1.0 / (sampleRate * 0.003)));
             }
 
             const auto glide = config.portamento ? 0.0025 : 1.0;
             voice.currentFrequency += (voice.targetFrequency - voice.currentFrequency) * glide;
+
+            std::array<float, 3> buses {};
+            std::array<bool, 3> hasBus {};
             for (int op = 0; op < 6; ++op)
             {
-                const auto frequency = voice.currentFrequency * patch.ratios[(size_t) op];
-                voice.phase[(size_t) op] += juce::MathConstants<double>::twoPi * frequency / sampleRate;
+                const auto flags = routing[(size_t) op];
+                const auto inputBus = (flags >> 4) & 0x03;
+                const auto outputBus = flags & 0x03;
+                const auto add = (flags & 0x04) != 0;
+                const auto frequency = patch.fixedMode[(size_t) op]
+                    ? (double) patch.fixedFrequency[(size_t) op]
+                    : voice.currentFrequency * patch.ratios[(size_t) op];
+                // Avoid alias frequencies from an invalid/corrupt patch while
+                // retaining the intended fixed-frequency or ratio behavior.
+                const auto boundedFrequency = juce::jlimit(0.1, sampleRate * 0.45, frequency);
+                voice.phase[(size_t) op] += juce::MathConstants<double>::twoPi
+                    * boundedFrequency / sampleRate;
                 if (voice.phase[(size_t) op] >= juce::MathConstants<double>::twoPi)
                     voice.phase[(size_t) op] = std::fmod(voice.phase[(size_t) op],
                                                          juce::MathConstants<double>::twoPi);
+
+                auto& stage = voice.operatorStage[(size_t) op];
+                auto& operatorEnvelope = voice.operatorEnvelope[(size_t) op];
+                const auto target = patch.egLevels[(size_t) op][(size_t) stage];
+                const auto rate = 0.00004f + patch.egRates[(size_t) op][(size_t) stage] * 0.008f;
+                operatorEnvelope += (target - operatorEnvelope)
+                    * juce::jlimit(0.0f, 1.0f, rate);
+                if (!voice.releasing && stage < 2
+                    && std::abs(target - operatorEnvelope) < 0.003f)
+                    ++stage;
+                if (voice.releasing)
+                {
+                    stage = 3;
+                    operatorEnvelope *= 1.0f - juce::jlimit(0.00001f, 0.03f,
+                        0.00004f + patch.egRates[(size_t) op][3] * 0.008f);
+                }
+
+                const auto modulation = inputBus != 0 && hasBus[(size_t) inputBus]
+                    ? buses[(size_t) inputBus] * 6.0f : 0.0f;
+                const auto feedback = ((flags & 0xc0) == 0xc0)
+                    ? voice.feedback[(size_t) op] * ((float) patch.feedback / 7.0f) * 2.0f : 0.0f;
+                const auto opSample = std::sin(voice.phase[(size_t) op] + modulation + feedback)
+                    * patch.levels[(size_t) op] * operatorEnvelope;
+                voice.feedback[(size_t) op] = (float) opSample;
+
+                if (outputBus == 0)
+                    buses[0] = add ? buses[0] + (float) opSample : (float) opSample;
+                else
+                    buses[(size_t) outputBus] = add && hasBus[(size_t) outputBus]
+                        ? buses[(size_t) outputBus] + (float) opSample : (float) opSample;
+                hasBus[(size_t) outputBus] = true;
             }
 
-            // The DX7 exposes 32 routing algorithms. This native player uses
-            // eight FM routing families selected from that value, retaining
-            // all six operator levels/ratios instead of reducing every voice
-            // to one serial sine chain.
-            const auto op = [&voice, &patch] (int number, double modulation)
-            {
-                return std::sin(voice.phase[(size_t) number] + modulation)
-                       * (double) patch.levels[(size_t) number];
-            };
-            const auto index = 1.0 + (double) (patch.algorithm % 8) * 0.55;
-            double signal = 0.0;
-            switch (patch.algorithm % 8)
-            {
-                case 0: signal = op(0, op(1, op(2, op(3, op(4, op(5, 0.0) * index) * index) * index) * index) * index); break;
-                case 1: signal = op(0, op(1, op(2, 0.0) * index) * index)
-                               + op(3, op(4, op(5, 0.0) * index) * index); break;
-                case 2: signal = op(0, op(1, 0.0) * index) + op(2, op(3, 0.0) * index)
-                               + op(4, op(5, 0.0) * index); break;
-                case 3: signal = op(0, (op(1, 0.0) + op(2, op(3, 0.0) * index)) * index)
-                               + op(4, op(5, 0.0) * index); break;
-                case 4: signal = op(0, op(1, op(2, 0.0) * index) * index)
-                               + op(3, 0.0) + op(4, 0.0) + op(5, 0.0); break;
-                case 5: signal = op(0, (op(1, 0.0) + op(2, 0.0) + op(3, 0.0)) * index)
-                               + op(4, op(5, 0.0) * index); break;
-                case 6: signal = op(0, op(1, 0.0) * index) + op(2, 0.0)
-                               + op(3, 0.0) + op(4, 0.0) + op(5, 0.0); break;
-                default: signal = op(0, 0.0) + op(1, 0.0) + op(2, 0.0)
-                               + op(3, 0.0) + op(4, 0.0) + op(5, 0.0); break;
-            }
-            const auto value = (float) (signal * voice.velocity * voice.envelope * config.gain * 0.15f);
+            const auto signal = std::tanh(buses[0] / (float) carrierCount);
+            const auto value = signal * voice.velocity * voice.envelope * config.gain * 0.28f;
             for (int channel = 0; channel < output.getNumChannels(); ++channel)
                 output.addSample(channel, sample, value);
         }
     }
 }
 
-void Dx7Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer& hostMidi,
-                        const std::array<juce::MidiBuffer, layerCount>* routedMidi,
-                        const std::array<Sf2Engine::LayerConfig, layerCount>& configs)
-{
-    const juce::ScopedLock guard(lock);
-    for (int index = 0; index < layerCount; ++index)
-    {
-        auto& layer = layers[(size_t) index];
-        const auto& config = configs[(size_t) index];
-        if (layer.sourcePath.isEmpty() || !config.enabled) continue;
-        for (const auto metadata : hostMidi) dispatch(layer, config, metadata.getMessage());
-        if (routedMidi != nullptr)
-            for (const auto metadata : (*routedMidi)[(size_t) index])
-                dispatch(layer, config, metadata.getMessage());
-        render(layer, config, output);
-    }
-}
