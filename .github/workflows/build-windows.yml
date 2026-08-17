@@ -55,7 +55,7 @@ jobs:
           if ($cmake -notmatch "ExternalInstrumentHost.cpp") { throw "Host externo ausente do CMake" }
           $dx7Source = Get-Content "Source\Dx7Engine.cpp" -Raw
           if ($dx7Source -notmatch "fixedFrequency") { throw "Frequência fixa DX7 não é renderizada" }
-          if ($dx7Source -notmatch "array<std::array<uint8_t, 6>, 32> algorithms") { throw "32 algoritmos DX7 não são renderizados" }
+          if (-not $dx7Source.Contains("array<std::array<uint8_t, 6>, 32> algorithms")) { throw "32 algoritmos DX7 não são renderizados" }
           if ($dx7Source -notmatch "patch.feedback") { throw "Feedback DX7 não é renderizado" }
           if ($processorSource -notmatch 'state\.setProperty\("mono"') { throw "Modo Mono Legato não é salvo" }
           if ($processorSource -notmatch 'config\.mono = state\.getProperty\("mono"') { throw "Modo Mono Legato não é restaurado" }
