@@ -28,10 +28,19 @@ Dx7Engine::Patch Dx7Engine::parsePackedPatch(const uint8_t* voice)
     patch.algorithm = voice[110] & 0x1f;
     for (int op = 0; op < 6; ++op)
     {
+        // DX7 bulk voices compress each operator from 21 bytes to 17:
+        // output level is byte 14, followed by mode/coarse and fine frequency.
         const auto offset = op * 17;
-        patch.levels[(size_t) op] = juce::jlimit(0.05f, 1.0f,
-            (float) voice[offset + 16] / 99.0f);
-        patch.ratios[(size_t) op] = 0.5f + (float) (voice[offset + 15] & 0x1f) / 4.0f;
+        const auto outputLevel = voice[offset + 14];
+        const auto modeAndCoarse = voice[offset + 15];
+        const auto coarse = (modeAndCoarse >> 1) & 0x1f;
+        const auto fine = voice[offset + 16];
+        patch.levels[(size_t) op] = juce::jlimit(0.0f, 1.0f,
+            (float) outputLevel / 99.0f);
+        // Fixed-frequency operators are represented as ratios here as a
+        // practical fallback. Ratio mode remains exact enough for DX7 banks.
+        patch.ratios[(size_t) op] = coarse == 0 ? 0.5f
+            : (float) coarse + (float) fine / 100.0f;
     }
     if (patch.name.isEmpty()) patch.name = "DX7 Voice";
     return patch;
@@ -48,9 +57,12 @@ Dx7Engine::Patch Dx7Engine::parseSinglePatch(const uint8_t* voice, int size)
         {
             const auto offset = op * 21;
             if (offset + 18 >= size) break;
-            patch.levels[(size_t) op] = juce::jlimit(0.05f, 1.0f,
+            const auto coarse = voice[offset + 18] & 0x1f;
+            const auto fine = voice[offset + 19];
+            patch.levels[(size_t) op] = juce::jlimit(0.0f, 1.0f,
                 (float) voice[offset + 16] / 99.0f);
-            patch.ratios[(size_t) op] = 0.5f + (float) (voice[offset + 18] & 0x1f) / 4.0f;
+            patch.ratios[(size_t) op] = coarse == 0 ? 0.5f
+                : (float) coarse + (float) fine / 100.0f;
         }
     }
     if (patch.name.isEmpty()) patch.name = "DX7 Single Voice";
@@ -244,19 +256,45 @@ void Dx7Engine::render(Layer& layer, const Sf2Engine::LayerConfig& config,
         {
             const auto glide = config.portamento ? 0.0025 : 1.0;
             voice.currentFrequency += (voice.targetFrequency - voice.currentFrequency) * glide;
-            double modulator = 0.0;
-            for (int op = 5; op >= 0; --op)
+            for (int op = 0; op < 6; ++op)
             {
                 const auto frequency = voice.currentFrequency * patch.ratios[(size_t) op];
                 voice.phase[(size_t) op] += juce::MathConstants<double>::twoPi * frequency / sampleRate;
                 if (voice.phase[(size_t) op] >= juce::MathConstants<double>::twoPi)
                     voice.phase[(size_t) op] = std::fmod(voice.phase[(size_t) op],
                                                          juce::MathConstants<double>::twoPi);
-                const auto depth = (0.25 + (patch.algorithm % 8) * 0.04);
-                modulator = std::sin(voice.phase[(size_t) op] + modulator * depth)
-                            * patch.levels[(size_t) op];
             }
-            const auto value = (float) (modulator * voice.velocity * config.gain * 0.30f);
+
+            // The DX7 exposes 32 routing algorithms. This native player uses
+            // eight FM routing families selected from that value, retaining
+            // all six operator levels/ratios instead of reducing every voice
+            // to one serial sine chain.
+            const auto op = [&voice, &patch] (int number, double modulation)
+            {
+                return std::sin(voice.phase[(size_t) number] + modulation)
+                       * (double) patch.levels[(size_t) number];
+            };
+            const auto index = 1.0 + (double) (patch.algorithm % 8) * 0.55;
+            double signal = 0.0;
+            switch (patch.algorithm % 8)
+            {
+                case 0: signal = op(0, op(1, op(2, op(3, op(4, op(5, 0.0) * index) * index) * index) * index) * index); break;
+                case 1: signal = op(0, op(1, op(2, 0.0) * index) * index)
+                               + op(3, op(4, op(5, 0.0) * index) * index); break;
+                case 2: signal = op(0, op(1, 0.0) * index) + op(2, op(3, 0.0) * index)
+                               + op(4, op(5, 0.0) * index); break;
+                case 3: signal = op(0, (op(1, 0.0) + op(2, op(3, 0.0) * index)) * index)
+                               + op(4, op(5, 0.0) * index); break;
+                case 4: signal = op(0, op(1, op(2, 0.0) * index) * index)
+                               + op(3, 0.0) + op(4, 0.0) + op(5, 0.0); break;
+                case 5: signal = op(0, (op(1, 0.0) + op(2, 0.0) + op(3, 0.0)) * index)
+                               + op(4, op(5, 0.0) * index); break;
+                case 6: signal = op(0, op(1, 0.0) * index) + op(2, 0.0)
+                               + op(3, 0.0) + op(4, 0.0) + op(5, 0.0); break;
+                default: signal = op(0, 0.0) + op(1, 0.0) + op(2, 0.0)
+                               + op(3, 0.0) + op(4, 0.0) + op(5, 0.0); break;
+            }
+            const auto value = (float) (signal * voice.velocity * config.gain * 0.15f);
             for (int channel = 0; channel < output.getNumChannels(); ++channel)
                 output.addSample(channel, sample, value);
         }
