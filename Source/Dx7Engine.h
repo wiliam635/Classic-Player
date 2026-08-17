@@ -47,8 +47,10 @@ private:
     struct Voice
     {
         bool active = false;
+        bool releasing = false;
         int note = -1;
         float velocity = 0.0f;
+        float envelope = 0.0f;
         double currentFrequency = 0.0;
         double targetFrequency = 0.0;
         std::array<double, 6> phase {};
@@ -60,6 +62,11 @@ private:
         std::array<Patch, maxPatches> patches {};
         int patchesLoaded = 0;
         int selectedPatch = 0;
+        // Physical note state is kept separately from sounding voices. This
+        // lets Mono Legato return to a still-held earlier note.
+        std::array<bool, 128> heldNotes {};
+        std::array<float, 128> heldVelocities {};
+        bool sustainDown = false;
         std::array<Voice, 32> voices {};
     };
 
