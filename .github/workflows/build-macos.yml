@@ -47,6 +47,9 @@ jobs:
           grep -q "stopAudioRecording" Source/PluginProcessor.cpp
           grep -q "WavAudioFormat" Source/PluginProcessor.cpp
           grep -q "recordingButton" Source/PluginEditor.cpp
+          grep -q 'state.setProperty("mono"' Source/PluginProcessor.cpp
+          grep -q 'config.mono = state.getProperty("mono"' Source/PluginProcessor.cpp
+          grep -q 'config.portamento = state.getProperty("portamento"' Source/PluginProcessor.cpp
 
       - name: Set up vcpkg
         uses: lukka/run-vcpkg@v11
