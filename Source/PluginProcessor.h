@@ -70,7 +70,14 @@ public:
     void unloadDx7(int layer);
     bool hasDx7(int layer) const;
     juce::String dx7PatchName(int layer) const;
+    juce::String dx7PatchName(int layer, int patch) const;
+    int dx7PatchCount(int layer) const;
+    int dx7SelectedPatch(int layer) const;
+    bool selectDx7Patch(int layer, int patch);
     juce::String dx7Path(int layer) const;
+    juce::Result importDx7Bank(const juce::File&, juce::File& importedFile) const;
+    juce::Array<juce::File> libraryDx7Banks() const;
+    juce::Result deleteLibraryDx7Bank(const juce::File&);
 
     // Records the final stereo mix to the Desktop without blocking the audio callback.
     juce::Result startAudioRecording();
@@ -150,6 +157,7 @@ private:
     std::array<juce::MidiBuffer, Sf2Engine::layerCount> externalMidi;
     std::array<Sf2Engine::LayerConfig, Sf2Engine::layerCount> dx7LayerConfigs {};
     std::array<std::atomic<float>, Sf2Engine::layerCount> externalPeaks {};
+    std::array<int, Sf2Engine::layerCount> lastExternalPortamento {};
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;
     juce::dsp::Limiter<float> outputLimiter;
