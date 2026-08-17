@@ -204,9 +204,75 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
                          const juce::MidiMessage& message)
 {
     if (!accepts(config, message)) return;
-    if (message.isAllNotesOff() || message.isAllSoundOff())
+
+    const auto releaseVoice = [] (Voice& voice)
     {
+        if (voice.active) voice.releasing = true;
+    };
+    const auto highestHeld = [&layer] ()
+    {
+        for (int note = 127; note >= 0; --note)
+            if (layer.heldNotes[(size_t) note]) return note;
+        return -1;
+    };
+    const auto retargetMono = [&layer, &config] (int note, float velocity)
+    {
+        auto& voice = layer.voices.front();
+        const auto wasActive = voice.active && !voice.releasing;
+        voice.active = true;
+        voice.releasing = false;
+        voice.note = note;
+        voice.velocity = velocity;
+        voice.targetFrequency = noteFrequency(note);
+        // A mono transition preserves oscillator phase and envelope. Only a
+        // fresh voice receives an attack, avoiding clicks and retrigger gaps.
+        if (!wasActive)
+        {
+            voice.currentFrequency = voice.targetFrequency;
+            voice.phase.fill(0.0);
+            voice.envelope = 0.0f;
+        }
+        else if (!config.portamento)
+        {
+            voice.currentFrequency = voice.targetFrequency;
+        }
+    };
+
+    if (message.isAllSoundOff())
+    {
+        layer.heldNotes.fill(false);
+        layer.sustainDown = false;
         for (auto& voice : layer.voices) voice = {};
+        return;
+    }
+    if (message.isAllNotesOff())
+    {
+        layer.heldNotes.fill(false);
+        for (auto& voice : layer.voices) releaseVoice(voice);
+        return;
+    }
+
+    if (message.isController() && message.getControllerNumber() == 64)
+    {
+        if (!config.sustainEnabled) return;
+        layer.sustainDown = message.getControllerValue() >= 64;
+        if (!layer.sustainDown)
+        {
+            if (config.mono || config.portamento)
+            {
+                const auto fallback = highestHeld();
+                if (fallback >= 0)
+                    retargetMono(fallback, layer.heldVelocities[(size_t) fallback]);
+                else
+                    releaseVoice(layer.voices.front());
+            }
+            else
+            {
+                for (auto& voice : layer.voices)
+                    if (voice.active && !layer.heldNotes[(size_t) voice.note])
+                        releaseVoice(voice);
+            }
+        }
         return;
     }
     if (!message.isNoteOnOrOff()) return;
@@ -217,33 +283,48 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
 
     if (message.isNoteOff())
     {
-        for (auto& voice : layer.voices)
-            if (voice.active && voice.note == note) voice = {};
+        layer.heldNotes[(size_t) note] = false;
+        if (config.mono || config.portamento)
+        {
+            const auto fallback = highestHeld();
+            if (fallback >= 0)
+                retargetMono(fallback, layer.heldVelocities[(size_t) fallback]);
+            else if (!layer.sustainDown)
+                releaseVoice(layer.voices.front());
+        }
+        else if (!layer.sustainDown)
+        {
+            for (auto& voice : layer.voices)
+                if (voice.active && voice.note == note) releaseVoice(voice);
+        }
+        return;
+    }
+
+    const auto velocity = shapedVelocity(config, message.getFloatVelocity());
+    layer.heldNotes[(size_t) note] = true;
+    layer.heldVelocities[(size_t) note] = velocity;
+
+    if (config.mono || config.portamento)
+    {
+        // Fade any residual polyphonic voices before continuing with one voice.
+        for (size_t i = 1; i < layer.voices.size(); ++i) releaseVoice(layer.voices[i]);
+        retargetMono(note, velocity);
         return;
     }
 
     Voice* target = nullptr;
-    // Both Mono Legato and Portamento reuse the currently sounding voice.
-    // The difference is only whether frequency glides in render().
-    if (config.mono || config.portamento)
-        for (auto& voice : layer.voices)
-            if (voice.active) { target = &voice; break; }
-    if (target == nullptr)
-        for (auto& voice : layer.voices)
-            if (!voice.active) { target = &voice; break; }
+    for (auto& voice : layer.voices)
+        if (!voice.active || voice.releasing) { target = &voice; break; }
     if (target == nullptr) target = &layer.voices.front();
 
-    const auto destination = noteFrequency(note);
-    const auto wasActive = target->active;
     target->active = true;
+    target->releasing = false;
     target->note = note;
-    target->velocity = shapedVelocity(config, message.getFloatVelocity());
-    target->targetFrequency = destination;
-    if (!wasActive || !config.portamento)
-    {
-        target->currentFrequency = destination;
-        target->phase.fill(0.0);
-    }
+    target->velocity = velocity;
+    target->targetFrequency = noteFrequency(note);
+    target->currentFrequency = target->targetFrequency;
+    target->phase.fill(0.0);
+    target->envelope = 0.0f;
 }
 
 void Dx7Engine::render(Layer& layer, const Sf2Engine::LayerConfig& config,
@@ -256,6 +337,22 @@ void Dx7Engine::render(Layer& layer, const Sf2Engine::LayerConfig& config,
         if (!voice.active) continue;
         for (int sample = 0; sample < output.getNumSamples(); ++sample)
         {
+            // Short fade-in/fade-out prevents the discontinuity (click) caused
+            // by stopping an FM waveform at a non-zero sample.
+            if (voice.releasing)
+            {
+                voice.envelope = juce::jmax(0.0f, voice.envelope - (float) (1.0 / (sampleRate * 0.012)));
+                if (voice.envelope <= 0.0f)
+                {
+                    voice = {};
+                    break;
+                }
+            }
+            else
+            {
+                voice.envelope = juce::jmin(1.0f, voice.envelope + (float) (1.0 / (sampleRate * 0.003)));
+            }
+
             const auto glide = config.portamento ? 0.0025 : 1.0;
             voice.currentFrequency += (voice.targetFrequency - voice.currentFrequency) * glide;
             for (int op = 0; op < 6; ++op)
@@ -296,7 +393,7 @@ void Dx7Engine::render(Layer& layer, const Sf2Engine::LayerConfig& config,
                 default: signal = op(0, 0.0) + op(1, 0.0) + op(2, 0.0)
                                + op(3, 0.0) + op(4, 0.0) + op(5, 0.0); break;
             }
-            const auto value = (float) (signal * voice.velocity * config.gain * 0.15f);
+            const auto value = (float) (signal * voice.velocity * voice.envelope * config.gain * 0.15f);
             for (int channel = 0; channel < output.getNumChannels(); ++channel)
                 output.addSample(channel, sample, value);
         }
