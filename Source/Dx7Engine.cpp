@@ -14,52 +14,45 @@ juce::String Dx7Engine::decodeName(const uint8_t* data, int size)
     for (int i = 0; i < size; ++i)
     {
         const auto c = data[i] & 0x7f;
-        if (c >= 32 && c <= 126) name << juce::String::charToString((juce::juce_wchar) c);
+        if (c >= 32 && c <= 126)
+            name << juce::String::charToString((juce::juce_wchar) c);
     }
     return name.trim();
 }
 
-Dx7Engine::Patch Dx7Engine::parsePatch(const juce::MemoryBlock& block)
+Dx7Engine::Patch Dx7Engine::parsePackedPatch(const uint8_t* voice)
 {
     Patch patch;
-    const auto* bytes = static_cast<const uint8_t*>(block.getData());
-    const auto size = (int) block.getSize();
-
-    // DX7 32-voice bulk dump: F0 43 .. 09 20 00, then 32 packed voices of
-    // 128 bytes.  The first packed voice name is at offset 118.
-    for (int start = 0; start < size; ++start)
+    patch.name = decodeName(voice + 118, 10);
+    patch.algorithm = voice[110] & 0x1f;
+    for (int op = 0; op < 6; ++op)
     {
-        if (bytes[start] != 0xf0 || start + 6 >= size || bytes[start + 1] != 0x43)
-            continue;
+        const auto offset = op * 17;
+        patch.levels[(size_t) op] = juce::jlimit(0.05f, 1.0f,
+            (float) voice[offset + 16] / 99.0f);
+        patch.ratios[(size_t) op] = 0.5f + (float) (voice[offset + 15] & 0x1f) / 4.0f;
+    }
+    if (patch.name.isEmpty()) patch.name = "DX7 Voice";
+    return patch;
+}
 
-        const auto remaining = size - start;
-        if (remaining >= 6 + 128)
+Dx7Engine::Patch Dx7Engine::parseSinglePatch(const uint8_t* voice, int size)
+{
+    Patch patch;
+    if (size >= 155)
+    {
+        patch.name = decodeName(voice + 145, 10);
+        patch.algorithm = voice[134] & 0x1f;
+        for (int op = 0; op < 6; ++op)
         {
-            const auto* voice = bytes + start + 6;
-            patch.name = decodeName(voice + 118, 10);
-            patch.algorithm = voice[110] & 0x1f;
-            for (int op = 0; op < 6; ++op)
-            {
-                const auto offset = op * 17;
-                patch.levels[(size_t) op] = juce::jlimit(0.05f, 1.0f,
-                    (float) voice[offset + 16] / 99.0f);
-                patch.ratios[(size_t) op] = 0.5f + (float) (voice[offset + 15] & 0x1f) / 4.0f;
-            }
-            if (patch.name.isEmpty()) patch.name = "DX7 SysEx";
-            return patch;
+            const auto offset = op * 21;
+            if (offset + 18 >= size) break;
+            patch.levels[(size_t) op] = juce::jlimit(0.05f, 1.0f,
+                (float) voice[offset + 16] / 99.0f);
+            patch.ratios[(size_t) op] = 0.5f + (float) (voice[offset + 18] & 0x1f) / 4.0f;
         }
     }
-
-    // Single-voice dumps also have the ten-character program name in their
-    // final bytes.  A valid Yamaha SysEx envelope is enough to load it.
-    if (size >= 12 && bytes[0] == 0xf0 && bytes[1] == 0x43)
-    {
-        patch.name = decodeName(bytes + juce::jmax(0, size - 12), 10);
-        if (patch.name.isEmpty()) patch.name = "DX7 Single Voice";
-        return patch;
-    }
-
-    patch.name = "DX7 Patch";
+    if (patch.name.isEmpty()) patch.name = "DX7 Single Voice";
     return patch;
 }
 
@@ -75,17 +68,42 @@ juce::Result Dx7Engine::loadSysEx(int index, const juce::File& file)
         return juce::Result::fail("Nao foi possivel ler o arquivo DX7.");
 
     const auto* data = static_cast<const uint8_t*>(bytes.getData());
-    bool yamahaSysEx = false;
-    for (size_t i = 0; i + 1 < bytes.getSize(); ++i)
-        if (data[i] == 0xf0 && data[i + 1] == 0x43) { yamahaSysEx = true; break; }
-    if (!yamahaSysEx)
+    const auto size = (int) bytes.getSize();
+    int bulkStart = -1;
+    int singleStart = -1;
+    for (int start = 0; start + 6 < size; ++start)
+    {
+        if (data[start] != 0xf0 || data[start + 1] != 0x43) continue;
+        if (data[start + 3] == 0x09 && data[start + 4] == 0x20 && data[start + 5] == 0x00
+            && start + 6 + maxPatches * 128 <= size)
+        {
+            bulkStart = start;
+            break;
+        }
+        if (singleStart < 0) singleStart = start;
+    }
+    if (bulkStart < 0 && singleStart < 0)
         return juce::Result::fail("O arquivo nao contem um SysEx Yamaha DX7 valido.");
 
+    Layer loaded;
+    loaded.sourcePath = file.getFullPathName();
+    if (bulkStart >= 0)
+    {
+        const auto* bank = data + bulkStart + 6;
+        for (int patch = 0; patch < maxPatches; ++patch)
+            loaded.patches[(size_t) patch] = parsePackedPatch(bank + patch * 128);
+        loaded.patchesLoaded = maxPatches;
+    }
+    else
+    {
+        const auto payloadStart = singleStart + 6;
+        const auto payloadSize = juce::jmax(0, size - payloadStart - 2);
+        loaded.patches[0] = parseSinglePatch(data + payloadStart, payloadSize);
+        loaded.patchesLoaded = 1;
+    }
+
     const juce::ScopedLock guard(lock);
-    auto& layer = layers[(size_t) index];
-    layer.sourcePath = file.getFullPathName();
-    layer.patch = parsePatch(bytes);
-    for (auto& voice : layer.voices) voice = {};
+    layers[(size_t) index] = std::move(loaded);
     return juce::Result::ok();
 }
 
@@ -109,10 +127,41 @@ bool Dx7Engine::isLoaded(int index) const
         && layers[(size_t) index].sourcePath.isNotEmpty();
 }
 
+int Dx7Engine::patchCount(int index) const
+{
+    return juce::isPositiveAndBelow(index, layerCount) ? layers[(size_t) index].patchesLoaded : 0;
+}
+
+int Dx7Engine::selectedPatch(int index) const
+{
+    return juce::isPositiveAndBelow(index, layerCount) ? layers[(size_t) index].selectedPatch : 0;
+}
+
+bool Dx7Engine::selectPatch(int index, int patch)
+{
+    if (!juce::isPositiveAndBelow(index, layerCount)) return false;
+    const juce::ScopedLock guard(lock);
+    auto& layer = layers[(size_t) index];
+    if (!juce::isPositiveAndBelow(patch, layer.patchesLoaded)) return false;
+    layer.selectedPatch = patch;
+    for (auto& voice : layer.voices) voice = {};
+    return true;
+}
+
 juce::String Dx7Engine::patchName(int index) const
 {
-    return juce::isPositiveAndBelow(index, layerCount)
-        ? layers[(size_t) index].patch.name : juce::String{};
+    if (!juce::isPositiveAndBelow(index, layerCount)) return {};
+    const auto& layer = layers[(size_t) index];
+    return juce::isPositiveAndBelow(layer.selectedPatch, layer.patchesLoaded)
+        ? layer.patches[(size_t) layer.selectedPatch].name : juce::String{};
+}
+
+juce::String Dx7Engine::patchName(int index, int patch) const
+{
+    if (!juce::isPositiveAndBelow(index, layerCount)) return {};
+    const auto& layer = layers[(size_t) index];
+    return juce::isPositiveAndBelow(patch, layer.patchesLoaded)
+        ? layer.patches[(size_t) patch].name : juce::String{};
 }
 
 juce::String Dx7Engine::path(int index) const
@@ -161,39 +210,50 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
     }
 
     Voice* target = nullptr;
-    for (auto& voice : layer.voices)
-        if (!voice.active) { target = &voice; break; }
+    if (config.portamento)
+        for (auto& voice : layer.voices)
+            if (voice.active) { target = &voice; break; }
     if (target == nullptr)
-        target = &layer.voices.front();
-    if (config.mono)
-        for (auto& voice : layer.voices) voice = {};
+        for (auto& voice : layer.voices)
+            if (!voice.active) { target = &voice; break; }
+    if (target == nullptr) target = &layer.voices.front();
 
+    const auto destination = noteFrequency(note);
+    const auto wasActive = target->active;
     target->active = true;
     target->note = note;
     target->velocity = shapedVelocity(config, message.getFloatVelocity());
-    target->phase.fill(0.0);
+    target->targetFrequency = destination;
+    if (!wasActive || !config.portamento)
+    {
+        target->currentFrequency = destination;
+        target->phase.fill(0.0);
+    }
 }
 
 void Dx7Engine::render(Layer& layer, const Sf2Engine::LayerConfig& config,
                        juce::AudioBuffer<float>& output)
 {
+    if (!juce::isPositiveAndBelow(layer.selectedPatch, layer.patchesLoaded)) return;
+    const auto& patch = layer.patches[(size_t) layer.selectedPatch];
     for (auto& voice : layer.voices)
     {
         if (!voice.active) continue;
-        const auto base = noteFrequency(voice.note);
         for (int sample = 0; sample < output.getNumSamples(); ++sample)
         {
+            const auto glide = config.portamento ? 0.0025 : 1.0;
+            voice.currentFrequency += (voice.targetFrequency - voice.currentFrequency) * glide;
             double modulator = 0.0;
             for (int op = 5; op >= 0; --op)
             {
-                const auto frequency = base * layer.patch.ratios[(size_t) op];
+                const auto frequency = voice.currentFrequency * patch.ratios[(size_t) op];
                 voice.phase[(size_t) op] += juce::MathConstants<double>::twoPi * frequency / sampleRate;
                 if (voice.phase[(size_t) op] >= juce::MathConstants<double>::twoPi)
                     voice.phase[(size_t) op] = std::fmod(voice.phase[(size_t) op],
                                                          juce::MathConstants<double>::twoPi);
-                const auto depth = (0.25 + (layer.patch.algorithm % 8) * 0.04);
+                const auto depth = (0.25 + (patch.algorithm % 8) * 0.04);
                 modulator = std::sin(voice.phase[(size_t) op] + modulator * depth)
-                            * layer.patch.levels[(size_t) op];
+                            * patch.levels[(size_t) op];
             }
             const auto value = (float) (modulator * voice.velocity * config.gain * 0.30f);
             for (int channel = 0; channel < output.getNumChannels(); ++channel)
