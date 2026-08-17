@@ -237,9 +237,9 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
             if (!layer.sustainDown && monoMode && layer.monoNote >= 0)
             {
                 const auto fallback = highestHeld();
-                if (fallback >= 0)
+                if (fallback >= 0 && fallback != layer.monoNote)
                     startMonoNote(channel, fallback, layer.heldVelocities[(size_t) fallback]);
-                else
+                else if (fallback < 0)
                 {
                     fluid_synth_noteoff(layer.synth.get(), layer.monoChannel - 1, layer.monoNote);
                     layer.monoNote = -1;
