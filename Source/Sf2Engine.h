@@ -17,7 +17,7 @@ public:
     struct LayerConfig
     {
         bool enabled = true;
-        bool mono = false; // legacy state; portamento replaces the UI mono mode.
+        bool mono = false; // Mono legato: one voice at a time, without a gap.
         bool portamento = false;
         bool sustainEnabled = true;
         int midiChannel = 0; // 0 = omni, 1..16 = fixed
@@ -78,6 +78,7 @@ private:
         int lastReverb = -1;
         int lastRelease = -1;
         int lastPortamento = -1;
+        int lastMono = -1;
         float modulationAmount = 0.0f;
         double modulationPhase = 0.0;
         std::array<float, 2> filterState { 0.0f, 0.0f };
