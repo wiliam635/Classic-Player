@@ -79,8 +79,8 @@ bool AnalogSynthEngine::acceptsMessage(const Sf2Engine::LayerConfig& config,
                                        const juce::MidiMessage& message)
 {
     if (!config.enabled) return false;
-    if (!message.isNoteOnOrOff()) return true;
     if (config.midiChannel > 0 && message.getChannel() != config.midiChannel) return false;
+    if (!message.isNoteOnOrOff()) return true;
     const auto note = message.getNoteNumber();
     return note >= config.lowNote && note <= config.highNote;
 }
@@ -170,10 +170,13 @@ void AnalogSynthEngine::noteOff(int layerIndex, int midiChannel, int note)
         if (voice.active && voice.note == note && voice.midiChannel == midiChannel)
         {
             voice.keyDown = false;
-            voice.amp.releaseStart = voice.amp.value;
-            voice.filter.releaseStart = voice.filter.value;
-            voice.amp.stage = EnvelopeStage::release;
-            voice.filter.stage = EnvelopeStage::release;
+            if (!layer.sustainPedal)
+            {
+                voice.amp.releaseStart = voice.amp.value;
+                voice.filter.releaseStart = voice.filter.value;
+                voice.amp.stage = EnvelopeStage::release;
+                voice.filter.stage = EnvelopeStage::release;
+            }
         }
     }
 }
@@ -241,7 +244,26 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
         {
             const auto& config = configs[(size_t) layerIndex];
             if (!acceptsMessage(config.routing, message)) continue;
-            if (message.isNoteOn())
+            auto& layer = layers[(size_t) layerIndex];
+
+            if (message.isController() && message.getControllerNumber() == 64)
+            {
+                if (!config.routing.sustainEnabled) continue;
+                const auto sustainDown = message.getControllerValue() >= 64;
+                if (layer.sustainPedal && !sustainDown)
+                {
+                    for (auto& voice : layer.voices)
+                        if (voice.active && !voice.keyDown)
+                        {
+                            voice.amp.releaseStart = voice.amp.value;
+                            voice.filter.releaseStart = voice.filter.value;
+                            voice.amp.stage = EnvelopeStage::release;
+                            voice.filter.stage = EnvelopeStage::release;
+                        }
+                }
+                layer.sustainPedal = sustainDown;
+            }
+            else if (message.isNoteOn())
                 noteOn(layerIndex, message.getChannel(), message.getNoteNumber(),
                        message.getFloatVelocity(), config);
             else if (message.isNoteOff())
