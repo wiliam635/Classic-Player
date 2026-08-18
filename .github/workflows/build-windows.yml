@@ -18,7 +18,9 @@ jobs:
           $required = @(
             "Source\ExternalInstrumentHost.h",
             "Source\ExternalInstrumentHost.cpp",
-            "Source\PluginProcessor.cpp"
+            "Source\PluginProcessor.cpp",
+            "Source\AnalogSynthEngine.h",
+            "Source\AnalogSynthEngine.cpp"
           )
           foreach ($file in $required) {
             if (-not (Test-Path $file)) { throw "Arquivo obrigatório ausente: $file" }
@@ -53,6 +55,12 @@ jobs:
           if ($editorSource -notmatch "if \(externalEditorWindow != nullptr\)") { throw "Proteção de reabertura do editor VST ausente" }
           if ($editorSource -notmatch "externalEditorWindow->toFront\(true\)") { throw "Reutilização da janela do editor VST ausente" }
           if ($cmake -notmatch "ExternalInstrumentHost.cpp") { throw "Host externo ausente do CMake" }
+          if ($cmake -notmatch "AnalogSynthEngine.cpp") { throw "Motor Classic Keys Analog ausente do CMake" }
+          $analogSource = Get-Content "Source\AnalogSynthEngine.cpp" -Raw
+          if ($processorSource -notmatch "LayerType::analog") { throw "Tipo de layer Analog ausente" }
+          if ($processorSource -notmatch "analogSynthEngine.process") { throw "Renderização Analog ausente" }
+          if ($editorSource -notmatch "showAnalogSynthEditor") { throw "Editor Classic Keys Analog ausente" }
+          if ($analogSource -notmatch "renderVoice\(voice, config, lfo") { throw "LFO Analog não é calculado por layer" }
           $dx7Source = Get-Content "Source\Dx7Engine.cpp" -Raw
           if ($dx7Source -notmatch "void Dx7Engine::process") { throw "Entrada de áudio DX7 não está implementada" }
           if ($dx7Source -notmatch "fixedFrequency") { throw "Frequência fixa DX7 não é renderizada" }
