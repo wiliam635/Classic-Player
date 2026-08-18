@@ -50,8 +50,12 @@ public:
     void reset();
     void stopAllSounds();
     void unload(int layer);
+    // Standalone MIDI arrives through the per-layer collectors; DAWs deliver
+    // it directly in the host buffer. Accept both sources so Analog behaves
+    // identically in either environment.
     void process(juce::AudioBuffer<float>& output, const juce::MidiBuffer& midi,
-                 const std::array<Config, layerCount>& configs);
+                 const std::array<Config, layerCount>& configs,
+                 const std::array<juce::MidiBuffer, layerCount>* routedMidi = nullptr);
 
     float getLayerPeak(int layer) const noexcept;
 
