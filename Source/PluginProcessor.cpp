@@ -507,7 +507,8 @@ float ClassicPlayerAudioProcessor::layerPeak(int layer) const
 {
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return 0.0f;
     return juce::jmax(engine.getLayerPeak(layer),
-                      externalPeaks[(size_t) layer].load(std::memory_order_relaxed));
+                      juce::jmax(dx7Engine.getLayerPeak(layer),
+                                 externalPeaks[(size_t) layer].load(std::memory_order_relaxed)));
 }
 
 ClassicPlayerAudioProcessor::LayerType ClassicPlayerAudioProcessor::layerType(int layer) const
