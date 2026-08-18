@@ -98,7 +98,19 @@ Dx7Engine::Patch Dx7Engine::parsePackedPatch(const uint8_t* voice)
         patch.raw[(size_t) (raw + 19)] = voice[packed + 16];
         patch.raw[(size_t) (raw + 20)] = (voice[packed + 12] >> 3) & 0x0f;
     }
-    for (int i = 0; i < 24; ++i) patch.raw[(size_t) (126 + i)] = voice[102 + i];
+    for (int i = 0; i < 8; ++i) patch.raw[(size_t) (126 + i)] = voice[102 + i];
+    patch.raw[134] = voice[110] & 0x1f;               // algorithm
+    patch.raw[135] = voice[111] & 0x07;               // feedback
+    patch.raw[136] = (voice[111] >> 3) & 0x01;        // oscillator sync
+    patch.raw[137] = voice[112];                      // LFO speed
+    patch.raw[138] = voice[113];                      // LFO delay
+    patch.raw[139] = voice[114];                      // pitch mod depth
+    patch.raw[140] = voice[115];                      // amp mod depth
+    patch.raw[141] = voice[116] & 0x01;               // LFO key sync
+    patch.raw[142] = (voice[116] >> 1) & 0x07;        // LFO waveform
+    patch.raw[143] = (voice[116] >> 4) & 0x07;        // pitch mod sensitivity
+    patch.raw[144] = voice[117];                      // transpose
+    for (int i = 0; i < 10; ++i) patch.raw[(size_t) (145 + i)] = voice[118 + i];
     if (patch.name.isEmpty()) patch.name = "DX7 Voice";
     return patch;
 }
