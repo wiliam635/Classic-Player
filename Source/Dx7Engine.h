@@ -86,6 +86,16 @@ private:
         std::array<bool, 128> heldNotes {};
         std::array<float, 128> heldVelocities {};
         bool sustainDown = false;
+        // LFO/chorus buffers are prepared when the engine is prepared or a
+        // bank is loaded. They are never allocated by render().
+        double lfoPhase = 0.0;
+        double lfoDelayProgress = 0.0;
+        double chorusPhase = 0.0;
+        int chorusWritePosition = 0;
+        juce::AudioBuffer<float> renderScratch;
+        juce::AudioBuffer<float> chorusDelay;
+        std::array<float, 2> dcInput {};
+        std::array<float, 2> dcOutput {};
         std::array<Voice, 32> voices {};
     };
 
@@ -105,5 +115,6 @@ private:
     FmCore fmCore;
     Controllers controllers;
     double sampleRate = 48000.0;
+    int maximumBlockSize = 512;
     juce::CriticalSection lock;
 };
