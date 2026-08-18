@@ -17,10 +17,24 @@ Dx7Engine::Dx7Engine()
     controllers.refresh();
 }
 
-void Dx7Engine::prepare(double newSampleRate, int)
+void Dx7Engine::prepare(double newSampleRate, int newMaximumBlockSize)
 {
     const juce::ScopedLock guard(lock);
     sampleRate = juce::jmax(1.0, newSampleRate);
+    maximumBlockSize = juce::jmax(64, newMaximumBlockSize);
+    for (auto& layer : layers)
+    {
+        layer.renderScratch.setSize(2, maximumBlockSize, false, true, true);
+        // 45 ms accommodates a gently modulated stereo chorus at any supported rate.
+        layer.chorusDelay.setSize(2, juce::jmax(8, (int) std::ceil(sampleRate * 0.045)),
+                                  false, true, true);
+        layer.chorusWritePosition = 0;
+        layer.chorusPhase = 0.0;
+        layer.lfoPhase = 0.0;
+        layer.lfoDelayProgress = 0.0;
+        layer.dcInput = {};
+        layer.dcOutput = {};
+    }
     // MSFA/Dexed lookup tables are sample-rate dependent. Initialising them
     // here prevents silent/invalid oscillator output on the first DX7 note.
     Exp2::init();
@@ -201,6 +215,9 @@ juce::Result Dx7Engine::loadSysEx(int index, const juce::File& file)
         loaded.patchesLoaded = 1;
     }
 
+    loaded.renderScratch.setSize(2, maximumBlockSize, false, true, true);
+    loaded.chorusDelay.setSize(2, juce::jmax(8, (int) std::ceil(sampleRate * 0.045)),
+                               false, true, true);
     const juce::ScopedLock guard(lock);
     layers[(size_t) index] = std::move(loaded);
     return juce::Result::ok();
@@ -468,33 +485,88 @@ void Dx7Engine::render(Layer& layer, const Sf2Engine::LayerConfig& config,
                        juce::AudioBuffer<float>& output)
 {
     if (!juce::isPositiveAndBelow(layer.selectedPatch, layer.patchesLoaded)) return;
+    if (layer.renderScratch.getNumSamples() < output.getNumSamples()
+        || layer.chorusDelay.getNumSamples() == 0) return;
 
-    // MSFA renders 64 fixed-point samples per pass, just like Dexed. The
-    // generated block is added to the Classic Player mix; no layer clears
-    // the shared output buffer.
+    auto& scratch = layer.renderScratch;
+    scratch.clear();
+    const auto& patch = layer.patches[(size_t) layer.selectedPatch];
     constexpr float fixedToFloat = 1.0f / (float) (1 << 24);
+    const auto lfoSpeed = juce::jlimit(0.0f, 1.0f, (float) patch.raw[137] / 99.0f);
+    // The DX7 speed curve is deliberately exponential; a linear mapping makes
+    // slow electric-piano tremolo far too fast.
+    const auto lfoHz = 0.05 + 11.5 * lfoSpeed * lfoSpeed;
+    const auto lfoStep = juce::MathConstants<double>::twoPi * lfoHz / sampleRate;
+    const auto delaySeconds = 0.015 + 2.2 * (double) patch.raw[138] / 99.0;
+
     for (auto& voice : layer.voices)
     {
         if (!voice.active || voice.coreVoice == nullptr) continue;
-
         int offset = 0;
-        while (offset < output.getNumSamples())
+        while (offset < scratch.getNumSamples())
         {
+            // MSFA expects a Q24 LFO value. The previous fixed centre value
+            // disabled the DX7's native amplitude modulation entirely.
+            const auto blockPhase = layer.lfoPhase + (double) offset * lfoStep;
+            const auto lfoWave = 0.5 + 0.5 * std::sin(blockPhase);
+            const auto delayedDepth = delaySeconds > 0.0
+                ? juce::jlimit(0.0, 1.0, (layer.lfoDelayProgress
+                    + (double) offset / sampleRate) / delaySeconds) : 1.0;
+            const auto lfoValue = juce::jlimit(0, 1 << 24,
+                (int) std::lround((0.5 + (lfoWave - 0.5) * delayedDepth) * (double) (1 << 24)));
             std::array<int32_t, N> fmBlock {};
-            voice.coreVoice->compute(fmBlock.data(), 1 << 23, 1 << 24, &controllers);
+            voice.coreVoice->compute(fmBlock.data(), lfoValue, 1 << 24, &controllers);
 
-            const auto count = juce::jmin(N, output.getNumSamples() - offset);
+            const auto count = juce::jmin(N, scratch.getNumSamples() - offset);
             const auto gain = config.gain * voice.velocity * 0.24f;
             for (int sample = 0; sample < count; ++sample)
             {
                 const auto value = (float) fmBlock[(size_t) sample] * fixedToFloat * gain;
-                for (int channel = 0; channel < output.getNumChannels(); ++channel)
-                    output.addSample(channel, offset + sample, value);
+                scratch.addSample(0, offset + sample, value);
+                scratch.addSample(1, offset + sample, value);
             }
             offset += count;
         }
-
-        if (voice.releasing && !voice.coreVoice->isPlaying())
-            voice = {};
+        if (voice.releasing && !voice.coreVoice->isPlaying()) voice = {};
     }
+    layer.lfoPhase = std::fmod(layer.lfoPhase + (double) scratch.getNumSamples() * lfoStep,
+                               juce::MathConstants<double>::twoPi);
+    layer.lfoDelayProgress += (double) scratch.getNumSamples() / sampleRate;
+
+    // Light stereo chorus for DX electric pianos. It is intentionally applied
+    // only to the DX engine and stays dry when its layer amount is zero.
+    const auto chorusAmount = juce::jlimit(0.0f, 100.0f, config.dx7Chorus) / 100.0f;
+    const auto delayLength = layer.chorusDelay.getNumSamples();
+    for (int sample = 0; sample < scratch.getNumSamples(); ++sample)
+    {
+        const auto phase = std::sin(layer.chorusPhase);
+        const auto baseDelay = (int) std::round(sampleRate * 0.018);
+        const auto spread = (int) std::round(sampleRate * 0.006 * phase);
+        const auto leftRead = (layer.chorusWritePosition - baseDelay - spread + delayLength) % delayLength;
+        const auto rightRead = (layer.chorusWritePosition - baseDelay + spread + delayLength) % delayLength;
+        for (int channel = 0; channel < 2; ++channel)
+        {
+            auto* dry = scratch.getWritePointer(channel);
+            auto* delay = layer.chorusDelay.getWritePointer(channel);
+            const auto delayed = delay[channel == 0 ? leftRead : rightRead];
+            delay[layer.chorusWritePosition] = dry[sample];
+            dry[sample] = dry[sample] * (1.0f - 0.28f * chorusAmount)
+                        + delayed * (0.28f * chorusAmount);
+            // A DC blocker smooths discontinuities between note envelopes and
+            // prevents the small click reported on release without dulling tone.
+            const auto input = dry[sample];
+            const auto filtered = input - layer.dcInput[(size_t) channel]
+                                + 0.995f * layer.dcOutput[(size_t) channel];
+            layer.dcInput[(size_t) channel] = input;
+            layer.dcOutput[(size_t) channel] = filtered;
+            dry[sample] = filtered;
+        }
+        layer.chorusWritePosition = (layer.chorusWritePosition + 1) % delayLength;
+        layer.chorusPhase += juce::MathConstants<double>::twoPi * 0.28 / sampleRate;
+        if (layer.chorusPhase >= juce::MathConstants<double>::twoPi)
+            layer.chorusPhase -= juce::MathConstants<double>::twoPi;
+    }
+
+    for (int channel = 0; channel < juce::jmin(2, output.getNumChannels()); ++channel)
+        output.addFrom(channel, 0, scratch, channel, 0, output.getNumSamples());
 }
