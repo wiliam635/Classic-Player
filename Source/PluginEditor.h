@@ -74,7 +74,8 @@ private:
         void applyConfig();
         void initialiseComboBoxes();
         void updateMidiLearnState();
-        void editEffectAmount(bool reverbEffect);
+        void showReverbEditor();
+        void showCompressorEditor();
 
         ClassicPlayerAudioProcessor& processor;
         const int index;
