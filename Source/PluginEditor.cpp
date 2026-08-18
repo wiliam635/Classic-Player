@@ -193,6 +193,127 @@ private:
 };
 
 
+class AnalogSynthEditorPanel final : public juce::Component
+{
+public:
+    explicit AnalogSynthEditorPanel(const AnalogSynthEngine::Config& source)
+        : initial(source),
+          knobs({
+              { "OSC 1 LEVEL", source.oscillator1Level * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
+              { "OSC 2 LEVEL", source.oscillator2Level * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
+              { "OSC 3 LEVEL", source.oscillator3Level * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
+              { "OSC 2 TUNE", source.oscillator2Semitones, -24.0f, 24.0f, 1.0f, 0 },
+              { "OSC 3 TUNE", source.oscillator3Semitones, -24.0f, 24.0f, 1.0f, 0 },
+              { "NOISE", source.noiseLevel * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
+              { "CUTOFF", source.cutoff, 0.0f, 100.0f, 1.0f, 0 },
+              { "RESONANCE", source.resonance * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
+              { "FILTER ENV", source.filterEnvelopeAmount * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
+              { "ATTACK ms", source.ampAttackMs, 1.0f, 2000.0f, 1.0f, 0 },
+              { "DECAY ms", source.ampDecayMs, 1.0f, 3000.0f, 1.0f, 0 },
+              { "SUSTAIN", source.ampSustain * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
+              { "RELEASE ms", source.ampReleaseMs, 1.0f, 5000.0f, 1.0f, 0 },
+              { "LFO RATE Hz", source.lfoRateHz, 0.1f, 20.0f, 0.1f, 1 },
+              { "LFO PITCH", source.lfoToPitch, 0.0f, 12.0f, 0.1f, 1 },
+              { "LFO FILTER", source.lfoToFilter, 0.0f, 100.0f, 1.0f, 0 },
+              { "GLIDE ms", source.glideMs, 0.0f, 1000.0f, 1.0f, 0 }
+          }, 6)
+    {
+        setupWave(wave1, source.oscillator1Wave);
+        setupWave(wave2, source.oscillator2Wave);
+        setupWave(wave3, source.oscillator3Wave);
+        addAndMakeVisible(wave1);
+        addAndMakeVisible(wave2);
+        addAndMakeVisible(wave3);
+        addAndMakeVisible(knobs);
+        setSize(780, 540);
+    }
+
+    AnalogSynthEngine::Config config() const
+    {
+        auto result = initial;
+        result.oscillator1Wave = selectedWave(wave1);
+        result.oscillator2Wave = selectedWave(wave2);
+        result.oscillator3Wave = selectedWave(wave3);
+        result.oscillator1Level = knobs.value(0) / 100.0f;
+        result.oscillator2Level = knobs.value(1) / 100.0f;
+        result.oscillator3Level = knobs.value(2) / 100.0f;
+        result.oscillator2Semitones = knobs.value(3);
+        result.oscillator3Semitones = knobs.value(4);
+        result.noiseLevel = knobs.value(5) / 100.0f;
+        result.cutoff = knobs.value(6);
+        result.resonance = knobs.value(7) / 100.0f;
+        result.filterEnvelopeAmount = knobs.value(8) / 100.0f;
+        result.ampAttackMs = knobs.value(9);
+        result.ampDecayMs = knobs.value(10);
+        result.ampSustain = knobs.value(11) / 100.0f;
+        result.ampReleaseMs = knobs.value(12);
+        result.lfoRateHz = knobs.value(13);
+        result.lfoToPitch = knobs.value(14);
+        result.lfoToFilter = knobs.value(15);
+        result.glideMs = knobs.value(16);
+        return result;
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.fillAll(juce::Colour(panel));
+        g.setColour(juce::Colour(line));
+        g.drawRect(getLocalBounds(), 1);
+
+        const auto icon = embeddedImage("classicplayerappicon_png");
+        if (icon.isValid())
+            g.drawImageWithin(icon, 16, 10, 48, 48, juce::RectanglePlacement::centred);
+
+        g.setColour(juce::Colour(teal));
+        g.setFont(juce::FontOptions(22.0f, juce::Font::bold));
+        g.drawText("CLASSIC KEYS ANALOG", 76, 12, getWidth() - 90, 26,
+                   juce::Justification::left);
+        g.setColour(juce::Colour(mutedText));
+        g.setFont(juce::FontOptions(12.0f));
+        g.drawText("Sintetizador nativo de tres osciladores", 77, 37,
+                   getWidth() - 90, 20, juce::Justification::left);
+
+        g.setColour(juce::Colour(text));
+        g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+        g.drawText("FORMA DE ONDA", 16, 72, 160, 18, juce::Justification::left);
+        g.drawText("CONTROLES DO SINTETIZADOR", 16, 112, 260, 18, juce::Justification::left);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(12);
+        area.removeFromTop(56);
+        auto waves = area.removeFromTop(40);
+        const auto width = waves.getWidth() / 3;
+        wave1.setBounds(waves.removeFromLeft(width).reduced(3, 2));
+        wave2.setBounds(waves.removeFromLeft(width).reduced(3, 2));
+        wave3.setBounds(waves.reduced(3, 2));
+        area.removeFromTop(26);
+        knobs.setBounds(area);
+    }
+
+private:
+    static void setupWave(juce::ComboBox& box, AnalogSynthEngine::Waveform wave)
+    {
+        box.addItem("OSC - TRIANGLE", 1);
+        box.addItem("OSC - SAW", 2);
+        box.addItem("OSC - SQUARE", 3);
+        box.addItem("OSC - PULSE", 4);
+        box.setSelectedId(static_cast<int>(wave) + 1, juce::dontSendNotification);
+        box.setLookAndFeel(&classicLookAndFeel);
+    }
+
+    static AnalogSynthEngine::Waveform selectedWave(const juce::ComboBox& box)
+    {
+        return static_cast<AnalogSynthEngine::Waveform>(juce::jlimit(0, 3, box.getSelectedId() - 1));
+    }
+
+    AnalogSynthEngine::Config initial;
+    juce::ComboBox wave1, wave2, wave3;
+    KnobEditorPanel knobs;
+};
+
+
 class ColourPicker final : public juce::Component, private juce::ChangeListener
 {
 public:
@@ -1440,40 +1561,20 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
 {
     if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::analog) return;
 
-    const auto config = processor.analogSynthConfig(index);
     auto* dialog = new juce::AlertWindow(
-        "CLASSIC KEYS ANALOG",
-        "Sintetizador analogico de tres osciladores. Os controles alteram o som em tempo real.",
+        "Classic Keys Analog", "Edite a camada Analog sem alterar as outras camadas.",
         juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
-    auto* knobs = new KnobEditorPanel({
-        { "CUTOFF", config.cutoff, 0.0f, 100.0f, 1.0f, 0 },
-        { "RESONANCE", config.resonance * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
-        { "OSC 1 LEVEL", config.oscillator1Level * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
-        { "OSC 2 LEVEL", config.oscillator2Level * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
-        { "OSC 3 LEVEL", config.oscillator3Level * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
-        { "GLIDE ms", config.glideMs, 0.0f, 1000.0f, 1.0f, 0 },
-        { "LFO RATE Hz", config.lfoRateHz, 0.1f, 20.0f, 0.1f, 1 },
-        { "LFO FILTER", config.lfoToFilter, 0.0f, 100.0f, 1.0f, 0 }
-    }, 4);
-    dialog->addCustomComponent(knobs);
+    auto* controls = new AnalogSynthEditorPanel(processor.analogSynthConfig(index));
+    dialog->addCustomComponent(controls);
     dialog->addButton("APLICAR", 1, juce::KeyPress(juce::KeyPress::returnKey));
     dialog->addButton("CANCELAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
-        [safe, dialog, knobs, config](int result)
+        [safe, controls](int result)
         {
-            if (safe == nullptr || result != 1) return;
-            auto updated = config;
-            updated.cutoff = juce::jlimit(0.0f, 100.0f, knobs->value(0));
-            updated.resonance = juce::jlimit(0.0f, 1.0f, knobs->value(1) / 100.0f);
-            updated.oscillator1Level = juce::jlimit(0.0f, 1.0f, knobs->value(2) / 100.0f);
-            updated.oscillator2Level = juce::jlimit(0.0f, 1.0f, knobs->value(3) / 100.0f);
-            updated.oscillator3Level = juce::jlimit(0.0f, 1.0f, knobs->value(4) / 100.0f);
-            updated.glideMs = juce::jlimit(0.0f, 1000.0f, knobs->value(5));
-            updated.lfoRateHz = juce::jlimit(0.1f, 20.0f, knobs->value(6));
-            updated.lfoToFilter = juce::jlimit(0.0f, 100.0f, knobs->value(7));
-            safe->processor.setAnalogSynthConfig(safe->index, updated);
+            if (safe != nullptr && result == 1)
+                safe->processor.setAnalogSynthConfig(safe->index, controls->config());
         }), true);
 }
 
