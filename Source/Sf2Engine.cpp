@@ -216,9 +216,20 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
     const auto startMonoNote = [&layer] (int midiChannel, int note, float velocity)
     {
         const auto velocityValue = juce::jlimit(1, 127, (int) std::round(velocity * 127.0f));
+
+        // A repeated Note On for the same key must replace the current
+        // FluidSynth voice first. Otherwise some monophonic SF2s retain the
+        // previous sax/brass voice until that pitch is played again.
+        if (layer.monoNote == note)
+            fluid_synth_noteoff(layer.synth.get(), layer.monoChannel - 1, layer.monoNote);
+
         fluid_synth_noteon(layer.synth.get(), midiChannel - 1, note, velocityValue);
+
+        // For different pitches, start the new note before releasing the old
+        // one, preserving the continuous legato transition.
         if (layer.monoNote >= 0 && layer.monoNote != note)
             fluid_synth_noteoff(layer.synth.get(), layer.monoChannel - 1, layer.monoNote);
+
         layer.monoNote = note;
         layer.monoChannel = midiChannel;
     };
@@ -232,10 +243,12 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
             if (!layer.config.sustainEnabled) return;
             layer.sustainDown = value >= 64;
             // In mono/legato mode sustain is controlled exclusively by the
-            // note stack below. Forwarding CC64 to FluidSynth as well may keep
-            // an already-replaced voice alive indefinitely.
+            // note stack below. Always neutralize FluidSynth's own CC64 state:
+            // it may have been left down before the layer entered legato mode.
             if (!monoMode)
                 fluid_synth_cc(layer.synth.get(), channel - 1, cc, value);
+            else
+                fluid_synth_cc(layer.synth.get(), channel - 1, 64, 0);
             if (!layer.sustainDown && monoMode && layer.monoNote >= 0)
             {
                 const auto fallback = highestHeld();
@@ -370,6 +383,9 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
                     // Do not also enable FluidSynth CC126/127 mode: combining
                     // both allocators leaves voices sustained on some SF2s.
                     fluid_synth_all_sounds_off(layer.synth.get(), channel);
+                    // Clear any sustain latch left in FluidSynth before our
+                    // own mono/legato note stack takes control.
+                    fluid_synth_cc(layer.synth.get(), channel, 64, 0);
                     layer.heldNotes.fill(false);
                     layer.heldVelocities.fill(0.0f);
                     layer.monoNote = -1;
