@@ -1405,7 +1405,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             parameters.replaceState(state);
             for (int i = 0; i < Sf2Engine::layerCount; ++i)
             {
-                auto savedType = juce::jlimit(0, 2, static_cast<int>(state.getProperty(
+                auto savedType = juce::jlimit(0, 3, static_cast<int>(state.getProperty(
                     "layerType" + juce::String(i + 1), static_cast<int>(LayerType::sf2))));
                 // Programs created by older releases may contain VST layers.
                 // They are restored as empty SF2 layers rather than loading a
