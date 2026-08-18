@@ -166,10 +166,15 @@ private:
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;
     juce::dsp::Limiter<float> outputLimiter;
+    std::array<juce::dsp::IIR::Filter<float>, 2> masterEqLowCut;
     std::array<juce::dsp::IIR::Filter<float>, 2> masterEqLow;
     std::array<juce::dsp::IIR::Filter<float>, 2> masterEqMid;
     std::array<juce::dsp::IIR::Filter<float>, 2> masterEqHigh;
-    std::array<float, 4> lastMasterEqValues { -999.0f, -999.0f, -999.0f, -999.0f };
+    std::array<juce::dsp::IIR::Filter<float>, 2> masterEqHighCut;
+    std::array<float, 8> lastMasterEqValues {
+        -999.0f, -999.0f, -999.0f, -999.0f,
+        -999.0f, -999.0f, -999.0f, -999.0f
+    };
     juce::TimeSliceThread recordingThread { "Classic Player WAV Writer" };
     std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> recordingWriter;
     std::atomic<juce::AudioFormatWriter::ThreadedWriter*> activeRecordingWriter { nullptr };
