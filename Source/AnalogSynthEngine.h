@@ -87,6 +87,7 @@ private:
     {
         std::array<Voice, voicesPerLayer> voices {};
         float lfoPhase = 0.0f;
+        bool sustainPedal = false;
     };
 
     static float waveform(Waveform waveform, float phase);
