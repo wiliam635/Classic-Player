@@ -54,6 +54,8 @@ jobs:
           grep -q 'state.setProperty("mono"' Source/PluginProcessor.cpp
           grep -q 'config.mono = state.getProperty("mono"' Source/PluginProcessor.cpp
           grep -q 'config.portamento = state.getProperty("portamento"' Source/PluginProcessor.cpp
+          grep -q "Do not also enable FluidSynth CC126/127 mode" Source/Sf2Engine.cpp
+          grep -q "if (!monoMode)" Source/Sf2Engine.cpp
 
       - name: Set up vcpkg
         uses: lukka/run-vcpkg@v11
