@@ -532,9 +532,22 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return;
     if (type == LayerType::vst) type = LayerType::sf2;
 
+    const juce::ScopedLock callbackLock(getCallbackLock());
     const auto previousType = layerType(layer);
     if (previousType == LayerType::analog && type != LayerType::analog)
         analogSynthEngine.unload(layer);
+
+    // A layer has exactly one source engine. Selecting Analog replaces any
+    // older SF2, DX7 or retired external source before it can be rendered.
+    if (type == LayerType::analog && previousType != LayerType::analog)
+    {
+        externalInstruments[(size_t) layer].unload();
+        engine.unloadSoundFont(layer);
+        dx7Engine.unload(layer);
+        analogSynthEngine.unload(layer);
+        savedPaths[(size_t) layer].clear();
+        analogLayerConfigs[(size_t) layer] = AnalogSynthEngine::Config{};
+    }
 
     layerTypes[(size_t) layer].store(static_cast<int>(type), std::memory_order_relaxed);
 }
