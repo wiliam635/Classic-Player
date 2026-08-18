@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "LicenseVerifier.h"
 #include <algorithm>
+#include <array>
 
 ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
