@@ -7,6 +7,7 @@
 #include "sin.h"
 #include "freqlut.h"
 #include "env.h"
+#include "pitchenv.h"
 
 Dx7Engine::Dx7Engine()
     : tuning(createStandardTuning())
@@ -25,6 +26,7 @@ void Dx7Engine::prepare(double newSampleRate, int)
     Sin::init();
     Freqlut::init(sampleRate);
     Env::init_sr(sampleRate);
+    PitchEnv::init(sampleRate);
 }
 
 juce::String Dx7Engine::decodeName(const uint8_t* data, int size)
@@ -44,7 +46,7 @@ Dx7Engine::Patch Dx7Engine::parsePackedPatch(const uint8_t* voice)
     Patch patch;
     patch.name = decodeName(voice + 118, 10);
     patch.algorithm = voice[110] & 0x1f;
-    patch.feedback = (voice[111] >> 3) & 0x07;
+    patch.feedback = voice[111] & 0x07;
     for (int op = 0; op < 6; ++op)
     {
         // A 128-byte DX7 bulk voice stores operators 6 through 1 in 17 bytes.
