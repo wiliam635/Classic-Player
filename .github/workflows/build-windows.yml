@@ -61,6 +61,9 @@ jobs:
           if ($processorSource -notmatch 'state\.setProperty\("mono"') { throw "Modo Mono Legato não é salvo" }
           if ($processorSource -notmatch 'config\.mono = state\.getProperty\("mono"') { throw "Modo Mono Legato não é restaurado" }
           if ($processorSource -notmatch 'config\.portamento = state\.getProperty\("portamento"') { throw "Modo Portamento não é restaurado" }
+          $sf2Source = Get-Content "Source\Sf2Engine.cpp" -Raw
+          if ($sf2Source -notmatch "Do not also enable FluidSynth CC126/127 mode") { throw "Mono SF2 ainda delega CC126/127 ao FluidSynth" }
+          if ($sf2Source -notmatch "if \(!monoMode\)") { throw "Sustain mono SF2 não é isolado" }
 
       - name: Set up CMake
         uses: lukka/get-cmake@latest
