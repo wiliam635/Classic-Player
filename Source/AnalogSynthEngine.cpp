@@ -250,6 +250,11 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
     {
         auto& layer = layers[(size_t) layerIndex];
         const auto& config = configs[(size_t) layerIndex];
+        if (!config.routing.enabled)
+        {
+            peaks[(size_t) layerIndex].store(0.0f, std::memory_order_relaxed);
+            continue;
+        }
         float peak = 0.0f;
         for (int sampleIndex = 0; sampleIndex < output.getNumSamples(); ++sampleIndex)
         {
