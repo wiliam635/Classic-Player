@@ -6,6 +6,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "Sf2Engine.h"
 #include "Dx7Engine.h"
+#include "AnalogSynthEngine.h"
 #include "ExternalInstrumentHost.h"
 #include <atomic>
 
@@ -16,7 +17,7 @@ public:
     enum class LearnTarget { volume = 0, cutoff, reverb, compressor, release, count };
     // A source is chosen only when a new layer is created. The initial four
     // layers are SF2 by design.
-    enum class LayerType { sf2 = 0, vst, dx7 };
+    enum class LayerType { sf2 = 0, vst, dx7, analog };
     ClassicPlayerAudioProcessor();
     ~ClassicPlayerAudioProcessor() override;
 
@@ -69,6 +70,7 @@ public:
     juce::Result loadDx7(int layer, const juce::File& file);
     void unloadDx7(int layer);
     bool hasDx7(int layer) const;
+    bool hasAnalogSynth(int layer) const;
     juce::String dx7PatchName(int layer) const;
     juce::String dx7PatchName(int layer, int patch) const;
     int dx7PatchCount(int layer) const;
@@ -153,6 +155,7 @@ private:
 
     Sf2Engine engine;
     Dx7Engine dx7Engine;
+    AnalogSynthEngine analogSynthEngine;
     // Stored independently from the audio parameters so switching a source
     // never changes the layer routing, split or controller assignments.
     std::array<std::atomic<int>, Sf2Engine::layerCount> layerTypes {};
@@ -161,6 +164,7 @@ private:
     std::array<juce::AudioBuffer<float>, Sf2Engine::layerCount> externalScratch;
     std::array<juce::MidiBuffer, Sf2Engine::layerCount> externalMidi;
     std::array<Sf2Engine::LayerConfig, Sf2Engine::layerCount> dx7LayerConfigs {};
+    std::array<AnalogSynthEngine::Config, Sf2Engine::layerCount> analogLayerConfigs {};
     std::array<std::atomic<float>, Sf2Engine::layerCount> externalPeaks {};
     std::array<int, Sf2Engine::layerCount> lastExternalPortamento {};
     double currentSampleRate = 44100.0;
