@@ -318,7 +318,7 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
             if (layer.heldNotes[(size_t) note]) return note;
         return -1;
     };
-    const auto retargetMono = [&layer, &config] (int note, float velocity)
+    const auto retargetMono = [this, &layer, &config] (int note, float velocity)
     {
         auto& voice = layer.voices.front();
         const auto wasActive = voice.active && !voice.releasing;
