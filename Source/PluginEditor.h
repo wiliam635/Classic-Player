@@ -76,6 +76,7 @@ private:
         void updateMidiLearnState();
         void showReverbEditor();
         void showCompressorEditor();
+        void showAnalogSynthEditor();
 
         ClassicPlayerAudioProcessor& processor;
         const int index;
