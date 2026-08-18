@@ -19,6 +19,8 @@ jobs:
           test -f Source/PluginProcessor.cpp
           test -f Source/Dx7Engine.h
           test -f Source/Dx7Engine.cpp
+          test -f Source/AnalogSynthEngine.h
+          test -f Source/AnalogSynthEngine.cpp
           grep -q "juce_audio_processors/juce_audio_processors.h" Source/ExternalInstrumentHost.h
           ! grep -q "JuceHeader.h" Source/ExternalInstrumentHost.h
           grep -q "loadExternalInstrument" Source/PluginProcessor.h
@@ -43,6 +45,13 @@ jobs:
           grep -q "externalEditorWindow->toFront(true)" Source/PluginEditor.cpp
           grep -q "ExternalInstrumentHost.cpp" CMakeLists.txt
           grep -q "Dx7Engine.cpp" CMakeLists.txt
+          grep -q "AnalogSynthEngine.cpp" CMakeLists.txt
+          grep -q "LayerType::analog" Source/PluginProcessor.cpp
+          grep -q "analogSynthEngine.process" Source/PluginProcessor.cpp
+          grep -q "showAnalogSynthEditor" Source/PluginEditor.cpp
+          grep -q "Classic Keys Analog" Source/PluginEditor.cpp
+          grep -q "advance Analog LFO once per layer sample" Source/AnalogSynthEngine.h
+          grep -q "renderVoice(voice, config, lfo" Source/AnalogSynthEngine.cpp
           grep -q "startAudioRecording" Source/PluginProcessor.cpp
           grep -q "stopAudioRecording" Source/PluginProcessor.cpp
           grep -q "WavAudioFormat" Source/PluginProcessor.cpp
