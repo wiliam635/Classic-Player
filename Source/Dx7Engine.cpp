@@ -35,17 +35,17 @@ Dx7Engine::Patch Dx7Engine::parsePackedPatch(const uint8_t* voice)
         // which created unrelated high-frequency tones in many electric pianos
         // and organs.
         const auto offset = op * 17;
-        // The 128-byte bulk format packs an operator in 17 bytes. Unlike
-        // a single-voice dump, it merges several bit fields; output level is
-        // byte 13, oscillator mode/coarse byte 14, fine byte 15 and detune
-        // byte 16. Keeping these offsets exact is essential for DX7 banks.
-        const auto modeAndCoarse = voice[offset + 14];
+        // The 128-byte DX7 bulk format packs an operator in 17 bytes:
+        // byte 12 = detune/rate scale, byte 13 = key velocity/amp modulation,
+        // byte 14 = output level, byte 15 = mode/coarse and byte 16 = fine.
+        // Do not treat the packed control bytes as level or detune values.
+        const auto modeAndCoarse = voice[offset + 15];
         const auto coarse = (modeAndCoarse >> 1) & 0x1f;
-        const auto fine = juce::jlimit(0, 99, (int) voice[offset + 15]);
+        const auto fine = juce::jlimit(0, 99, (int) voice[offset + 16]);
         const auto fixed = (modeAndCoarse & 0x01) != 0;
         patch.levels[(size_t) op] = juce::jlimit(0.0f, 1.0f,
-            (float) juce::jlimit(0, 99, (int) voice[offset + 13]) / 99.0f);
-        patch.detunes[(size_t) op] = juce::jlimit(0, 14, (int) voice[offset + 16]);
+            (float) juce::jlimit(0, 99, (int) voice[offset + 14]) / 99.0f);
+        patch.detunes[(size_t) op] = juce::jlimit(0, 14, (int) ((voice[offset + 12] >> 3) & 0x0f));
         const auto ratioBase = coarse == 0 ? 0.5f : (float) coarse;
         patch.ratios[(size_t) op] = ratioBase * (1.0f + (float) fine / 100.0f);
         patch.fixedMode[(size_t) op] = fixed;
