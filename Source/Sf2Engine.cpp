@@ -231,9 +231,11 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
         {
             if (!layer.config.sustainEnabled) return;
             layer.sustainDown = value >= 64;
-            // FluidSynth still receives CC64, while this layer-level state
-            // decides when the mono note stack may actually release.
-            fluid_synth_cc(layer.synth.get(), channel - 1, cc, value);
+            // In mono/legato mode sustain is controlled exclusively by the
+            // note stack below. Forwarding CC64 to FluidSynth as well may keep
+            // an already-replaced voice alive indefinitely.
+            if (!monoMode)
+                fluid_synth_cc(layer.synth.get(), channel - 1, cc, value);
             if (!layer.sustainDown && monoMode && layer.monoNote >= 0)
             {
                 const auto fallback = highestHeld();
@@ -364,9 +366,14 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
                 }
                 if (mono != layer.lastMono)
                 {
-                    // MIDI channel mode: CC126 enables one voice. CC127
-                    // restores polyphony when either legato mode is disabled.
-                    fluid_synth_cc(layer.synth.get(), channel, mono ? 126 : 127, mono ? 1 : 0);
+                    // Mono/legato is implemented by this engine's note stack.
+                    // Do not also enable FluidSynth CC126/127 mode: combining
+                    // both allocators leaves voices sustained on some SF2s.
+                    fluid_synth_all_sounds_off(layer.synth.get(), channel);
+                    layer.heldNotes.fill(false);
+                    layer.heldVelocities.fill(0.0f);
+                    layer.monoNote = -1;
+                    layer.sustainDown = false;
                 }
             }
             layer.lastCutoff = cutoff;
