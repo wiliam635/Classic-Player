@@ -562,6 +562,21 @@ bool ClassicPlayerAudioProcessor::hasAnalogSynth(int layer) const
     return juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)
         && layerType(layer) == LayerType::analog;
 }
+
+AnalogSynthEngine::Config ClassicPlayerAudioProcessor::analogSynthConfig(int layer) const
+{
+    return juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)
+        ? analogLayerConfigs[(size_t) layer] : AnalogSynthEngine::Config{};
+}
+
+void ClassicPlayerAudioProcessor::setAnalogSynthConfig(int layer,
+                                                        const AnalogSynthEngine::Config& config)
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return;
+    auto updated = config;
+    updated.routing = engine.getConfig(layer);
+    analogLayerConfigs[(size_t) layer] = updated;
+}
 juce::String ClassicPlayerAudioProcessor::dx7PatchName(int layer) const { return dx7Engine.patchName(layer); }
 juce::String ClassicPlayerAudioProcessor::dx7PatchName(int layer, int patch) const { return dx7Engine.patchName(layer, patch); }
 int ClassicPlayerAudioProcessor::dx7PatchCount(int layer) const { return dx7Engine.patchCount(layer); }
