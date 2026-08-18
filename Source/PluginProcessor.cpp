@@ -682,34 +682,71 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     if (layer >= count || count <= 1) return false;
 
     const auto last = count - 1;
-    if (layer != last)
+    static constexpr std::array<const char*, 14> parameterSuffixes {
+        "Gain", "Release", "Cutoff", "Reverb", "ReverbSize", "ReverbDamping",
+        "ReverbWidth", "Comp", "CompThreshold", "CompRatio", "CompAttack",
+        "CompRelease", "CompMakeup", "Dx7Chorus"
+    };
+
+    // Preserve the visual and audio order. The previous implementation moved
+    // the final layer into the removed slot, which made a newly added DX7
+    // appear to have replaced (or been deleted instead of) an earlier SF2.
+    for (int destination = layer; destination < last; ++destination)
     {
-        const auto sourceType = layerType(last);
-        const auto sourcePath = engine.getSoundFontPath(last);
-        const auto sourceDx7Path = dx7Engine.path(last);
-        const auto sourceConfig = engine.getConfig(last);
-        const auto sourceAnalogConfig = analogLayerConfigs[(size_t) last];
+        const auto source = destination + 1;
+        const auto sourceType = layerType(source);
+        const auto sourcePath = engine.getSoundFontPath(source);
+        const auto sourceDx7Path = dx7Engine.path(source);
+        const auto sourceDx7Patch = dx7Engine.selectedPatch(source);
+        const auto sourceConfig = engine.getConfig(source);
+        const auto sourceAnalogConfig = analogLayerConfigs[(size_t) source];
+        const auto sourceSavedPath = savedPaths[(size_t) source];
+        const auto sourceMidiDevice = layerMidiDeviceIds[(size_t) source];
 
-        externalInstruments[(size_t) layer].unload();
-        engine.unloadSoundFont(layer);
-        dx7Engine.unload(layer);
-        analogSynthEngine.unload(layer);
+        externalInstruments[(size_t) destination].unload();
+        engine.unloadSoundFont(destination);
+        dx7Engine.unload(destination);
+        analogSynthEngine.unload(destination);
+
         if (sourceType == LayerType::sf2 && sourcePath.isNotEmpty())
-            engine.loadSoundFont(layer, juce::File(sourcePath));
+            engine.loadSoundFont(destination, juce::File(sourcePath));
         else if (sourceType == LayerType::dx7 && sourceDx7Path.isNotEmpty())
-            dx7Engine.loadSysEx(layer, juce::File(sourceDx7Path));
-        else if (sourceType == LayerType::vst)
-            externalInstruments[(size_t) layer].moveFrom(externalInstruments[(size_t) last]);
+        {
+            if (dx7Engine.loadSysEx(destination, juce::File(sourceDx7Path)).wasOk())
+                dx7Engine.selectPatch(destination, sourceDx7Patch);
+        }
+        // External VST/AU hosting is retired. Older sessions containing one
+        // are shifted as an empty SF2 layer rather than loading third-party code.
+        const auto restoredType = sourceType == LayerType::vst ? LayerType::sf2 : sourceType;
 
-        engine.setConfig(layer, sourceConfig);
-        auto movedAnalogConfig = sourceType == LayerType::analog
+        engine.setConfig(destination, sourceConfig);
+        auto movedAnalogConfig = restoredType == LayerType::analog
             ? sourceAnalogConfig : AnalogSynthEngine::Config{};
         movedAnalogConfig.routing = sourceConfig;
-        analogLayerConfigs[(size_t) layer] = movedAnalogConfig;
-        savedPaths[(size_t) layer] = sourceType == LayerType::sf2
-            ? savedPaths[(size_t) last] : juce::String{};
-        layerMidiDeviceIds[(size_t) layer] = layerMidiDeviceIds[(size_t) last];
-        layerTypes[(size_t) layer].store(static_cast<int>(sourceType), std::memory_order_relaxed);
+        analogLayerConfigs[(size_t) destination] = movedAnalogConfig;
+        savedPaths[(size_t) destination] = restoredType == LayerType::sf2
+            ? sourceSavedPath : juce::String{};
+        layerMidiDeviceIds[(size_t) destination] = sourceMidiDevice;
+        layerTypes[(size_t) destination].store(static_cast<int>(restoredType), std::memory_order_relaxed);
+
+        for (int target = 0; target < learnTargetCount; ++target)
+        {
+            learnedCCs[(size_t) destination][(size_t) target].store(
+                learnedCCs[(size_t) source][(size_t) target].load(std::memory_order_relaxed),
+                std::memory_order_relaxed);
+            learnedChannels[(size_t) destination][(size_t) target].store(
+                learnedChannels[(size_t) source][(size_t) target].load(std::memory_order_relaxed),
+                std::memory_order_relaxed);
+            pendingCCValues[(size_t) destination][(size_t) target].store(-1.0f,
+                                                                            std::memory_order_relaxed);
+        }
+
+        const auto destinationPrefix = "layer" + juce::String(destination + 1);
+        const auto sourcePrefix = "layer" + juce::String(source + 1);
+        for (const auto* suffix : parameterSuffixes)
+            if (auto* destinationParameter = parameters.getParameter(destinationPrefix + suffix))
+                if (auto* sourceParameter = parameters.getParameter(sourcePrefix + suffix))
+                    destinationParameter->setValueNotifyingHost(sourceParameter->getValue());
     }
 
     externalInstruments[(size_t) last].unload();
@@ -723,6 +760,17 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     analogLayerConfigs[(size_t) last] = AnalogSynthEngine::Config{};
     layerMidiDeviceIds[(size_t) last].clear();
     layerTypes[(size_t) last].store(static_cast<int>(LayerType::sf2), std::memory_order_relaxed);
+    for (int target = 0; target < learnTargetCount; ++target)
+    {
+        learnedCCs[(size_t) last][(size_t) target].store(-1, std::memory_order_relaxed);
+        learnedChannels[(size_t) last][(size_t) target].store(-1, std::memory_order_relaxed);
+        pendingCCValues[(size_t) last][(size_t) target].store(-1.0f, std::memory_order_relaxed);
+    }
+    const auto lastPrefix = "layer" + juce::String(last + 1);
+    for (const auto* suffix : parameterSuffixes)
+        if (auto* parameter = parameters.getParameter(lastPrefix + suffix))
+            parameter->setValueNotifyingHost(parameter->getDefaultValue());
+
     activeLayers.store(last, std::memory_order_relaxed);
     return true;
 }
