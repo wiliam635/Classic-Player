@@ -29,8 +29,19 @@ public:
         float pan = 0.0f;
         float release = 50.0f;
         float cutoff = 100.0f;
+        // The front-panel REVERB and COMP knobs are the effect mix amounts.
+        // Their detailed parameters are kept independently so SF2 and DX7
+        // routing remains source-specific and predictable.
         float reverb = 0.0f;
+        float reverbSize = 55.0f;
+        float reverbDamping = 45.0f;
+        float reverbWidth = 100.0f;
         float compressor = 0.0f;
+        float compressorThreshold = -18.0f;
+        float compressorRatio = 4.0f;
+        float compressorAttack = 10.0f;
+        float compressorRelease = 120.0f;
+        float compressorMakeup = 0.0f;
         // Used only by DX7 layers.  Keeping it in the common routing config
         // preserves source-specific controls without mixing their engines.
         float dx7Chorus = 20.0f;
@@ -89,6 +100,9 @@ private:
         float modulationAmount = 0.0f;
         double modulationPhase = 0.0;
         std::array<float, 2> filterState { 0.0f, 0.0f };
+        std::array<float, 2> compressorEnvelope { 0.0f, 0.0f };
+        juce::Reverb nativeReverb;
+        std::array<float, 4> lastReverbParameters { -1.0f, -1.0f, -1.0f, -1.0f };
         std::atomic<float> peak { 0.0f };
     };
 
