@@ -44,6 +44,13 @@ void AnalogSynthEngine::stopAllSounds()
     reset();
 }
 
+void AnalogSynthEngine::unload(int layerIndex)
+{
+    if (!juce::isPositiveAndBelow(layerIndex, layerCount)) return;
+    layers[(size_t) layerIndex] = {};
+    peaks[(size_t) layerIndex].store(0.0f, std::memory_order_relaxed);
+}
+
 float AnalogSynthEngine::getLayerPeak(int layer) const noexcept
 {
     return juce::isPositiveAndBelow(layer, layerCount)
