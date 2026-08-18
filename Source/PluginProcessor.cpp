@@ -322,8 +322,10 @@ void ClassicPlayerAudioProcessor::unloadSoundFont(int layer)
 
 bool ClassicPlayerAudioProcessor::supportsExternalInstruments() const noexcept
 {
-    return juce::PluginHostType::getPluginLoadedAs()
-           == juce::AudioProcessor::wrapperType_Standalone;
+    // External VST/AU hosting was removed from Classic Player. The application
+    // now has dedicated SF2 and DX7 layer types only, which keeps the layer
+    // engine deterministic and prevents hosted plug-ins from destabilising it.
+    return false;
 }
 
 juce::Result ClassicPlayerAudioProcessor::loadExternalInstrument(int layer, const juce::File& file)
@@ -425,6 +427,11 @@ void ClassicPlayerAudioProcessor::appendExternalMidi(int layer, const juce::Midi
 void ClassicPlayerAudioProcessor::renderExternalInstruments(juce::AudioBuffer<float>& output,
                                                              const juce::MidiBuffer& hostMidi)
 {
+    juce::ignoreUnused(output, hostMidi);
+    // Kept as a no-op only so older saved states can be opened safely. External
+    // instrument layers no longer render or receive MIDI in Classic Player.
+    return;
+
     for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
     {
         auto& peak = externalPeaks[(size_t) layer];
@@ -482,8 +489,9 @@ ClassicPlayerAudioProcessor::LayerType ClassicPlayerAudioProcessor::layerType(in
 
 void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
 {
-    if (juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
-        layerTypes[(size_t) layer].store(static_cast<int>(type), std::memory_order_relaxed);
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return;
+    if (type == LayerType::vst) type = LayerType::sf2;
+    layerTypes[(size_t) layer].store(static_cast<int>(type), std::memory_order_relaxed);
 }
 
 juce::Result ClassicPlayerAudioProcessor::loadDx7(int layer, const juce::File& file)
@@ -571,6 +579,7 @@ juce::Result ClassicPlayerAudioProcessor::deleteLibraryDx7Bank(const juce::File&
 
 bool ClassicPlayerAudioProcessor::addLayer(LayerType type)
 {
+    if (type == LayerType::vst) type = LayerType::sf2;
     auto count = activeLayers.load(std::memory_order_relaxed);
     while (count < Sf2Engine::layerCount)
     {
@@ -1350,8 +1359,13 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             parameters.replaceState(state);
             for (int i = 0; i < Sf2Engine::layerCount; ++i)
             {
-                const auto savedType = juce::jlimit(0, 2, static_cast<int>(state.getProperty(
+                auto savedType = juce::jlimit(0, 2, static_cast<int>(state.getProperty(
                     "layerType" + juce::String(i + 1), static_cast<int>(LayerType::sf2))));
+                // Programs created by older releases may contain VST layers.
+                // They are restored as empty SF2 layers rather than loading a
+                // third-party instrument in the new SF2/DX7-only application.
+                if (savedType == static_cast<int>(LayerType::vst))
+                    savedType = static_cast<int>(LayerType::sf2);
                 layerTypes[(size_t) i].store(savedType, std::memory_order_relaxed);
                 savedPaths[(size_t) i] = savedType == static_cast<int>(LayerType::sf2)
                     ? state.getProperty("sf2Layer" + juce::String(i + 1)).toString() : juce::String{};
