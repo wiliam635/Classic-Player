@@ -1192,6 +1192,11 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     }
     showLiveSet(false);
 
+    flatButton(masterEqButton);
+    masterEqButton.setTooltip("Abrir o equalizador paramétrico da saída master");
+    masterEqButton.onClick = [this] { showMasterEqEditor(); };
+    addAndMakeVisible(masterEqButton);
+
     master.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     master.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 64, 18);
     master.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(teal));
@@ -1266,6 +1271,33 @@ ClassicPlayerAudioProcessorEditor::~ClassicPlayerAudioProcessorEditor()
     setLookAndFeel(nullptr);
 }
 
+void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
+{
+    auto dialog = std::make_unique<juce::AlertWindow>(
+        "EQ MASTER", "Ajuste a equalização da saída final.", juce::MessageBoxIconType::NoIcon);
+    auto* low = dialog->addTextEditor("low", juce::String(classicProcessor.masterEqValue("masterEqLow"), 1), "LOW dB");
+    auto* mid = dialog->addTextEditor("mid", juce::String(classicProcessor.masterEqValue("masterEqMid"), 1), "MID dB");
+    auto* frequency = dialog->addTextEditor("frequency",
+        juce::String((int) classicProcessor.masterEqValue("masterEqFrequency")), "MID Hz");
+    auto* high = dialog->addTextEditor("high", juce::String(classicProcessor.masterEqValue("masterEqHigh"), 1), "HIGH dB");
+    dialog->addButton("APLICAR", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    dialog->addButton("CANCELAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
+    juce::AlertWindow::showAsync(std::move(dialog),
+        juce::ModalCallbackFunction::create([safe, low, mid, frequency, high](int result)
+        {
+            if (safe == nullptr || result != 1) return;
+            safe->classicProcessor.setMasterEqValue("masterEqLow",
+                juce::jlimit(-12.0f, 12.0f, low->getText().getFloatValue()));
+            safe->classicProcessor.setMasterEqValue("masterEqMid",
+                juce::jlimit(-12.0f, 12.0f, mid->getText().getFloatValue()));
+            safe->classicProcessor.setMasterEqValue("masterEqFrequency",
+                juce::jlimit(200.0f, 6000.0f, frequency->getText().getFloatValue()));
+            safe->classicProcessor.setMasterEqValue("masterEqHigh",
+                juce::jlimit(-12.0f, 12.0f, high->getText().getFloatValue()));
+        }));
+}
+
 void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour(background));
@@ -1296,7 +1328,9 @@ void ClassicPlayerAudioProcessorEditor::resized()
     auto masterArea = header.removeFromRight(116);
     masterMeter.setBounds(masterArea.removeFromRight(13).reduced(0, 6));
     masterLabel.setBounds(masterArea.removeFromTop(17));
-    master.setBounds(masterArea.reduced(3, 0));
+    auto masterKnobArea = masterArea.removeFromTop(57);
+    master.setBounds(masterKnobArea.reduced(3, 0));
+    masterEqButton.setBounds(masterArea.removeFromTop(20).reduced(1, 0));
     header.removeFromRight(12);
 
     auto addLayerArea = header.removeFromRight(100);
