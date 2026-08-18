@@ -55,7 +55,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
         juce::ParameterID{"masterEqFrequency", 1}, "Master EQ Mid Frequency",
         juce::NormalisableRange<float>(200.0f, 6000.0f, 1.0f, 0.35f), 1200.0f));
     result.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"masterEqLowFrequency", 1}, "Master EQ Low Frequency",
+        juce::NormalisableRange<float>(40.0f, 400.0f, 1.0f, 0.45f), 110.0f));
+    result.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"masterEqHigh", 1}, "Master EQ High", juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
+    result.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"masterEqHighFrequency", 1}, "Master EQ High Frequency",
+        juce::NormalisableRange<float>(2000.0f, 16000.0f, 1.0f, 0.45f), 8000.0f));
+    result.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"masterEqLowCut", 1}, "Master EQ Low Cut",
+        juce::NormalisableRange<float>(20.0f, 250.0f, 1.0f, 0.5f), 20.0f));
+    result.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"masterEqHighCut", 1}, "Master EQ High Cut",
+        juce::NormalisableRange<float>(2000.0f, 20000.0f, 1.0f, 0.45f), 20000.0f));
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
         const auto n = juce::String(i + 1);
@@ -72,8 +84,32 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
             juce::ParameterID{"layer" + n + "Reverb", 1}, "Layer " + n + " Reverb",
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 0.0f));
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "ReverbSize", 1}, "Layer " + n + " Reverb Size",
+            juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 55.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "ReverbDamping", 1}, "Layer " + n + " Reverb Damping",
+            juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 45.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "ReverbWidth", 1}, "Layer " + n + " Reverb Width",
+            juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 100.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"layer" + n + "Comp", 1}, "Layer " + n + " Compressor",
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 0.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "CompThreshold", 1}, "Layer " + n + " Compressor Threshold",
+            juce::NormalisableRange<float>(-60.0f, 0.0f, 0.1f), -18.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "CompRatio", 1}, "Layer " + n + " Compressor Ratio",
+            juce::NormalisableRange<float>(1.0f, 20.0f, 0.1f), 4.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "CompAttack", 1}, "Layer " + n + " Compressor Attack",
+            juce::NormalisableRange<float>(0.1f, 100.0f, 0.1f, 0.45f), 10.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "CompRelease", 1}, "Layer " + n + " Compressor Release",
+            juce::NormalisableRange<float>(5.0f, 1000.0f, 1.0f, 0.45f), 120.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "CompMakeup", 1}, "Layer " + n + " Compressor Makeup",
+            juce::NormalisableRange<float>(0.0f, 24.0f, 0.1f), 0.0f));
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"layer" + n + "Dx7Chorus", 1}, "Layer " + n + " DX7 Chorus",
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 20.0f));
