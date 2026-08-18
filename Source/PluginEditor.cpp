@@ -329,7 +329,13 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     };
     loadButton.onClick = [this] { chooseSoundFont(); };
     externalInstrumentButton.onClick = [this] { chooseExternalInstrument(); };
-    dx7Button.onClick = [this] { chooseDx7(); };
+    dx7Button.onClick = [this]
+    {
+        if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::analog)
+            showAnalogSynthEditor();
+        else
+            chooseDx7();
+    };
     openExternalEditorButton.onClick = [this] { openExternalInstrumentEditor(); };
     externalInstrumentButton.setTooltip("Escolher manualmente um instrumento VST3/AU");
     openExternalEditorButton.setTooltip("Abrir a janela de configuração do instrumento virtual");
@@ -854,7 +860,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     externalInstrumentBox.setVisible(isVst && processor.supportsExternalInstruments());
     externalInstrumentButton.setVisible(isVst && processor.supportsExternalInstruments());
     openExternalEditorButton.setVisible(isVst && processor.supportsExternalInstruments());
-    dx7Button.setVisible(isDx7);
+    dx7Button.setVisible(isDx7 || isAnalog);
     dx7LibraryBox.setVisible(isDx7);
     dx7PatchBox.setVisible(isDx7);
     deleteDx7LibraryButton.setVisible(isDx7);
@@ -1044,6 +1050,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
     const auto path = processor.soundFontPath(index);
     const auto externalName = processor.externalInstrumentName(index);
     const auto dx7Name = processor.dx7PatchName(index);
+    dx7Button.setButtonText(type == ClassicPlayerAudioProcessor::LayerType::analog
+                                 ? "ABRIR CLASSIC KEYS ANALOG" : "IMPORTAR DX7");
     if (type == ClassicPlayerAudioProcessor::LayerType::sf2)
     {
         if (path.isNotEmpty())
@@ -1420,6 +1428,47 @@ ClassicPlayerAudioProcessorEditor::~ClassicPlayerAudioProcessorEditor()
     cancelPendingUpdate();
     classicProcessor.keyboardState.removeListener(this);
     setLookAndFeel(nullptr);
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
+{
+    if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::analog) return;
+
+    const auto config = processor.analogSynthConfig(index);
+    auto* dialog = new juce::AlertWindow(
+        "CLASSIC KEYS ANALOG",
+        "Sintetizador analogico de tres osciladores. Os controles alteram o som em tempo real.",
+        juce::MessageBoxIconType::NoIcon);
+    dialog->setLookAndFeel(&classicLookAndFeel);
+    auto* knobs = new KnobEditorPanel({
+        { "CUTOFF", config.cutoff, 0.0f, 100.0f, 1.0f, 0 },
+        { "RESONANCE", config.resonance * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
+        { "OSC 1 LEVEL", config.oscillator1Level * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
+        { "OSC 2 LEVEL", config.oscillator2Level * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
+        { "OSC 3 LEVEL", config.oscillator3Level * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
+        { "GLIDE ms", config.glideMs, 0.0f, 1000.0f, 1.0f, 0 },
+        { "LFO RATE Hz", config.lfoRateHz, 0.1f, 20.0f, 0.1f, 1 },
+        { "LFO FILTER", config.lfoToFilter, 0.0f, 100.0f, 1.0f, 0 }
+    }, 4);
+    dialog->addCustomComponent(knobs);
+    dialog->addButton("APLICAR", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    dialog->addButton("CANCELAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create(
+        [safe, dialog, knobs, config](int result)
+        {
+            if (safe == nullptr || result != 1) return;
+            auto updated = config;
+            updated.cutoff = juce::jlimit(0.0f, 100.0f, knobs->value(0));
+            updated.resonance = juce::jlimit(0.0f, 1.0f, knobs->value(1) / 100.0f);
+            updated.oscillator1Level = juce::jlimit(0.0f, 1.0f, knobs->value(2) / 100.0f);
+            updated.oscillator2Level = juce::jlimit(0.0f, 1.0f, knobs->value(3) / 100.0f);
+            updated.oscillator3Level = juce::jlimit(0.0f, 1.0f, knobs->value(4) / 100.0f);
+            updated.glideMs = juce::jlimit(0.0f, 1000.0f, knobs->value(5));
+            updated.lfoRateHz = juce::jlimit(0.1f, 20.0f, knobs->value(6));
+            updated.lfoToFilter = juce::jlimit(0.0f, 100.0f, knobs->value(7));
+            safe->processor.setAnalogSynthConfig(safe->index, updated);
+        }), true);
 }
 
 void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
