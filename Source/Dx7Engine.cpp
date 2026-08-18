@@ -2,6 +2,14 @@
 #include <cmath>
 #include <cstdint>
 #include <utility>
+#include <algorithm>
+
+Dx7Engine::Dx7Engine()
+    : tuning(createStandardTuning())
+{
+    controllers.core = &fmCore;
+    controllers.refresh();
+}
 
 void Dx7Engine::prepare(double newSampleRate, int)
 {
@@ -62,6 +70,25 @@ Dx7Engine::Patch Dx7Engine::parsePackedPatch(const uint8_t* voice)
                 = (float) juce::jlimit(0, 99, (int) voice[offset + 4 + stage]) / 99.0f;
         }
     }
+    // Expand Yamaha's 17-byte bulk representation into the 155-byte
+    // single-voice layout expected by the MSFA/Dexed-compatible core.
+    for (int op = 0; op < 6; ++op)
+    {
+        const auto packed = op * 17;
+        const auto raw = op * 21;
+        for (int i = 0; i <= 10; ++i) patch.raw[(size_t) (raw + i)] = voice[packed + i];
+        patch.raw[(size_t) (raw + 11)] = voice[packed + 11] & 0x03;
+        patch.raw[(size_t) (raw + 12)] = (voice[packed + 11] >> 2) & 0x03;
+        patch.raw[(size_t) (raw + 13)] = voice[packed + 12] & 0x07;
+        patch.raw[(size_t) (raw + 14)] = voice[packed + 13] & 0x03;
+        patch.raw[(size_t) (raw + 15)] = (voice[packed + 13] >> 2) & 0x07;
+        patch.raw[(size_t) (raw + 16)] = voice[packed + 14];
+        patch.raw[(size_t) (raw + 17)] = voice[packed + 15] & 0x01;
+        patch.raw[(size_t) (raw + 18)] = (voice[packed + 15] >> 1) & 0x1f;
+        patch.raw[(size_t) (raw + 19)] = voice[packed + 16];
+        patch.raw[(size_t) (raw + 20)] = (voice[packed + 12] >> 3) & 0x0f;
+    }
+    for (int i = 0; i < 24; ++i) patch.raw[(size_t) (126 + i)] = voice[102 + i];
     if (patch.name.isEmpty()) patch.name = "DX7 Voice";
     return patch;
 }
@@ -71,6 +98,7 @@ Dx7Engine::Patch Dx7Engine::parseSinglePatch(const uint8_t* voice, int size)
     Patch patch;
     if (size >= 155)
     {
+        std::copy(voice, voice + 155, patch.raw.begin());
         patch.name = decodeName(voice + 145, 10);
         patch.algorithm = voice[134] & 0x1f;
         patch.feedback = voice[135] & 0x07;
@@ -232,6 +260,21 @@ double Dx7Engine::noteFrequency(int note)
     return 440.0 * std::pow(2.0, ((double) note - 69.0) / 12.0);
 }
 
+void Dx7Engine::beginCoreVoice(Voice& voice, const Patch& patch, int note,
+                                   float velocity, bool preserveLegato)
+{
+    auto replacement = std::make_unique<Dx7Note>(tuning, nullptr);
+    replacement->init(patch.raw.data(), note, juce::jlimit(1, 127,
+        (int) std::lround(velocity * 127.0f)), 1, &controllers);
+
+    if (preserveLegato && voice.coreVoice != nullptr)
+    {
+        replacement->transferState(*voice.coreVoice);
+        replacement->initPortamento(*voice.coreVoice);
+    }
+    voice.coreVoice = std::move(replacement);
+}
+
 void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
                          const juce::MidiMessage& message)
 {
@@ -239,7 +282,9 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
 
     const auto releaseVoice = [] (Voice& voice)
     {
-        if (voice.active) voice.releasing = true;
+        if (!voice.active) return;
+        voice.releasing = true;
+        if (voice.coreVoice != nullptr) voice.coreVoice->keyup();
     };
     const auto highestHeld = [&layer] ()
     {
@@ -258,11 +303,14 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
         voice.targetFrequency = noteFrequency(note);
         // A mono transition preserves oscillator phase and envelope. Only a
         // fresh voice receives an attack, avoiding clicks and retrigger gaps.
+        const auto patchIndex = juce::jlimit(0, juce::jmax(0, layer.patchesLoaded - 1),
+                                               layer.selectedPatch);
+        beginCoreVoice(voice, layer.patches[(size_t) patchIndex], note, velocity, wasActive);
         if (!wasActive)
         {
             voice.currentFrequency = voice.targetFrequency;
             voice.phase.fill(0.0);
-            voice.envelope = 0.0f;
+            voice.envelope = 1.0f;
         }
         else if (!config.portamento)
         {
@@ -356,7 +404,10 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
     target->targetFrequency = noteFrequency(note);
     target->currentFrequency = target->targetFrequency;
     target->phase.fill(0.0);
-    target->envelope = 0.0f;
+    target->envelope = 1.0f;
+    const auto patchIndex = juce::jlimit(0, juce::jmax(0, layer.patchesLoaded - 1),
+                                         layer.selectedPatch);
+    beginCoreVoice(*target, layer.patches[(size_t) patchIndex], note, velocity, false);
 }
 
 
@@ -391,136 +442,33 @@ void Dx7Engine::render(Layer& layer, const Sf2Engine::LayerConfig& config,
                        juce::AudioBuffer<float>& output)
 {
     if (!juce::isPositiveAndBelow(layer.selectedPatch, layer.patchesLoaded)) return;
-    const auto& patch = layer.patches[(size_t) layer.selectedPatch];
 
-    // DX7 algorithms are six-operator bus programs. These flags correspond to
-    // the published MSFA/Dexed Apache-2.0 algorithm representation:
-    // bits 0..1 output bus, bit 2 add, bits 4..5 input bus, bits 6..7 feedback.
-    // Keeping all 32 patterns avoids collapsing e.g. the Hammond algorithm 32
-    // into an unrelated six-carrier sound.
-    static constexpr std::array<std::array<uint8_t, 6>, 32> algorithms {{
-        {{0xc1,0x11,0x11,0x14,0x01,0x14}}, {{0x01,0x11,0x11,0x14,0xc1,0x14}},
-        {{0xc1,0x11,0x14,0x01,0x11,0x14}}, {{0xc1,0x11,0x94,0x01,0x11,0x14}},
-        {{0xc1,0x14,0x01,0x14,0x01,0x14}}, {{0xc1,0x94,0x01,0x14,0x01,0x14}},
-        {{0xc1,0x11,0x05,0x14,0x01,0x14}}, {{0x01,0x11,0xc5,0x14,0x01,0x14}},
-        {{0x01,0x11,0x05,0x14,0xc1,0x14}}, {{0x01,0x05,0x14,0xc1,0x11,0x14}},
-        {{0xc1,0x05,0x14,0x01,0x11,0x14}}, {{0x01,0x05,0x05,0x14,0xc1,0x14}},
-        {{0xc1,0x05,0x05,0x14,0x01,0x14}}, {{0xc1,0x05,0x11,0x14,0x01,0x14}},
-        {{0x01,0x05,0x11,0x14,0xc1,0x14}}, {{0xc1,0x11,0x02,0x25,0x05,0x14}},
-        {{0x01,0x11,0x02,0x25,0xc5,0x14}}, {{0x01,0x11,0x11,0xc5,0x05,0x14}},
-        {{0xc1,0x14,0x14,0x01,0x11,0x14}}, {{0x01,0x05,0x14,0xc1,0x14,0x14}},
-        {{0x01,0x14,0x14,0xc1,0x14,0x14}}, {{0xc1,0x14,0x14,0x14,0x01,0x14}},
-        {{0xc1,0x14,0x14,0x01,0x14,0x04}}, {{0xc1,0x14,0x14,0x14,0x04,0x04}},
-        {{0xc1,0x14,0x14,0x04,0x04,0x04}}, {{0xc1,0x05,0x14,0x01,0x14,0x04}},
-        {{0x01,0x05,0x14,0xc1,0x14,0x04}}, {{0x04,0xc1,0x11,0x14,0x01,0x14}},
-        {{0xc1,0x14,0x01,0x14,0x04,0x04}}, {{0x04,0xc1,0x11,0x14,0x04,0x04}},
-        {{0xc1,0x14,0x04,0x04,0x04,0x04}}, {{0xc4,0x04,0x04,0x04,0x04,0x04}}
-    }};
-    const auto& routing = algorithms[(size_t) juce::jlimit(0, 31, patch.algorithm)];
-    int carrierCount = 0;
-    for (const auto flags : routing)
-        if ((flags & 0x07) == 0x04) ++carrierCount;
-    carrierCount = juce::jmax(1, carrierCount);
-
-    // Do not force every DX7 voice through a fixed 20 ms release. The fourth
-    // EG rate belongs to each operator; use the average of the carriers to
-    // keep a voice alive long enough for its programmed release contour and
-    // avoid a discontinuity/click on note-off.
-    float carrierReleaseRate = 0.0f;
-    for (int op = 0; op < 6; ++op)
-        if ((routing[(size_t) op] & 0x07) == 0x04)
-            carrierReleaseRate += patch.egRates[(size_t) op][3];
-    carrierReleaseRate /= (float) carrierCount;
-    const auto releaseSeconds = juce::jlimit(0.025, 1.2,
-        0.025 + (1.0 - (double) carrierReleaseRate) * 0.65);
-
+    // MSFA renders 64 fixed-point samples per pass, just like Dexed. The
+    // generated block is added to the Classic Player mix; no layer clears
+    // the shared output buffer.
+    constexpr float fixedToFloat = 1.0f / (float) (1 << 24);
     for (auto& voice : layer.voices)
     {
-        if (!voice.active) continue;
-        for (int sample = 0; sample < output.getNumSamples(); ++sample)
+        if (!voice.active || voice.coreVoice == nullptr) continue;
+
+        int offset = 0;
+        while (offset < output.getNumSamples())
         {
-            if (voice.releasing)
+            std::array<int32_t, N> fmBlock {};
+            voice.coreVoice->compute(fmBlock.data(), 1 << 23, 1 << 24, &controllers);
+
+            const auto count = juce::jmin(N, output.getNumSamples() - offset);
+            const auto gain = config.gain * voice.velocity * 0.24f;
+            for (int sample = 0; sample < count; ++sample)
             {
-                voice.envelope = juce::jmax(0.0f, voice.envelope
-                    - (float) (1.0 / (sampleRate * releaseSeconds)));
-                if (voice.envelope <= 0.0f)
-                {
-                    voice = {};
-                    break;
-                }
+                const auto value = (float) fmBlock[(size_t) sample] * fixedToFloat * gain;
+                for (int channel = 0; channel < output.getNumChannels(); ++channel)
+                    output.addSample(channel, offset + sample, value);
             }
-            else
-            {
-                voice.envelope = juce::jmin(1.0f, voice.envelope
-                    + (float) (1.0 / (sampleRate * 0.003)));
-            }
-
-            const auto glide = config.portamento ? 0.0025 : 1.0;
-            voice.currentFrequency += (voice.targetFrequency - voice.currentFrequency) * glide;
-
-            std::array<float, 3> buses {};
-            std::array<bool, 3> hasBus {};
-            for (int op = 0; op < 6; ++op)
-            {
-                const auto flags = routing[(size_t) op];
-                const auto inputBus = (flags >> 4) & 0x03;
-                const auto outputBus = flags & 0x03;
-                const auto add = (flags & 0x04) != 0;
-                // DX7 detune shifts frequency by a small, note-dependent
-                // amount. This approximation is intentionally bounded; the
-                // preceding fix restores the raw packed detune value instead
-                // of accidentally treating it as oscillator fine tuning.
-                const auto detuneSemitones = ((double) patch.detunes[(size_t) op] - 7.0) * 0.015;
-                const auto detuneMultiplier = std::pow(2.0, detuneSemitones / 12.0);
-                const auto frequency = (patch.fixedMode[(size_t) op]
-                    ? (double) patch.fixedFrequency[(size_t) op]
-                    : voice.currentFrequency * patch.ratios[(size_t) op]) * detuneMultiplier;
-                // Avoid alias frequencies from an invalid/corrupt patch while
-                // retaining the intended fixed-frequency or ratio behavior.
-                const auto boundedFrequency = juce::jlimit(0.1, sampleRate * 0.45, frequency);
-                voice.phase[(size_t) op] += juce::MathConstants<double>::twoPi
-                    * boundedFrequency / sampleRate;
-                if (voice.phase[(size_t) op] >= juce::MathConstants<double>::twoPi)
-                    voice.phase[(size_t) op] = std::fmod(voice.phase[(size_t) op],
-                                                         juce::MathConstants<double>::twoPi);
-
-                auto& stage = voice.operatorStage[(size_t) op];
-                auto& operatorEnvelope = voice.operatorEnvelope[(size_t) op];
-                const auto target = patch.egLevels[(size_t) op][(size_t) stage];
-                const auto rate = 0.00004f + patch.egRates[(size_t) op][(size_t) stage] * 0.008f;
-                operatorEnvelope += (target - operatorEnvelope)
-                    * juce::jlimit(0.0f, 1.0f, rate);
-                if (!voice.releasing && stage < 2
-                    && std::abs(target - operatorEnvelope) < 0.003f)
-                    ++stage;
-                if (voice.releasing)
-                {
-                    stage = 3;
-                    operatorEnvelope *= 1.0f - juce::jlimit(0.00001f, 0.03f,
-                        0.00004f + patch.egRates[(size_t) op][3] * 0.008f);
-                }
-
-                const auto modulation = inputBus != 0 && hasBus[(size_t) inputBus]
-                    ? buses[(size_t) inputBus] * 6.0f : 0.0f;
-                const auto feedback = ((flags & 0xc0) == 0xc0)
-                    ? voice.feedback[(size_t) op] * ((float) patch.feedback / 7.0f) * 2.0f : 0.0f;
-                const auto opSample = std::sin(voice.phase[(size_t) op] + modulation + feedback)
-                    * patch.levels[(size_t) op] * operatorEnvelope;
-                voice.feedback[(size_t) op] = (float) opSample;
-
-                if (outputBus == 0)
-                    buses[0] = add ? buses[0] + (float) opSample : (float) opSample;
-                else
-                    buses[(size_t) outputBus] = add && hasBus[(size_t) outputBus]
-                        ? buses[(size_t) outputBus] + (float) opSample : (float) opSample;
-                hasBus[(size_t) outputBus] = true;
-            }
-
-            const auto signal = std::tanh(buses[0] / (float) carrierCount);
-            const auto value = signal * voice.velocity * voice.envelope * config.gain * 0.28f;
-            for (int channel = 0; channel < output.getNumChannels(); ++channel)
-                output.addSample(channel, sample, value);
+            offset += count;
         }
+
+        if (voice.releasing && !voice.coreVoice->isPlaying())
+            voice = {};
     }
 }
-
