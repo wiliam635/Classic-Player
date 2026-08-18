@@ -678,7 +678,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
         area.removeFromTop(4);
         fileLabel.setBounds(area.removeFromTop(27));
     }
-    else
+    else if (type == ClassicPlayerAudioProcessor::LayerType::dx7)
     {
         dx7Button.setBounds(area.removeFromTop(28));
         area.removeFromTop(4);
@@ -689,6 +689,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
         fileLabel.setBounds(area.removeFromTop(27));
         area.removeFromTop(4);
         dx7PatchBox.setBounds(area.removeFromTop(28));
+    }
+    else
+    {
+        dx7Button.setBounds(area.removeFromTop(30));
+        area.removeFromTop(5);
+        fileLabel.setBounds(area.removeFromTop(28));
     }
     area.removeFromTop(10);
 
