@@ -42,6 +42,69 @@ juce::Image embeddedImage(const char* resourceName)
     return {};
 }
 
+struct KnobEditorSpec
+{
+    const char* label;
+    float value;
+    float minimum;
+    float maximum;
+    float interval;
+    int decimals;
+};
+
+class KnobEditorPanel final : public juce::Component
+{
+public:
+    KnobEditorPanel(std::initializer_list<KnobEditorSpec> specifications, int requestedColumns)
+        : columns(juce::jmax(1, requestedColumns))
+    {
+        for (const auto& specification : specifications)
+        {
+            auto* label = labels.add(new juce::Label());
+            label->setText(specification.label, juce::dontSendNotification);
+            label->setJustificationType(juce::Justification::centred);
+            label->setColour(juce::Label::textColourId, juce::Colour(text));
+            label->setFont(juce::FontOptions(11.0f, juce::Font::bold));
+            addAndMakeVisible(label);
+
+            auto* knob = knobs.add(new juce::Slider());
+            knob->setRange(specification.minimum, specification.maximum, specification.interval);
+            knob->setValue(specification.value, juce::dontSendNotification);
+            knob->setNumDecimalPlacesToDisplay(specification.decimals);
+            knob->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+            knob->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 20);
+            knob->setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(teal));
+            addAndMakeVisible(knob);
+        }
+
+        const auto rows = juce::jmax(1, (knobs.size() + columns - 1) / columns);
+        setSize(columns * 126, rows * 124);
+    }
+
+    float value(int item) const
+    {
+        return juce::isPositiveAndBelow(item, knobs.size()) ? (float) knobs[item]->getValue() : 0.0f;
+    }
+
+    void resized() override
+    {
+        const auto cellWidth = getWidth() / columns;
+        for (int item = 0; item < knobs.size(); ++item)
+        {
+            const auto column = item % columns;
+            const auto row = item / columns;
+            auto cell = juce::Rectangle<int>(column * cellWidth, row * 124, cellWidth, 124).reduced(5, 2);
+            labels[item]->setBounds(cell.removeFromTop(21));
+            knobs[item]->setBounds(cell.reduced(2, 0));
+        }
+    }
+
+private:
+    int columns = 1;
+    juce::OwnedArray<juce::Label> labels;
+    juce::OwnedArray<juce::Slider> knobs;
+};
+
 class ClassicLookAndFeel final : public juce::LookAndFeel_V4
 {
 public:
@@ -478,31 +541,29 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
 {
     const auto prefix = "layer" + juce::String(index + 1);
     auto* dialog = new juce::AlertWindow(
-        "REVERB DA LAYER", "O knob REVERB controla a quantidade. Ajuste o caráter da sala abaixo.",
+        "REVERB DA LAYER", "O knob REVERB controla a quantidade. Ajuste o carater da sala abaixo.",
         juce::MessageBoxIconType::NoIcon);
-    dialog->addTextEditor("size", juce::String(processor.parameters.getRawParameterValue(prefix + "ReverbSize")->load(), 1), "TAMANHO (0-100)");
-    dialog->addTextEditor("damping", juce::String(processor.parameters.getRawParameterValue(prefix + "ReverbDamping")->load(), 1), "DAMPING (0-100)");
-    dialog->addTextEditor("width", juce::String(processor.parameters.getRawParameterValue(prefix + "ReverbWidth")->load(), 1), "LARGURA ESTEREO (0-100)");
+    auto* knobs = new KnobEditorPanel({
+        { "TAMANHO", processor.parameters.getRawParameterValue(prefix + "ReverbSize")->load(), 0.0f, 100.0f, 1.0f, 0 },
+        { "DAMPING", processor.parameters.getRawParameterValue(prefix + "ReverbDamping")->load(), 0.0f, 100.0f, 1.0f, 0 },
+        { "LARGURA ESTEREO", processor.parameters.getRawParameterValue(prefix + "ReverbWidth")->load(), 0.0f, 100.0f, 1.0f, 0 }
+    }, 3);
+    dialog->addCustomComponent(knobs);
     dialog->addButton("APLICAR", 1, juce::KeyPress(juce::KeyPress::returnKey));
     dialog->addButton("CANCELAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
-        [safe, dialog, prefix](int result)
+        [safe, dialog, knobs, prefix](int result)
         {
             if (safe == nullptr || result != 1) return;
-            const auto read = [dialog](const char* id)
-            {
-                if (auto* field = dialog->getTextEditor(id)) return field->getText().getFloatValue();
-                return 0.0f;
-            };
-            const auto set = [&safe, &prefix](const juce::String& id, float value)
+            const auto set = [safe, prefix](const juce::String& id, float value)
             {
                 if (auto* parameter = safe->processor.parameters.getParameter(prefix + id))
                     parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
             };
-            set("ReverbSize", juce::jlimit(0.0f, 100.0f, read("size")));
-            set("ReverbDamping", juce::jlimit(0.0f, 100.0f, read("damping")));
-            set("ReverbWidth", juce::jlimit(0.0f, 100.0f, read("width")));
+            set("ReverbSize", juce::jlimit(0.0f, 100.0f, knobs->value(0)));
+            set("ReverbDamping", juce::jlimit(0.0f, 100.0f, knobs->value(1)));
+            set("ReverbWidth", juce::jlimit(0.0f, 100.0f, knobs->value(2)));
         }), true);
 }
 
@@ -510,35 +571,33 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
 {
     const auto prefix = "layer" + juce::String(index + 1);
     auto* dialog = new juce::AlertWindow(
-        "COMPRESSOR DA LAYER", "O knob COMP controla a mistura. Ajuste a dinâmica abaixo.",
+        "COMPRESSOR DA LAYER", "O knob COMP controla a mistura. Ajuste a dinamica abaixo.",
         juce::MessageBoxIconType::NoIcon);
-    dialog->addTextEditor("threshold", juce::String(processor.parameters.getRawParameterValue(prefix + "CompThreshold")->load(), 1), "THRESHOLD dB (-60 a 0)");
-    dialog->addTextEditor("ratio", juce::String(processor.parameters.getRawParameterValue(prefix + "CompRatio")->load(), 1), "RATIO (1 a 20)");
-    dialog->addTextEditor("attack", juce::String(processor.parameters.getRawParameterValue(prefix + "CompAttack")->load(), 1), "ATTACK ms");
-    dialog->addTextEditor("release", juce::String(processor.parameters.getRawParameterValue(prefix + "CompRelease")->load(), 1), "RELEASE ms");
-    dialog->addTextEditor("makeup", juce::String(processor.parameters.getRawParameterValue(prefix + "CompMakeup")->load(), 1), "MAKEUP dB (0 a 24)");
+    auto* knobs = new KnobEditorPanel({
+        { "THRESHOLD dB", processor.parameters.getRawParameterValue(prefix + "CompThreshold")->load(), -60.0f, 0.0f, 0.1f, 1 },
+        { "RATIO", processor.parameters.getRawParameterValue(prefix + "CompRatio")->load(), 1.0f, 20.0f, 0.1f, 1 },
+        { "ATTACK ms", processor.parameters.getRawParameterValue(prefix + "CompAttack")->load(), 0.1f, 100.0f, 0.1f, 1 },
+        { "RELEASE ms", processor.parameters.getRawParameterValue(prefix + "CompRelease")->load(), 5.0f, 1000.0f, 1.0f, 0 },
+        { "MAKEUP dB", processor.parameters.getRawParameterValue(prefix + "CompMakeup")->load(), 0.0f, 24.0f, 0.1f, 1 }
+    }, 3);
+    dialog->addCustomComponent(knobs);
     dialog->addButton("APLICAR", 1, juce::KeyPress(juce::KeyPress::returnKey));
     dialog->addButton("CANCELAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
-        [safe, dialog, prefix](int result)
+        [safe, dialog, knobs, prefix](int result)
         {
             if (safe == nullptr || result != 1) return;
-            const auto read = [dialog](const char* id)
-            {
-                if (auto* field = dialog->getTextEditor(id)) return field->getText().getFloatValue();
-                return 0.0f;
-            };
-            const auto set = [&safe, &prefix](const juce::String& id, float value)
+            const auto set = [safe, prefix](const juce::String& id, float value)
             {
                 if (auto* parameter = safe->processor.parameters.getParameter(prefix + id))
                     parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
             };
-            set("CompThreshold", juce::jlimit(-60.0f, 0.0f, read("threshold")));
-            set("CompRatio", juce::jlimit(1.0f, 20.0f, read("ratio")));
-            set("CompAttack", juce::jlimit(0.1f, 100.0f, read("attack")));
-            set("CompRelease", juce::jlimit(5.0f, 1000.0f, read("release")));
-            set("CompMakeup", juce::jlimit(0.0f, 24.0f, read("makeup")));
+            set("CompThreshold", juce::jlimit(-60.0f, 0.0f, knobs->value(0)));
+            set("CompRatio", juce::jlimit(1.0f, 20.0f, knobs->value(1)));
+            set("CompAttack", juce::jlimit(0.1f, 100.0f, knobs->value(2)));
+            set("CompRelease", juce::jlimit(5.0f, 1000.0f, knobs->value(3)));
+            set("CompMakeup", juce::jlimit(0.0f, 24.0f, knobs->value(4)));
         }), true);
 }
 void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
@@ -1142,11 +1201,6 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     };
     addAndMakeVisible(keyColourButton);
 
-    flatButton(refreshExternalInstrumentButton);
-    refreshExternalInstrumentButton.setTooltip("Atualizar a lista global de instrumentos VST3/AU");
-    refreshExternalInstrumentButton.onClick = [this] { refreshExternalInstrumentLibrary(); };
-    refreshExternalInstrumentButton.setVisible(classicProcessor.supportsExternalInstruments());
-    addAndMakeVisible(refreshExternalInstrumentButton);
 
     accidentalStyleBox.addItem("MISTO", 1);
     accidentalStyleBox.addItem("SUSTENIDO", 2);
@@ -1357,51 +1411,36 @@ ClassicPlayerAudioProcessorEditor::~ClassicPlayerAudioProcessorEditor()
 void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
 {
     auto* dialog = new juce::AlertWindow(
-        "EQ MASTER", "EQ de cinco estágios: corte baixo, três bandas e corte alto.",
+        "EQ MASTER", "EQ de cinco estagios: corte baixo, tres bandas e corte alto.",
         juce::MessageBoxIconType::NoIcon);
-    const auto add = [this, dialog](const char* id, const juce::String& label, int decimals = 1)
-    {
-        dialog->addTextEditor(id, juce::String(classicProcessor.masterEqValue(id), decimals), label);
-    };
-    add("masterEqLowCut", "LOW CUT Hz", 0);
-    add("masterEqLow", "LOW GAIN dB");
-    add("masterEqLowFrequency", "LOW FREQ Hz", 0);
-    add("masterEqMid", "MID GAIN dB");
-    add("masterEqFrequency", "MID FREQ Hz", 0);
-    add("masterEqHigh", "HIGH GAIN dB");
-    add("masterEqHighFrequency", "HIGH FREQ Hz", 0);
-    add("masterEqHighCut", "HIGH CUT Hz", 0);
+    auto* knobs = new KnobEditorPanel({
+        { "LOW CUT Hz", classicProcessor.masterEqValue("masterEqLowCut"), 20.0f, 250.0f, 1.0f, 0 },
+        { "LOW GAIN dB", classicProcessor.masterEqValue("masterEqLow"), -12.0f, 12.0f, 0.1f, 1 },
+        { "LOW FREQ Hz", classicProcessor.masterEqValue("masterEqLowFrequency"), 40.0f, 400.0f, 1.0f, 0 },
+        { "MID GAIN dB", classicProcessor.masterEqValue("masterEqMid"), -12.0f, 12.0f, 0.1f, 1 },
+        { "MID FREQ Hz", classicProcessor.masterEqValue("masterEqFrequency"), 200.0f, 6000.0f, 1.0f, 0 },
+        { "HIGH GAIN dB", classicProcessor.masterEqValue("masterEqHigh"), -12.0f, 12.0f, 0.1f, 1 },
+        { "HIGH FREQ Hz", classicProcessor.masterEqValue("masterEqHighFrequency"), 2000.0f, 16000.0f, 1.0f, 0 },
+        { "HIGH CUT Hz", classicProcessor.masterEqValue("masterEqHighCut"), 2000.0f, 20000.0f, 1.0f, 0 }
+    }, 4);
+    dialog->addCustomComponent(knobs);
     dialog->addButton("APLICAR", 1, juce::KeyPress(juce::KeyPress::returnKey));
     dialog->addButton("CANCELAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
-        [safe, dialog](int result)
+        [safe, dialog, knobs](int result)
         {
             if (safe == nullptr || result != 1) return;
-            const auto read = [dialog](const char* id)
-            {
-                if (auto* field = dialog->getTextEditor(id)) return field->getText().getFloatValue();
-                return 0.0f;
-            };
-            safe->classicProcessor.setMasterEqValue("masterEqLowCut",
-                juce::jlimit(20.0f, 250.0f, read("masterEqLowCut")));
-            safe->classicProcessor.setMasterEqValue("masterEqLow",
-                juce::jlimit(-12.0f, 12.0f, read("masterEqLow")));
-            safe->classicProcessor.setMasterEqValue("masterEqLowFrequency",
-                juce::jlimit(40.0f, 400.0f, read("masterEqLowFrequency")));
-            safe->classicProcessor.setMasterEqValue("masterEqMid",
-                juce::jlimit(-12.0f, 12.0f, read("masterEqMid")));
-            safe->classicProcessor.setMasterEqValue("masterEqFrequency",
-                juce::jlimit(200.0f, 6000.0f, read("masterEqFrequency")));
-            safe->classicProcessor.setMasterEqValue("masterEqHigh",
-                juce::jlimit(-12.0f, 12.0f, read("masterEqHigh")));
-            safe->classicProcessor.setMasterEqValue("masterEqHighFrequency",
-                juce::jlimit(2000.0f, 16000.0f, read("masterEqHighFrequency")));
-            safe->classicProcessor.setMasterEqValue("masterEqHighCut",
-                juce::jlimit(2000.0f, 20000.0f, read("masterEqHighCut")));
+            safe->classicProcessor.setMasterEqValue("masterEqLowCut", juce::jlimit(20.0f, 250.0f, knobs->value(0)));
+            safe->classicProcessor.setMasterEqValue("masterEqLow", juce::jlimit(-12.0f, 12.0f, knobs->value(1)));
+            safe->classicProcessor.setMasterEqValue("masterEqLowFrequency", juce::jlimit(40.0f, 400.0f, knobs->value(2)));
+            safe->classicProcessor.setMasterEqValue("masterEqMid", juce::jlimit(-12.0f, 12.0f, knobs->value(3)));
+            safe->classicProcessor.setMasterEqValue("masterEqFrequency", juce::jlimit(200.0f, 6000.0f, knobs->value(4)));
+            safe->classicProcessor.setMasterEqValue("masterEqHigh", juce::jlimit(-12.0f, 12.0f, knobs->value(5)));
+            safe->classicProcessor.setMasterEqValue("masterEqHighFrequency", juce::jlimit(2000.0f, 16000.0f, knobs->value(6)));
+            safe->classicProcessor.setMasterEqValue("masterEqHighCut", juce::jlimit(2000.0f, 20000.0f, knobs->value(7)));
         }), true);
 }
-
 void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour(background));
@@ -1454,8 +1493,6 @@ void ClassicPlayerAudioProcessorEditor::resized()
     chordColourButton.setBounds(colourControls.removeFromTop(30));
     colourControls.removeFromTop(4);
     keyColourButton.setBounds(colourControls.removeFromTop(30));
-    colourControls.removeFromTop(4);
-    refreshExternalInstrumentButton.setBounds(colourControls.reduced(0, 0));
 
     auto programRow = chordArea.removeFromBottom(28);
     loadProgramButton.setBounds(programRow.removeFromRight(76).reduced(1, 0));
