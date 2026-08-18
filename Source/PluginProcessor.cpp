@@ -136,9 +136,11 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     outputLimiter.setRelease(80.0f);
     for (int channel = 0; channel < 2; ++channel)
     {
+        masterEqLowCut[(size_t) channel].reset();
         masterEqLow[(size_t) channel].reset();
         masterEqMid[(size_t) channel].reset();
         masterEqHigh[(size_t) channel].reset();
+        masterEqHighCut[(size_t) channel].reset();
     }
     lastMasterEqValues.fill(-999.0f);
     updateMasterEq();
@@ -227,14 +229,18 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     for (int channel = 0; channel < juce::jmin(2, buffer.getNumChannels()); ++channel)
     {
         auto* samples = buffer.getWritePointer(channel);
+        auto& lowCut = masterEqLowCut[(size_t) channel];
         auto& low = masterEqLow[(size_t) channel];
         auto& mid = masterEqMid[(size_t) channel];
         auto& high = masterEqHigh[(size_t) channel];
+        auto& highCut = masterEqHighCut[(size_t) channel];
         for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
         {
-            auto value = low.processSample(samples[sample]);
+            auto value = lowCut.processSample(samples[sample]);
+            value = low.processSample(value);
             value = mid.processSample(value);
-            samples[sample] = high.processSample(value);
+            value = high.processSample(value);
+            samples[sample] = highCut.processSample(value);
         }
     }
     juce::dsp::AudioBlock<float> block(buffer);
@@ -262,24 +268,38 @@ void ClassicPlayerAudioProcessor::setMasterEqValue(const juce::String& parameter
 
 void ClassicPlayerAudioProcessor::updateMasterEq()
 {
-    const std::array<float, 4> values {
-        masterEqValue("masterEqLow"), masterEqValue("masterEqMid"),
-        masterEqValue("masterEqFrequency"), masterEqValue("masterEqHigh")
+    const std::array<float, 8> values {
+        masterEqValue("masterEqLowCut"), masterEqValue("masterEqLow"),
+        masterEqValue("masterEqLowFrequency"), masterEqValue("masterEqMid"),
+        masterEqValue("masterEqFrequency"), masterEqValue("masterEqHigh"),
+        masterEqValue("masterEqHighFrequency"), masterEqValue("masterEqHighCut")
     };
     if (values == lastMasterEqValues) return;
     lastMasterEqValues = values;
 
+    const auto nyquistSafe = (float) juce::jmax(1000.0, currentSampleRate * 0.45);
+    const auto lowCutFrequency = juce::jlimit(20.0f, 250.0f, values[0]);
+    const auto lowFrequency = juce::jlimit(40.0f, 400.0f, values[2]);
+    const auto midFrequency = juce::jlimit(200.0f, nyquistSafe, values[4]);
+    const auto highFrequency = juce::jlimit(2000.0f, nyquistSafe, values[6]);
+    const auto highCutFrequency = juce::jlimit(2000.0f, nyquistSafe, values[7]);
+    const auto lowCut = juce::dsp::IIR::Coefficients<float>::makeHighPass(
+        currentSampleRate, lowCutFrequency);
     const auto low = juce::dsp::IIR::Coefficients<float>::makeLowShelf(
-        currentSampleRate, 110.0f, 0.7071f, juce::Decibels::decibelsToGain(values[0]));
+        currentSampleRate, lowFrequency, 0.7071f, juce::Decibels::decibelsToGain(values[1]));
     const auto mid = juce::dsp::IIR::Coefficients<float>::makePeakFilter(
-        currentSampleRate, values[2], 0.85f, juce::Decibels::decibelsToGain(values[1]));
+        currentSampleRate, midFrequency, 0.85f, juce::Decibels::decibelsToGain(values[3]));
     const auto high = juce::dsp::IIR::Coefficients<float>::makeHighShelf(
-        currentSampleRate, 8000.0f, 0.7071f, juce::Decibels::decibelsToGain(values[3]));
+        currentSampleRate, highFrequency, 0.7071f, juce::Decibels::decibelsToGain(values[5]));
+    const auto highCut = juce::dsp::IIR::Coefficients<float>::makeLowPass(
+        currentSampleRate, highCutFrequency);
     for (int channel = 0; channel < 2; ++channel)
     {
+        masterEqLowCut[(size_t) channel].coefficients = lowCut;
         masterEqLow[(size_t) channel].coefficients = low;
         masterEqMid[(size_t) channel].coefficients = mid;
         masterEqHigh[(size_t) channel].coefficients = high;
+        masterEqHighCut[(size_t) channel].coefficients = highCut;
     }
 }
 
