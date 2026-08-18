@@ -374,6 +374,7 @@ juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::F
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
         return juce::Result::fail("Layer inválida.");
     externalInstruments[(size_t) layer].unload();
+    analogSynthEngine.unload(layer);
     const auto result = engine.loadSoundFont(layer, file);
     if (result.wasOk())
     {
@@ -530,6 +531,11 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
 {
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return;
     if (type == LayerType::vst) type = LayerType::sf2;
+
+    const auto previousType = layerType(layer);
+    if (previousType == LayerType::analog && type != LayerType::analog)
+        analogSynthEngine.unload(layer);
+
     layerTypes[(size_t) layer].store(static_cast<int>(type), std::memory_order_relaxed);
 }
 
@@ -540,6 +546,7 @@ juce::Result ClassicPlayerAudioProcessor::loadDx7(int layer, const juce::File& f
         return juce::Result::fail("Layer inválida.");
     externalInstruments[(size_t) layer].unload();
     engine.unloadSoundFont(layer);
+    analogSynthEngine.unload(layer);
     const auto result = dx7Engine.loadSysEx(layer, file);
     if (result.wasOk())
     {
@@ -668,6 +675,7 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         const auto sourcePath = engine.getSoundFontPath(last);
         const auto sourceDx7Path = dx7Engine.path(last);
         const auto sourceConfig = engine.getConfig(last);
+        const auto sourceAnalogConfig = analogLayerConfigs[(size_t) last];
 
         externalInstruments[(size_t) layer].unload();
         engine.unloadSoundFont(layer);
@@ -681,6 +689,10 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
             externalInstruments[(size_t) layer].moveFrom(externalInstruments[(size_t) last]);
 
         engine.setConfig(layer, sourceConfig);
+        auto movedAnalogConfig = sourceType == LayerType::analog
+            ? sourceAnalogConfig : AnalogSynthEngine::Config{};
+        movedAnalogConfig.routing = sourceConfig;
+        analogLayerConfigs[(size_t) layer] = movedAnalogConfig;
         savedPaths[(size_t) layer] = sourceType == LayerType::sf2
             ? savedPaths[(size_t) last] : juce::String{};
         layerMidiDeviceIds[(size_t) layer] = layerMidiDeviceIds[(size_t) last];
@@ -695,6 +707,7 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     disabled.enabled = false;
     engine.setConfig(last, disabled);
     savedPaths[(size_t) last].clear();
+    analogLayerConfigs[(size_t) last] = AnalogSynthEngine::Config{};
     layerMidiDeviceIds[(size_t) last].clear();
     layerTypes[(size_t) last].store(static_cast<int>(LayerType::sf2), std::memory_order_relaxed);
     activeLayers.store(last, std::memory_order_relaxed);
@@ -1281,6 +1294,7 @@ void ClassicPlayerAudioProcessor::stopAllSoundsBeforeProgramChange()
     const juce::ScopedLock callbackLock(getCallbackLock());
     engine.stopAllSounds();
     dx7Engine.stopAllSounds();
+    analogSynthEngine.stopAllSounds();
     for (auto& instrument : externalInstruments)
         instrument.stopAllSounds();
 
@@ -1341,6 +1355,31 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("portamento" + juce::String(i), config.portamento, nullptr);
         state.setProperty("sustain" + juce::String(i), config.sustainEnabled, nullptr);
         state.setProperty("midiDevice" + juce::String(i), layerMidiDevice(i), nullptr);
+        const auto& analog = analogLayerConfigs[(size_t) i];
+        state.setProperty("analogOsc1Wave" + juce::String(i + 1), static_cast<int>(analog.oscillator1Wave), nullptr);
+        state.setProperty("analogOsc2Wave" + juce::String(i + 1), static_cast<int>(analog.oscillator2Wave), nullptr);
+        state.setProperty("analogOsc3Wave" + juce::String(i + 1), static_cast<int>(analog.oscillator3Wave), nullptr);
+        state.setProperty("analogOsc1Level" + juce::String(i + 1), analog.oscillator1Level, nullptr);
+        state.setProperty("analogOsc2Level" + juce::String(i + 1), analog.oscillator2Level, nullptr);
+        state.setProperty("analogOsc3Level" + juce::String(i + 1), analog.oscillator3Level, nullptr);
+        state.setProperty("analogOsc2Semitones" + juce::String(i + 1), analog.oscillator2Semitones, nullptr);
+        state.setProperty("analogOsc3Semitones" + juce::String(i + 1), analog.oscillator3Semitones, nullptr);
+        state.setProperty("analogNoise" + juce::String(i + 1), analog.noiseLevel, nullptr);
+        state.setProperty("analogCutoff" + juce::String(i + 1), analog.cutoff, nullptr);
+        state.setProperty("analogResonance" + juce::String(i + 1), analog.resonance, nullptr);
+        state.setProperty("analogFilterEnv" + juce::String(i + 1), analog.filterEnvelopeAmount, nullptr);
+        state.setProperty("analogAmpAttack" + juce::String(i + 1), analog.ampAttack, nullptr);
+        state.setProperty("analogAmpDecay" + juce::String(i + 1), analog.ampDecay, nullptr);
+        state.setProperty("analogAmpSustain" + juce::String(i + 1), analog.ampSustain, nullptr);
+        state.setProperty("analogAmpRelease" + juce::String(i + 1), analog.ampRelease, nullptr);
+        state.setProperty("analogFilterAttack" + juce::String(i + 1), analog.filterAttack, nullptr);
+        state.setProperty("analogFilterDecay" + juce::String(i + 1), analog.filterDecay, nullptr);
+        state.setProperty("analogFilterSustain" + juce::String(i + 1), analog.filterSustain, nullptr);
+        state.setProperty("analogFilterRelease" + juce::String(i + 1), analog.filterRelease, nullptr);
+        state.setProperty("analogLfoRate" + juce::String(i + 1), analog.lfoRate, nullptr);
+        state.setProperty("analogLfoPitch" + juce::String(i + 1), analog.lfoToPitch, nullptr);
+        state.setProperty("analogLfoFilter" + juce::String(i + 1), analog.lfoToFilter, nullptr);
+        state.setProperty("analogGlideMs" + juce::String(i + 1), analog.glideMs, nullptr);
         for (int target = 0; target < learnTargetCount; ++target)
         {
             state.setProperty("learn" + juce::String(i) + "_" + juce::String(target),
@@ -1486,6 +1525,36 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                             "dx7Patch" + juce::String(i + 1), 0)));
                     }
                 }
+                auto analog = AnalogSynthEngine::Config{};
+                const auto analogKey = juce::String(i + 1);
+                analog.oscillator1Wave = static_cast<AnalogSynthEngine::Waveform>(juce::jlimit(
+                    0, 3, static_cast<int>(state.getProperty("analogOsc1Wave" + analogKey, static_cast<int>(analog.oscillator1Wave)))));
+                analog.oscillator2Wave = static_cast<AnalogSynthEngine::Waveform>(juce::jlimit(
+                    0, 3, static_cast<int>(state.getProperty("analogOsc2Wave" + analogKey, static_cast<int>(analog.oscillator2Wave)))));
+                analog.oscillator3Wave = static_cast<AnalogSynthEngine::Waveform>(juce::jlimit(
+                    0, 3, static_cast<int>(state.getProperty("analogOsc3Wave" + analogKey, static_cast<int>(analog.oscillator3Wave)))));
+                analog.oscillator1Level = static_cast<float>(state.getProperty("analogOsc1Level" + analogKey, analog.oscillator1Level));
+                analog.oscillator2Level = static_cast<float>(state.getProperty("analogOsc2Level" + analogKey, analog.oscillator2Level));
+                analog.oscillator3Level = static_cast<float>(state.getProperty("analogOsc3Level" + analogKey, analog.oscillator3Level));
+                analog.oscillator2Semitones = static_cast<float>(state.getProperty("analogOsc2Semitones" + analogKey, analog.oscillator2Semitones));
+                analog.oscillator3Semitones = static_cast<float>(state.getProperty("analogOsc3Semitones" + analogKey, analog.oscillator3Semitones));
+                analog.noiseLevel = static_cast<float>(state.getProperty("analogNoise" + analogKey, analog.noiseLevel));
+                analog.cutoff = static_cast<float>(state.getProperty("analogCutoff" + analogKey, analog.cutoff));
+                analog.resonance = static_cast<float>(state.getProperty("analogResonance" + analogKey, analog.resonance));
+                analog.filterEnvelopeAmount = static_cast<float>(state.getProperty("analogFilterEnv" + analogKey, analog.filterEnvelopeAmount));
+                analog.ampAttack = static_cast<float>(state.getProperty("analogAmpAttack" + analogKey, analog.ampAttack));
+                analog.ampDecay = static_cast<float>(state.getProperty("analogAmpDecay" + analogKey, analog.ampDecay));
+                analog.ampSustain = static_cast<float>(state.getProperty("analogAmpSustain" + analogKey, analog.ampSustain));
+                analog.ampRelease = static_cast<float>(state.getProperty("analogAmpRelease" + analogKey, analog.ampRelease));
+                analog.filterAttack = static_cast<float>(state.getProperty("analogFilterAttack" + analogKey, analog.filterAttack));
+                analog.filterDecay = static_cast<float>(state.getProperty("analogFilterDecay" + analogKey, analog.filterDecay));
+                analog.filterSustain = static_cast<float>(state.getProperty("analogFilterSustain" + analogKey, analog.filterSustain));
+                analog.filterRelease = static_cast<float>(state.getProperty("analogFilterRelease" + analogKey, analog.filterRelease));
+                analog.lfoRate = static_cast<float>(state.getProperty("analogLfoRate" + analogKey, analog.lfoRate));
+                analog.lfoToPitch = static_cast<float>(state.getProperty("analogLfoPitch" + analogKey, analog.lfoToPitch));
+                analog.lfoToFilter = static_cast<float>(state.getProperty("analogLfoFilter" + analogKey, analog.lfoToFilter));
+                analog.glideMs = static_cast<float>(state.getProperty("analogGlideMs" + analogKey, analog.glideMs));
+
                 auto config = engine.getConfig(i);
                 config.lowNote = state.getProperty("low" + juce::String(i), 0);
                 config.highNote = state.getProperty("high" + juce::String(i), 127);
@@ -1498,6 +1567,10 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.portamento = state.getProperty("portamento" + juce::String(i), false);
                 config.sustainEnabled = state.getProperty("sustain" + juce::String(i), true);
                 engine.setConfig(i, config);
+                analog.routing = config;
+                analogLayerConfigs[(size_t) i] = analog;
+                if (savedType != static_cast<int>(LayerType::analog))
+                    analogSynthEngine.unload(i);
                 setLayerMidiDevice(i, state.getProperty("midiDevice" + juce::String(i)).toString());
                 for (int target = 0; target < learnTargetCount; ++target)
                 {
@@ -1529,6 +1602,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     engine.unloadSoundFont(i);
                     externalInstruments[(size_t) i].unload();
                     dx7Engine.unload(i);
+                    analogSynthEngine.unload(i);
+                    analogLayerConfigs[(size_t) i] = AnalogSynthEngine::Config{};
                     savedPaths[(size_t) i].clear();
                     layerTypes[(size_t) i].store(static_cast<int>(LayerType::sf2), std::memory_order_relaxed);
                 }
