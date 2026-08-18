@@ -387,6 +387,14 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     cutoffLearn.onClick = [this] { processor.beginMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::cutoff); };
     reverbLearn.onClick = [this] { processor.beginMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::reverb); };
     compressorLearn.onClick = [this] { processor.beginMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::compressor); };
+    for (auto* button : { &reverbEditButton, &compressorEditButton })
+    {
+        flatButton(*button);
+        button->setTooltip("Ajustar com precisão a intensidade do efeito");
+        addAndMakeVisible(*button);
+    }
+    reverbEditButton.onClick = [this] { editEffectAmount(true); };
+    compressorEditButton.onClick = [this] { editEffectAmount(false); };
     flatButton(resetMidiLearnButton);
     resetMidiLearnButton.setTooltip("Apagar todos os endereçamentos MIDI Learn desta layer");
     resetMidiLearnButton.onClick = [this]
@@ -464,6 +472,25 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refreshMidiDevices()
     }
     midiDevice.setSelectedId(selectedId, juce::dontSendNotification);
     midiDevice.setTextWhenNothingSelected("CONTROLADOR MIDI");
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::editEffectAmount(bool reverbEffect)
+{
+    const auto title = reverbEffect ? "REVERB" : "COMPRESSOR";
+    auto dialog = std::make_unique<juce::AlertWindow>(
+        title, "Intensidade do efeito nesta layer (0 a 100).", juce::MessageBoxIconType::NoIcon);
+    auto* amount = dialog->addTextEditor("amount",
+        juce::String(reverbEffect ? reverb.getValue() : compressor.getValue(), 1), "INTENSIDADE");
+    dialog->addButton("APLICAR", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    dialog->addButton("CANCELAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    juce::AlertWindow::showAsync(std::move(dialog),
+        juce::ModalCallbackFunction::create([safe, reverbEffect, amount](int result)
+        {
+            if (safe == nullptr || result != 1) return;
+            const auto value = juce::jlimit(0.0, 100.0, (double) amount->getText().getDoubleValue());
+            (reverbEffect ? safe->reverb : safe->compressor).setValue(value);
+        }));
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
@@ -557,16 +584,26 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     auto knobs = controls.removeFromTop(126);
     const auto knobWidth = knobs.getWidth() / 3;
     auto placeKnob = [knobWidth](juce::Rectangle<int>& row, juce::Label& label,
-                                 juce::Slider& slider, juce::TextButton* learn)
+                                 juce::Slider& slider, juce::TextButton* learn,
+                                 juce::TextButton* edit)
     {
         auto cell = row.removeFromLeft(knobWidth).reduced(2, 0);
-        label.setBounds(cell.removeFromTop(16));
+        auto titleRow = cell.removeFromTop(16);
+        if (edit != nullptr)
+        {
+            edit->setBounds(titleRow.removeFromRight(28).reduced(1, 0));
+            label.setBounds(titleRow);
+        }
+        else
+        {
+            label.setBounds(titleRow);
+        }
         if (learn != nullptr) learn->setBounds(cell.removeFromBottom(20).reduced(1));
         slider.setBounds(cell);
     };
-    placeKnob(knobs, cutoffLabel, cutoff, &cutoffLearn);
-    placeKnob(knobs, reverbLabel, reverb, &reverbLearn);
-    placeKnob(knobs, compressorLabel, compressor, &compressorLearn);
+    placeKnob(knobs, cutoffLabel, cutoff, &cutoffLearn, nullptr);
+    placeKnob(knobs, reverbLabel, reverb, &reverbLearn, &reverbEditButton);
+    placeKnob(knobs, compressorLabel, compressor, &compressorLearn, &compressorEditButton);
 
     controls.removeFromTop(5);
     auto routingRow = controls.removeFromTop(22);
