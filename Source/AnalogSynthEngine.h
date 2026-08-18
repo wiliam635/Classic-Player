@@ -99,7 +99,7 @@ private:
 
     void noteOn(int layer, int midiChannel, int note, float velocity, const Config& config);
     void noteOff(int layer, int midiChannel, int note);
-    void renderVoice(Voice& voice, Layer& layer, const Config& config, float& left,
+    void renderVoice(Voice& voice, const Config& config, float lfo, float& left,
                      float& right);
 
     std::array<Layer, layerCount> layers {};
