@@ -71,6 +71,8 @@ public:
     void unloadDx7(int layer);
     bool hasDx7(int layer) const;
     bool hasAnalogSynth(int layer) const;
+    AnalogSynthEngine::Config analogSynthConfig(int layer) const;
+    void setAnalogSynthConfig(int layer, const AnalogSynthEngine::Config& config);
     juce::String dx7PatchName(int layer) const;
     juce::String dx7PatchName(int layer, int patch) const;
     int dx7PatchCount(int layer) const;
