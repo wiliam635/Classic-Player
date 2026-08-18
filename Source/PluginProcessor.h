@@ -84,6 +84,10 @@ public:
     void stopAudioRecording();
     bool isAudioRecording() const noexcept;
     juce::String recordingFilePath() const;
+
+    // Three-band master EQ: low/high shelves plus a variable mid bell.
+    float masterEqValue(const juce::String& parameterId) const;
+    void setMasterEqValue(const juce::String& parameterId, float value);
     void beginMidiLearn(int layer, LearnTarget target);
     void resetMidiLearn(int layer);
     int midiLearnCC(int layer, LearnTarget target) const;
