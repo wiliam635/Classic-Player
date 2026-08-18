@@ -47,6 +47,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> result;
     result.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"master", 1}, "Master", juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 80.0f));
+    result.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"masterEqLow", 1}, "Master EQ Low", juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
+    result.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"masterEqMid", 1}, "Master EQ Mid", juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
+    result.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"masterEqFrequency", 1}, "Master EQ Mid Frequency",
+        juce::NormalisableRange<float>(200.0f, 6000.0f, 1.0f, 0.35f), 1200.0f));
+    result.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"masterEqHigh", 1}, "Master EQ High", juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
         const auto n = juce::String(i + 1);
@@ -65,6 +74,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"layer" + n + "Comp", 1}, "Layer " + n + " Compressor",
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 0.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "Dx7Chorus", 1}, "Layer " + n + " DX7 Chorus",
+            juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 20.0f));
     }
     return { result.begin(), result.end() };
 }
@@ -86,6 +98,14 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     outputLimiter.prepare({ sampleRate, (juce::uint32) samplesPerBlock, 2 });
     outputLimiter.setThreshold(-0.3f);
     outputLimiter.setRelease(80.0f);
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        masterEqLow[(size_t) channel].reset();
+        masterEqMid[(size_t) channel].reset();
+        masterEqHigh[(size_t) channel].reset();
+    }
+    lastMasterEqValues.fill(-999.0f);
+    updateMasterEq();
     restoreLayerPaths();
 }
 
@@ -148,6 +168,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         config.cutoff = parameters.getRawParameterValue(prefix + "Cutoff")->load();
         config.reverb = parameters.getRawParameterValue(prefix + "Reverb")->load();
         config.compressor = parameters.getRawParameterValue(prefix + "Comp")->load();
+        config.dx7Chorus = parameters.getRawParameterValue(prefix + "Dx7Chorus")->load();
         engine.setConfig(i, config);
         dx7LayerConfigs[(size_t) i] = config;
     }
@@ -158,6 +179,14 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // The limiter immediately after it keeps the boosted output clip-safe.
     const auto masterLinear = parameters.getRawParameterValue("master")->load() / 100.0f;
     buffer.applyGain(masterLinear * juce::Decibels::decibelsToGain(6.0f));
+    updateMasterEq();
+    for (int channel = 0; channel < juce::jmin(2, buffer.getNumChannels()); ++channel)
+    {
+        auto* samples = buffer.getWritePointer(channel);
+        masterEqLow[(size_t) channel].processSamples(samples, buffer.getNumSamples());
+        masterEqMid[(size_t) channel].processSamples(samples, buffer.getNumSamples());
+        masterEqHigh[(size_t) channel].processSamples(samples, buffer.getNumSamples());
+    }
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> context(block);
     outputLimiter.process(context);
@@ -166,6 +195,42 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // disk I/O directly in the real-time audio callback.
     if (auto* writer = activeRecordingWriter.load(std::memory_order_acquire))
         writer->write(buffer.getArrayOfReadPointers(), buffer.getNumSamples());
+}
+
+float ClassicPlayerAudioProcessor::masterEqValue(const juce::String& parameterId) const
+{
+    if (const auto* value = parameters.getRawParameterValue(parameterId))
+        return value->load();
+    return 0.0f;
+}
+
+void ClassicPlayerAudioProcessor::setMasterEqValue(const juce::String& parameterId, float value)
+{
+    if (auto* parameter = parameters.getParameter(parameterId))
+        parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
+}
+
+void ClassicPlayerAudioProcessor::updateMasterEq()
+{
+    const std::array<float, 4> values {
+        masterEqValue("masterEqLow"), masterEqValue("masterEqMid"),
+        masterEqValue("masterEqFrequency"), masterEqValue("masterEqHigh")
+    };
+    if (values == lastMasterEqValues) return;
+    lastMasterEqValues = values;
+
+    const auto low = juce::dsp::IIR::Coefficients<float>::makeLowShelf(
+        currentSampleRate, 110.0f, 0.7071f, juce::Decibels::decibelsToGain(values[0]));
+    const auto mid = juce::dsp::IIR::Coefficients<float>::makePeakFilter(
+        currentSampleRate, values[2], 0.85f, juce::Decibels::decibelsToGain(values[1]));
+    const auto high = juce::dsp::IIR::Coefficients<float>::makeHighShelf(
+        currentSampleRate, 8000.0f, 0.7071f, juce::Decibels::decibelsToGain(values[3]));
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        masterEqLow[(size_t) channel].coefficients = low;
+        masterEqMid[(size_t) channel].coefficients = mid;
+        masterEqHigh[(size_t) channel].coefficients = high;
+    }
 }
 
 juce::Result ClassicPlayerAudioProcessor::startAudioRecording()
