@@ -125,6 +125,7 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     currentBlockSize = samplesPerBlock;
     engine.prepare(sampleRate, samplesPerBlock);
     dx7Engine.prepare(sampleRate, samplesPerBlock);
+    analogSynthEngine.prepare(sampleRate, samplesPerBlock);
     for (auto& hosted : externalInstruments) hosted.prepare(sampleRate, samplesPerBlock);
     for (auto& scratch : externalScratch)
         scratch.setSize(2, samplesPerBlock, false, true, true);
@@ -151,6 +152,7 @@ void ClassicPlayerAudioProcessor::releaseResources()
 {
     engine.reset();
     dx7Engine.stopAllSounds();
+    analogSynthEngine.stopAllSounds();
     for (auto& hosted : externalInstruments) hosted.releaseResources();
     outputLimiter.reset();
 }
@@ -217,10 +219,15 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         config.dx7Chorus = parameters.getRawParameterValue(prefix + "Dx7Chorus")->load();
         engine.setConfig(i, config);
         dx7LayerConfigs[(size_t) i] = config;
+        auto analogConfig = analogLayerConfigs[(size_t) i];
+        analogConfig.routing = config;
+        analogConfig.routing.enabled = config.enabled && layerType(i) == LayerType::analog;
+        analogLayerConfigs[(size_t) i] = analogConfig;
     }
     engine.process(buffer, midi, &routedMidiBuffers);
     renderExternalInstruments(buffer, midi);
     dx7Engine.process(buffer, midi, &routedMidiBuffers, dx7LayerConfigs);
+    analogSynthEngine.process(buffer, midi, analogLayerConfigs);
     // The master control is calibrated with +6 dB of nominal output gain.
     // The limiter immediately after it keeps the boosted output clip-safe.
     const auto masterLinear = parameters.getRawParameterValue("master")->load() / 100.0f;
@@ -508,14 +515,15 @@ float ClassicPlayerAudioProcessor::layerPeak(int layer) const
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return 0.0f;
     return juce::jmax(engine.getLayerPeak(layer),
                       juce::jmax(dx7Engine.getLayerPeak(layer),
-                                 externalPeaks[(size_t) layer].load(std::memory_order_relaxed)));
+                                 juce::jmax(analogSynthEngine.getLayerPeak(layer),
+                                            externalPeaks[(size_t) layer].load(std::memory_order_relaxed))));
 }
 
 ClassicPlayerAudioProcessor::LayerType ClassicPlayerAudioProcessor::layerType(int layer) const
 {
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return LayerType::sf2;
     const auto value = layerTypes[(size_t) layer].load(std::memory_order_relaxed);
-    return static_cast<LayerType>(juce::jlimit(0, 2, value));
+    return static_cast<LayerType>(juce::jlimit(0, 3, value));
 }
 
 void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
@@ -549,6 +557,11 @@ void ClassicPlayerAudioProcessor::unloadDx7(int layer)
 }
 
 bool ClassicPlayerAudioProcessor::hasDx7(int layer) const { return dx7Engine.isLoaded(layer); }
+bool ClassicPlayerAudioProcessor::hasAnalogSynth(int layer) const
+{
+    return juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)
+        && layerType(layer) == LayerType::analog;
+}
 juce::String ClassicPlayerAudioProcessor::dx7PatchName(int layer) const { return dx7Engine.patchName(layer); }
 juce::String ClassicPlayerAudioProcessor::dx7PatchName(int layer, int patch) const { return dx7Engine.patchName(layer, patch); }
 int ClassicPlayerAudioProcessor::dx7PatchCount(int layer) const { return dx7Engine.patchCount(layer); }
@@ -644,6 +657,7 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         externalInstruments[(size_t) layer].unload();
         engine.unloadSoundFont(layer);
         dx7Engine.unload(layer);
+        analogSynthEngine.unload(layer);
         if (sourceType == LayerType::sf2 && sourcePath.isNotEmpty())
             engine.loadSoundFont(layer, juce::File(sourcePath));
         else if (sourceType == LayerType::dx7 && sourceDx7Path.isNotEmpty())
@@ -661,6 +675,7 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     externalInstruments[(size_t) last].unload();
     engine.unloadSoundFont(last);
     dx7Engine.unload(last);
+    analogSynthEngine.unload(last);
     auto disabled = engine.getConfig(last);
     disabled.enabled = false;
     engine.setConfig(last, disabled);
