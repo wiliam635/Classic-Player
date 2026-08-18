@@ -422,6 +422,18 @@ void Dx7Engine::render(Layer& layer, const Sf2Engine::LayerConfig& config,
         if ((flags & 0x07) == 0x04) ++carrierCount;
     carrierCount = juce::jmax(1, carrierCount);
 
+    // Do not force every DX7 voice through a fixed 20 ms release. The fourth
+    // EG rate belongs to each operator; use the average of the carriers to
+    // keep a voice alive long enough for its programmed release contour and
+    // avoid a discontinuity/click on note-off.
+    float carrierReleaseRate = 0.0f;
+    for (int op = 0; op < 6; ++op)
+        if ((routing[(size_t) op] & 0x07) == 0x04)
+            carrierReleaseRate += patch.egRates[(size_t) op][3];
+    carrierReleaseRate /= (float) carrierCount;
+    const auto releaseSeconds = juce::jlimit(0.025, 1.2,
+        0.025 + (1.0 - (double) carrierReleaseRate) * 0.65);
+
     for (auto& voice : layer.voices)
     {
         if (!voice.active) continue;
@@ -430,7 +442,7 @@ void Dx7Engine::render(Layer& layer, const Sf2Engine::LayerConfig& config,
             if (voice.releasing)
             {
                 voice.envelope = juce::jmax(0.0f, voice.envelope
-                    - (float) (1.0 / (sampleRate * 0.020)));
+                    - (float) (1.0 / (sampleRate * releaseSeconds)));
                 if (voice.envelope <= 0.0f)
                 {
                     voice = {};
