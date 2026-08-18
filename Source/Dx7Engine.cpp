@@ -15,6 +15,7 @@ Dx7Engine::Dx7Engine()
 {
     controllers.core = &fmCore;
     controllers.refresh();
+    for (auto& peak : layerPeaks) peak.store(0.0f, std::memory_order_relaxed);
 }
 
 void Dx7Engine::prepare(double newSampleRate, int newMaximumBlockSize)
@@ -22,8 +23,10 @@ void Dx7Engine::prepare(double newSampleRate, int newMaximumBlockSize)
     const juce::ScopedLock guard(lock);
     sampleRate = juce::jmax(1.0, newSampleRate);
     maximumBlockSize = juce::jmax(64, newMaximumBlockSize);
-    for (auto& layer : layers)
+    for (int layerIndex = 0; layerIndex < layerCount; ++layerIndex)
     {
+        auto& layer = layers[(size_t) layerIndex];
+        layerPeaks[(size_t) layerIndex].store(0.0f, std::memory_order_relaxed);
         layer.renderScratch.setSize(2, maximumBlockSize, false, true, true);
         // 45 ms accommodates a gently modulated stereo chorus at any supported rate.
         layer.chorusDelay.setSize(2, juce::jmax(8, (int) std::ceil(sampleRate * 0.045)),
@@ -228,6 +231,7 @@ void Dx7Engine::unload(int index)
     if (!juce::isPositiveAndBelow(index, layerCount)) return;
     const juce::ScopedLock guard(lock);
     layers[(size_t) index] = {};
+    layerPeaks[(size_t) index].store(0.0f, std::memory_order_relaxed);
 }
 
 void Dx7Engine::stopAllSounds()
@@ -235,6 +239,12 @@ void Dx7Engine::stopAllSounds()
     const juce::ScopedLock guard(lock);
     for (auto& layer : layers)
         for (auto& voice : layer.voices) voice = {};
+}
+
+float Dx7Engine::getLayerPeak(int index) const
+{
+    return juce::isPositiveAndBelow(index, layerCount)
+        ? layerPeaks[(size_t) index].load(std::memory_order_relaxed) : 0.0f;
 }
 
 bool Dx7Engine::isLoaded(int index) const
@@ -468,7 +478,11 @@ void Dx7Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         const auto& config = configs[(size_t) index];
 
         if (!config.enabled || layer.patchesLoaded <= 0)
+        {
+            layerPeaks[(size_t) index].store(layerPeaks[(size_t) index].load(std::memory_order_relaxed) * 0.82f,
+                                               std::memory_order_relaxed);
             continue;
+        }
 
         for (const auto metadata : hostMidi)
             dispatch(layer, config, metadata.getMessage());
@@ -481,7 +495,7 @@ void Dx7Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
     }
 }
 
-void Dx7Engine::render(Layer& layer, const Sf2Engine::LayerConfig& config,
+void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfig& config,
                        juce::AudioBuffer<float>& output)
 {
     if (!juce::isPositiveAndBelow(layer.selectedPatch, layer.patchesLoaded)) return;
@@ -566,6 +580,11 @@ void Dx7Engine::render(Layer& layer, const Sf2Engine::LayerConfig& config,
         if (layer.chorusPhase >= juce::MathConstants<double>::twoPi)
             layer.chorusPhase -= juce::MathConstants<double>::twoPi;
     }
+
+    const auto renderedPeak = juce::jmax(scratch.getMagnitude(0, 0, output.getNumSamples()),
+                                         scratch.getMagnitude(1, 0, output.getNumSamples())) * config.gain;
+    const auto previousPeak = layerPeaks[(size_t) layerIndex].load(std::memory_order_relaxed) * 0.82f;
+    layerPeaks[(size_t) layerIndex].store(juce::jmax(renderedPeak, previousPeak), std::memory_order_relaxed);
 
     for (int channel = 0; channel < juce::jmin(2, output.getNumChannels()); ++channel)
         output.addFrom(channel, 0, scratch, channel, 0, output.getNumSamples());
