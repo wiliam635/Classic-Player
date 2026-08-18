@@ -1357,12 +1357,20 @@ ClassicPlayerAudioProcessorEditor::~ClassicPlayerAudioProcessorEditor()
 void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
 {
     auto* dialog = new juce::AlertWindow(
-        "EQ MASTER", "Ajuste a equalização da saída final.", juce::MessageBoxIconType::NoIcon);
-    dialog->addTextEditor("low", juce::String(classicProcessor.masterEqValue("masterEqLow"), 1), "LOW dB");
-    dialog->addTextEditor("mid", juce::String(classicProcessor.masterEqValue("masterEqMid"), 1), "MID dB");
-    dialog->addTextEditor("frequency",
-        juce::String((int) classicProcessor.masterEqValue("masterEqFrequency")), "MID Hz");
-    dialog->addTextEditor("high", juce::String(classicProcessor.masterEqValue("masterEqHigh"), 1), "HIGH dB");
+        "EQ MASTER", "EQ de cinco estágios: corte baixo, três bandas e corte alto.",
+        juce::MessageBoxIconType::NoIcon);
+    const auto add = [this, dialog](const char* id, const juce::String& label, int decimals = 1)
+    {
+        dialog->addTextEditor(id, juce::String(classicProcessor.masterEqValue(id), decimals), label);
+    };
+    add("masterEqLowCut", "LOW CUT Hz", 0);
+    add("masterEqLow", "LOW GAIN dB");
+    add("masterEqLowFrequency", "LOW FREQ Hz", 0);
+    add("masterEqMid", "MID GAIN dB");
+    add("masterEqFrequency", "MID FREQ Hz", 0);
+    add("masterEqHigh", "HIGH GAIN dB");
+    add("masterEqHighFrequency", "HIGH FREQ Hz", 0);
+    add("masterEqHighCut", "HIGH CUT Hz", 0);
     dialog->addButton("APLICAR", 1, juce::KeyPress(juce::KeyPress::returnKey));
     dialog->addButton("CANCELAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
@@ -1375,14 +1383,22 @@ void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
                 if (auto* field = dialog->getTextEditor(id)) return field->getText().getFloatValue();
                 return 0.0f;
             };
+            safe->classicProcessor.setMasterEqValue("masterEqLowCut",
+                juce::jlimit(20.0f, 250.0f, read("masterEqLowCut")));
             safe->classicProcessor.setMasterEqValue("masterEqLow",
-                juce::jlimit(-12.0f, 12.0f, read("low")));
+                juce::jlimit(-12.0f, 12.0f, read("masterEqLow")));
+            safe->classicProcessor.setMasterEqValue("masterEqLowFrequency",
+                juce::jlimit(40.0f, 400.0f, read("masterEqLowFrequency")));
             safe->classicProcessor.setMasterEqValue("masterEqMid",
-                juce::jlimit(-12.0f, 12.0f, read("mid")));
+                juce::jlimit(-12.0f, 12.0f, read("masterEqMid")));
             safe->classicProcessor.setMasterEqValue("masterEqFrequency",
-                juce::jlimit(200.0f, 6000.0f, read("frequency")));
+                juce::jlimit(200.0f, 6000.0f, read("masterEqFrequency")));
             safe->classicProcessor.setMasterEqValue("masterEqHigh",
-                juce::jlimit(-12.0f, 12.0f, read("high")));
+                juce::jlimit(-12.0f, 12.0f, read("masterEqHigh")));
+            safe->classicProcessor.setMasterEqValue("masterEqHighFrequency",
+                juce::jlimit(2000.0f, 16000.0f, read("masterEqHighFrequency")));
+            safe->classicProcessor.setMasterEqValue("masterEqHighCut",
+                juce::jlimit(2000.0f, 20000.0f, read("masterEqHighCut")));
         }), true);
 }
 
