@@ -49,6 +49,7 @@ public:
     void prepare(double newSampleRate, int maximumBlockSize);
     void reset();
     void stopAllSounds();
+    void unload(int layer);
     void process(juce::AudioBuffer<float>& output, const juce::MidiBuffer& midi,
                  const std::array<Config, layerCount>& configs);
 
