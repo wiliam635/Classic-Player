@@ -58,6 +58,9 @@ void Sf2Engine::prepare(double sampleRate, int maximumBlockSize)
 
     for (auto& layer : layers)
     {
+        layer.nativeReverb.setSampleRate(currentSampleRate);
+        layer.nativeReverb.reset();
+        layer.compressorEnvelope = { 0.0f, 0.0f };
 #if JUCE_WINDOWS
         // The internal immediate-rate helper is not exported by the Windows
         // FluidSynth library. Rebuild the synth at the requested device rate
