@@ -221,7 +221,10 @@ void AnalogSynthEngine::renderVoice(Voice& voice, Layer& layer, const Config& co
     const auto cutoffHz = 30.0f * std::pow(600.0f, normalizedCutoff);
     const auto coefficient = juce::jlimit(0.001f, 0.95f,
         1.0f - std::exp(-twoPi * cutoffHz / static_cast<float>(sampleRate)));
-    voice.lowpass += coefficient * (sample - voice.lowpass);
+    // A restrained feedback path gives the resonance control a musical,
+    // stable effect without allowing the filter to self-oscillate.
+    const auto resonance = juce::jlimit(0.0f, 0.95f, config.resonance * 0.9f);
+    voice.lowpass += coefficient * ((sample - resonance * voice.lowpass) - voice.lowpass);
     sample = voice.lowpass * amp * voice.velocity * config.routing.gain;
 
     left += sample;
