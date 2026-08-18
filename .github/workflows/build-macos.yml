@@ -50,7 +50,7 @@ jobs:
           grep -q "analogSynthEngine.process" Source/PluginProcessor.cpp
           grep -q "showAnalogSynthEditor" Source/PluginEditor.cpp
           grep -q "Classic Keys Analog" Source/PluginEditor.cpp
-          grep -q "advance Analog LFO once per layer sample" Source/AnalogSynthEngine.h
+          grep -q "renderVoice(Voice& voice, const Config& config, float lfo" Source/AnalogSynthEngine.h
           grep -q "renderVoice(voice, config, lfo" Source/AnalogSynthEngine.cpp
           grep -q "startAudioRecording" Source/PluginProcessor.cpp
           grep -q "stopAudioRecording" Source/PluginProcessor.cpp
