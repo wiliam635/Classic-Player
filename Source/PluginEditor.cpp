@@ -393,8 +393,8 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
         button->setTooltip("Ajustar com precisão a intensidade do efeito");
         addAndMakeVisible(*button);
     }
-    reverbEditButton.onClick = [this] { editEffectAmount(true); };
-    compressorEditButton.onClick = [this] { editEffectAmount(false); };
+    reverbEditButton.onClick = [this] { showReverbEditor(); };
+    compressorEditButton.onClick = [this] { showCompressorEditor(); };
     flatButton(resetMidiLearnButton);
     resetMidiLearnButton.setTooltip("Apagar todos os endereçamentos MIDI Learn desta layer");
     resetMidiLearnButton.onClick = [this]
@@ -474,30 +474,74 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refreshMidiDevices()
     midiDevice.setTextWhenNothingSelected("CONTROLADOR MIDI");
 }
 
-void ClassicPlayerAudioProcessorEditor::LayerStrip::editEffectAmount(bool reverbEffect)
+void void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
 {
-    const auto dialogTitle = reverbEffect ? "REVERB" : "COMPRESSOR";
+    const auto prefix = "layer" + juce::String(index + 1);
     auto* dialog = new juce::AlertWindow(
-        dialogTitle, "Intensidade do efeito nesta layer (0 a 100).", juce::MessageBoxIconType::NoIcon);
-    dialog->addTextEditor("amount",
-        juce::String(reverbEffect ? reverb.getValue() : compressor.getValue(), 1), "INTENSIDADE");
+        "REVERB DA LAYER", "O knob REVERB controla a quantidade. Ajuste o caráter da sala abaixo.",
+        juce::MessageBoxIconType::NoIcon);
+    dialog->addTextEditor("size", juce::String(processor.parameters.getRawParameterValue(prefix + "ReverbSize")->load(), 1), "TAMANHO (0-100)");
+    dialog->addTextEditor("damping", juce::String(processor.parameters.getRawParameterValue(prefix + "ReverbDamping")->load(), 1), "DAMPING (0-100)");
+    dialog->addTextEditor("width", juce::String(processor.parameters.getRawParameterValue(prefix + "ReverbWidth")->load(), 1), "LARGURA ESTEREO (0-100)");
     dialog->addButton("APLICAR", 1, juce::KeyPress(juce::KeyPress::returnKey));
     dialog->addButton("CANCELAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
-        [safe, reverbEffect, dialog](int result)
+        [safe, dialog, prefix](int result)
         {
             if (safe == nullptr || result != 1) return;
-            if (auto* amount = dialog->getTextEditor("amount"))
+            const auto read = [dialog](const char* id)
             {
-                const auto value = juce::jlimit(0.0, 100.0,
-                                                amount->getText().getDoubleValue());
-                (reverbEffect ? safe->reverb : safe->compressor).setValue(value);
-            }
+                if (auto* field = dialog->getTextEditor(id)) return field->getText().getFloatValue();
+                return 0.0f;
+            };
+            const auto set = [&safe, &prefix](const juce::String& id, float value)
+            {
+                if (auto* parameter = safe->processor.parameters.getParameter(prefix + id))
+                    parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
+            };
+            set("ReverbSize", juce::jlimit(0.0f, 100.0f, read("size")));
+            set("ReverbDamping", juce::jlimit(0.0f, 100.0f, read("damping")));
+            set("ReverbWidth", juce::jlimit(0.0f, 100.0f, read("width")));
         }), true);
 }
 
-void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
+void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
+{
+    const auto prefix = "layer" + juce::String(index + 1);
+    auto* dialog = new juce::AlertWindow(
+        "COMPRESSOR DA LAYER", "O knob COMP controla a mistura. Ajuste a dinâmica abaixo.",
+        juce::MessageBoxIconType::NoIcon);
+    dialog->addTextEditor("threshold", juce::String(processor.parameters.getRawParameterValue(prefix + "CompThreshold")->load(), 1), "THRESHOLD dB (-60 a 0)");
+    dialog->addTextEditor("ratio", juce::String(processor.parameters.getRawParameterValue(prefix + "CompRatio")->load(), 1), "RATIO (1 a 20)");
+    dialog->addTextEditor("attack", juce::String(processor.parameters.getRawParameterValue(prefix + "CompAttack")->load(), 1), "ATTACK ms");
+    dialog->addTextEditor("release", juce::String(processor.parameters.getRawParameterValue(prefix + "CompRelease")->load(), 1), "RELEASE ms");
+    dialog->addTextEditor("makeup", juce::String(processor.parameters.getRawParameterValue(prefix + "CompMakeup")->load(), 1), "MAKEUP dB (0 a 24)");
+    dialog->addButton("APLICAR", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    dialog->addButton("CANCELAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create(
+        [safe, dialog, prefix](int result)
+        {
+            if (safe == nullptr || result != 1) return;
+            const auto read = [dialog](const char* id)
+            {
+                if (auto* field = dialog->getTextEditor(id)) return field->getText().getFloatValue();
+                return 0.0f;
+            };
+            const auto set = [&safe, &prefix](const juce::String& id, float value)
+            {
+                if (auto* parameter = safe->processor.parameters.getParameter(prefix + id))
+                    parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
+            };
+            set("CompThreshold", juce::jlimit(-60.0f, 0.0f, read("threshold")));
+            set("CompRatio", juce::jlimit(1.0f, 20.0f, read("ratio")));
+            set("CompAttack", juce::jlimit(0.1f, 100.0f, read("attack")));
+            set("CompRelease", juce::jlimit(5.0f, 1000.0f, read("release")));
+            set("CompMakeup", juce::jlimit(0.0f, 24.0f, read("makeup")));
+        }), true);
+}
+ ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
     g.setColour(juce::Colour(panel));
