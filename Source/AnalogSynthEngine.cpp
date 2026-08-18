@@ -233,41 +233,51 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
 }
 
 void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer& midi,
-                                const std::array<Config, layerCount>& configs)
+                                const std::array<Config, layerCount>& configs,
+                                const std::array<juce::MidiBuffer, layerCount>* routedMidi)
 {
-    for (const auto metadata : midi)
+    auto dispatch = [&](int layerIndex, const juce::MidiMessage& message)
     {
-        const auto message = metadata.getMessage();
-        for (int layerIndex = 0; layerIndex < layerCount; ++layerIndex)
-        {
-            const auto& config = configs[(size_t) layerIndex];
-            if (!acceptsMessage(config.routing, message)) continue;
-            auto& layer = layers[(size_t) layerIndex];
+        const auto& config = configs[(size_t) layerIndex];
+        if (!acceptsMessage(config.routing, message)) return;
+        auto& layer = layers[(size_t) layerIndex];
 
-            if (message.isController() && message.getControllerNumber() == 64)
+        if (message.isController() && message.getControllerNumber() == 64)
+        {
+            if (!config.routing.sustainEnabled) return;
+            const auto sustainDown = message.getControllerValue() >= 64;
+            if (layer.sustainPedal && !sustainDown)
             {
-                if (!config.routing.sustainEnabled) continue;
-                const auto sustainDown = message.getControllerValue() >= 64;
-                if (layer.sustainPedal && !sustainDown)
-                {
-                    for (auto& voice : layer.voices)
-                        if (voice.active && !voice.keyDown)
-                        {
-                            voice.amp.releaseStart = voice.amp.value;
-                            voice.filter.releaseStart = voice.filter.value;
-                            voice.amp.stage = EnvelopeStage::release;
-                            voice.filter.stage = EnvelopeStage::release;
-                        }
-                }
-                layer.sustainPedal = sustainDown;
+                for (auto& voice : layer.voices)
+                    if (voice.active && !voice.keyDown)
+                    {
+                        voice.amp.releaseStart = voice.amp.value;
+                        voice.filter.releaseStart = voice.filter.value;
+                        voice.amp.stage = EnvelopeStage::release;
+                        voice.filter.stage = EnvelopeStage::release;
+                    }
             }
-            else if (message.isNoteOn())
-                noteOn(layerIndex, message.getChannel(), message.getNoteNumber(),
-                       message.getFloatVelocity(), config);
-            else if (message.isNoteOff())
-                noteOff(layerIndex, message.getChannel(), message.getNoteNumber());
+            layer.sustainPedal = sustainDown;
         }
-    }
+        else if (message.isNoteOn())
+            noteOn(layerIndex, message.getChannel(), message.getNoteNumber(),
+                   message.getFloatVelocity(), config);
+        else if (message.isNoteOff())
+            noteOff(layerIndex, message.getChannel(), message.getNoteNumber());
+    };
+
+    // VST3/AU hosts supply MIDI in the process buffer.
+    for (const auto metadata : midi)
+        for (int layerIndex = 0; layerIndex < layerCount; ++layerIndex)
+            dispatch(layerIndex, metadata.getMessage());
+
+    // The JUCE standalone device callback supplies MIDI through these
+    // collectors, one buffer per layer. This was missing from the first
+    // Analog implementation and made the UI load while producing no sound.
+    if (routedMidi != nullptr)
+        for (int layerIndex = 0; layerIndex < layerCount; ++layerIndex)
+            for (const auto metadata : (*routedMidi)[(size_t) layerIndex])
+                dispatch(layerIndex, metadata.getMessage());
 
     for (int layerIndex = 0; layerIndex < layerCount; ++layerIndex)
     {
