@@ -474,7 +474,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refreshMidiDevices()
     midiDevice.setTextWhenNothingSelected("CONTROLADOR MIDI");
 }
 
-void void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
+void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
 {
     const auto prefix = "layer" + juce::String(index + 1);
     auto* dialog = new juce::AlertWindow(
@@ -541,7 +541,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
             set("CompMakeup", juce::jlimit(0.0f, 24.0f, read("makeup")));
         }), true);
 }
- ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
+void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
     g.setColour(juce::Colour(panel));
