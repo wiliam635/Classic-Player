@@ -476,21 +476,25 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refreshMidiDevices()
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::editEffectAmount(bool reverbEffect)
 {
-    const auto title = reverbEffect ? "REVERB" : "COMPRESSOR";
-    auto dialog = std::make_unique<juce::AlertWindow>(
-        title, "Intensidade do efeito nesta layer (0 a 100).", juce::MessageBoxIconType::NoIcon);
-    auto* amount = dialog->addTextEditor("amount",
+    const auto dialogTitle = reverbEffect ? "REVERB" : "COMPRESSOR";
+    auto* dialog = new juce::AlertWindow(
+        dialogTitle, "Intensidade do efeito nesta layer (0 a 100).", juce::MessageBoxIconType::NoIcon);
+    dialog->addTextEditor("amount",
         juce::String(reverbEffect ? reverb.getValue() : compressor.getValue(), 1), "INTENSIDADE");
     dialog->addButton("APLICAR", 1, juce::KeyPress(juce::KeyPress::returnKey));
     dialog->addButton("CANCELAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
-    juce::AlertWindow::showAsync(std::move(dialog),
-        juce::ModalCallbackFunction::create([safe, reverbEffect, amount](int result)
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create(
+        [safe, reverbEffect, dialog](int result)
         {
             if (safe == nullptr || result != 1) return;
-            const auto value = juce::jlimit(0.0, 100.0, (double) amount->getText().getDoubleValue());
-            (reverbEffect ? safe->reverb : safe->compressor).setValue(value);
-        }));
+            if (auto* amount = dialog->getTextEditor("amount"))
+            {
+                const auto value = juce::jlimit(0.0, 100.0,
+                                                amount->getText().getDoubleValue());
+                (reverbEffect ? safe->reverb : safe->compressor).setValue(value);
+            }
+        }), true);
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
@@ -1310,29 +1314,34 @@ ClassicPlayerAudioProcessorEditor::~ClassicPlayerAudioProcessorEditor()
 
 void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
 {
-    auto dialog = std::make_unique<juce::AlertWindow>(
+    auto* dialog = new juce::AlertWindow(
         "EQ MASTER", "Ajuste a equalização da saída final.", juce::MessageBoxIconType::NoIcon);
-    auto* low = dialog->addTextEditor("low", juce::String(classicProcessor.masterEqValue("masterEqLow"), 1), "LOW dB");
-    auto* mid = dialog->addTextEditor("mid", juce::String(classicProcessor.masterEqValue("masterEqMid"), 1), "MID dB");
-    auto* frequency = dialog->addTextEditor("frequency",
+    dialog->addTextEditor("low", juce::String(classicProcessor.masterEqValue("masterEqLow"), 1), "LOW dB");
+    dialog->addTextEditor("mid", juce::String(classicProcessor.masterEqValue("masterEqMid"), 1), "MID dB");
+    dialog->addTextEditor("frequency",
         juce::String((int) classicProcessor.masterEqValue("masterEqFrequency")), "MID Hz");
-    auto* high = dialog->addTextEditor("high", juce::String(classicProcessor.masterEqValue("masterEqHigh"), 1), "HIGH dB");
+    dialog->addTextEditor("high", juce::String(classicProcessor.masterEqValue("masterEqHigh"), 1), "HIGH dB");
     dialog->addButton("APLICAR", 1, juce::KeyPress(juce::KeyPress::returnKey));
     dialog->addButton("CANCELAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
-    juce::AlertWindow::showAsync(std::move(dialog),
-        juce::ModalCallbackFunction::create([safe, low, mid, frequency, high](int result)
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create(
+        [safe, dialog](int result)
         {
             if (safe == nullptr || result != 1) return;
+            const auto read = [dialog](const char* id)
+            {
+                if (auto* field = dialog->getTextEditor(id)) return field->getText().getFloatValue();
+                return 0.0f;
+            };
             safe->classicProcessor.setMasterEqValue("masterEqLow",
-                juce::jlimit(-12.0f, 12.0f, low->getText().getFloatValue()));
+                juce::jlimit(-12.0f, 12.0f, read("low")));
             safe->classicProcessor.setMasterEqValue("masterEqMid",
-                juce::jlimit(-12.0f, 12.0f, mid->getText().getFloatValue()));
+                juce::jlimit(-12.0f, 12.0f, read("mid")));
             safe->classicProcessor.setMasterEqValue("masterEqFrequency",
-                juce::jlimit(200.0f, 6000.0f, frequency->getText().getFloatValue()));
+                juce::jlimit(200.0f, 6000.0f, read("frequency")));
             safe->classicProcessor.setMasterEqValue("masterEqHigh",
-                juce::jlimit(-12.0f, 12.0f, high->getText().getFloatValue()));
-        }));
+                juce::jlimit(-12.0f, 12.0f, read("high")));
+        }), true);
 }
 
 void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
