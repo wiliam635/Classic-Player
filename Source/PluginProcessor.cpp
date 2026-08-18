@@ -1340,7 +1340,7 @@ juce::Result ClassicPlayerAudioProcessor::loadProgram(const juce::File& programF
 void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
 {
     auto state = parameters.copyState();
-    state.setProperty("stateVersion", 164, nullptr);
+    state.setProperty("stateVersion", 165, nullptr);
     state.setProperty("activeLayers", activeLayerCount(), nullptr);
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
@@ -1468,7 +1468,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                         writeParameter(gainId, 80.0f);
                 }
             }
-            state.setProperty("stateVersion", 164, nullptr);
+            state.setProperty("stateVersion", 165, nullptr);
             parameters.replaceState(state);
             for (int i = 0; i < Sf2Engine::layerCount; ++i)
             {
