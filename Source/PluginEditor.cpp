@@ -1140,15 +1140,13 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     {
         juce::PopupMenu menu;
         menu.addItem(1, "Layer SF2");
-        menu.addItem(2, "Layer VST", classicProcessor.supportsExternalInstruments());
-        menu.addItem(3, "Layer DX7 (.syx)");
+        menu.addItem(2, "Layer DX7 (.syx)");
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addLayerButton),
             [safeThis = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this)](int choice)
             {
                 if (safeThis == nullptr || choice == 0) return;
                 safeThis->addLayer(choice == 1 ? ClassicPlayerAudioProcessor::LayerType::sf2
-                                   : choice == 2 ? ClassicPlayerAudioProcessor::LayerType::vst
-                                                 : ClassicPlayerAudioProcessor::LayerType::dx7);
+                                                : ClassicPlayerAudioProcessor::LayerType::dx7);
             });
     };
     addAndMakeVisible(addLayerButton);
