@@ -845,6 +845,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     const auto isSf2 = type == ClassicPlayerAudioProcessor::LayerType::sf2;
     const auto isVst = type == ClassicPlayerAudioProcessor::LayerType::vst;
     const auto isDx7 = type == ClassicPlayerAudioProcessor::LayerType::dx7;
+    const auto isAnalog = type == ClassicPlayerAudioProcessor::LayerType::analog;
     loadButton.setVisible(isSf2);
     categoryBox.setVisible(isSf2);
     libraryBox.setVisible(isSf2);
@@ -858,6 +859,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     dx7PatchBox.setVisible(isDx7);
     deleteDx7LibraryButton.setVisible(isDx7);
     fileLabel.setVisible(true);
+    if (isAnalog)
+        fileLabel.setText("CLASSIC KEYS ANALOG", juce::dontSendNotification);
     resized();
 }
 
@@ -1063,12 +1066,15 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
 
     const auto hasSource = type == ClassicPlayerAudioProcessor::LayerType::sf2 ? path.isNotEmpty()
         : type == ClassicPlayerAudioProcessor::LayerType::vst ? externalName.isNotEmpty()
-        : processor.hasDx7(index);
+        : type == ClassicPlayerAudioProcessor::LayerType::dx7 ? processor.hasDx7(index)
+        : processor.hasAnalogSynth(index);
     fileLabel.setText(type == ClassicPlayerAudioProcessor::LayerType::sf2
                         ? (path.isNotEmpty() ? juce::File(path).getFileName() : "Sem SoundFont")
                         : type == ClassicPlayerAudioProcessor::LayerType::vst
                             ? (externalName.isNotEmpty() ? externalName : "Sem VST")
-                            : (dx7Name.isNotEmpty() ? dx7Name : "Sem DX7"),
+                            : type == ClassicPlayerAudioProcessor::LayerType::dx7
+                                ? (dx7Name.isNotEmpty() ? dx7Name : "Sem DX7")
+                                : "CLASSIC KEYS ANALOG",
                       juce::dontSendNotification);
     fileLabel.setColour(juce::Label::backgroundColourId,
                         hasSource ? juce::Colour(yellow) : juce::Colour(0xff0b1218));
@@ -1244,12 +1250,15 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
         juce::PopupMenu menu;
         menu.addItem(1, "Layer SF2");
         menu.addItem(2, "Layer DX7 (.syx)");
+        menu.addItem(3, "Classic Keys Analog");
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addLayerButton),
             [safeThis = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this)](int choice)
             {
                 if (safeThis == nullptr || choice == 0) return;
-                safeThis->addLayer(choice == 1 ? ClassicPlayerAudioProcessor::LayerType::sf2
-                                                : ClassicPlayerAudioProcessor::LayerType::dx7);
+                const auto type = choice == 1 ? ClassicPlayerAudioProcessor::LayerType::sf2
+                                : choice == 2 ? ClassicPlayerAudioProcessor::LayerType::dx7
+                                              : ClassicPlayerAudioProcessor::LayerType::analog;
+                safeThis->addLayer(type);
             });
     };
     addAndMakeVisible(addLayerButton);
