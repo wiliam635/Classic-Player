@@ -8,6 +8,7 @@
 #include "freqlut.h"
 #include "env.h"
 #include "pitchenv.h"
+#include "porta.h"
 
 Dx7Engine::Dx7Engine()
     : tuning(createStandardTuning())
@@ -27,6 +28,7 @@ void Dx7Engine::prepare(double newSampleRate, int)
     Freqlut::init(sampleRate);
     Env::init_sr(sampleRate);
     PitchEnv::init(sampleRate);
+    Porta::init_sr(sampleRate);
 }
 
 juce::String Dx7Engine::decodeName(const uint8_t* data, int size)
