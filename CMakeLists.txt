@@ -175,6 +175,7 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES
     Source/PluginEditor.cpp Source/PluginEditor.h
     Source/Sf2Engine.cpp Source/Sf2Engine.h
     Source/Dx7Engine.cpp Source/Dx7Engine.h
+    Source/AnalogSynthEngine.cpp Source/AnalogSynthEngine.h
     Source/ExternalInstrumentHost.cpp Source/ExternalInstrumentHost.h
     Source/LicenseVerifier.cpp Source/LicenseVerifier.h
     Source/ChordDetector.cpp Source/ChordDetector.h)
