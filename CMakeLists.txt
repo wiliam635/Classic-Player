@@ -95,6 +95,8 @@ target_sources(ClassicPlayer PRIVATE
     Source/Sf2Engine.h
     Source/Dx7Engine.cpp
     Source/Dx7Engine.h
+    Source/AnalogSynthEngine.cpp
+    Source/AnalogSynthEngine.h
     third_party/msfa/dx7note.cc
     third_party/msfa/env.cc
     third_party/msfa/exp2.cc
