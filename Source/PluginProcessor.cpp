@@ -492,43 +492,9 @@ void ClassicPlayerAudioProcessor::renderExternalInstruments(juce::AudioBuffer<fl
                                                              const juce::MidiBuffer& hostMidi)
 {
     juce::ignoreUnused(output, hostMidi);
-    // Kept as a no-op only so older saved states can be opened safely. External
-    // instrument layers no longer render or receive MIDI in Classic Player.
-    return;
-
-    for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
-    {
-        auto& peak = externalPeaks[(size_t) layer];
-        if (layer >= activeLayerCount()
-            || !externalInstruments[(size_t) layer].isLoaded()
-            || !engine.getConfig(layer).enabled)
-        {
-            peak.store(peak.load(std::memory_order_relaxed) * 0.82f,
-                       std::memory_order_relaxed);
-            continue;
-        }
-
-        auto& scratch = externalScratch[(size_t) layer];
-        auto& midi = externalMidi[(size_t) layer];
-        scratch.clear();
-        midi.clear();
-        appendExternalMidi(layer, hostMidi, midi);
-        appendExternalMidi(layer, routedMidiBuffers[(size_t) layer], midi);
-        externalInstruments[(size_t) layer].process(scratch, midi);
-        // External instruments share the same layer volume and mixer state as SF2 layers.
-        scratch.applyGain(engine.getConfig(layer).gain);
-
-        const auto renderedPeak = juce::jmax(
-            scratch.getMagnitude(0, 0, scratch.getNumSamples()),
-            scratch.getNumChannels() > 1
-                ? scratch.getMagnitude(1, 0, scratch.getNumSamples()) : 0.0f);
-        peak.store(juce::jmax(renderedPeak,
-                               peak.load(std::memory_order_relaxed) * 0.82f),
-                   std::memory_order_relaxed);
-
-        for (int channel = 0; channel < juce::jmin(output.getNumChannels(), scratch.getNumChannels()); ++channel)
-            output.addFrom(channel, 0, scratch, channel, 0, output.getNumSamples());
-    }
+    // External VST/AU hosting was deliberately retired. This no-op keeps
+    // projects from older versions safe to load without running third-party
+    // code or leaving an audible hidden layer.
 }
 
 juce::String ClassicPlayerAudioProcessor::soundFontPath(int layer) const { return engine.getSoundFontPath(layer); }
