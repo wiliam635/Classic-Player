@@ -491,7 +491,7 @@ void Dx7Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
             for (const auto metadata : (*routedMidi)[(size_t) index])
                 dispatch(layer, config, metadata.getMessage());
 
-        render(layer, config, output);
+        render(index, layer, config, output);
     }
 }
 
