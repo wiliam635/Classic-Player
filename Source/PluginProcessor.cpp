@@ -203,7 +203,15 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         config.release = parameters.getRawParameterValue(prefix + "Release")->load();
         config.cutoff = parameters.getRawParameterValue(prefix + "Cutoff")->load();
         config.reverb = parameters.getRawParameterValue(prefix + "Reverb")->load();
+        config.reverbSize = parameters.getRawParameterValue(prefix + "ReverbSize")->load();
+        config.reverbDamping = parameters.getRawParameterValue(prefix + "ReverbDamping")->load();
+        config.reverbWidth = parameters.getRawParameterValue(prefix + "ReverbWidth")->load();
         config.compressor = parameters.getRawParameterValue(prefix + "Comp")->load();
+        config.compressorThreshold = parameters.getRawParameterValue(prefix + "CompThreshold")->load();
+        config.compressorRatio = parameters.getRawParameterValue(prefix + "CompRatio")->load();
+        config.compressorAttack = parameters.getRawParameterValue(prefix + "CompAttack")->load();
+        config.compressorRelease = parameters.getRawParameterValue(prefix + "CompRelease")->load();
+        config.compressorMakeup = parameters.getRawParameterValue(prefix + "CompMakeup")->load();
         config.dx7Chorus = parameters.getRawParameterValue(prefix + "Dx7Chorus")->load();
         engine.setConfig(i, config);
         dx7LayerConfigs[(size_t) i] = config;
