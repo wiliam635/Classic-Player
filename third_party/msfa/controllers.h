@@ -106,10 +106,29 @@ public:
     FmMod at;
     
     Controllers() {
+        // MSFA expects every controller to have a deterministic initial value.
+        // Leaving these fields undefined can produce an invalid pitch bend on
+        // the first note, which presents as a click followed by silence.
+        memset(values_, 0, sizeof(values_));
+        values_[kControllerPitch] = 0x2000;
+        values_[kControllerPitchRangeUp] = 3;
+        values_[kControllerPitchRangeDn] = 3;
+        values_[kControllerPitchStep] = 0;
         amp_mod = 0;
         pitch_mod = 0;
         eg_mod = 0;
-        strcpy(opSwitch, "111111");        
+        aftertouch_cc = 0;
+        breath_cc = 0;
+        foot_cc = 0;
+        modwheel_cc = 0;
+        portamento_enable_cc = false;
+        portamento_cc = 0;
+        portamento_gliss_cc = false;
+        masterTune = 0;
+        mpeEnabled = false;
+        mpePitchBendRange = 24;
+        core = nullptr;
+        strcpy(opSwitch, "111111");
     }
 
     void refresh() {
