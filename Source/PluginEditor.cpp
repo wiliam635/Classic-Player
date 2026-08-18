@@ -198,6 +198,7 @@ class AnalogSynthEditorPanel final : public juce::Component
 public:
     explicit AnalogSynthEditorPanel(const AnalogSynthEngine::Config& source)
         : initial(source),
+          waves { source.oscillator1Wave, source.oscillator2Wave, source.oscillator3Wave },
           knobs({
               { "OSC 1 LEVEL", source.oscillator1Level * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
               { "OSC 2 LEVEL", source.oscillator2Level * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
@@ -218,22 +219,22 @@ public:
               { "GLIDE ms", source.glideMs, 0.0f, 1000.0f, 1.0f, 0 }
           }, 6)
     {
-        setupWave(wave1, source.oscillator1Wave);
-        setupWave(wave2, source.oscillator2Wave);
-        setupWave(wave3, source.oscillator3Wave);
+        configureWaveButton(wave1, 0);
+        configureWaveButton(wave2, 1);
+        configureWaveButton(wave3, 2);
         addAndMakeVisible(wave1);
         addAndMakeVisible(wave2);
         addAndMakeVisible(wave3);
         addAndMakeVisible(knobs);
-        setSize(780, 540);
+        setSize(820, 540);
     }
 
     AnalogSynthEngine::Config config() const
     {
         auto result = initial;
-        result.oscillator1Wave = selectedWave(wave1);
-        result.oscillator2Wave = selectedWave(wave2);
-        result.oscillator3Wave = selectedWave(wave3);
+        result.oscillator1Wave = waves[0];
+        result.oscillator2Wave = waves[1];
+        result.oscillator3Wave = waves[2];
         result.oscillator1Level = knobs.value(0) / 100.0f;
         result.oscillator2Level = knobs.value(1) / 100.0f;
         result.oscillator3Level = knobs.value(2) / 100.0f;
@@ -256,9 +257,10 @@ public:
 
     void paint(juce::Graphics& g) override
     {
+        const auto bounds = getLocalBounds().toFloat();
         g.fillAll(juce::Colour(panel));
         g.setColour(juce::Colour(line));
-        g.drawRect(getLocalBounds(), 1);
+        g.drawRect(bounds, 1.0f);
 
         const auto icon = embeddedImage("classicplayerappicon_png");
         if (icon.isValid())
@@ -273,46 +275,84 @@ public:
         g.drawText("Sintetizador nativo de tres osciladores", 77, 37,
                    getWidth() - 90, 20, juce::Justification::left);
 
+        auto hardware = getLocalBounds().reduced(10);
+        hardware.removeFromTop(64);
+        g.setColour(juce::Colour(0xff0d1217));
+        g.fillRoundedRectangle(hardware.toFloat(), 4.0f);
+        g.setColour(juce::Colour(line));
+        g.drawRoundedRectangle(hardware.toFloat(), 4.0f, 1.0f);
+
+        const auto groupWidth = hardware.getWidth() / 4;
+        for (int group = 1; group < 4; ++group)
+            g.drawVerticalLine(hardware.getX() + group * groupWidth,
+                               static_cast<float>(hardware.getY()),
+                               static_cast<float>(hardware.getBottom()));
+
         g.setColour(juce::Colour(text));
-        g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
-        g.drawText("FORMA DE ONDA", 16, 72, 160, 18, juce::Justification::left);
-        g.drawText("CONTROLES DO SINTETIZADOR", 16, 112, 260, 18, juce::Justification::left);
+        g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+        g.drawText("OSCILLATOR BANK", hardware.getX() + 12, hardware.getY() + 8,
+                   groupWidth - 24, 18, juce::Justification::centred);
+        g.drawText("MIXER", hardware.getX() + groupWidth + 12, hardware.getY() + 8,
+                   groupWidth - 24, 18, juce::Justification::centred);
+        g.drawText("MODIFIERS", hardware.getX() + groupWidth * 2 + 12, hardware.getY() + 8,
+                   groupWidth - 24, 18, juce::Justification::centred);
+        g.drawText("OUTPUT", hardware.getX() + groupWidth * 3 + 12, hardware.getY() + 8,
+                   groupWidth - 24, 18, juce::Justification::centred);
+
+        g.setColour(juce::Colour(mutedText));
+        g.setFont(juce::FontOptions(10.0f));
+        g.drawText("As chaves escolhem a forma de onda. Os knobs alteram o som em tempo real.",
+                   hardware.getX() + 12, hardware.getBottom() - 22, hardware.getWidth() - 24, 16,
+                   juce::Justification::centred);
     }
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced(12);
-        area.removeFromTop(56);
-        auto waves = area.removeFromTop(40);
-        const auto width = waves.getWidth() / 3;
-        wave1.setBounds(waves.removeFromLeft(width).reduced(3, 2));
-        wave2.setBounds(waves.removeFromLeft(width).reduced(3, 2));
-        wave3.setBounds(waves.reduced(3, 2));
-        area.removeFromTop(26);
-        knobs.setBounds(area);
+        auto area = getLocalBounds().reduced(18);
+        area.removeFromTop(60);
+        auto wavesArea = area.removeFromTop(34);
+        const auto waveWidth = wavesArea.getWidth() / 3;
+        wave1.setBounds(wavesArea.removeFromLeft(waveWidth).reduced(4, 2));
+        wave2.setBounds(wavesArea.removeFromLeft(waveWidth).reduced(4, 2));
+        wave3.setBounds(wavesArea.reduced(4, 2));
+        area.removeFromTop(24);
+        knobs.setBounds(area.reduced(4, 4));
     }
 
 private:
-    static void setupWave(juce::ComboBox& box, AnalogSynthEngine::Waveform wave)
+    static juce::String waveformName(AnalogSynthEngine::Waveform waveform)
     {
-        box.addItem("OSC - TRIANGLE", 1);
-        box.addItem("OSC - SAW", 2);
-        box.addItem("OSC - SQUARE", 3);
-        box.addItem("OSC - PULSE", 4);
-        box.setSelectedId(static_cast<int>(wave) + 1, juce::dontSendNotification);
-        box.setLookAndFeel(&classicLookAndFeel);
+        switch (waveform)
+        {
+            case AnalogSynthEngine::Waveform::triangle: return "TRIANGLE";
+            case AnalogSynthEngine::Waveform::saw: return "SAW";
+            case AnalogSynthEngine::Waveform::square: return "SQUARE";
+            case AnalogSynthEngine::Waveform::pulse: return "PULSE";
+        }
+        return "SAW";
     }
 
-    static AnalogSynthEngine::Waveform selectedWave(const juce::ComboBox& box)
+    void configureWaveButton(juce::TextButton& button, int oscillator)
     {
-        return static_cast<AnalogSynthEngine::Waveform>(juce::jlimit(0, 3, box.getSelectedId() - 1));
+        flatButton(button);
+        button.setClickingTogglesState(false);
+        auto* buttonPtr = &button;
+        button.onClick = [this, oscillator, buttonPtr]
+        {
+            auto value = static_cast<int>(waves[(size_t) oscillator]);
+            waves[(size_t) oscillator] = static_cast<AnalogSynthEngine::Waveform>((value + 1) % 4);
+            buttonPtr->setButtonText("OSC " + juce::String(oscillator + 1) + " - "
+                                    + waveformName(waves[(size_t) oscillator]));
+        };
+        button.setButtonText("OSC " + juce::String(oscillator + 1) + " - "
+                             + waveformName(waves[(size_t) oscillator]));
     }
 
     AnalogSynthEngine::Config initial;
-    juce::ComboBox wave1, wave2, wave3;
+    std::array<AnalogSynthEngine::Waveform, 3> waves;
+    juce::TextButton wave1, wave2, wave3;
     KnobEditorPanel knobs;
 };
-
 
 class ColourPicker final : public juce::Component, private juce::ChangeListener
 {
