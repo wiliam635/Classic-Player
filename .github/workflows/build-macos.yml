@@ -55,7 +55,7 @@ jobs:
           grep -q "coreVoice->compute" Source/Dx7Engine.cpp
           grep -q "PitchEnv::init(sampleRate)" Source/Dx7Engine.cpp
           grep -q "Porta::init_sr(sampleRate)" Source/Dx7Engine.cpp
-          grep -q "values_[kControllerPitch] = 0x2000" third_party/msfa/controllers.h
+          grep -Fq "values_[kControllerPitch] = 0x2000" third_party/msfa/controllers.h
           grep -q "patch.feedback" Source/Dx7Engine.cpp
           grep -q 'state.setProperty("mono"' Source/PluginProcessor.cpp
           grep -q 'config.mono = state.getProperty("mono"' Source/PluginProcessor.cpp
