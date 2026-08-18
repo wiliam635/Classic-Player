@@ -31,6 +31,9 @@ public:
         float cutoff = 100.0f;
         float reverb = 0.0f;
         float compressor = 0.0f;
+        // Used only by DX7 layers.  Keeping it in the common routing config
+        // preserves source-specific controls without mixing their engines.
+        float dx7Chorus = 20.0f;
     };
 
     struct Preset
