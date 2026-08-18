@@ -4,6 +4,7 @@
 #include <juce_core/juce_core.h>
 #include "Sf2Engine.h"
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include "dx7note.h"
@@ -26,6 +27,7 @@ public:
     juce::Result loadSysEx(int layer, const juce::File& file);
     void unload(int layer);
     void stopAllSounds();
+    float getLayerPeak(int layer) const;
 
     bool isLoaded(int layer) const;
     int patchCount(int layer) const;
@@ -108,9 +110,11 @@ private:
 
     void dispatch(Layer&, const Sf2Engine::LayerConfig&, const juce::MidiMessage&);
     void beginCoreVoice(Voice&, const Patch&, int note, float velocity, bool preserveLegato);
-    void render(Layer&, const Sf2Engine::LayerConfig&, juce::AudioBuffer<float>&);
+    void render(int layerIndex, Layer&, const Sf2Engine::LayerConfig&, juce::AudioBuffer<float>&);
 
     std::array<Layer, layerCount> layers;
+    // Separate peak state keeps Layer movable when a DX7 bank is reloaded.
+    std::array<std::atomic<float>, layerCount> layerPeaks {};
     std::shared_ptr<TuningState> tuning;
     FmCore fmCore;
     Controllers controllers;
