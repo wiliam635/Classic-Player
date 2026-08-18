@@ -57,7 +57,11 @@ jobs:
           if ($dx7Source -notmatch "void Dx7Engine::process") { throw "Entrada de áudio DX7 não está implementada" }
           if ($dx7Source -notmatch "fixedFrequency") { throw "Frequência fixa DX7 não é renderizada" }
           if (-not (Test-Path "third_party/msfa/dx7note.cc")) { throw "Núcleo MSFA DX7 ausente" }
+          if (-not (Test-Path "third_party/msfa/libMTSClient.h")) { throw "Ponte de afinação MSFA ausente" }
           if (-not $dx7Source.Contains("coreVoice->compute")) { throw "Renderizador MSFA DX7 ausente" }
+          if (-not $dx7Source.Contains("PitchEnv::init(sampleRate)")) { throw "Envelope de pitch DX7 não é inicializado" }
+          if (-not $dx7Source.Contains("Porta::init_sr(sampleRate)")) { throw "Tabela de portamento DX7 não é inicializada" }
+          if ((Get-Content "third_party/msfa/controllers.h" -Raw) -notmatch "values_\[kControllerPitch\] = 0x2000") { throw "Pitch bend DX7 não é inicializado" }
           if ($dx7Source -notmatch "patch.feedback") { throw "Feedback DX7 não é renderizado" }
           if ($processorSource -notmatch 'state\.setProperty\("mono"') { throw "Modo Mono Legato não é salvo" }
           if ($processorSource -notmatch 'config\.mono = state\.getProperty\("mono"') { throw "Modo Mono Legato não é restaurado" }
