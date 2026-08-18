@@ -5,6 +5,11 @@
 #include "Sf2Engine.h"
 #include <array>
 #include <cstdint>
+#include <memory>
+#include "dx7note.h"
+#include "fm_core.h"
+#include "controllers.h"
+#include "tuning.h"
 
 // Native DX7-compatible SysEx reader and six-operator FM player.
 // A Yamaha bulk dump exposes all 32 voices; the selected voice is rendered
@@ -15,7 +20,7 @@ public:
     static constexpr int layerCount = Sf2Engine::layerCount;
     static constexpr int maxPatches = 32;
 
-    Dx7Engine() = default;
+    Dx7Engine();
 
     void prepare(double sampleRate, int maximumBlockSize);
     juce::Result loadSysEx(int layer, const juce::File& file);
@@ -50,6 +55,8 @@ private:
         std::array<float, 6> fixedFrequency {};
         std::array<std::array<float, 4>, 6> egRates {};
         std::array<std::array<float, 4>, 6> egLevels {};
+        // Normalized 156-byte DX7 voice used by the MSFA/Dexed-compatible core.
+        std::array<uint8_t, 156> raw {};
     };
 
     struct Voice
@@ -65,6 +72,7 @@ private:
         std::array<float, 6> operatorEnvelope {};
         std::array<int, 6> operatorStage {};
         std::array<float, 6> feedback {};
+        std::unique_ptr<Dx7Note> coreVoice;
     };
 
     struct Layer
@@ -89,9 +97,13 @@ private:
     static double noteFrequency(int midiNote);
 
     void dispatch(Layer&, const Sf2Engine::LayerConfig&, const juce::MidiMessage&);
+    void beginCoreVoice(Voice&, const Patch&, int note, float velocity, bool preserveLegato);
     void render(Layer&, const Sf2Engine::LayerConfig&, juce::AudioBuffer<float>&);
 
     std::array<Layer, layerCount> layers;
+    std::shared_ptr<TuningState> tuning;
+    FmCore fmCore;
+    Controllers controllers;
     double sampleRate = 48000.0;
     juce::CriticalSection lock;
 };
