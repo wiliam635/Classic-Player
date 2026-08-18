@@ -74,6 +74,7 @@ private:
         void applyConfig();
         void initialiseComboBoxes();
         void updateMidiLearnState();
+        void editEffectAmount(bool reverbEffect);
 
         ClassicPlayerAudioProcessor& processor;
         const int index;
@@ -117,6 +118,8 @@ private:
         juce::TextButton cutoffLearn { "LEARN" };
         juce::TextButton reverbLearn { "LEARN" };
         juce::TextButton compressorLearn { "LEARN" };
+        juce::TextButton reverbEditButton { "EDIT" };
+        juce::TextButton compressorEditButton { "EDIT" };
         juce::ComboBox mode;
         juce::ComboBox sustain;
         juce::ComboBox midiDevice;
