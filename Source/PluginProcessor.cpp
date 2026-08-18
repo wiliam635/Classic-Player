@@ -228,7 +228,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     engine.process(buffer, midi, &routedMidiBuffers);
     renderExternalInstruments(buffer, midi);
     dx7Engine.process(buffer, midi, &routedMidiBuffers, dx7LayerConfigs);
-    analogSynthEngine.process(buffer, midi, analogLayerConfigs);
+    analogSynthEngine.process(buffer, midi, analogLayerConfigs, &routedMidiBuffers);
     // The master control is calibrated with +6 dB of nominal output gain.
     // The limiter immediately after it keeps the boosted output clip-safe.
     const auto masterLinear = parameters.getRawParameterValue("master")->load() / 100.0f;
