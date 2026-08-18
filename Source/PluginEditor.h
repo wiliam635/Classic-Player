@@ -155,6 +155,7 @@ private:
     void removeLayer(int layer);
     void layoutLayerStrips();
     void activate();
+    void showMasterEqEditor();
     juce::String detectedChord() const;
 
     ClassicPlayerAudioProcessor& classicProcessor;
@@ -181,6 +182,7 @@ private:
     juce::Array<juce::File> programFiles;
     juce::Slider master;
     juce::Label masterLabel;
+    juce::TextButton masterEqButton { "EQ MASTER" };
     LevelMeter masterMeter;
     juce::ImageComponent appIcon;
     juce::ImageComponent classicKeysLogo;
