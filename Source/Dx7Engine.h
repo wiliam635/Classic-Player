@@ -44,6 +44,8 @@ private:
         int feedback = 0;
         std::array<float, 6> levels { 0.72f, 0.56f, 0.46f, 0.36f, 0.28f, 0.22f };
         std::array<float, 6> ratios { 1.0f, 1.0f, 2.0f, 1.0f, 3.0f, 0.5f };
+        // DX7 detune is stored independently of coarse/fine tuning.
+        std::array<int, 6> detunes {};
         std::array<bool, 6> fixedMode {};
         std::array<float, 6> fixedFrequency {};
         std::array<std::array<float, 4>, 6> egRates {};
