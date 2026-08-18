@@ -6,6 +6,7 @@
  #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
 #endif
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <initializer_list>
 #include <set>
