@@ -181,7 +181,7 @@ void AnalogSynthEngine::noteOff(int layerIndex, int midiChannel, int note)
     }
 }
 
-void AnalogSynthEngine::renderVoice(Voice& voice, Layer& layer, const Config& config,
+void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lfo,
                                     float& left, float& right)
 {
     const auto glideStep = config.glideMs <= 0.0f ? 1.0f
@@ -199,8 +199,6 @@ void AnalogSynthEngine::renderVoice(Voice& voice, Layer& layer, const Config& co
         return;
     }
 
-    layer.lfoPhase = wrapPhase(layer.lfoPhase + config.lfoRateHz / static_cast<float>(sampleRate));
-    const auto lfo = std::sin(layer.lfoPhase * twoPi);
     const auto pitchRatio = std::pow(2.0f, (lfo * config.lfoToPitch) / 12.0f);
     const auto base = voice.currentFrequency * pitchRatio;
     const auto ratio2 = std::pow(2.0f, config.oscillator2Semitones / 12.0f);
@@ -283,9 +281,12 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
         float peak = 0.0f;
         for (int sampleIndex = 0; sampleIndex < output.getNumSamples(); ++sampleIndex)
         {
+            layer.lfoPhase = wrapPhase(layer.lfoPhase
+                + config.lfoRateHz / static_cast<float>(sampleRate));
+            const auto lfo = std::sin(layer.lfoPhase * twoPi);
             float left = 0.0f, right = 0.0f;
             for (auto& voice : layer.voices)
-                if (voice.active) renderVoice(voice, layer, config, left, right);
+                if (voice.active) renderVoice(voice, config, lfo, left, right);
             peak = juce::jmax(peak, juce::jmax(std::abs(left), std::abs(right)));
             if (output.getNumChannels() > 0) output.addSample(0, sampleIndex, left);
             if (output.getNumChannels() > 1) output.addSample(1, sampleIndex, right);
