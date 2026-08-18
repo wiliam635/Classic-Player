@@ -43,69 +43,6 @@ juce::Image embeddedImage(const char* resourceName)
     return {};
 }
 
-struct KnobEditorSpec
-{
-    const char* label;
-    float value;
-    float minimum;
-    float maximum;
-    float interval;
-    int decimals;
-};
-
-class KnobEditorPanel final : public juce::Component
-{
-public:
-    KnobEditorPanel(std::initializer_list<KnobEditorSpec> specifications, int requestedColumns)
-        : columns(juce::jmax(1, requestedColumns))
-    {
-        for (const auto& specification : specifications)
-        {
-            auto* label = labels.add(new juce::Label());
-            label->setText(specification.label, juce::dontSendNotification);
-            label->setJustificationType(juce::Justification::centred);
-            label->setColour(juce::Label::textColourId, juce::Colour(text));
-            label->setFont(juce::FontOptions(11.0f, juce::Font::bold));
-            addAndMakeVisible(label);
-
-            auto* knob = knobs.add(new juce::Slider());
-            knob->setRange(specification.minimum, specification.maximum, specification.interval);
-            knob->setValue(specification.value, juce::dontSendNotification);
-            knob->setNumDecimalPlacesToDisplay(specification.decimals);
-            knob->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-            knob->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 20);
-            knob->setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(teal));
-            addAndMakeVisible(knob);
-        }
-
-        const auto rows = juce::jmax(1, (knobs.size() + columns - 1) / columns);
-        setSize(columns * 126, rows * 124);
-    }
-
-    float value(int item) const
-    {
-        return juce::isPositiveAndBelow(item, knobs.size()) ? (float) knobs[item]->getValue() : 0.0f;
-    }
-
-    void resized() override
-    {
-        const auto cellWidth = getWidth() / columns;
-        for (int item = 0; item < knobs.size(); ++item)
-        {
-            const auto column = item % columns;
-            const auto row = item / columns;
-            auto cell = juce::Rectangle<int>(column * cellWidth, row * 124, cellWidth, 124).reduced(5, 2);
-            labels[item]->setBounds(cell.removeFromTop(21));
-            knobs[item]->setBounds(cell.reduced(2, 0));
-        }
-    }
-
-private:
-    int columns = 1;
-    juce::OwnedArray<juce::Label> labels;
-    juce::OwnedArray<juce::Slider> knobs;
-};
-
 class ClassicLookAndFeel final : public juce::LookAndFeel_V4
 {
 public:
@@ -190,6 +127,71 @@ public:
 };
 
 ClassicLookAndFeel classicLookAndFeel;
+
+struct KnobEditorSpec
+{
+    const char* label;
+    float value;
+    float minimum;
+    float maximum;
+    float interval;
+    int decimals;
+};
+
+class KnobEditorPanel final : public juce::Component
+{
+public:
+    KnobEditorPanel(std::initializer_list<KnobEditorSpec> specifications, int requestedColumns)
+        : columns(juce::jmax(1, requestedColumns))
+    {
+        for (const auto& specification : specifications)
+        {
+            auto* label = labels.add(new juce::Label());
+            label->setText(specification.label, juce::dontSendNotification);
+            label->setJustificationType(juce::Justification::centred);
+            label->setColour(juce::Label::textColourId, juce::Colour(text));
+            label->setFont(juce::FontOptions(11.0f, juce::Font::bold));
+            addAndMakeVisible(label);
+
+            auto* knob = knobs.add(new juce::Slider());
+            knob->setRange(specification.minimum, specification.maximum, specification.interval);
+            knob->setValue(specification.value, juce::dontSendNotification);
+            knob->setNumDecimalPlacesToDisplay(specification.decimals);
+            knob->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+            knob->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 20);
+            knob->setLookAndFeel(&classicLookAndFeel);
+            knob->setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(teal));
+            addAndMakeVisible(knob);
+        }
+
+        const auto rows = juce::jmax(1, (knobs.size() + columns - 1) / columns);
+        setSize(columns * 126, rows * 124);
+    }
+
+    float value(int item) const
+    {
+        return juce::isPositiveAndBelow(item, knobs.size()) ? (float) knobs[item]->getValue() : 0.0f;
+    }
+
+    void resized() override
+    {
+        const auto cellWidth = getWidth() / columns;
+        for (int item = 0; item < knobs.size(); ++item)
+        {
+            const auto column = item % columns;
+            const auto row = item / columns;
+            auto cell = juce::Rectangle<int>(column * cellWidth, row * 124, cellWidth, 124).reduced(5, 2);
+            labels[item]->setBounds(cell.removeFromTop(21));
+            knobs[item]->setBounds(cell.reduced(2, 0));
+        }
+    }
+
+private:
+    int columns = 1;
+    juce::OwnedArray<juce::Label> labels;
+    juce::OwnedArray<juce::Slider> knobs;
+};
+
 
 class ColourPicker final : public juce::Component, private juce::ChangeListener
 {
@@ -544,6 +546,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
     auto* dialog = new juce::AlertWindow(
         "REVERB DA LAYER", "O knob REVERB controla a quantidade. Ajuste o carater da sala abaixo.",
         juce::MessageBoxIconType::NoIcon);
+    dialog->setLookAndFeel(&classicLookAndFeel);
     auto* knobs = new KnobEditorPanel({
         { "TAMANHO", processor.parameters.getRawParameterValue(prefix + "ReverbSize")->load(), 0.0f, 100.0f, 1.0f, 0 },
         { "DAMPING", processor.parameters.getRawParameterValue(prefix + "ReverbDamping")->load(), 0.0f, 100.0f, 1.0f, 0 },
@@ -574,6 +577,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
     auto* dialog = new juce::AlertWindow(
         "COMPRESSOR DA LAYER", "O knob COMP controla a mistura. Ajuste a dinamica abaixo.",
         juce::MessageBoxIconType::NoIcon);
+    dialog->setLookAndFeel(&classicLookAndFeel);
     auto* knobs = new KnobEditorPanel({
         { "THRESHOLD dB", processor.parameters.getRawParameterValue(prefix + "CompThreshold")->load(), -60.0f, 0.0f, 0.1f, 1 },
         { "RATIO", processor.parameters.getRawParameterValue(prefix + "CompRatio")->load(), 1.0f, 20.0f, 0.1f, 1 },
@@ -1414,6 +1418,7 @@ void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
     auto* dialog = new juce::AlertWindow(
         "EQ MASTER", "EQ de cinco estagios: corte baixo, tres bandas e corte alto.",
         juce::MessageBoxIconType::NoIcon);
+    dialog->setLookAndFeel(&classicLookAndFeel);
     auto* knobs = new KnobEditorPanel({
         { "LOW CUT Hz", classicProcessor.masterEqValue("masterEqLowCut"), 20.0f, 250.0f, 1.0f, 0 },
         { "LOW GAIN dB", classicProcessor.masterEqValue("masterEqLow"), -12.0f, 12.0f, 0.1f, 1 },
