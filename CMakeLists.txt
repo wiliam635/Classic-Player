@@ -95,12 +95,25 @@ target_sources(ClassicPlayer PRIVATE
     Source/Sf2Engine.h
     Source/Dx7Engine.cpp
     Source/Dx7Engine.h
+    third_party/msfa/dx7note.cc
+    third_party/msfa/env.cc
+    third_party/msfa/exp2.cc
+    third_party/msfa/fm_core.cc
+    third_party/msfa/fm_op_kernel.cc
+    third_party/msfa/freqlut.cc
+    third_party/msfa/pitchenv.cc
+    third_party/msfa/porta.cpp
+    third_party/msfa/sin.cc
+    third_party/msfa/tuning.cc
     Source/ExternalInstrumentHost.cpp
     Source/ExternalInstrumentHost.h
     Source/LicenseVerifier.cpp
     Source/LicenseVerifier.h
     Source/ChordDetector.cpp
     Source/ChordDetector.h)
+
+target_include_directories(ClassicPlayer PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/msfa")
 
 target_compile_definitions(ClassicPlayer PUBLIC
     JUCE_WEB_BROWSER=0
