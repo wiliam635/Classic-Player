@@ -7,6 +7,7 @@
 #endif
 #include <algorithm>
 #include <cmath>
+#include <initializer_list>
 #include <set>
 
 namespace
