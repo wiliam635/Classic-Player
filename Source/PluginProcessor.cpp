@@ -183,9 +183,15 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     for (int channel = 0; channel < juce::jmin(2, buffer.getNumChannels()); ++channel)
     {
         auto* samples = buffer.getWritePointer(channel);
-        masterEqLow[(size_t) channel].processSamples(samples, buffer.getNumSamples());
-        masterEqMid[(size_t) channel].processSamples(samples, buffer.getNumSamples());
-        masterEqHigh[(size_t) channel].processSamples(samples, buffer.getNumSamples());
+        auto& low = masterEqLow[(size_t) channel];
+        auto& mid = masterEqMid[(size_t) channel];
+        auto& high = masterEqHigh[(size_t) channel];
+        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+        {
+            auto value = low.processSample(samples[sample]);
+            value = mid.processSample(value);
+            samples[sample] = high.processSample(value);
+        }
     }
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> context(block);
