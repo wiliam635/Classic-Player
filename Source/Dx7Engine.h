@@ -96,6 +96,9 @@ private:
         juce::AudioBuffer<float> chorusDelay;
         std::array<float, 2> dcInput {};
         std::array<float, 2> dcOutput {};
+        juce::Reverb nativeReverb;
+        std::array<float, 4> lastReverbParameters { -1.0f, -1.0f, -1.0f, -1.0f };
+        std::array<float, 2> compressorEnvelope {};
         std::array<Voice, 32> voices {};
     };
 
