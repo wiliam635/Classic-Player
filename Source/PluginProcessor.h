@@ -145,6 +145,7 @@ private:
     juce::File liveSetStorageFile() const;
     void loadLiveSetState();
     void saveLiveSetState() const;
+    void updateMasterEq();
 
     Sf2Engine engine;
     Dx7Engine dx7Engine;
@@ -161,6 +162,10 @@ private:
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;
     juce::dsp::Limiter<float> outputLimiter;
+    std::array<juce::dsp::IIR::Filter<float>, 2> masterEqLow;
+    std::array<juce::dsp::IIR::Filter<float>, 2> masterEqMid;
+    std::array<juce::dsp::IIR::Filter<float>, 2> masterEqHigh;
+    std::array<float, 4> lastMasterEqValues { -999.0f, -999.0f, -999.0f, -999.0f };
     juce::TimeSliceThread recordingThread { "Classic Player WAV Writer" };
     std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> recordingWriter;
     std::atomic<juce::AudioFormatWriter::ThreadedWriter*> activeRecordingWriter { nullptr };
