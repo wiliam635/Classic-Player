@@ -3,6 +3,10 @@
 #include <cstdint>
 #include <utility>
 #include <algorithm>
+#include "exp2.h"
+#include "sin.h"
+#include "freqlut.h"
+#include "env.h"
 
 Dx7Engine::Dx7Engine()
     : tuning(createStandardTuning())
@@ -15,6 +19,12 @@ void Dx7Engine::prepare(double newSampleRate, int)
 {
     const juce::ScopedLock guard(lock);
     sampleRate = juce::jmax(1.0, newSampleRate);
+    // MSFA/Dexed lookup tables are sample-rate dependent. Initialising them
+    // here prevents silent/invalid oscillator output on the first DX7 note.
+    Exp2::init();
+    Sin::init();
+    Freqlut::init(sampleRate);
+    Env::init_sr(sampleRate);
 }
 
 juce::String Dx7Engine::decodeName(const uint8_t* data, int size)
