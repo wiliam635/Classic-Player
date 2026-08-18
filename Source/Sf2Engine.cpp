@@ -44,6 +44,9 @@ void Sf2Engine::createSynth(Layer& layer)
     layer.lastPortamento = -1;
     layer.lastMono = -1;
     layer.filterState = { 0.0f, 0.0f };
+    layer.compressorEnvelope = { 0.0f, 0.0f };
+    layer.nativeReverb.reset();
+    layer.lastReverbParameters.fill(-1.0f);
 }
 
 void Sf2Engine::prepare(double sampleRate, int maximumBlockSize)
@@ -356,7 +359,10 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         }
 
         const auto cutoff = juce::jlimit(0, 127, static_cast<int>(std::round(layer.config.cutoff * 1.27f)));
-        const auto reverb = juce::jlimit(0, 127, static_cast<int>(std::round(layer.config.reverb * 1.27f)));
+        // Reverb is applied as a native post-SF2 effect below. Keep the
+        // SoundFont's own generator send dry, so its quality is independent
+        // of each library's embedded reverb setup.
+        const auto reverb = 0;
         // CC72 is the General MIDI release-time controller. It gives SF2
         // note-offs a small envelope tail instead of an abrupt click.
         const auto release = juce::jlimit(0, 127, static_cast<int>(std::round(layer.config.release * 1.27f)));
@@ -463,23 +469,59 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
             }
         }
 
-        const auto compressor = juce::jlimit(0.0f, 100.0f, layer.config.compressor) / 100.0f;
-        if (compressor > 0.001f)
+        // The native reverb is a consistent stereo room for every SF2, rather
+        // than relying on an arbitrary reverb generator embedded in each file.
+        const auto reverbMix = juce::jlimit(0.0f, 100.0f, layer.config.reverb) / 100.0f;
+        const std::array<float, 4> reverbValues {
+            reverbMix, layer.config.reverbSize, layer.config.reverbDamping, layer.config.reverbWidth
+        };
+        if (reverbValues != layer.lastReverbParameters)
         {
-            const auto threshold = juce::Decibels::decibelsToGain(-24.0f * compressor);
-            const auto ratio = 1.0f + 7.0f * compressor;
-            const auto makeup = 1.0f + 0.35f * compressor;
+            juce::Reverb::Parameters parameters;
+            parameters.roomSize = juce::jlimit(0.0f, 1.0f, layer.config.reverbSize / 100.0f);
+            parameters.damping = juce::jlimit(0.0f, 1.0f, layer.config.reverbDamping / 100.0f);
+            parameters.width = juce::jlimit(0.0f, 1.0f, layer.config.reverbWidth / 100.0f);
+            parameters.wetLevel = reverbMix * 0.72f;
+            parameters.dryLevel = 1.0f;
+            parameters.freezeMode = 0.0f;
+            layer.nativeReverb.setParameters(parameters);
+            layer.lastReverbParameters = reverbValues;
+        }
+        if (reverbMix > 0.001f)
+            layer.nativeReverb.processStereo(scratch.getWritePointer(0), scratch.getWritePointer(1),
+                                             scratch.getNumSamples());
+
+        // Soft-knee compressor with attack/release smoothing. The COMP knob is
+        // its wet amount; detailed threshold, ratio, timing and makeup gain
+        // are configured in the layer's compressor editor.
+        const auto compressorMix = juce::jlimit(0.0f, 100.0f, layer.config.compressor) / 100.0f;
+        if (compressorMix > 0.001f)
+        {
+            const auto thresholdDb = juce::jlimit(-60.0f, 0.0f, layer.config.compressorThreshold);
+            const auto ratio = juce::jlimit(1.0f, 20.0f, layer.config.compressorRatio);
+            const auto attackSeconds = juce::jmax(0.0001f, layer.config.compressorAttack * 0.001f);
+            const auto releaseSeconds = juce::jmax(0.001f, layer.config.compressorRelease * 0.001f);
+            const auto attackCoefficient = std::exp(-1.0f / (attackSeconds * (float) currentSampleRate));
+            const auto releaseCoefficient = std::exp(-1.0f / (releaseSeconds * (float) currentSampleRate));
+            const auto makeup = juce::Decibels::decibelsToGain(
+                juce::jlimit(0.0f, 24.0f, layer.config.compressorMakeup));
             for (int channel = 0; channel < scratch.getNumChannels(); ++channel)
             {
+                auto envelope = layer.compressorEnvelope[(size_t) channel];
                 auto* samples = scratch.getWritePointer(channel);
                 for (int sample = 0; sample < output.getNumSamples(); ++sample)
                 {
-                    const auto input = samples[sample];
-                    const auto magnitude = std::abs(input);
-                    const auto compressed = magnitude > threshold
-                        ? threshold + (magnitude - threshold) / ratio : magnitude;
-                    samples[sample] = std::copysign(compressed * makeup, input);
+                    const auto dry = samples[sample];
+                    const auto magnitude = juce::jmax(1.0e-8f, std::abs(dry));
+                    const auto coefficient = magnitude > envelope ? attackCoefficient : releaseCoefficient;
+                    envelope = coefficient * envelope + (1.0f - coefficient) * magnitude;
+                    const auto levelDb = juce::Decibels::gainToDecibels(envelope, -120.0f);
+                    const auto overDb = juce::jmax(0.0f, levelDb - thresholdDb);
+                    const auto reductionDb = overDb * (1.0f - 1.0f / ratio);
+                    const auto wet = dry * juce::Decibels::decibelsToGain(-reductionDb) * makeup;
+                    samples[sample] = dry + (wet - dry) * compressorMix;
                 }
+                layer.compressorEnvelope[(size_t) channel] = envelope;
             }
         }
 
