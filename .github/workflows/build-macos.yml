@@ -58,6 +58,13 @@ jobs:
           grep -q "SOLO LEAD" Source/PluginEditor.cpp
           grep -q "ATMOSPHERIC PAD" Source/PluginEditor.cpp
           grep -q "DUB BASS" Source/PluginEditor.cpp
+          grep -q "COSMIC DRONE" Source/PluginEditor.cpp
+          test "$(grep -c 'presetBox.addItem' Source/PluginEditor.cpp)" -ge 36
+          grep -q "useAnalogHardwareLayout" Source/PluginEditor.cpp
+          grep -q "OSCILLATOR BANK" Source/PluginEditor.cpp
+          grep -q "CONTROLLERS" Source/PluginEditor.cpp
+          grep -q "MODIFIERS" Source/PluginEditor.cpp
+          ! grep -q "juce::Colour(button)" Source/PluginEditor.cpp
           grep -q "stevebarakat/Minimoog" THIRD_PARTY.md
           grep -q "startAudioRecording" Source/PluginProcessor.cpp
           grep -q "stopAudioRecording" Source/PluginProcessor.cpp
