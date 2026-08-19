@@ -1605,11 +1605,11 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 auto analog = AnalogSynthEngine::Config{};
                 const auto analogKey = juce::String(i + 1);
                 analog.oscillator1Wave = static_cast<AnalogSynthEngine::Waveform>(juce::jlimit(
-                    0, 3, static_cast<int>(state.getProperty("analogOsc1Wave" + analogKey, static_cast<int>(analog.oscillator1Wave)))));
+                    0, 4, static_cast<int>(state.getProperty("analogOsc1Wave" + analogKey, static_cast<int>(analog.oscillator1Wave)))));
                 analog.oscillator2Wave = static_cast<AnalogSynthEngine::Waveform>(juce::jlimit(
-                    0, 3, static_cast<int>(state.getProperty("analogOsc2Wave" + analogKey, static_cast<int>(analog.oscillator2Wave)))));
+                    0, 4, static_cast<int>(state.getProperty("analogOsc2Wave" + analogKey, static_cast<int>(analog.oscillator2Wave)))));
                 analog.oscillator3Wave = static_cast<AnalogSynthEngine::Waveform>(juce::jlimit(
-                    0, 3, static_cast<int>(state.getProperty("analogOsc3Wave" + analogKey, static_cast<int>(analog.oscillator3Wave)))));
+                    0, 4, static_cast<int>(state.getProperty("analogOsc3Wave" + analogKey, static_cast<int>(analog.oscillator3Wave)))));
                 analog.oscillator1Level = static_cast<float>(state.getProperty("analogOsc1Level" + analogKey, analog.oscillator1Level));
                 analog.oscillator2Level = static_cast<float>(state.getProperty("analogOsc2Level" + analogKey, analog.oscillator2Level));
                 analog.oscillator3Level = static_cast<float>(state.getProperty("analogOsc3Level" + analogKey, analog.oscillator3Level));
