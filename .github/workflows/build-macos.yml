@@ -60,7 +60,7 @@ jobs:
           test "$(grep -c '}, // ' Source/PluginEditor.cpp)" -ge 35
           grep -q "MIT notice — Minimoog preset mappings" THIRD_PARTY.md
           grep -q "routedMidi = nullptr" Source/AnalogSynthEngine.h
-          grep -q "The JUCE standalone device callback supplies MIDI" Source/AnalogSynthEngine.cpp
+          grep -q "routedMidi != nullptr" Source/AnalogSynthEngine.cpp
           grep -q "analogSynthEngine.process(buffer, midi, analogLayerConfigs, &routedMidiBuffers)" Source/PluginProcessor.cpp
           grep -q "SOLO LEAD" Source/PluginEditor.cpp
           grep -q "ATMOSPHERIC PAD" Source/PluginEditor.cpp
