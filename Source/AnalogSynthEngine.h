@@ -14,7 +14,7 @@ public:
     static constexpr int layerCount = Sf2Engine::layerCount;
     static constexpr int voicesPerLayer = 8;
 
-    enum class Waveform { triangle = 0, saw, square, pulse };
+    enum class Waveform { triangle = 0, saw, square, pulse, sine };
 
     struct Config
     {
