@@ -380,9 +380,75 @@ private:
             return;
         }
 
-        // Direct parameter port of the public MIT-licensed Minimoog factory
-        // library. This table intentionally contains sound parameters, not
-        // name-based heuristics, so every supplied preset has its own voice.
+        // These are the 35 distinct, audible configurations used by the web
+        // laboratory.  They intentionally live here rather than being inferred
+        // from the name: selecting a preset must change the actual synth voice.
+        struct WebPreset
+        {
+            AnalogSynthEngine::Waveform one, two, three;
+            float oneLevel, twoLevel, threeLevel;
+            float oneTune, twoTune, threeTune;
+            float cutoff, resonance, attack, decay, sustain, release, lfo, glide, modulation, noise;
+            bool mono;
+        };
+
+        using W = AnalogSynthEngine::Waveform;
+        static const std::array<WebPreset, 35> webPresets {{
+            { W::saw, W::triangle, W::saw, .66f,.36f,0.f, 0,0,0, 2350,.20f,.034f,3.90f,.76f,.048f,4.0f,.06f,.25f,0.f, true },
+            { W::triangle,W::triangle,W::triangle,.55f,.34f,.16f,0,7,12,920,1.5f,.56f,.72f,.80f,2.4f,.28f,0,.31f,0,false },
+            { W::triangle,W::saw,W::saw,.36f,.44f,.15f,0,12,24,820,2.1f,.90f,1.10f,.76f,3.1f,.12f,0,.52f,0,false },
+            { W::saw,W::triangle,W::triangle,.34f,.52f,.16f,0,12,19,1100,3.0f,.65f,.90f,.70f,2.3f,.15f,0,.60f,0,false },
+            { W::square,W::saw,W::saw,.57f,.38f,.28f,0,12,19,6100,2.4f,.006f,.18f,.62f,.09f,5.8f,.05f,.38f,0,true },
+            { W::triangle,W::triangle,W::saw,.50f,.33f,.11f,0,12,19,2800,2.0f,.38f,.60f,.72f,1.5f,.33f,0,.38f,0,false },
+            { W::square,W::triangle,W::saw,.62f,.26f,.19f,0,7,12,2500,4.0f,.015f,.34f,.70f,.13f,2.2f,.10f,.34f,0,true },
+            { W::saw,W::saw,W::square,.70f,.42f,.15f,0,12,24,3800,11.f,.004f,.14f,.57f,.07f,6.5f,.035f,.42f,0,true },
+            { W::triangle,W::triangle,W::sine,.62f,.36f,.12f,0,7,12,1250,2.0f,.50f,.70f,.78f,1.9f,.23f,0,.46f,0,false },
+            { W::saw,W::saw,W::square,.76f,.41f,.13f,0,0,-12,760,12.f,.013f,.28f,.58f,.10f,4.5f,.08f,.16f,0,true },
+            { W::saw,W::square,W::triangle,.80f,.35f,.15f,-12,-12,-24,380,13.f,.008f,.25f,.70f,.18f,2.0f,.04f,.05f,0,true },
+            { W::square,W::triangle,W::saw,.48f,.46f,.18f,-12,-24,0,650,5.5f,.010f,.29f,.61f,.17f,1.8f,.025f,.05f,0,true },
+            { W::saw,W::saw,W::square,.62f,.48f,.18f,0,12,12,4100,3.2f,.009f,.24f,.64f,.10f,5.1f,.06f,.28f,0,true },
+            { W::saw,W::saw,W::square,.70f,.40f,.13f,-12,-24,-12,540,8.f,.006f,.20f,.69f,.13f,2.2f,.03f,.06f,0,true },
+            { W::saw,W::square,W::triangle,.62f,.45f,.10f,-12,0,-12,720,6.f,.004f,.13f,.45f,.10f,3.f,0,.08f,0,false },
+            { W::triangle,W::triangle,W::sine,.62f,.36f,.12f,0,7,12,1250,2.f,.50f,.70f,.78f,1.9f,.23f,0,.46f,0,false },
+            { W::square,W::triangle,W::saw,.48f,.46f,.18f,-12,-24,0,650,5.5f,.010f,.29f,.61f,.17f,1.8f,.025f,.05f,0,true },
+            { W::triangle,W::saw,W::triangle,.72f,.27f,.12f,0,0,-12,1120,5.2f,.025f,.48f,.66f,.14f,3.6f,.05f,.11f,0,true },
+            { W::square,W::saw,W::triangle,.62f,.37f,.11f,-12,-12,-24,980,8.6f,.004f,.09f,.34f,.055f,3.f,.01f,.04f,0,true },
+            { W::triangle,W::saw,W::sine,.55f,.52f,.12f,-12,12,0,1450,4.5f,.022f,.55f,.68f,.12f,3.2f,.12f,.12f,0,true },
+            { W::saw,W::sine,W::triangle,.49f,.31f,.28f,0,12,19,2050,2.6f,.030f,.70f,.72f,.20f,1.1f,.09f,.46f,0,true },
+            { W::saw,W::triangle,W::square,.31f,.44f,.09f,0,12,19,1030,3.8f,.48f,.80f,.73f,2.1f,.22f,0,.48f,0,false },
+            { W::saw,W::saw,W::triangle,.75f,.32f,.09f,-12,-12,-24,460,11.f,.008f,.22f,.55f,.16f,2.5f,.02f,.08f,0,true },
+            { W::saw,W::saw,W::square,.68f,.43f,.14f,0,12,24,3000,6.5f,.012f,.30f,.60f,.11f,4.8f,.06f,.30f,0,true },
+            { W::saw,W::triangle,W::sine,.37f,.45f,.18f,0,12,19,1450,3.1f,.18f,.85f,.68f,2.6f,.18f,0,.48f,0,false },
+            { W::saw,W::triangle,W::square,.33f,.40f,.12f,0,12,19,970,3.8f,.62f,1.10f,.75f,3.0f,.17f,0,.40f,0,false },
+            { W::sine,W::square,W::triangle,.52f,.32f,.28f,-24,-12,-12,390,4.2f,.018f,.45f,.74f,.27f,.75f,.05f,.09f,0,true },
+            { W::sine,W::triangle,W::square,.40f,.27f,.09f,0,19,24,900,5.f,.70f,1.10f,.65f,2.6f,.12f,0,.72f,.08f,false },
+            { W::sine,W::triangle,W::sine,.52f,.24f,.18f,0,12,19,3150,2.8f,.16f,.75f,.62f,2.2f,.42f,0,.34f,0,false },
+            { W::triangle,W::sine,W::sine,.38f,.30f,.22f,0,12,24,2600,2.2f,.10f,.85f,.66f,2.8f,.35f,0,.28f,.02f,false },
+            { W::sine,W::sine,W::triangle,.80f,.25f,.08f,0,12,-12,650,12.f,.010f,.40f,.10f,2.8f,.18f,.10f,.18f,0,true },
+            { W::sine,W::triangle,W::sine,.60f,.28f,.18f,0,12,19,3400,3.4f,.03f,.55f,.48f,2.0f,.65f,0,.36f,0,false },
+            { W::square,W::saw,W::sine,.18f,.26f,.33f,-12,0,19,720,8.f,.30f,.90f,.55f,3.2f,.14f,0,.78f,.12f,false },
+            { W::square,W::sine,W::triangle,.33f,.40f,.19f,0,12,24,2300,4.f,.010f,.12f,.25f,.45f,7.f,0,.30f,0,false },
+            { W::saw,W::sine,W::triangle,.27f,.43f,.25f,-12,0,7,1250,4.5f,.18f,1.20f,.83f,4.0f,.09f,0,.70f,0,false }
+        }};
+
+        const auto& presetValue = webPresets[(size_t) juce::jlimit(2, 36, preset) - 2];
+        auto browserValue = sourceAtOpen;
+        browserValue.oscillator1Wave = presetValue.one; browserValue.oscillator2Wave = presetValue.two; browserValue.oscillator3Wave = presetValue.three;
+        browserValue.oscillator1Level = presetValue.oneLevel; browserValue.oscillator2Level = presetValue.twoLevel; browserValue.oscillator3Level = presetValue.threeLevel;
+        browserValue.oscillator1Semitones = presetValue.oneTune; browserValue.oscillator2Semitones = presetValue.twoTune; browserValue.oscillator3Semitones = presetValue.threeTune;
+        browserValue.oscillator1Enabled = presetValue.oneLevel > 0.0f; browserValue.oscillator2Enabled = presetValue.twoLevel > 0.0f; browserValue.oscillator3Enabled = presetValue.threeLevel > 0.0f;
+        browserValue.noiseLevel = presetValue.noise; browserValue.cutoff = juce::jlimit(0.0f, 100.0f, 100.0f * std::log(juce::jmax(25.0f, presetValue.cutoff) / 25.0f) / std::log(700.0f));
+        browserValue.resonance = juce::jlimit(0.0f, 1.0f, presetValue.resonance / 20.0f); browserValue.filterEnvelopeAmount = juce::jlimit(0.0f, 1.0f, presetValue.modulation);
+        browserValue.ampAttackMs = presetValue.attack * 1000.0f; browserValue.ampDecayMs = presetValue.decay * 1000.0f; browserValue.ampSustain = presetValue.sustain; browserValue.ampReleaseMs = presetValue.release * 1000.0f;
+        browserValue.filterAttackMs = browserValue.ampAttackMs; browserValue.filterDecayMs = browserValue.ampDecayMs; browserValue.filterSustain = browserValue.ampSustain; browserValue.filterReleaseMs = browserValue.ampReleaseMs;
+        browserValue.lfoRateHz = presetValue.lfo; browserValue.lfoToFilter = presetValue.modulation * 40.0f; browserValue.lfoToPitch = presetValue.modulation * 0.25f;
+        browserValue.glideMs = presetValue.glide * 1000.0f; browserValue.monophonic = presetValue.mono; browserValue.routing.mono = presetValue.mono; browserValue.routing.portamento = false;
+        setFromConfig(browserValue);
+        return;
+
+        #if 0
+        // Superseded placeholder table retained only as historical source
+        // context. The table above is the active, verified preset library.
         struct FactoryPreset
         {
             int id;
@@ -480,6 +546,7 @@ private:
         // therefore retain true last-note-priority monophony.
         value.monophonic = true;
         setFromConfig(value);
+        #endif
     }
 
     void setFromConfig(const AnalogSynthEngine::Config& value)
@@ -499,7 +566,7 @@ private:
 
     static juce::String waveformName(AnalogSynthEngine::Waveform waveform)
     {
-        switch (waveform) { case AnalogSynthEngine::Waveform::triangle: return "TRIANGLE"; case AnalogSynthEngine::Waveform::saw: return "SAW"; case AnalogSynthEngine::Waveform::square: return "SQUARE"; case AnalogSynthEngine::Waveform::pulse: return "PULSE"; }
+        switch (waveform) { case AnalogSynthEngine::Waveform::triangle: return "TRIANGLE"; case AnalogSynthEngine::Waveform::saw: return "SAW"; case AnalogSynthEngine::Waveform::square: return "SQUARE"; case AnalogSynthEngine::Waveform::pulse: return "PULSE"; case AnalogSynthEngine::Waveform::sine: return "SINE"; }
         return "SAW";
     }
 
@@ -509,7 +576,7 @@ private:
         button.onClick = [this, oscillator, buttonPtr]
         {
             auto value = static_cast<int>(waves[(size_t) oscillator]);
-            waves[(size_t) oscillator] = static_cast<AnalogSynthEngine::Waveform>((value + 1) % 4);
+            waves[(size_t) oscillator] = static_cast<AnalogSynthEngine::Waveform>((value + 1) % 5);
             buttonPtr->setButtonText("OSC " + juce::String(oscillator + 1) + " - " + waveformName(waves[(size_t) oscillator]));
         };
         button.setButtonText("OSC " + juce::String(oscillator + 1) + " - " + waveformName(waves[(size_t) oscillator]));
