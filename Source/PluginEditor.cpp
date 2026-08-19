@@ -184,21 +184,23 @@ public:
 
     void resized() override
     {
-        if (analogHardwareLayout && knobs.size() == 17)
+        if (analogHardwareLayout && knobs.size() == 20)
         {
-            // Positions mirror the five functional hardware sections drawn by
-            // AnalogSynthEditorPanel. Every visible control remains a real JUCE knob.
-            static constexpr std::array<std::array<float, 4>, 17> layout {{
-                {{ 182,  55, 82, 102 }}, {{ 182, 160, 82, 102 }}, {{ 182, 265, 82, 102 }},
-                {{ 280, 160, 82, 102 }}, {{ 280, 265, 82, 102 }}, {{ 440,  85, 82, 102 }},
-                {{ 590,  80, 82, 102 }}, {{ 682,  80, 82, 102 }}, {{ 774,  80, 82, 102 }},
-                {{ 590, 235, 82, 102 }}, {{ 682, 235, 82, 102 }}, {{ 774, 235, 82, 102 }},
-                {{ 850, 235, 82, 102 }}, {{  40,  60, 82, 102 }}, {{  40, 175, 82, 102 }},
-                {{  40, 290, 82, 102 }}, {{ 440, 270, 82, 102 }}
+            // Positions follow the five functional sections of the original
+            // Classic Keys Analog panel. They are deliberately explicit: a
+            // synth panel is read as an instrument, not as a generic form.
+            static constexpr std::array<std::array<float, 4>, 20> layout {{
+                {{ 182,  36, 82, 102 }}, {{ 278,  36, 82, 102 }}, {{ 374,  36, 82, 102 }},
+                {{ 225, 175, 82, 102 }}, {{ 330, 175, 82, 102 }}, {{ 480,  50, 82, 102 }},
+                {{ 635,  38, 82, 102 }}, {{ 728,  38, 82, 102 }}, {{ 821,  38, 82, 102 }},
+                {{ 625, 285, 72, 96  }}, {{ 700, 285, 72, 96  }}, {{ 775, 285, 72, 96  }},
+                {{ 850, 285, 72, 96  }}, {{  12,  42, 72, 96  }}, {{  92,  42, 72, 96  }},
+                {{  12, 180, 72, 96  }}, {{  92, 180, 72, 96  }}, {{ 535, 185, 72, 96  }},
+                {{ 650, 175, 72, 96  }}, {{ 745, 175, 72, 96  }}
             }};
 
-            const auto sx = (float) getWidth() / 960.0f;
-            const auto sy = (float) getHeight() / 400.0f;
+            const auto sx = (float) getWidth() / 1000.0f;
+            const auto sy = (float) getHeight() / 410.0f;
             for (int item = 0; item < knobs.size(); ++item)
             {
                 const auto& p = layout[(size_t) item];
@@ -254,12 +256,20 @@ public:
               { "LFO RATE Hz", source.lfoRateHz, 0.1f, 20.0f, 0.1f, 1 },
               { "LFO PITCH", source.lfoToPitch, 0.0f, 12.0f, 0.1f, 1 },
               { "LFO FILTER", source.lfoToFilter, 0.0f, 100.0f, 1.0f, 0 },
-              { "GLIDE ms", source.glideMs, 0.0f, 1000.0f, 1.0f, 0 }
+              { "GLIDE ms", source.glideMs, 0.0f, 1000.0f, 1.0f, 0 },
+              { "DRIVE", source.mixerDrive * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
+              { "KEY TRACK", source.filterKeyboardTracking * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
+              { "MOD WHEEL", source.modWheelToFilter * 100.0f, 0.0f, 100.0f, 1.0f, 0 }
           }, 6)
     {
         configureWaveButton(wave1, 0);
         configureWaveButton(wave2, 1);
         configureWaveButton(wave3, 2);
+        configureSwitch(oscillator1On, "OSC 1 ON", source.oscillator1Enabled);
+        configureSwitch(oscillator2On, "OSC 2 ON", source.oscillator2Enabled);
+        configureSwitch(oscillator3On, "OSC 3 ON", source.oscillator3Enabled);
+        configureSwitch(pinkNoise, "PINK NOISE", source.pinkNoise);
+        configureMonoPoly(source.monophonic);
         presetBox.addItem("INICIAL", 1);
         // The full MIT-licensed Minimoog factory list is represented here.
         // Values are adapted only to controls implemented by Classic Keys Analog.
@@ -307,6 +317,11 @@ public:
         addAndMakeVisible(wave1);
         addAndMakeVisible(wave2);
         addAndMakeVisible(wave3);
+        addAndMakeVisible(oscillator1On);
+        addAndMakeVisible(oscillator2On);
+        addAndMakeVisible(oscillator3On);
+        addAndMakeVisible(pinkNoise);
+        addAndMakeVisible(monoPoly);
         knobs.useAnalogHardwareLayout(true);
         addAndMakeVisible(knobs);
         setSize(1120, 650);
@@ -324,51 +339,98 @@ public:
         result.ampDecayMs = knobs.value(10); result.ampSustain = knobs.value(11) / 100.0f;
         result.ampReleaseMs = knobs.value(12); result.lfoRateHz = knobs.value(13);
         result.lfoToPitch = knobs.value(14); result.lfoToFilter = knobs.value(15); result.glideMs = knobs.value(16);
+        result.mixerDrive = knobs.value(17) / 100.0f;
+        result.filterKeyboardTracking = knobs.value(18) / 100.0f;
+        result.modWheelToFilter = knobs.value(19) / 100.0f;
+        result.oscillator1Enabled = oscillator1On.getToggleState();
+        result.oscillator2Enabled = oscillator2On.getToggleState();
+        result.oscillator3Enabled = oscillator3On.getToggleState();
+        result.pinkNoise = pinkNoise.getToggleState();
+        result.monophonic = monoPoly.getToggleState();
+        result.routing.mono = result.monophonic;
         return result;
     }
 
     void paint(juce::Graphics& g) override
     {
-        g.fillAll(juce::Colour(0xff171514));
-        const auto wood = juce::Colour(0xff70452d), woodLight = juce::Colour(0xffb77a50);
-        g.setColour(wood); g.fillRect(0, 0, getWidth(), 46); g.fillRect(0, getHeight() - 38, getWidth(), 38);
-        g.setColour(woodLight); g.drawLine(0.0f, 4.0f, (float) getWidth(), 4.0f, 2.0f);
-        g.drawLine(0.0f, (float) getHeight() - 5.0f, (float) getWidth(), (float) getHeight() - 5.0f, 2.0f);
-        g.setColour(juce::Colour(0xff292727)); g.fillRect(18, 48, getWidth() - 36, getHeight() - 88);
-        g.setColour(juce::Colour(0xff6e6b68)); g.drawRect(18, 48, getWidth() - 36, getHeight() - 88, 2);
+        g.fillAll(juce::Colour(0xff111214));
+        const auto wood = juce::Colour(0xff5e3522), woodLight = juce::Colour(0xffa8663d);
+        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff7f4b2b), 0.0f, 0.0f,
+                                               juce::Colour(0xff432319), 0.0f, 48.0f, false));
+        g.fillRect(0, 0, getWidth(), 48);
+        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff432319), 0.0f, (float) getHeight() - 42.0f,
+                                               juce::Colour(0xff7f4b2b), 0.0f, (float) getHeight(), false));
+        g.fillRect(0, getHeight() - 42, getWidth(), 42);
+        g.setColour(woodLight); g.drawLine(0.0f, 3.0f, (float) getWidth(), 3.0f, 1.5f);
+        g.drawLine(0.0f, (float) getHeight() - 4.0f, (float) getWidth(), (float) getHeight() - 4.0f, 1.5f);
+
+        const auto cabinet = juce::Rectangle<int>(18, 48, getWidth() - 36, getHeight() - 90);
+        g.setColour(juce::Colour(0xff222324)); g.fillRect(cabinet);
+        g.setColour(juce::Colour(0xff77716a)); g.drawRect(cabinet, 2);
 
         const auto icon = embeddedImage("classicplayerappicon_png");
         if (icon.isValid()) g.drawImageWithin(icon, 26, 4, 38, 38, juce::RectanglePlacement::centred);
         g.setColour(juce::Colour(teal)); g.setFont(juce::FontOptions(20.0f, juce::Font::bold));
         g.drawText("CLASSIC KEYS ANALOG", 76, 10, 340, 25, juce::Justification::left);
         g.setColour(juce::Colour(text)); g.setFont(juce::FontOptions(10.0f));
-        g.drawText("THREE OSCILLATOR SYNTHESIZER", 77, 31, 340, 13, juce::Justification::left);
+        g.drawText("SINTETIZADOR NATIVO DE TRÊS OSCILADORES", 77, 31, 360, 13, juce::Justification::left);
 
         const int left = 20, top = 78, width = getWidth() - 40, height = getHeight() - 128;
         const std::array<juce::String, 5> titles {{ "CONTROLLERS", "OSCILLATOR BANK", "MIXER", "MODIFIERS", "OUTPUT" }};
-        const std::array<float, 5> edges {{ 0.15f, 0.42f, 0.57f, 0.82f, 1.0f }};
+        const std::array<float, 5> edges {{ 0.17f, 0.46f, 0.62f, 0.88f, 1.0f }};
         int x = left;
         for (int group = 0; group < 5; ++group)
         {
             const int right = left + juce::roundToInt(width * edges[(size_t) group]);
-            g.setColour(juce::Colour(0xff202020)); g.fillRect(x, top, right - x, height);
-            g.setColour(juce::Colour(0xff55514d)); g.drawRect(x, top, right - x, height, 1);
-            g.setColour(juce::Colour(0xffd2d0ca)); g.setFont(juce::FontOptions(14.0f));
-            g.drawText(titles[(size_t) group], x + 3, top + height - 30, right - x - 6, 24, juce::Justification::centred);
+            g.setGradientFill(juce::ColourGradient(juce::Colour(0xff272728), (float) x, (float) top,
+                                                   juce::Colour(0xff161718), (float) x, (float) (top + height), false));
+            g.fillRect(x, top, right - x, height);
+            g.setColour(juce::Colour(0xff514d49)); g.drawRect(x, top, right - x, height, 1);
+            g.setColour(juce::Colour(0xffd6d2cc)); g.setFont(juce::FontOptions(14.0f));
+            g.drawText(titles[(size_t) group], x + 3, top + height - 31, right - x - 6, 24, juce::Justification::centred);
             x = right;
         }
 
         g.setColour(juce::Colour(0xffd4d0ca)); g.setFont(juce::FontOptions(10.0f));
-        g.drawText("Classic Keys Analog - each control changes this layer in real time.",
+        g.drawText("Escolha um preset ou ajuste a camada Analog e clique em APLICAR",
                    left + 8, top + 7, width - 16, 16, juce::Justification::centred);
+
+        // Labels attached to the switches make the signal path readable even
+        // at notebook resolutions, where a dense synth panel must not depend
+        // on decorative artwork to explain its controls.
+        g.setColour(juce::Colour(0xffaaa69f));
+        g.setFont(juce::FontOptions(8.5f, juce::Font::bold));
+        g.drawText("OSC 1", 228, 120, 82, 14, juce::Justification::centred);
+        g.drawText("OSC 2", 367, 120, 82, 14, juce::Justification::centred);
+        g.drawText("OSC 3", 506, 120, 82, 14, juce::Justification::centred);
+        g.drawText("NOISE", 558, 151, 94, 14, juce::Justification::centred);
+
+        // A simple output monitor belongs to the instrument panel, rather than
+        // leaving the final section visually empty. The layer's master level
+        // stays in Classic Player, so this is intentionally read-only.
+        const auto meter = juce::Rectangle<float>((float) left + width * 0.905f, (float) top + 76.0f,
+                                                   width * 0.055f, 180.0f);
+        g.setColour(juce::Colour(0xff080909)); g.fillRoundedRectangle(meter, 3.0f);
+        for (int i = 0; i < 8; ++i)
+        {
+            const auto segment = meter.withTrimmedTop((float) i * 21.0f).withHeight(15.0f).reduced(4.0f, 1.0f);
+            g.setColour(i < 5 ? juce::Colour(teal) : (i < 7 ? juce::Colour(yellow) : juce::Colour(0xffcd5a42));
+            g.fillRoundedRectangle(segment, 1.0f);
+        }
+        g.setColour(juce::Colour(0xffd6d2cc)); g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+        g.drawText("OUTPUT", meter.getX() - 12.0f, meter.getBottom() + 9.0f, meter.getWidth() + 24.0f, 14.0f,
+                   juce::Justification::centred);
     }
 
     void resized() override
     {
-        presetBox.setBounds(24, 51, 250, 25);
-        const auto waveY = 105;
-        wave1.setBounds(190, waveY, 148, 26); wave2.setBounds(345, waveY, 148, 26); wave3.setBounds(500, waveY, 148, 26);
-        knobs.setBounds(22, 108, getWidth() - 44, getHeight() - 158);
+        presetBox.setBounds(25, 53, 270, 24);
+        const auto waveY = 108;
+        wave1.setBounds(204, waveY, 132, 26); wave2.setBounds(343, waveY, 132, 26); wave3.setBounds(482, waveY, 132, 26);
+        oscillator1On.setBounds(235, 134, 72, 20); oscillator2On.setBounds(374, 134, 72, 20);
+        oscillator3On.setBounds(513, 134, 72, 20); pinkNoise.setBounds(556, 164, 98, 20);
+        monoPoly.setBounds(69, 112, 100, 25);
+        knobs.setBounds(22, 142, getWidth() - 44, getHeight() - 193);
     }
 
 private:
@@ -562,6 +624,15 @@ private:
         knobs.setValue(10, value.ampDecayMs); knobs.setValue(11, value.ampSustain * 100.0f);
         knobs.setValue(12, value.ampReleaseMs); knobs.setValue(13, value.lfoRateHz);
         knobs.setValue(14, value.lfoToPitch); knobs.setValue(15, value.lfoToFilter); knobs.setValue(16, value.glideMs);
+        knobs.setValue(17, value.mixerDrive * 100.0f);
+        knobs.setValue(18, value.filterKeyboardTracking * 100.0f);
+        knobs.setValue(19, value.modWheelToFilter * 100.0f);
+        oscillator1On.setToggleState(value.oscillator1Enabled, juce::dontSendNotification);
+        oscillator2On.setToggleState(value.oscillator2Enabled, juce::dontSendNotification);
+        oscillator3On.setToggleState(value.oscillator3Enabled, juce::dontSendNotification);
+        pinkNoise.setToggleState(value.pinkNoise, juce::dontSendNotification);
+        monoPoly.setToggleState(value.monophonic, juce::dontSendNotification);
+        updateMonoPolyText();
     }
 
     static juce::String waveformName(AnalogSynthEngine::Waveform waveform)
@@ -582,10 +653,35 @@ private:
         button.setButtonText("OSC " + juce::String(oscillator + 1) + " - " + waveformName(waves[(size_t) oscillator]));
     }
 
+    void configureSwitch(juce::TextButton& button, const juce::String& label, bool enabled)
+    {
+        flatButton(button);
+        button.setClickingTogglesState(true);
+        button.setButtonText(label);
+        button.setToggleState(enabled, juce::dontSendNotification);
+        button.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff1f8f89));
+        button.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    }
+
+    void configureMonoPoly(bool monophonic)
+    {
+        flatButton(monoPoly);
+        monoPoly.setClickingTogglesState(true);
+        monoPoly.setToggleState(monophonic, juce::dontSendNotification);
+        monoPoly.onClick = [this] { updateMonoPolyText(); };
+        updateMonoPolyText();
+    }
+
+    void updateMonoPolyText()
+    {
+        monoPoly.setButtonText(monoPoly.getToggleState() ? "MONO / LEGATO" : "POLI");
+    }
+
     AnalogSynthEngine::Config initial, sourceAtOpen;
     std::array<AnalogSynthEngine::Waveform, 3> waves;
     juce::ComboBox presetBox;
     juce::TextButton wave1, wave2, wave3;
+    juce::TextButton oscillator1On, oscillator2On, oscillator3On, pinkNoise, monoPoly;
     KnobEditorPanel knobs;
 };
 
