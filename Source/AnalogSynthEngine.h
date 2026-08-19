@@ -42,6 +42,9 @@ public:
         float lfoToPitch = 0.0f;
         float lfoToFilter = 0.0f;
         float glideMs = 0.0f;
+        // The Classic Keys Analog module is intentionally monophonic by default,
+        // matching the single-voice behaviour of the original instrument family.
+        bool monophonic = true;
     };
 
     AnalogSynthEngine();
@@ -81,7 +84,7 @@ private:
         float phase3 = 0.0f;
         float currentFrequency = 440.0f;
         float targetFrequency = 440.0f;
-        float lowpass = 0.0f;
+        std::array<float, 4> ladder {};
         float noiseState = 0.0f;
         Envelope amp;
         Envelope filter;
@@ -90,6 +93,10 @@ private:
     struct Layer
     {
         std::array<Voice, voicesPerLayer> voices {};
+        std::array<bool, 128> heldNotes {};
+        std::array<float, 128> heldVelocities {};
+        std::array<uint64_t, 128> noteOrder {};
+        uint64_t noteSequence = 0;
         float lfoPhase = 0.0f;
         bool sustainPedal = false;
     };
@@ -102,7 +109,7 @@ private:
                               float sustain, float releaseMs, double sampleRate);
 
     void noteOn(int layer, int midiChannel, int note, float velocity, const Config& config);
-    void noteOff(int layer, int midiChannel, int note);
+    void noteOff(int layer, int midiChannel, int note, const Config& config);
     void renderVoice(Voice& voice, const Config& config, float lfo, float& left,
                      float& right);
 
