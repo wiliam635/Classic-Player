@@ -128,10 +128,14 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
                                float velocity, const Config& config)
 {
     auto& layer = layers[(size_t) layerIndex];
+    const auto mono = config.monophonic || config.routing.mono;
     Voice* voice = nullptr;
 
-    if (config.routing.mono)
+    if (mono)
     {
+        layer.heldNotes[(size_t) note] = true;
+        layer.heldVelocities[(size_t) note] = juce::jlimit(0.0f, 1.0f, velocity);
+        layer.noteOrder[(size_t) note] = ++layer.noteSequence;
         voice = &layer.voices.front();
     }
     else
@@ -142,7 +146,7 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
     }
 
     const auto frequency = midiNoteToFrequency(note + config.routing.octave * 12);
-    const auto keepEnvelope = voice->active && config.routing.mono && voice->keyDown;
+    const auto keepEnvelope = mono && voice->active && voice->keyDown;
     const auto glideSamples = juce::jmax(0.0f, config.glideMs) * 0.001f * static_cast<float>(sampleRate);
 
     voice->active = true;
@@ -156,15 +160,55 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
     if (!keepEnvelope)
     {
         voice->phase1 = voice->phase2 = voice->phase3 = 0.0f;
-        voice->lowpass = 0.0f;
+        voice->ladder = {};
         voice->amp = { 0.0f, 0.0f, EnvelopeStage::attack };
         voice->filter = { 0.0f, 0.0f, EnvelopeStage::attack };
     }
 }
 
-void AnalogSynthEngine::noteOff(int layerIndex, int midiChannel, int note)
+void AnalogSynthEngine::noteOff(int layerIndex, int midiChannel, int note, const Config& config)
 {
     auto& layer = layers[(size_t) layerIndex];
+    const auto mono = config.monophonic || config.routing.mono;
+
+    if (mono)
+    {
+        layer.heldNotes[(size_t) note] = false;
+        auto replacement = -1;
+        uint64_t newest = 0;
+        for (int candidate = 0; candidate < 128; ++candidate)
+            if (layer.heldNotes[(size_t) candidate] && layer.noteOrder[(size_t) candidate] >= newest)
+            {
+                newest = layer.noteOrder[(size_t) candidate];
+                replacement = candidate;
+            }
+
+        auto& voice = layer.voices.front();
+        if (replacement >= 0)
+        {
+            voice.active = true;
+            voice.keyDown = true;
+            voice.note = replacement;
+            voice.midiChannel = midiChannel;
+            voice.velocity = layer.heldVelocities[(size_t) replacement];
+            voice.targetFrequency = midiNoteToFrequency(replacement + config.routing.octave * 12);
+            return; // Preserve envelope and glide for true legato.
+        }
+
+        if (voice.active)
+        {
+            voice.keyDown = false;
+            if (!layer.sustainPedal)
+            {
+                voice.amp.releaseStart = voice.amp.value;
+                voice.filter.releaseStart = voice.filter.value;
+                voice.amp.stage = EnvelopeStage::release;
+                voice.filter.stage = EnvelopeStage::release;
+            }
+        }
+        return;
+    }
+
     for (auto& voice : layer.voices)
     {
         if (voice.active && voice.note == note && voice.midiChannel == midiChannel)
@@ -222,11 +266,16 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
     const auto cutoffHz = 30.0f * std::pow(600.0f, normalizedCutoff);
     const auto coefficient = juce::jlimit(0.001f, 0.95f,
         1.0f - std::exp(-twoPi * cutoffHz / static_cast<float>(sampleRate)));
-    // A restrained feedback path gives the resonance control a musical,
-    // stable effect without allowing the filter to self-oscillate.
-    const auto resonance = juce::jlimit(0.0f, 0.95f, config.resonance * 0.9f);
-    voice.lowpass += coefficient * ((sample - resonance * voice.lowpass) - voice.lowpass);
-    sample = voice.lowpass * amp * voice.velocity * config.routing.gain;
+    // Independent four-stage nonlinear ladder topology. This preserves the
+    // rounded low-pass character and musical resonance expected from Analog.
+    const auto resonance = juce::jlimit(0.0f, 3.65f, config.resonance * 3.65f);
+    auto ladderInput = std::tanh(sample - resonance * voice.ladder[3]);
+    for (auto& stage : voice.ladder)
+    {
+        stage += coefficient * (std::tanh(ladderInput) - std::tanh(stage));
+        ladderInput = stage;
+    }
+    sample = voice.ladder[3] * amp * voice.velocity * config.routing.gain;
 
     left += sample;
     right += sample;
@@ -263,7 +312,7 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
             noteOn(layerIndex, message.getChannel(), message.getNoteNumber(),
                    message.getFloatVelocity(), config);
         else if (message.isNoteOff())
-            noteOff(layerIndex, message.getChannel(), message.getNoteNumber());
+            noteOff(layerIndex, message.getChannel(), message.getNoteNumber(), config);
     };
 
     // VST3/AU hosts supply MIDI in the process buffer.
