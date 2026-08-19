@@ -231,10 +231,14 @@ public:
         configureWaveButton(wave2, 1);
         configureWaveButton(wave3, 2);
         presetBox.addItem("INICIAL", 1);
-        presetBox.addItem("CLASSIC BASS", 2);
-        presetBox.addItem("ANALOG BRASS", 3);
-        presetBox.addItem("WARM PAD", 4);
-        presetBox.addItem("VINTAGE LEAD", 5);
+        // First bank adapted from the MIT-licensed preset collection of
+        // stevebarakat/Minimoog. Values are mapped only to the controls
+        // implemented by Classic Keys Analog; attribution is in THIRD_PARTY.md.
+        presetBox.addItem("SOLO LEAD", 2);
+        presetBox.addItem("WARM PAD", 3);
+        presetBox.addItem("ATMOSPHERIC PAD", 4);
+        presetBox.addItem("MODERN LEAD", 5);
+        presetBox.addItem("DUB BASS", 6);
         presetBox.setSelectedId(1, juce::dontSendNotification);
         presetBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(button));
         presetBox.setColour(juce::ComboBox::textColourId, juce::Colour(text));
@@ -356,43 +360,64 @@ private:
         auto value = sourceAtOpen;
         switch (preset)
         {
-            case 2: // Classic Bass
-                value.oscillator1Wave = AnalogSynthEngine::Waveform::saw;
-                value.oscillator2Wave = AnalogSynthEngine::Waveform::square;
-                value.oscillator3Wave = AnalogSynthEngine::Waveform::triangle;
-                value.oscillator1Level = 0.86f; value.oscillator2Level = 0.42f;
-                value.oscillator3Level = 0.70f; value.oscillator3Semitones = -12.0f;
-                value.cutoff = 34.0f; value.resonance = 0.22f; value.ampAttackMs = 5.0f;
-                value.ampDecayMs = 150.0f; value.ampSustain = 0.88f; value.ampReleaseMs = 210.0f;
-                break;
-            case 3: // Analog Brass
+            case 2: // Solo Lead (adapted from the referenced MIT preset bank)
                 value.oscillator1Wave = AnalogSynthEngine::Waveform::saw;
                 value.oscillator2Wave = AnalogSynthEngine::Waveform::saw;
-                value.oscillator3Wave = AnalogSynthEngine::Waveform::pulse;
-                value.oscillator1Level = 0.72f; value.oscillator2Level = 0.60f;
-                value.oscillator3Level = 0.20f; value.oscillator2Semitones = 7.0f;
-                value.cutoff = 58.0f; value.resonance = 0.19f; value.ampAttackMs = 38.0f;
-                value.ampDecayMs = 430.0f; value.ampSustain = 0.68f; value.ampReleaseMs = 420.0f;
-                break;
-            case 4: // Warm Pad
-                value.oscillator1Wave = AnalogSynthEngine::Waveform::triangle;
-                value.oscillator2Wave = AnalogSynthEngine::Waveform::saw;
                 value.oscillator3Wave = AnalogSynthEngine::Waveform::triangle;
-                value.oscillator1Level = 0.52f; value.oscillator2Level = 0.40f;
-                value.oscillator3Level = 0.36f; value.oscillator2Semitones = 12.0f;
-                value.cutoff = 46.0f; value.resonance = 0.12f; value.ampAttackMs = 520.0f;
-                value.ampDecayMs = 880.0f; value.ampSustain = 0.72f; value.ampReleaseMs = 1050.0f;
-                value.lfoRateHz = 0.38f; value.lfoToPitch = 0.10f;
+                value.oscillator1Level = 1.00f; value.oscillator2Level = 0.70f;
+                value.oscillator3Level = 0.50f; value.oscillator2Semitones = 0.0f;
+                value.cutoff = 32.0f; value.resonance = 0.68f; value.filterEnvelopeAmount = 92.0f;
+                value.ampAttackMs = 50.0f; value.ampDecayMs = 550.0f;
+                value.ampSustain = 0.85f; value.ampReleaseMs = 420.0f;
+                value.glideMs = 150.0f; value.lfoRateHz = 4.2f; value.lfoToPitch = 0.25f;
                 break;
-            case 5: // Vintage Lead
+            case 3: // Warm Pad
+                value.oscillator1Wave = AnalogSynthEngine::Waveform::pulse;
+                value.oscillator2Wave = AnalogSynthEngine::Waveform::pulse;
+                value.oscillator3Wave = AnalogSynthEngine::Waveform::triangle;
+                value.oscillator1Level = 0.80f; value.oscillator2Level = 0.60f;
+                value.oscillator3Level = 0.40f; value.oscillator2Semitones = -7.0f;
+                value.oscillator3Semitones = -12.0f; value.cutoff = 44.0f;
+                value.resonance = 0.25f; value.filterEnvelopeAmount = 55.0f;
+                value.ampAttackMs = 350.0f; value.ampDecayMs = 850.0f;
+                value.ampSustain = 0.90f; value.ampReleaseMs = 1150.0f;
+                value.glideMs = 600.0f; value.lfoRateHz = 0.6f; value.lfoToPitch = 0.20f;
+                break;
+            case 4: // Atmospheric Pad
+                value.oscillator1Wave = AnalogSynthEngine::Waveform::saw;
+                value.oscillator2Wave = AnalogSynthEngine::Waveform::triangle;
+                value.oscillator3Wave = AnalogSynthEngine::Waveform::saw;
+                value.oscillator1Level = 0.50f; value.oscillator2Level = 0.50f;
+                value.oscillator3Level = 0.30f; value.oscillator2Semitones = 5.0f;
+                value.oscillator3Semitones = -5.0f; value.noiseLevel = 0.20f;
+                value.cutoff = 51.0f; value.resonance = 0.40f; value.filterEnvelopeAmount = 60.0f;
+                value.ampAttackMs = 450.0f; value.ampDecayMs = 900.0f;
+                value.ampSustain = 0.90f; value.ampReleaseMs = 1400.0f;
+                value.glideMs = 600.0f; value.lfoRateHz = 0.3f; value.lfoToPitch = 0.15f;
+                break;
+            case 5: // Modern Lead
+                value.oscillator1Wave = AnalogSynthEngine::Waveform::saw;
+                value.oscillator2Wave = AnalogSynthEngine::Waveform::pulse;
+                value.oscillator3Wave = AnalogSynthEngine::Waveform::saw;
+                value.oscillator1Level = 1.00f; value.oscillator2Level = 0.80f;
+                value.oscillator3Level = 0.60f; value.oscillator2Semitones = 0.0f;
+                value.oscillator3Semitones = -7.0f; value.noiseLevel = 0.10f;
+                value.cutoff = 48.0f; value.resonance = 0.76f; value.filterEnvelopeAmount = 98.0f;
+                value.ampAttackMs = 10.0f; value.ampDecayMs = 1000.0f;
+                value.ampSustain = 0.50f; value.ampReleaseMs = 280.0f;
+                value.glideMs = 120.0f; value.lfoRateHz = 3.2f; value.lfoToPitch = 0.45f;
+                break;
+            case 6: // Dub Bass
                 value.oscillator1Wave = AnalogSynthEngine::Waveform::saw;
                 value.oscillator2Wave = AnalogSynthEngine::Waveform::pulse;
                 value.oscillator3Wave = AnalogSynthEngine::Waveform::triangle;
-                value.oscillator1Level = 0.80f; value.oscillator2Level = 0.52f;
-                value.oscillator3Level = 0.10f; value.oscillator2Semitones = 12.0f;
-                value.cutoff = 69.0f; value.resonance = 0.30f; value.ampAttackMs = 8.0f;
-                value.ampDecayMs = 230.0f; value.ampSustain = 0.78f; value.ampReleaseMs = 270.0f;
-                value.glideMs = 95.0f; value.lfoRateHz = 5.3f; value.lfoToPitch = 0.22f;
+                value.oscillator1Level = 1.00f; value.oscillator2Level = 0.70f;
+                value.oscillator3Level = 0.50f; value.oscillator2Semitones = 0.0f;
+                value.oscillator3Semitones = -12.0f; value.cutoff = 40.0f;
+                value.resonance = 0.50f; value.filterEnvelopeAmount = 75.0f;
+                value.ampAttackMs = 10.0f; value.ampDecayMs = 1000.0f;
+                value.ampSustain = 0.80f; value.ampReleaseMs = 320.0f;
+                value.glideMs = 50.0f; value.lfoRateHz = 2.5f; value.lfoToPitch = 0.25f;
                 break;
             default:
                 break;
