@@ -52,6 +52,13 @@ jobs:
           grep -q "Classic Keys Analog" Source/PluginEditor.cpp
           grep -q "renderVoice(Voice& voice, const Config& config, float lfo" Source/AnalogSynthEngine.h
           grep -q "renderVoice(voice, config, lfo" Source/AnalogSynthEngine.cpp
+          grep -q "processLadder" Source/AnalogSynthEngine.h
+          grep -q "Two internal passes reduce" Source/AnalogSynthEngine.cpp
+          grep -q "polyBlep" Source/AnalogSynthEngine.cpp
+          grep -q "modWheelToFilter" Source/AnalogSynthEngine.cpp
+          grep -q "Direct parameter port" Source/PluginEditor.cpp
+          test "$(grep -c '}, // ' Source/PluginEditor.cpp)" -ge 35
+          grep -q "MIT notice — Minimoog preset mappings" THIRD_PARTY.md
           grep -q "routedMidi = nullptr" Source/AnalogSynthEngine.h
           grep -q "The JUCE standalone device callback supplies MIDI" Source/AnalogSynthEngine.cpp
           grep -q "analogSynthEngine.process(buffer, midi, analogLayerConfigs, &routedMidiBuffers)" Source/PluginProcessor.cpp
