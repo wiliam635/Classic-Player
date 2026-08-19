@@ -1442,6 +1442,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("analogLfoPitch" + juce::String(i + 1), analog.lfoToPitch, nullptr);
         state.setProperty("analogLfoFilter" + juce::String(i + 1), analog.lfoToFilter, nullptr);
         state.setProperty("analogGlideMs" + juce::String(i + 1), analog.glideMs, nullptr);
+        state.setProperty("analogMonophonic" + juce::String(i + 1), analog.monophonic, nullptr);
         for (int target = 0; target < learnTargetCount; ++target)
         {
             state.setProperty("learn" + juce::String(i) + "_" + juce::String(target),
@@ -1616,6 +1617,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 analog.lfoToPitch = static_cast<float>(state.getProperty("analogLfoPitch" + analogKey, analog.lfoToPitch));
                 analog.lfoToFilter = static_cast<float>(state.getProperty("analogLfoFilter" + analogKey, analog.lfoToFilter));
                 analog.glideMs = static_cast<float>(state.getProperty("analogGlideMs" + analogKey, analog.glideMs));
+                analog.monophonic = state.getProperty("analogMonophonic" + analogKey, analog.monophonic);
 
                 auto config = engine.getConfig(i);
                 config.lowNote = state.getProperty("low" + juce::String(i), 0);
