@@ -174,6 +174,12 @@ public:
         return juce::isPositiveAndBelow(item, knobs.size()) ? (float) knobs[item]->getValue() : 0.0f;
     }
 
+    void setValue(int item, float newValue)
+    {
+        if (juce::isPositiveAndBelow(item, knobs.size()))
+            knobs[item]->setValue(newValue, juce::dontSendNotification);
+    }
+
     void resized() override
     {
         const auto cellWidth = getWidth() / columns;
@@ -223,11 +229,22 @@ public:
         configureWaveButton(wave1, 0);
         configureWaveButton(wave2, 1);
         configureWaveButton(wave3, 2);
+        presetBox.addItem("INICIAL", 1);
+        presetBox.addItem("CLASSIC BASS", 2);
+        presetBox.addItem("ANALOG BRASS", 3);
+        presetBox.addItem("WARM PAD", 4);
+        presetBox.addItem("VINTAGE LEAD", 5);
+        presetBox.setSelectedId(1, juce::dontSendNotification);
+        presetBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(button));
+        presetBox.setColour(juce::ComboBox::textColourId, juce::Colour(text));
+        presetBox.setColour(juce::ComboBox::outlineColourId, juce::Colour(line));
+        presetBox.onChange = [this] { applyFactoryPreset(presetBox.getSelectedId()); };
+        addAndMakeVisible(presetBox);
         addAndMakeVisible(wave1);
         addAndMakeVisible(wave2);
         addAndMakeVisible(wave3);
         addAndMakeVisible(knobs);
-        setSize(820, 540);
+        setSize(960, 610);
     }
 
     AnalogSynthEngine::Config config() const
@@ -259,9 +276,19 @@ public:
     void paint(juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat();
-        g.fillAll(juce::Colour(panel));
+        g.fillAll(juce::Colour(0xff171514));
+        // Custom Classic Keys cabinet: a physical instrument surface inspired
+        // by vintage analog layouts, without copying third-party branding.
+        const auto wood = juce::Colour(0xff70452d);
+        const auto woodLight = juce::Colour(0xffad7952);
+        g.setColour(wood);
+        g.fillRoundedRectangle(0.0f, 0.0f, (float) getWidth(), 20.0f, 3.0f);
+        g.fillRoundedRectangle(0.0f, (float) getHeight() - 20.0f, (float) getWidth(), 20.0f, 3.0f);
+        g.setColour(woodLight);
+        g.drawLine(0.0f, 3.0f, (float) getWidth(), 3.0f, 1.0f);
+        g.drawLine(0.0f, (float) getHeight() - 3.0f, (float) getWidth(), (float) getHeight() - 3.0f, 1.0f);
         g.setColour(juce::Colour(line));
-        g.drawRect(bounds, 1.0f);
+        g.drawRect(bounds.reduced(1.0f), 1.0f);
 
         const auto icon = embeddedImage("classicplayerappicon_png");
         if (icon.isValid())
@@ -276,8 +303,8 @@ public:
         g.drawText("Sintetizador nativo de tres osciladores", 77, 37,
                    getWidth() - 90, 20, juce::Justification::left);
 
-        auto hardware = getLocalBounds().reduced(10);
-        hardware.removeFromTop(64);
+        auto hardware = getLocalBounds().reduced(18, 30);
+        hardware.removeFromTop(84);
         g.setColour(juce::Colour(0xff0d1217));
         g.fillRoundedRectangle(hardware.toFloat(), 4.0f);
         g.setColour(juce::Colour(line));
@@ -295,9 +322,9 @@ public:
                    groupWidth - 24, 18, juce::Justification::centred);
         g.drawText("MIXER", hardware.getX() + groupWidth + 12, hardware.getY() + 8,
                    groupWidth - 24, 18, juce::Justification::centred);
-        g.drawText("MODIFIERS", hardware.getX() + groupWidth * 2 + 12, hardware.getY() + 8,
+        g.drawText("FILTER / MODIFIERS", hardware.getX() + groupWidth * 2 + 12, hardware.getY() + 8,
                    groupWidth - 24, 18, juce::Justification::centred);
-        g.drawText("OUTPUT", hardware.getX() + groupWidth * 3 + 12, hardware.getY() + 8,
+        g.drawText("LOUDNESS / OUTPUT", hardware.getX() + groupWidth * 3 + 12, hardware.getY() + 8,
                    groupWidth - 24, 18, juce::Justification::centred);
 
         g.setColour(juce::Colour(mutedText));
@@ -309,18 +336,86 @@ public:
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced(18);
-        area.removeFromTop(60);
+        auto area = getLocalBounds().reduced(28, 34);
+        area.removeFromTop(58);
+        presetBox.setBounds(area.removeFromTop(28).withWidth(210));
+        area.removeFromTop(6);
         auto wavesArea = area.removeFromTop(34);
         const auto waveWidth = wavesArea.getWidth() / 3;
-        wave1.setBounds(wavesArea.removeFromLeft(waveWidth).reduced(4, 2));
-        wave2.setBounds(wavesArea.removeFromLeft(waveWidth).reduced(4, 2));
-        wave3.setBounds(wavesArea.reduced(4, 2));
-        area.removeFromTop(24);
+        wave1.setBounds(wavesArea.removeFromLeft(waveWidth).reduced(5, 2));
+        wave2.setBounds(wavesArea.removeFromLeft(waveWidth).reduced(5, 2));
+        wave3.setBounds(wavesArea.reduced(5, 2));
+        area.removeFromTop(22);
         knobs.setBounds(area.reduced(4, 4));
     }
 
 private:
+    void applyFactoryPreset(int preset)
+    {
+        auto value = sourceAtOpen;
+        switch (preset)
+        {
+            case 2: // Classic Bass
+                value.oscillator1Wave = AnalogSynthEngine::Waveform::saw;
+                value.oscillator2Wave = AnalogSynthEngine::Waveform::square;
+                value.oscillator3Wave = AnalogSynthEngine::Waveform::triangle;
+                value.oscillator1Level = 0.86f; value.oscillator2Level = 0.42f;
+                value.oscillator3Level = 0.70f; value.oscillator3Semitones = -12.0f;
+                value.cutoff = 34.0f; value.resonance = 0.22f; value.ampAttackMs = 5.0f;
+                value.ampDecayMs = 150.0f; value.ampSustain = 0.88f; value.ampReleaseMs = 210.0f;
+                break;
+            case 3: // Analog Brass
+                value.oscillator1Wave = AnalogSynthEngine::Waveform::saw;
+                value.oscillator2Wave = AnalogSynthEngine::Waveform::saw;
+                value.oscillator3Wave = AnalogSynthEngine::Waveform::pulse;
+                value.oscillator1Level = 0.72f; value.oscillator2Level = 0.60f;
+                value.oscillator3Level = 0.20f; value.oscillator2Semitones = 7.0f;
+                value.cutoff = 58.0f; value.resonance = 0.19f; value.ampAttackMs = 38.0f;
+                value.ampDecayMs = 430.0f; value.ampSustain = 0.68f; value.ampReleaseMs = 420.0f;
+                break;
+            case 4: // Warm Pad
+                value.oscillator1Wave = AnalogSynthEngine::Waveform::triangle;
+                value.oscillator2Wave = AnalogSynthEngine::Waveform::saw;
+                value.oscillator3Wave = AnalogSynthEngine::Waveform::triangle;
+                value.oscillator1Level = 0.52f; value.oscillator2Level = 0.40f;
+                value.oscillator3Level = 0.36f; value.oscillator2Semitones = 12.0f;
+                value.cutoff = 46.0f; value.resonance = 0.12f; value.ampAttackMs = 520.0f;
+                value.ampDecayMs = 880.0f; value.ampSustain = 0.72f; value.ampReleaseMs = 1050.0f;
+                value.lfoRateHz = 0.38f; value.lfoToPitch = 0.10f;
+                break;
+            case 5: // Vintage Lead
+                value.oscillator1Wave = AnalogSynthEngine::Waveform::saw;
+                value.oscillator2Wave = AnalogSynthEngine::Waveform::pulse;
+                value.oscillator3Wave = AnalogSynthEngine::Waveform::triangle;
+                value.oscillator1Level = 0.80f; value.oscillator2Level = 0.52f;
+                value.oscillator3Level = 0.10f; value.oscillator2Semitones = 12.0f;
+                value.cutoff = 69.0f; value.resonance = 0.30f; value.ampAttackMs = 8.0f;
+                value.ampDecayMs = 230.0f; value.ampSustain = 0.78f; value.ampReleaseMs = 270.0f;
+                value.glideMs = 95.0f; value.lfoRateHz = 5.3f; value.lfoToPitch = 0.22f;
+                break;
+            default:
+                break;
+        }
+        initial = value;
+        waves = { value.oscillator1Wave, value.oscillator2Wave, value.oscillator3Wave };
+        wave1.setButtonText("OSC 1 - " + waveformName(waves[0]));
+        wave2.setButtonText("OSC 2 - " + waveformName(waves[1]));
+        wave3.setButtonText("OSC 3 - " + waveformName(waves[2]));
+        knobs.setValue(0, value.oscillator1Level * 100.0f);
+        knobs.setValue(1, value.oscillator2Level * 100.0f);
+        knobs.setValue(2, value.oscillator3Level * 100.0f);
+        knobs.setValue(3, value.oscillator2Semitones);
+        knobs.setValue(4, value.oscillator3Semitones);
+        knobs.setValue(5, value.noiseLevel * 100.0f);
+        knobs.setValue(6, value.cutoff);
+        knobs.setValue(7, value.resonance * 100.0f);
+        knobs.setValue(8, value.filterEnvelopeAmount * 100.0f);
+        knobs.setValue(9, value.ampAttackMs); knobs.setValue(10, value.ampDecayMs);
+        knobs.setValue(11, value.ampSustain * 100.0f); knobs.setValue(12, value.ampReleaseMs);
+        knobs.setValue(13, value.lfoRateHz); knobs.setValue(14, value.lfoToPitch);
+        knobs.setValue(15, value.lfoToFilter); knobs.setValue(16, value.glideMs);
+    }
+
     static juce::String waveformName(AnalogSynthEngine::Waveform waveform)
     {
         switch (waveform)
@@ -349,8 +444,10 @@ private:
                              + waveformName(waves[(size_t) oscillator]));
     }
 
+    AnalogSynthEngine::Config sourceAtOpen = initial;
     AnalogSynthEngine::Config initial;
     std::array<AnalogSynthEngine::Waveform, 3> waves;
+    juce::ComboBox presetBox;
     juce::TextButton wave1, wave2, wave3;
     KnobEditorPanel knobs;
 };
