@@ -240,7 +240,7 @@ public:
         presetBox.addItem("MODERN LEAD", 5);
         presetBox.addItem("DUB BASS", 6);
         presetBox.setSelectedId(1, juce::dontSendNotification);
-        presetBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(button));
+        presetBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
         presetBox.setColour(juce::ComboBox::textColourId, juce::Colour(text));
         presetBox.setColour(juce::ComboBox::outlineColourId, juce::Colour(line));
         presetBox.onChange = [this] { applyFactoryPreset(presetBox.getSelectedId()); };
