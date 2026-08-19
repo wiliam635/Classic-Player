@@ -1443,6 +1443,20 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("analogLfoFilter" + juce::String(i + 1), analog.lfoToFilter, nullptr);
         state.setProperty("analogGlideMs" + juce::String(i + 1), analog.glideMs, nullptr);
         state.setProperty("analogMonophonic" + juce::String(i + 1), analog.monophonic, nullptr);
+        state.setProperty("analogOsc1Semitones" + juce::String(i + 1), analog.oscillator1Semitones, nullptr);
+        state.setProperty("analogOsc1Fine" + juce::String(i + 1), analog.oscillator1FineCents, nullptr);
+        state.setProperty("analogOsc2Fine" + juce::String(i + 1), analog.oscillator2FineCents, nullptr);
+        state.setProperty("analogOsc3Fine" + juce::String(i + 1), analog.oscillator3FineCents, nullptr);
+        state.setProperty("analogOsc1Enabled" + juce::String(i + 1), analog.oscillator1Enabled, nullptr);
+        state.setProperty("analogOsc2Enabled" + juce::String(i + 1), analog.oscillator2Enabled, nullptr);
+        state.setProperty("analogOsc3Enabled" + juce::String(i + 1), analog.oscillator3Enabled, nullptr);
+        state.setProperty("analogPinkNoise" + juce::String(i + 1), analog.pinkNoise, nullptr);
+        state.setProperty("analogMixerDrive" + juce::String(i + 1), analog.mixerDrive, nullptr);
+        state.setProperty("analogKeyTrack" + juce::String(i + 1), analog.filterKeyboardTracking, nullptr);
+        state.setProperty("analogFilterDrive" + juce::String(i + 1), analog.filterDrive, nullptr);
+        state.setProperty("analogModWheelPitch" + juce::String(i + 1), analog.modWheelToPitch, nullptr);
+        state.setProperty("analogModWheelFilter" + juce::String(i + 1), analog.modWheelToFilter, nullptr);
+        state.setProperty("analogAmpDecaySwitch" + juce::String(i + 1), analog.ampDecaySwitch, nullptr);
         for (int target = 0; target < learnTargetCount; ++target)
         {
             state.setProperty("learn" + juce::String(i) + "_" + juce::String(target),
@@ -1618,6 +1632,20 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 analog.lfoToFilter = static_cast<float>(state.getProperty("analogLfoFilter" + analogKey, analog.lfoToFilter));
                 analog.glideMs = static_cast<float>(state.getProperty("analogGlideMs" + analogKey, analog.glideMs));
                 analog.monophonic = state.getProperty("analogMonophonic" + analogKey, analog.monophonic);
+                analog.oscillator1Semitones = static_cast<float>(state.getProperty("analogOsc1Semitones" + analogKey, analog.oscillator1Semitones));
+                analog.oscillator1FineCents = static_cast<float>(state.getProperty("analogOsc1Fine" + analogKey, analog.oscillator1FineCents));
+                analog.oscillator2FineCents = static_cast<float>(state.getProperty("analogOsc2Fine" + analogKey, analog.oscillator2FineCents));
+                analog.oscillator3FineCents = static_cast<float>(state.getProperty("analogOsc3Fine" + analogKey, analog.oscillator3FineCents));
+                analog.oscillator1Enabled = state.getProperty("analogOsc1Enabled" + analogKey, analog.oscillator1Enabled);
+                analog.oscillator2Enabled = state.getProperty("analogOsc2Enabled" + analogKey, analog.oscillator2Enabled);
+                analog.oscillator3Enabled = state.getProperty("analogOsc3Enabled" + analogKey, analog.oscillator3Enabled);
+                analog.pinkNoise = state.getProperty("analogPinkNoise" + analogKey, analog.pinkNoise);
+                analog.mixerDrive = static_cast<float>(state.getProperty("analogMixerDrive" + analogKey, analog.mixerDrive));
+                analog.filterKeyboardTracking = static_cast<float>(state.getProperty("analogKeyTrack" + analogKey, analog.filterKeyboardTracking));
+                analog.filterDrive = static_cast<float>(state.getProperty("analogFilterDrive" + analogKey, analog.filterDrive));
+                analog.modWheelToPitch = static_cast<float>(state.getProperty("analogModWheelPitch" + analogKey, analog.modWheelToPitch));
+                analog.modWheelToFilter = static_cast<float>(state.getProperty("analogModWheelFilter" + analogKey, analog.modWheelToFilter));
+                analog.ampDecaySwitch = state.getProperty("analogAmpDecaySwitch" + analogKey, analog.ampDecaySwitch);
 
                 auto config = engine.getConfig(i);
                 config.lowNote = state.getProperty("low" + juce::String(i), 0);
