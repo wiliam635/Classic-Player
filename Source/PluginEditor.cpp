@@ -345,7 +345,6 @@ public:
         g.drawText("THREE OSCILLATOR SYNTHESIZER", 77, 31, 340, 13, juce::Justification::left);
 
         const int left = 20, top = 78, width = getWidth() - 40, height = getHeight() - 128;
-        const std::array<float, 6> cuts {{ 0.15f, 0.42f, 0.57f, 0.82f, 1.0f, 1.0f }};
         const std::array<juce::String, 5> titles {{ "CONTROLLERS", "OSCILLATOR BANK", "MIXER", "MODIFIERS", "OUTPUT" }};
         const std::array<float, 5> edges {{ 0.15f, 0.42f, 0.57f, 0.82f, 1.0f }};
         int x = left;
