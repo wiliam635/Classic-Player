@@ -3,6 +3,7 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include "Sf2Engine.h"
 #include <array>
+#include <cstdint>
 #include <atomic>
 
 // Native three-oscillator analog synthesizer used by Classic Keys Analog.
@@ -42,9 +43,9 @@ public:
         float lfoToPitch = 0.0f;
         float lfoToFilter = 0.0f;
         float glideMs = 0.0f;
-        // The Classic Keys Analog module is intentionally monophonic by default,
-        // matching the single-voice behaviour of the original instrument family.
-        bool monophonic = true;
+        // Factory presets explicitly choose their note mode. This keeps lead and
+        // bass patches authentically monophonic while pads remain polyphonic.
+        bool monophonic = false;
     };
 
     AnalogSynthEngine();
