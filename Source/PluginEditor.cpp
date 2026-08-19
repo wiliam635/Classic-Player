@@ -375,47 +375,99 @@ private:
     void applyFactoryPreset(int preset)
     {
         if (preset <= 1) { setFromConfig(sourceAtOpen); return; }
+
         auto value = sourceAtOpen;
         const auto name = presetBox.getText().toUpperCase();
-        const bool isPad = name.contains("PAD") || name.contains("SPACE") || name.contains("COSMIC") || name.contains("RAIN");
+        const bool isPad = name.contains("PAD") || name.contains("SPACE") || name.contains("COSMIC") || name.contains("RAIN")
+                        || name.contains("BELLS") || name.contains("HARMONICA") || name.contains("CHIMES")
+                        || name.contains("STORM") || name.contains("WIND");
         const bool isBass = name.contains("BASS") || name.contains("TAURUS") || name.contains("SUBMARINE");
         const bool isLead = name.contains("LEAD") || name.contains("SCREAMING") || name.contains("LUCKY");
-        const int variant = preset - 2;
+
+        // The reference Minimoog is a one-voice instrument. In Classic Keys
+        // the factory library deliberately keeps melodic Lead and Bass patches
+        // monophonic, while Pad and Experimental patches remain polyphonic.
+        value.monophonic = isLead || isBass;
 
         value.oscillator1Wave = AnalogSynthEngine::Waveform::saw;
-        value.oscillator2Wave = (variant % 3 == 0 ? AnalogSynthEngine::Waveform::pulse : AnalogSynthEngine::Waveform::saw);
-        value.oscillator3Wave = (variant % 2 == 0 ? AnalogSynthEngine::Waveform::triangle : AnalogSynthEngine::Waveform::saw);
+        value.oscillator2Wave = AnalogSynthEngine::Waveform::saw;
+        value.oscillator3Wave = AnalogSynthEngine::Waveform::triangle;
         value.oscillator1Level = 0.82f; value.oscillator2Level = 0.60f; value.oscillator3Level = 0.32f;
-        value.oscillator2Semitones = (variant % 4 == 0 ? 7.0f : 0.0f); value.oscillator3Semitones = -12.0f;
-        value.noiseLevel = name.contains("THUNDER") || name.contains("WIND") ? 0.25f : 0.03f;
-        value.lfoRateHz = 0.4f + 0.35f * (float) (variant % 10);
-        value.lfoToPitch = name.contains("WATERY") || name.contains("CRYSTAL") ? 0.35f : 0.08f;
-        value.lfoToFilter = name.contains("SPACE") || name.contains("ALIEN") ? 28.0f : 4.0f;
+        value.oscillator2Semitones = 0.0f; value.oscillator3Semitones = -12.0f;
+        value.noiseLevel = 0.0f;
+        value.lfoRateHz = 1.6f; value.lfoToPitch = 0.10f; value.lfoToFilter = 6.0f;
+        value.cutoff = 51.0f; value.resonance = 0.34f; value.filterEnvelopeAmount = 0.62f;
+        value.ampAttackMs = 90.0f; value.ampDecayMs = 580.0f; value.ampSustain = 0.80f;
+        value.ampReleaseMs = 560.0f; value.filterAttackMs = 90.0f; value.filterDecayMs = 580.0f;
+        value.filterSustain = 0.65f; value.filterReleaseMs = 560.0f; value.glideMs = 0.0f;
 
-        if (isPad)
+        // Direct parameter adaptations for the published factory presets. The
+        // values map their oscillator, filter and envelope intent into the
+        // Classic Keys Analog engine rather than generating variants by name.
+        if (name == "SOLO LEAD")
         {
-            value.cutoff = 46.0f; value.resonance = 0.24f; value.filterEnvelopeAmount = 0.52f;
-            value.ampAttackMs = 340.0f; value.ampDecayMs = 860.0f; value.ampSustain = 0.88f;
-            value.ampReleaseMs = 1200.0f; value.glideMs = 220.0f;
+            value.oscillator1Level = 1.0f; value.oscillator2Level = 0.70f; value.oscillator3Level = 0.50f;
+            value.cutoff = 12.0f; value.resonance = 0.75f; value.filterEnvelopeAmount = 0.92f;
+            value.ampAttackMs = 50.0f; value.ampDecayMs = 550.0f; value.ampSustain = 0.85f;
+            value.ampReleaseMs = 420.0f; value.filterAttackMs = 250.0f; value.filterDecayMs = 450.0f;
+            value.filterSustain = 0.75f; value.filterReleaseMs = 450.0f;
+            value.lfoRateHz = 4.2f; value.lfoToPitch = 0.80f; value.lfoToFilter = 25.0f; value.glideMs = 150.0f;
+        }
+        else if (name == "MODERN LEAD")
+        {
+            value.oscillator2Wave = AnalogSynthEngine::Waveform::pulse; value.oscillator3Wave = AnalogSynthEngine::Waveform::saw;
+            value.oscillator1Level = 1.0f; value.oscillator2Level = 0.80f; value.oscillator3Level = 0.60f;
+            value.oscillator3Semitones = -7.0f; value.noiseLevel = 0.10f;
+            value.cutoff = 25.0f; value.resonance = 0.85f; value.filterEnvelopeAmount = 0.98f;
+            value.ampAttackMs = 1.0f; value.ampDecayMs = 100.0f; value.ampSustain = 0.50f;
+            value.ampReleaseMs = 320.0f; value.lfoRateHz = 3.2f; value.lfoToPitch = 0.80f;
+            value.lfoToFilter = 45.0f; value.glideMs = 120.0f;
+        }
+        else if (name == "WARM PAD")
+        {
+            value.monophonic = false; value.oscillator1Wave = AnalogSynthEngine::Waveform::pulse;
+            value.oscillator2Wave = AnalogSynthEngine::Waveform::pulse; value.oscillator3Wave = AnalogSynthEngine::Waveform::triangle;
+            value.oscillator1Level = 0.80f; value.oscillator2Level = 0.60f; value.oscillator3Level = 0.40f;
+            value.oscillator2Semitones = -7.0f; value.oscillator3Semitones = -12.0f;
+            value.cutoff = 28.0f; value.resonance = 0.25f; value.filterEnvelopeAmount = 0.55f;
+            value.ampAttackMs = 350.0f; value.ampDecayMs = 850.0f; value.ampSustain = 0.90f;
+            value.ampReleaseMs = 1250.0f; value.lfoRateHz = 0.6f; value.lfoToFilter = 20.0f; value.glideMs = 0.0f;
+        }
+        else if (name == "ATMOSPHERIC PAD")
+        {
+            value.monophonic = false; value.oscillator1Level = 0.50f; value.oscillator2Level = 0.50f; value.oscillator3Level = 0.30f;
+            value.oscillator2Wave = AnalogSynthEngine::Waveform::triangle; value.oscillator3Wave = AnalogSynthEngine::Waveform::saw;
+            value.oscillator2Semitones = 5.0f; value.oscillator3Semitones = -5.0f; value.noiseLevel = 0.20f;
+            value.cutoff = 35.0f; value.resonance = 0.40f; value.filterEnvelopeAmount = 0.60f;
+            value.ampAttackMs = 400.0f; value.ampDecayMs = 800.0f; value.ampSustain = 0.90f;
+            value.ampReleaseMs = 1500.0f; value.lfoRateHz = 0.3f; value.lfoToFilter = 15.0f; value.glideMs = 0.0f;
         }
         else if (isBass)
         {
-            value.cutoff = 34.0f; value.resonance = 0.42f; value.filterEnvelopeAmount = 0.74f;
-            value.ampAttackMs = 8.0f; value.ampDecayMs = 340.0f; value.ampSustain = 0.76f;
-            value.ampReleaseMs = 280.0f; value.glideMs = 45.0f;
+            value.oscillator1Level = 1.0f; value.oscillator2Level = 0.68f; value.oscillator3Level = 0.20f;
+            value.oscillator3Semitones = -12.0f; value.cutoff = 34.0f; value.resonance = 0.42f;
+            value.filterEnvelopeAmount = 0.74f; value.ampAttackMs = 8.0f; value.ampDecayMs = 340.0f;
+            value.ampSustain = 0.76f; value.ampReleaseMs = 280.0f; value.lfoRateHz = 1.0f; value.glideMs = 45.0f;
         }
         else if (isLead)
         {
-            value.cutoff = 56.0f; value.resonance = 0.62f; value.filterEnvelopeAmount = 0.82f;
+            value.oscillator1Level = 0.95f; value.oscillator2Level = 0.70f; value.oscillator3Level = 0.45f;
+            value.cutoff = 46.0f; value.resonance = 0.62f; value.filterEnvelopeAmount = 0.82f;
             value.ampAttackMs = 18.0f; value.ampDecayMs = 450.0f; value.ampSustain = 0.78f;
-            value.ampReleaseMs = 360.0f; value.glideMs = 95.0f;
+            value.ampReleaseMs = 360.0f; value.lfoRateHz = 3.0f; value.lfoToPitch = 0.35f;
+            value.lfoToFilter = 18.0f; value.glideMs = 95.0f;
+        }
+        else if (isPad)
+        {
+            value.monophonic = false; value.cutoff = 46.0f; value.resonance = 0.24f; value.filterEnvelopeAmount = 0.52f;
+            value.ampAttackMs = 340.0f; value.ampDecayMs = 860.0f; value.ampSustain = 0.88f;
+            value.ampReleaseMs = 1200.0f; value.lfoRateHz = 0.6f; value.lfoToFilter = 12.0f; value.glideMs = 0.0f;
         }
         else
         {
-            value.cutoff = 51.0f; value.resonance = 0.34f; value.filterEnvelopeAmount = 0.62f;
-            value.ampAttackMs = 90.0f; value.ampDecayMs = 580.0f; value.ampSustain = 0.80f;
-            value.ampReleaseMs = 560.0f; value.glideMs = 80.0f;
+            value.monophonic = false;
         }
+
         setFromConfig(value);
     }
 
