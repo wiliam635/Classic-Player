@@ -374,100 +374,111 @@ public:
 private:
     void applyFactoryPreset(int preset)
     {
-        if (preset <= 1) { setFromConfig(sourceAtOpen); return; }
+        if (preset <= 1)
+        {
+            setFromConfig(sourceAtOpen);
+            return;
+        }
 
+        // Direct parameter port of the public MIT-licensed Minimoog factory
+        // library. This table intentionally contains sound parameters, not
+        // name-based heuristics, so every supplied preset has its own voice.
+        struct FactoryPreset
+        {
+            int id;
+            AnalogSynthEngine::Waveform wave1, wave2, wave3;
+            float semi1, semi2, semi3;
+            float level1, level2, level3;
+            bool enabled1, enabled2, enabled3;
+            float noise; bool pinkNoise;
+            float cutoff, resonance, contour;
+            float filterAttack, filterDecay, filterSustain;
+            float ampAttack, ampDecay, ampSustain;
+            float lfoRate, glide;
+            bool decaySwitch;
+            float keyboardTracking, modulationMix, modWheel;
+        };
+
+        static const std::array<FactoryPreset, 35> presets {{
+            { 2, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Solo Lead
+            { 3, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Warm Pad
+            { 4, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Atmospheric Pad
+            { 5, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Space Mod
+            { 6, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Modern Lead
+            { 7, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Crystal Pad
+            { 8, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Easy Lead
+            { 9, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Screaming Lead
+            { 10, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Dream Pad
+            { 11, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Classic Minimoog Lead
+            { 12, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Taurus Bass
+            { 13, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Analog Lead
+            { 14, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Unison Lead
+            { 15, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Thick Bass
+            { 16, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Funk Bass
+            { 17, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Easy Pad
+            { 18, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Analog Bass
+            { 19, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Vintage Lead
+            { 20, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Percussive Bass
+            { 21, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Lucky Man
+            { 22, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Watery Lead
+            { 23, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Vintage Minimoog Pad
+            { 24, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Authentic Minimoog Bass
+            { 25, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Progressive Rock Lead
+            { 26, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Space Echo
+            { 27, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Cathedral Pad
+            { 28, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Dub Bass
+            { 29, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Alien Landscape
+            { 30, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Glass Harmonica
+            { 31, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Wind Chimes
+            { 32, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Submarine Sonar
+            { 33, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Crystal Bells
+            { 34, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Thunder Storm
+            { 35, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Digital Rain
+            { 36, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, AnalogSynthEngine::Waveform::saw, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, false, false, 0.000f, false, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, 0.000f, false, 0.000f, 0.000f, 0.000f }, // Cosmic Drone
+        }};
+
+        const auto found = std::find_if(presets.begin(), presets.end(),
+            [preset] (const FactoryPreset& candidate) { return candidate.id == preset; });
+        if (found == presets.end())
+            return;
+
+        const auto& source = *found;
         auto value = sourceAtOpen;
-        const auto name = presetBox.getText().toUpperCase();
-        const bool isPad = name.contains("PAD") || name.contains("SPACE") || name.contains("COSMIC") || name.contains("RAIN")
-                        || name.contains("BELLS") || name.contains("HARMONICA") || name.contains("CHIMES")
-                        || name.contains("STORM") || name.contains("WIND");
-        const bool isBass = name.contains("BASS") || name.contains("TAURUS") || name.contains("SUBMARINE");
-        const bool isLead = name.contains("LEAD") || name.contains("SCREAMING") || name.contains("LUCKY");
-
-        // The reference Minimoog is a one-voice instrument. In Classic Keys
-        // the factory library deliberately keeps melodic Lead and Bass patches
-        // monophonic, while Pad and Experimental patches remain polyphonic.
-        value.monophonic = isLead || isBass;
-
-        value.oscillator1Wave = AnalogSynthEngine::Waveform::saw;
-        value.oscillator2Wave = AnalogSynthEngine::Waveform::saw;
-        value.oscillator3Wave = AnalogSynthEngine::Waveform::triangle;
-        value.oscillator1Level = 0.82f; value.oscillator2Level = 0.60f; value.oscillator3Level = 0.32f;
-        value.oscillator2Semitones = 0.0f; value.oscillator3Semitones = -12.0f;
-        value.noiseLevel = 0.0f;
-        value.lfoRateHz = 1.6f; value.lfoToPitch = 0.10f; value.lfoToFilter = 6.0f;
-        value.cutoff = 51.0f; value.resonance = 0.34f; value.filterEnvelopeAmount = 0.62f;
-        value.ampAttackMs = 90.0f; value.ampDecayMs = 580.0f; value.ampSustain = 0.80f;
-        value.ampReleaseMs = 560.0f; value.filterAttackMs = 90.0f; value.filterDecayMs = 580.0f;
-        value.filterSustain = 0.65f; value.filterReleaseMs = 560.0f; value.glideMs = 0.0f;
-
-        // Direct parameter adaptations for the published factory presets. The
-        // values map their oscillator, filter and envelope intent into the
-        // Classic Keys Analog engine rather than generating variants by name.
-        if (name == "SOLO LEAD")
-        {
-            value.oscillator1Level = 1.0f; value.oscillator2Level = 0.70f; value.oscillator3Level = 0.50f;
-            value.cutoff = 12.0f; value.resonance = 0.75f; value.filterEnvelopeAmount = 0.92f;
-            value.ampAttackMs = 50.0f; value.ampDecayMs = 550.0f; value.ampSustain = 0.85f;
-            value.ampReleaseMs = 420.0f; value.filterAttackMs = 250.0f; value.filterDecayMs = 450.0f;
-            value.filterSustain = 0.75f; value.filterReleaseMs = 450.0f;
-            value.lfoRateHz = 4.2f; value.lfoToPitch = 0.80f; value.lfoToFilter = 25.0f; value.glideMs = 150.0f;
-        }
-        else if (name == "MODERN LEAD")
-        {
-            value.oscillator2Wave = AnalogSynthEngine::Waveform::pulse; value.oscillator3Wave = AnalogSynthEngine::Waveform::saw;
-            value.oscillator1Level = 1.0f; value.oscillator2Level = 0.80f; value.oscillator3Level = 0.60f;
-            value.oscillator3Semitones = -7.0f; value.noiseLevel = 0.10f;
-            value.cutoff = 25.0f; value.resonance = 0.85f; value.filterEnvelopeAmount = 0.98f;
-            value.ampAttackMs = 1.0f; value.ampDecayMs = 100.0f; value.ampSustain = 0.50f;
-            value.ampReleaseMs = 320.0f; value.lfoRateHz = 3.2f; value.lfoToPitch = 0.80f;
-            value.lfoToFilter = 45.0f; value.glideMs = 120.0f;
-        }
-        else if (name == "WARM PAD")
-        {
-            value.monophonic = false; value.oscillator1Wave = AnalogSynthEngine::Waveform::pulse;
-            value.oscillator2Wave = AnalogSynthEngine::Waveform::pulse; value.oscillator3Wave = AnalogSynthEngine::Waveform::triangle;
-            value.oscillator1Level = 0.80f; value.oscillator2Level = 0.60f; value.oscillator3Level = 0.40f;
-            value.oscillator2Semitones = -7.0f; value.oscillator3Semitones = -12.0f;
-            value.cutoff = 28.0f; value.resonance = 0.25f; value.filterEnvelopeAmount = 0.55f;
-            value.ampAttackMs = 350.0f; value.ampDecayMs = 850.0f; value.ampSustain = 0.90f;
-            value.ampReleaseMs = 1250.0f; value.lfoRateHz = 0.6f; value.lfoToFilter = 20.0f; value.glideMs = 0.0f;
-        }
-        else if (name == "ATMOSPHERIC PAD")
-        {
-            value.monophonic = false; value.oscillator1Level = 0.50f; value.oscillator2Level = 0.50f; value.oscillator3Level = 0.30f;
-            value.oscillator2Wave = AnalogSynthEngine::Waveform::triangle; value.oscillator3Wave = AnalogSynthEngine::Waveform::saw;
-            value.oscillator2Semitones = 5.0f; value.oscillator3Semitones = -5.0f; value.noiseLevel = 0.20f;
-            value.cutoff = 35.0f; value.resonance = 0.40f; value.filterEnvelopeAmount = 0.60f;
-            value.ampAttackMs = 400.0f; value.ampDecayMs = 800.0f; value.ampSustain = 0.90f;
-            value.ampReleaseMs = 1500.0f; value.lfoRateHz = 0.3f; value.lfoToFilter = 15.0f; value.glideMs = 0.0f;
-        }
-        else if (isBass)
-        {
-            value.oscillator1Level = 1.0f; value.oscillator2Level = 0.68f; value.oscillator3Level = 0.20f;
-            value.oscillator3Semitones = -12.0f; value.cutoff = 34.0f; value.resonance = 0.42f;
-            value.filterEnvelopeAmount = 0.74f; value.ampAttackMs = 8.0f; value.ampDecayMs = 340.0f;
-            value.ampSustain = 0.76f; value.ampReleaseMs = 280.0f; value.lfoRateHz = 1.0f; value.glideMs = 45.0f;
-        }
-        else if (isLead)
-        {
-            value.oscillator1Level = 0.95f; value.oscillator2Level = 0.70f; value.oscillator3Level = 0.45f;
-            value.cutoff = 46.0f; value.resonance = 0.62f; value.filterEnvelopeAmount = 0.82f;
-            value.ampAttackMs = 18.0f; value.ampDecayMs = 450.0f; value.ampSustain = 0.78f;
-            value.ampReleaseMs = 360.0f; value.lfoRateHz = 3.0f; value.lfoToPitch = 0.35f;
-            value.lfoToFilter = 18.0f; value.glideMs = 95.0f;
-        }
-        else if (isPad)
-        {
-            value.monophonic = false; value.cutoff = 46.0f; value.resonance = 0.24f; value.filterEnvelopeAmount = 0.52f;
-            value.ampAttackMs = 340.0f; value.ampDecayMs = 860.0f; value.ampSustain = 0.88f;
-            value.ampReleaseMs = 1200.0f; value.lfoRateHz = 0.6f; value.lfoToFilter = 12.0f; value.glideMs = 0.0f;
-        }
-        else
-        {
-            value.monophonic = false;
-        }
-
+        value.oscillator1Wave = source.wave1;
+        value.oscillator2Wave = source.wave2;
+        value.oscillator3Wave = source.wave3;
+        value.oscillator1Semitones = source.semi1;
+        value.oscillator2Semitones = source.semi2;
+        value.oscillator3Semitones = source.semi3;
+        value.oscillator1Level = source.level1;
+        value.oscillator2Level = source.level2;
+        value.oscillator3Level = source.level3;
+        value.oscillator1Enabled = source.enabled1;
+        value.oscillator2Enabled = source.enabled2;
+        value.oscillator3Enabled = source.enabled3;
+        value.noiseLevel = source.noise;
+        value.pinkNoise = source.pinkNoise;
+        value.cutoff = source.cutoff;
+        value.resonance = source.resonance;
+        value.filterEnvelopeAmount = source.contour;
+        value.filterAttackMs = source.filterAttack;
+        value.filterDecayMs = source.filterDecay;
+        value.filterSustain = source.filterSustain;
+        value.filterReleaseMs = source.filterDecay;
+        value.ampAttackMs = source.ampAttack;
+        value.ampDecayMs = source.ampDecay;
+        value.ampSustain = source.ampSustain;
+        value.ampReleaseMs = source.ampDecay;
+        value.lfoRateHz = source.lfoRate;
+        value.glideMs = source.glide;
+        value.ampDecaySwitch = source.decaySwitch;
+        value.filterKeyboardTracking = source.keyboardTracking;
+        value.lfoToPitch = source.modulationMix * 0.12f;
+        value.lfoToFilter = source.modulationMix * 5.0f;
+        value.modWheelToFilter = source.modWheel * 0.20f;
+        // The reference instrument is a one-voice Minimoog. Factory patches
+        // therefore retain true last-note-priority monophony.
+        value.monophonic = true;
         setFromConfig(value);
     }
 
