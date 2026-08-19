@@ -27,10 +27,25 @@ public:
         float oscillator3Level = 0.25f;
         float oscillator2Semitones = 0.0f;
         float oscillator3Semitones = -12.0f;
+        // Footages are stored as pitch offsets so the native engine can mirror
+        // the Minimoog 32'/16'/8'/4'/2' oscillator bank without UI-only rules.
+        float oscillator1Semitones = 0.0f;
+        float oscillator1FineCents = 0.0f;
+        float oscillator2FineCents = 0.0f;
+        float oscillator3FineCents = 0.0f;
+        bool oscillator1Enabled = true;
+        bool oscillator2Enabled = true;
+        bool oscillator3Enabled = true;
         float noiseLevel = 0.0f;
+        bool pinkNoise = false;
+        float mixerDrive = 0.0f;
         float cutoff = 72.0f;
         float resonance = 0.12f;
         float filterEnvelopeAmount = 0.35f;
+        float filterKeyboardTracking = 0.0f;
+        float filterDrive = 1.0f;
+        float modWheelToPitch = 0.0f;
+        float modWheelToFilter = 0.0f;
         float ampAttackMs = 6.0f;
         float ampDecayMs = 180.0f;
         float ampSustain = 0.78f;
@@ -43,6 +58,7 @@ public:
         float lfoToPitch = 0.0f;
         float lfoToFilter = 0.0f;
         float glideMs = 0.0f;
+        bool ampDecaySwitch = true;
         // Factory presets explicitly choose their note mode. This keeps lead and
         // bass patches authentically monophonic while pads remain polyphonic.
         bool monophonic = false;
@@ -85,8 +101,12 @@ private:
         float phase3 = 0.0f;
         float currentFrequency = 440.0f;
         float targetFrequency = 440.0f;
+        // State for the native oversampled four-pole nonlinear low-pass.
         std::array<float, 4> ladder {};
-        float noiseState = 0.0f;
+        std::array<float, 4> ladderInput {};
+        float ladderFeedback = 0.0f;
+        float ladderPrevious = 0.0f;
+        uint32_t noiseState = 0x12345678u;
         Envelope amp;
         Envelope filter;
     };
@@ -100,9 +120,11 @@ private:
         uint64_t noteSequence = 0;
         float lfoPhase = 0.0f;
         bool sustainPedal = false;
+        float modWheel = 0.0f;
     };
 
-    static float waveform(Waveform waveform, float phase);
+    static float waveform(Waveform waveform, float phase, float phaseIncrement);
+    static float polyBlep(float phase, float phaseIncrement);
     static float midiNoteToFrequency(int note) noexcept;
     static bool acceptsMessage(const Sf2Engine::LayerConfig& config,
                                const juce::MidiMessage& message);
@@ -111,8 +133,10 @@ private:
 
     void noteOn(int layer, int midiChannel, int note, float velocity, const Config& config);
     void noteOff(int layer, int midiChannel, int note, const Config& config);
-    void renderVoice(Voice& voice, const Config& config, float lfo, float& left,
-                     float& right);
+    float processLadder(Voice& voice, float input, float cutoffHz, float resonance,
+                        float drive) noexcept;
+    void renderVoice(Voice& voice, const Config& config, float lfo, float modWheel,
+                     float& left, float& right);
 
     std::array<Layer, layerCount> layers {};
     std::array<std::atomic<float>, layerCount> peaks {};
