@@ -205,6 +205,7 @@ class AnalogSynthEditorPanel final : public juce::Component
 public:
     explicit AnalogSynthEditorPanel(const AnalogSynthEngine::Config& source)
         : initial(source),
+          sourceAtOpen(source),
           waves { source.oscillator1Wave, source.oscillator2Wave, source.oscillator3Wave },
           knobs({
               { "OSC 1 LEVEL", source.oscillator1Level * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
@@ -444,8 +445,8 @@ private:
                              + waveformName(waves[(size_t) oscillator]));
     }
 
-    AnalogSynthEngine::Config sourceAtOpen = initial;
     AnalogSynthEngine::Config initial;
+    AnalogSynthEngine::Config sourceAtOpen;
     std::array<AnalogSynthEngine::Waveform, 3> waves;
     juce::ComboBox presetBox;
     juce::TextButton wave1, wave2, wave3;
