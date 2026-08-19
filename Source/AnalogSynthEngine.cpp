@@ -106,6 +106,9 @@ float AnalogSynthEngine::waveform(Waveform form, float phase, float increment)
             // the previous piecewise waveform at high notes.
             return std::asin(std::sin(twoPi * phase)) * (2.0f / juce::MathConstants<float>::pi);
 
+        case Waveform::sine:
+            return std::sin(twoPi * phase);
+
         case Waveform::saw:
             return 2.0f * phase - 1.0f - polyBlep(phase, increment);
 
