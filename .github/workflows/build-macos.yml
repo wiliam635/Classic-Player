@@ -55,8 +55,10 @@ jobs:
           grep -q "routedMidi = nullptr" Source/AnalogSynthEngine.h
           grep -q "The JUCE standalone device callback supplies MIDI" Source/AnalogSynthEngine.cpp
           grep -q "analogSynthEngine.process(buffer, midi, analogLayerConfigs, &routedMidiBuffers)" Source/PluginProcessor.cpp
-          grep -q "CLASSIC BASS" Source/PluginEditor.cpp
-          grep -q "VINTAGE LEAD" Source/PluginEditor.cpp
+          grep -q "SOLO LEAD" Source/PluginEditor.cpp
+          grep -q "ATMOSPHERIC PAD" Source/PluginEditor.cpp
+          grep -q "DUB BASS" Source/PluginEditor.cpp
+          grep -q "stevebarakat/Minimoog" THIRD_PARTY.md
           grep -q "startAudioRecording" Source/PluginProcessor.cpp
           grep -q "stopAudioRecording" Source/PluginProcessor.cpp
           grep -q "WavAudioFormat" Source/PluginProcessor.cpp
