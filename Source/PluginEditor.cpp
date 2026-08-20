@@ -62,6 +62,21 @@ public:
         setColour(juce::Slider::textBoxOutlineColourId, juce::Colour(line));
     }
 
+    void drawButtonBackground(juce::Graphics& g, juce::Button& button,
+                              const juce::Colour& backgroundColour,
+                              bool shouldDrawButtonAsHighlighted,
+                              bool shouldDrawButtonAsDown) override
+    {
+        auto bounds = button.getLocalBounds().toFloat().reduced(0.5f);
+        auto colour = backgroundColour;
+        if (shouldDrawButtonAsDown) colour = colour.darker(0.12f);
+        else if (shouldDrawButtonAsHighlighted) colour = colour.brighter(0.08f);
+        g.setColour(colour);
+        g.fillRoundedRectangle(bounds, 5.0f);
+        g.setColour(juce::Colour(line));
+        g.drawRoundedRectangle(bounds, 5.0f, 1.0f);
+    }
+
     void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height,
                           float position, float startAngle, float endAngle,
                           juce::Slider&) override
