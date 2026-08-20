@@ -152,6 +152,7 @@ private:
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> compressorAttachment;
         std::unique_ptr<juce::FileChooser> fileChooser;
         std::unique_ptr<juce::DocumentWindow> externalEditorWindow;
+        DrumPadPanel drumPadPanel;
         juce::String midiDeviceFingerprint;
         juce::Array<juce::MidiDeviceInfo> midiDevices;
     };
@@ -214,8 +215,6 @@ private:
     juce::Component layerContent;
     std::array<std::unique_ptr<LayerStrip>, Sf2Engine::layerCount> strips;
     NamedKeyboard keyboard;
-    DrumPadPanel drumPadPanel;
-
     juce::Component activationPanel;
     juce::Label activationTitle;
     juce::Label activationHelp;
