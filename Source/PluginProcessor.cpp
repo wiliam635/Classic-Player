@@ -410,6 +410,12 @@ int ClassicPlayerAudioProcessor::drumPadMidiCC(int pad) const
         ? drumPads[(size_t) pad].midiCC.load(std::memory_order_acquire) : -1;
 }
 
+bool ClassicPlayerAudioProcessor::isDrumPadPlaying(int pad) const
+{
+    return juce::isPositiveAndBelow(pad, drumPadCount)
+        && drumPads[(size_t) pad].position.load(std::memory_order_acquire) >= 0;
+}
+
 void ClassicPlayerAudioProcessor::triggerDrumPad(int pad)
 {
     if (juce::isPositiveAndBelow(pad, drumPadCount))
