@@ -98,6 +98,8 @@ private:
         juce::AudioBuffer<float> chorusDelay;
         std::array<float, 2> dcInput {};
         std::array<float, 2> dcOutput {};
+        // Last post-filter sample used by the short anti-click guard.
+        std::array<float, 2> deClickPrevious {};
         std::array<Voice, 32> voices {};
     };
 
