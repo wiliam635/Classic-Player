@@ -256,7 +256,6 @@ public:
               { "LFO RATE Hz", source.lfoRateHz, 0.1f, 20.0f, 0.1f, 1 },
               { "LFO PITCH", source.lfoToPitch, 0.0f, 12.0f, 0.1f, 1 },
               { "LFO FILTER", source.lfoToFilter, 0.0f, 100.0f, 1.0f, 0 },
-              { "GLIDE ms", source.glideMs, 0.0f, 1000.0f, 1.0f, 0 },
               { "DRIVE", source.mixerDrive * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
               { "KEY TRACK", source.filterKeyboardTracking * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
               { "MOD WHEEL", source.modWheelToFilter * 100.0f, 0.0f, 100.0f, 1.0f, 0 }
@@ -338,10 +337,11 @@ public:
         result.filterEnvelopeAmount = knobs.value(8) / 100.0f; result.ampAttackMs = knobs.value(9);
         result.ampDecayMs = knobs.value(10); result.ampSustain = knobs.value(11) / 100.0f;
         result.ampReleaseMs = knobs.value(12); result.lfoRateHz = knobs.value(13);
-        result.lfoToPitch = knobs.value(14); result.lfoToFilter = knobs.value(15); result.glideMs = knobs.value(16);
-        result.mixerDrive = knobs.value(17) / 100.0f;
-        result.filterKeyboardTracking = knobs.value(18) / 100.0f;
-        result.modWheelToFilter = knobs.value(19) / 100.0f;
+        result.lfoToPitch = knobs.value(14); result.lfoToFilter = knobs.value(15);
+        result.glideMs = 0.0f;
+        result.mixerDrive = knobs.value(16) / 100.0f;
+        result.filterKeyboardTracking = knobs.value(17) / 100.0f;
+        result.modWheelToFilter = knobs.value(18) / 100.0f;
         result.oscillator1Enabled = oscillator1On.getToggleState();
         result.oscillator2Enabled = oscillator2On.getToggleState();
         result.oscillator3Enabled = oscillator3On.getToggleState();
@@ -504,7 +504,9 @@ private:
         browserValue.ampAttackMs = presetValue.attack * 1000.0f; browserValue.ampDecayMs = presetValue.decay * 1000.0f; browserValue.ampSustain = presetValue.sustain; browserValue.ampReleaseMs = presetValue.release * 1000.0f;
         browserValue.filterAttackMs = browserValue.ampAttackMs; browserValue.filterDecayMs = browserValue.ampDecayMs; browserValue.filterSustain = browserValue.ampSustain; browserValue.filterReleaseMs = browserValue.ampReleaseMs;
         browserValue.lfoRateHz = presetValue.lfo; browserValue.lfoToFilter = presetValue.modulation * 40.0f; browserValue.lfoToPitch = presetValue.modulation * 0.25f;
-        browserValue.glideMs = presetValue.glide * 1000.0f; browserValue.monophonic = presetValue.mono; browserValue.routing.mono = presetValue.mono; browserValue.routing.portamento = false;
+        // Classic Keys Analog exposes Mono/Legato only; factory glide values
+        // from the web presets are intentionally ignored.
+        browserValue.glideMs = 0.0f; browserValue.monophonic = presetValue.mono; browserValue.routing.mono = presetValue.mono; browserValue.routing.portamento = false;
         setFromConfig(browserValue);
         return;
 
@@ -522,10 +524,10 @@ private:
         knobs.setValue(8, value.filterEnvelopeAmount * 100.0f); knobs.setValue(9, value.ampAttackMs);
         knobs.setValue(10, value.ampDecayMs); knobs.setValue(11, value.ampSustain * 100.0f);
         knobs.setValue(12, value.ampReleaseMs); knobs.setValue(13, value.lfoRateHz);
-        knobs.setValue(14, value.lfoToPitch); knobs.setValue(15, value.lfoToFilter); knobs.setValue(16, value.glideMs);
-        knobs.setValue(17, value.mixerDrive * 100.0f);
-        knobs.setValue(18, value.filterKeyboardTracking * 100.0f);
-        knobs.setValue(19, value.modWheelToFilter * 100.0f);
+        knobs.setValue(14, value.lfoToPitch); knobs.setValue(15, value.lfoToFilter);
+        knobs.setValue(16, value.mixerDrive * 100.0f);
+        knobs.setValue(17, value.filterKeyboardTracking * 100.0f);
+        knobs.setValue(18, value.modWheelToFilter * 100.0f);
         oscillator1On.setToggleState(value.oscillator1Enabled, juce::dontSendNotification);
         oscillator2On.setToggleState(value.oscillator2Enabled, juce::dontSendNotification);
         oscillator3On.setToggleState(value.oscillator3Enabled, juce::dontSendNotification);
