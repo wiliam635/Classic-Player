@@ -311,7 +311,14 @@ public:
         presetBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
         presetBox.setColour(juce::ComboBox::textColourId, juce::Colour(text));
         presetBox.setColour(juce::ComboBox::outlineColourId, juce::Colour(line));
-        presetBox.onChange = [this] { applyFactoryPreset(presetBox.getSelectedId()); };
+        presetBox.onChange = [this]
+        {
+            applyFactoryPreset(presetBox.getSelectedId());
+            // Preset selection is an audible action: update the layer now so
+            // changing the name never requires a second confirmation click.
+            if (onPresetChanged)
+                onPresetChanged(config());
+        };
         addAndMakeVisible(presetBox);
         addAndMakeVisible(wave1);
         addAndMakeVisible(wave2);
@@ -350,6 +357,8 @@ public:
         result.routing.mono = result.monophonic;
         return result;
     }
+
+    std::function<void(const AnalogSynthEngine::Config&)> onPresetChanged;
 
     void paint(juce::Graphics& g) override
     {
@@ -392,7 +401,7 @@ public:
         }
 
         g.setColour(juce::Colour(0xffd4d0ca)); g.setFont(juce::FontOptions(10.0f));
-        g.drawText("Escolha um preset ou ajuste a camada Analog e clique em APLICAR",
+        g.drawText("Selecione um preset para carregar na hora ou ajuste os controles e aplique",
                    left + 8, top + 7, width - 16, 16, juce::Justification::centred);
 
         // Labels attached to the switches make the signal path readable even
@@ -955,6 +964,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
     dialog->addButton("APLICAR", 1, juce::KeyPress(juce::KeyPress::returnKey));
     dialog->addButton("CANCELAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
+    controls->onPresetChanged = [safe, index](const AnalogSynthEngine::Config& config)
+    {
+        if (safe != nullptr)
+            safe->processor.setAnalogSynthConfig(index, config);
+    };
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, dialog, knobs, prefix](int result)
         {
