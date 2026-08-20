@@ -459,6 +459,10 @@ juce::Result ClassicPlayerAudioProcessor::loadDrumPad(int pad, const juce::File&
 void ClassicPlayerAudioProcessor::processDrumPads(juce::AudioBuffer<float>& output,
                                                   const juce::MidiBuffer&)
 {
+    bool hasDrumPadLayer = false;
+    for (int layer = 0; layer < activeLayerCount(); ++layer)
+        hasDrumPadLayer = hasDrumPadLayer || layerType(layer) == LayerType::drumPads;
+    if (!hasDrumPadLayer) return;
     const juce::ScopedTryLock lock(drumPadLock);
     if (!lock.isLocked()) return;
 
@@ -640,7 +644,7 @@ ClassicPlayerAudioProcessor::LayerType ClassicPlayerAudioProcessor::layerType(in
 {
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return LayerType::sf2;
     const auto value = layerTypes[(size_t) layer].load(std::memory_order_relaxed);
-    return static_cast<LayerType>(juce::jlimit(0, 3, value));
+    return static_cast<LayerType>(juce::jlimit(0, 4, value));
 }
 
 void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
@@ -662,6 +666,19 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
         dx7Engine.unload(layer);
         analogSynthEngine.unload(layer);
         savedPaths[(size_t) layer].clear();
+        analogLayerConfigs[(size_t) layer] = AnalogSynthEngine::Config{};
+    }
+
+    if (type == LayerType::drumPads && previousType != LayerType::drumPads)
+    {
+        externalInstruments[(size_t) layer].unload();
+        engine.unloadSoundFont(layer);
+        dx7Engine.unload(layer);
+        analogSynthEngine.unload(layer);
+        savedPaths[(size_t) layer].clear();
+        auto config = engine.getConfig(layer);
+        config.enabled = false;
+        engine.setConfig(layer, config);
         analogLayerConfigs[(size_t) layer] = AnalogSynthEngine::Config{};
     }
 
@@ -781,7 +798,7 @@ bool ClassicPlayerAudioProcessor::addLayer(LayerType type)
         if (activeLayers.compare_exchange_weak(count, count + 1, std::memory_order_relaxed))
         {
             auto config = engine.getConfig(count);
-            config.enabled = true;
+            config.enabled = type != LayerType::drumPads;
             engine.setConfig(count, config);
             layerTypes[(size_t) count].store(static_cast<int>(type), std::memory_order_relaxed);
             return true;
@@ -1687,7 +1704,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             }
             for (int i = 0; i < Sf2Engine::layerCount; ++i)
             {
-                auto savedType = juce::jlimit(0, 3, static_cast<int>(state.getProperty(
+                auto savedType = juce::jlimit(0, 4, static_cast<int>(state.getProperty(
                     "layerType" + juce::String(i + 1), static_cast<int>(LayerType::sf2))));
                 // Programs created by older releases may contain VST layers.
                 // They are restored as empty SF2 layers rather than loading a
@@ -1837,6 +1854,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             {
                 auto config = engine.getConfig(i);
                 config.enabled = i < restoredLayerCount;
+                if (layerType(i) == LayerType::drumPads)
+                    config.enabled = false;
                 if (i >= restoredLayerCount)
                 {
                     // Never leave an inactive layer holding the instrument from
