@@ -709,7 +709,10 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
         auto& trigger = pads[(size_t) pad];
         trigger.setButtonText("PAD " + juce::String(pad + 1));
         trigger.setTooltip("Clique para tocar este pad");
-        flatButton(trigger);
+        trigger.setColour(juce::TextButton::buttonColourId, juce::Colour(0xfff4f4ee));
+        trigger.setColour(juce::TextButton::buttonOnColourId, juce::Colour(yellow));
+        trigger.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff15191d));
+        trigger.setColour(juce::TextButton::textColourOnId, juce::Colour(0xff15191d));
         trigger.onClick = [this, pad] { processor.triggerDrumPad(pad); };
         addAndMakeVisible(trigger);
 
@@ -754,7 +757,12 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
 {
     for (int pad = 0; pad < ClassicPlayerAudioProcessor::drumPadCount; ++pad)
     {
-        pads[(size_t) pad].setButtonText(processor.drumPadName(pad));
+        auto& trigger = pads[(size_t) pad];
+        const auto active = processor.isDrumPadPlaying(pad);
+        trigger.setButtonText(processor.drumPadName(pad));
+        trigger.setColour(juce::TextButton::buttonColourId,
+                          active ? juce::Colour(yellow) : juce::Colour(0xfff4f4ee));
+        trigger.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff15191d));
         const auto cc = processor.drumPadMidiCC(pad);
         learnButtons[(size_t) pad].setButtonText(
             processor.isDrumPadMidiLearning(pad) ? "MOVE CC"
@@ -771,7 +779,7 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
         const auto row = pad / 6;
         auto cell = juce::Rectangle<int>(column * cellWidth, row * 62,
                                          cellWidth, 60).reduced(3, 2);
-        pads[(size_t) pad].setBounds(cell.removeFromTop(25));
+        pads[(size_t) pad].setBounds(cell.removeFromTop(30));
         auto buttons = cell.removeFromBottom(25);
         loadButtons[(size_t) pad].setBounds(buttons.removeFromLeft(buttons.getWidth() / 2).reduced(1, 0));
         learnButtons[(size_t) pad].setBounds(buttons.reduced(1, 0));
@@ -2071,11 +2079,11 @@ void ClassicPlayerAudioProcessorEditor::resized()
     }
     else
     {
-        auto keyboardArea = area.removeFromBottom(112);
-        keyboard.setBounds(keyboardArea.reduced(0, 4));
         auto padArea = area.removeFromBottom(128);
         drumPadPanel.setBounds(padArea.reduced(0, 4));
         drumPadPanel.setVisible(true);
+        auto keyboardArea = area.removeFromBottom(112);
+        keyboard.setBounds(keyboardArea.reduced(0, 4));
         area.removeFromBottom(8);
         layerViewport.setBounds(area);
         layoutLayerStrips();
