@@ -358,7 +358,7 @@ public:
         for (auto* button : { &oscillator1On, &oscillator2On, &oscillator3On, &pinkNoise })
             button->onClick = [this] { if (onConfigChanged) onConfigChanged(config()); };
         addAndMakeVisible(knobs);
-        setSize(1120, 650);
+        setSize(1000, 540);
     }
 
     AnalogSynthEngine::Config config() const
