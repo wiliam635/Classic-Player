@@ -1385,6 +1385,20 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     const auto isAnalog = type == ClassicPlayerAudioProcessor::LayerType::analog;
     const auto isDrumPads = type == ClassicPlayerAudioProcessor::LayerType::drumPads;
     drumPadPanel.setVisible(isDrumPads);
+
+    // Restore the shared layer controls on every non-drum refresh. Without
+    // this explicit reset, switching from Drum Pads left the meter, knobs and
+    // routing controls hidden in the next SF2/DX7/Analog layer.
+    const std::initializer_list<juce::Component*> sharedControls {
+        &fileLabel, &gain, &cutoff, &reverb, &compressor, &mode, &sustain,
+        &midiChannel, &octave, &lowNote, &highNote, &velocityCurve, &midiDevice,
+        &volumeLearn, &resetMidiLearnButton, &cutoffLearn, &reverbLearn,
+        &compressorLearn, &reverbEditButton, &compressorEditButton, &meter,
+        &cutoffLabel, &reverbLabel, &compressorLabel, &routingLabel
+    };
+    for (auto* control : sharedControls)
+        control->setVisible(!isDrumPads);
+
     loadButton.setVisible(isSf2);
     categoryBox.setVisible(isSf2);
     libraryBox.setVisible(isSf2);
