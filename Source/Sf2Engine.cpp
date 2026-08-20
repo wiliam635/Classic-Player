@@ -28,12 +28,14 @@ void Sf2Engine::createSynth(Layer& layer)
     // A finite ceiling protects the real-time thread from runaway voice counts.
     // FluidSynth performs voice stealing when this ceiling is reached.
     fluid_settings_setint(layer.settings.get(), "synth.polyphony", 512);
-    fluid_settings_setnum(layer.settings.get(), "synth.gain", 0.45);
+    // FluidSynth's default headroom made SF2 layers noticeably quieter than
+    // the native DX7 and Analog engines.  Raise only the synth's internal
+    // calibration; the shared output limiter still prevents clipping.
+    fluid_settings_setnum(layer.settings.get(), "synth.gain", 0.65);
     layer.synth.reset(new_fluid_synth(layer.settings.get()));
     layer.soundFontId = -1;
     layer.monoNote = -1;
     layer.monoChannel = 1;
-    layer.pitchBendValue = 8192;
     layer.sustainDown = false;
     layer.heldNotes.fill(false);
     layer.heldVelocities.fill(0.0f);
@@ -294,12 +296,7 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
     if (!message.isNoteOnOrOff())
     {
         if (message.isPitchWheel())
-        {
-            // Keep the layer state explicit and forward the full 14-bit value
-            // to FluidSynth so SF2 pitch bend matches DX7 and Analog layers.
-            layer.pitchBendValue = juce::jlimit(0, 16383, message.getPitchWheelValue());
-            fluid_synth_pitch_bend(layer.synth.get(), channel - 1, layer.pitchBendValue);
-        }
+            fluid_synth_pitch_bend(layer.synth.get(), channel - 1, message.getPitchWheelValue());
         else if (message.isProgramChange())
             fluid_synth_program_change(layer.synth.get(), channel - 1, message.getProgramChangeNumber());
         return;
