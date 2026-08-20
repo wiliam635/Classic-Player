@@ -1369,8 +1369,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     deleteDx7LibraryButton.setVisible(isDx7);
     if (isDrumPads)
     {
-        for (auto* control : { static_cast<juce::Component*>(&layerTitle), &muteButton, &soloButton,
-                               &resetButton, &removeButton, &loadButton, &externalInstrumentButton,
+        for (auto* control : { static_cast<juce::Component*>(&loadButton), &externalInstrumentButton,
                                &dx7Button, &deleteDx7LibraryButton, &openExternalEditorButton,
                                &deleteLibraryButton, &categoryBox, &libraryBox, &presetBox,
                                &externalInstrumentBox, &dx7LibraryBox, &dx7PatchBox, &fileLabel,
