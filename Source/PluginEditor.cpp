@@ -772,7 +772,8 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
         auto& trigger = pads[(size_t) pad];
         const auto active = processor.isDrumPadPlaying(pad);
         const auto samplePath = processor.drumPadPath(pad);
-        trigger.setButtonText(samplePath.isNotEmpty() ? processor.drumPadName(pad) : juce::String{});
+        trigger.setButtonText(samplePath.isNotEmpty() ? processor.drumPadName(pad)
+                                                      : "PAD " + juce::String(pad + 1));
         trigger.setColour(juce::TextButton::buttonColourId,
                           active ? juce::Colour(yellow) : juce::Colour(0xfff4f4ee));
         trigger.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff15191d));
@@ -812,7 +813,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     addAndMakeVisible(drumPadPanel);
     drumPadPanel.setVisible(false);
 
-    for (auto* button : { &muteButton, &soloButton, &resetButton, &removeButton, &loadButton,
+    for (auto* button : { &muteButton, &soloButton, &resetButton, &removeButton, &editButton, &loadButton,
                           &externalInstrumentButton, &dx7Button, &deleteDx7LibraryButton, &openExternalEditorButton, &deleteLibraryButton })
     {
         flatButton(*button);
@@ -823,6 +824,14 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     muteButton.onClick = [this] { muted = muteButton.getToggleState(); mixStateChanged(); };
     soloButton.onClick = [this] { solo = soloButton.getToggleState(); mixStateChanged(); };
     resetButton.onClick = [this] { resetLayer(); };
+    editButton.setTooltip("Mostrar ou ocultar os controles desta layer");
+    editButton.onClick = [this]
+    {
+        expanded = ! expanded;
+        editButton.setButtonText(expanded ? "FECHAR" : "EDITAR");
+        mixStateChanged();
+        resized();
+    };
     removeButton.setTooltip("Excluir esta layer");
     removeButton.onClick = [this]
     {
@@ -891,6 +900,10 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     fileLabel.setJustificationType(juce::Justification::centred);
     fileLabel.setMinimumHorizontalScale(0.6f);
     addAndMakeVisible(fileLabel);
+    sourceSummary.setJustificationType(juce::Justification::centredLeft);
+    sourceSummary.setColour(juce::Label::textColourId, juce::Colour(text));
+    sourceSummary.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+    addAndMakeVisible(sourceSummary);
     for (const auto& category : ClassicPlayerAudioProcessor::soundFontCategories())
         categoryBox.addItem(category, categoryBox.getNumItems() + 1);
     categoryBox.setSelectedId(1, juce::dontSendNotification);
@@ -1171,6 +1184,19 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
         drumPadPanel.setBounds(area.reduced(0, 2));
         return;
     }
+    if (! expanded)
+    {
+        auto summaryRow = area.removeFromTop(28);
+        sourceSummary.setBounds(summaryRow.removeFromLeft(summaryRow.getWidth() - 70).reduced(3, 1));
+        editButton.setBounds(summaryRow.reduced(1, 1));
+        area.removeFromTop(4);
+        auto meterRow = area;
+        meter.setBounds(meterRow.removeFromLeft(16).reduced(1, 2));
+        gain.setBounds(meterRow.removeFromRight(58).reduced(1, 2));
+        return;
+    }
+    editButton.setBounds(area.removeFromTop(28).removeFromRight(70).reduced(1, 1));
+    area.removeFromTop(4);
     if (type == ClassicPlayerAudioProcessor::LayerType::sf2)
     {
         loadButton.setBounds(area.removeFromTop(28));
@@ -1403,6 +1429,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     dx7LibraryBox.setVisible(isDx7);
     dx7PatchBox.setVisible(isDx7);
     deleteDx7LibraryButton.setVisible(isDx7);
+    editButton.setVisible(! isDrumPads);
+    sourceSummary.setText(isSf2 ? "SF2" : isDx7 ? "DX7" : isAnalog ? "CLASSIC KEYS ANALOG"
+                                             : isVst ? "VST" : "DRUM PADS",
+                          juce::dontSendNotification);
     if (isDrumPads)
     {
         const std::initializer_list<juce::Component*> controls {
@@ -1419,6 +1449,27 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
         resized();
         return;
     }
+    if (! expanded)
+    {
+        const std::initializer_list<juce::Component*> detailedControls {
+            &loadButton, &externalInstrumentButton, &dx7Button, &deleteDx7LibraryButton,
+            &openExternalEditorButton, &deleteLibraryButton, &categoryBox, &libraryBox,
+            &presetBox, &externalInstrumentBox, &dx7LibraryBox, &dx7PatchBox, &fileLabel,
+            &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel, &octave,
+            &lowNote, &highNote, &velocityCurve, &midiDevice, &volumeLearn,
+            &resetMidiLearnButton, &cutoffLearn, &reverbLearn, &compressorLearn,
+            &reverbEditButton, &compressorEditButton, &cutoffLabel, &reverbLabel,
+            &compressorLabel, &routingLabel
+        };
+        for (auto* control : detailedControls)
+            control->setVisible(false);
+        sourceSummary.setVisible(true);
+        gain.setVisible(true);
+        meter.setVisible(true);
+        resized();
+        return;
+    }
+    sourceSummary.setVisible(false);
     fileLabel.setVisible(true);
     if (isAnalog)
         fileLabel.setText("CLASSIC KEYS ANALOG", juce::dontSendNotification);
@@ -1943,7 +1994,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
         strips[(size_t) i] = std::make_unique<LayerStrip>(classicProcessor, i,
-                                                          [this] { applyMixerStates(); });
+                                                          [this] { applyMixerStates(); layoutLayerStrips(); });
         strips[(size_t) i]->setRemoveCallback([this, i] { removeLayer(i); });
         layerContent.addAndMakeVisible(*strips[(size_t) i]);
         strips[(size_t) i]->setVisible(i < visibleLayerCount);
@@ -2544,22 +2595,35 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
     const auto count = classicProcessor.activeLayerCount();
     if (count <= 0 || layerViewport.getWidth() <= 0) return;
     constexpr int gap = 8;
-    constexpr int initiallyVisible = Sf2Engine::defaultLayerCount;
-    const auto stripWidth = juce::jmax(
-        220, (layerViewport.getWidth() - gap * (initiallyVisible - 1)) / initiallyVisible);
-    const auto contentWidth = juce::jmax(
-        layerViewport.getWidth(), count * stripWidth + juce::jmax(0, count - 1) * gap);
-    // Full height required by LayerStrip::resized(); small displays use the
-    // viewport scrollbar instead of clipping routing and velocity controls.
-    constexpr int minimumStripHeight = 590;
-    const auto contentHeight = juce::jmax(minimumStripHeight,
+    constexpr int columns = 2;
+    constexpr int compactHeight = 148;
+    constexpr int expandedHeight = 590;
+    const auto stripWidth = juce::jmax(220,
+        (layerViewport.getWidth() - gap * (columns - 1)) / columns);
+    const auto contentWidth = juce::jmax(layerViewport.getWidth(),
+        columns * stripWidth + gap * (columns - 1));
+    const auto rows = (count + columns - 1) / columns;
+    std::vector<int> rowHeights((size_t) rows, compactHeight);
+    for (int i = 0; i < count; ++i)
+        if (strips[(size_t) i] != nullptr && strips[(size_t) i]->isExpanded())
+            rowHeights[(size_t) (i / columns)] = expandedHeight;
+    int contentHeight = gap;
+    for (const auto height : rowHeights) contentHeight += height + gap;
+    contentHeight = juce::jmax(contentHeight,
         layerViewport.getHeight() - layerViewport.getScrollBarThickness());
     layerContent.setSize(contentWidth, contentHeight);
+    int y = gap;
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
         if (strips[(size_t) i] == nullptr) continue;
         strips[(size_t) i]->setVisible(i < count);
-        strips[(size_t) i]->setBounds(i * (stripWidth + gap), 0, stripWidth, contentHeight);
+        if (i >= count) continue;
+        const auto row = i / columns;
+        const auto column = i % columns;
+        int rowY = gap;
+        for (int r = 0; r < row; ++r) rowY += rowHeights[(size_t) r] + gap;
+        strips[(size_t) i]->setBounds(column * (stripWidth + gap), rowY,
+                                      stripWidth, rowHeights[(size_t) row]);
     }
 }
 
@@ -2573,4 +2637,3 @@ void ClassicPlayerAudioProcessorEditor::activate()
     else
         activationStatus.setText("Código de ativação inválido.", juce::dontSendNotification);
 }
-
