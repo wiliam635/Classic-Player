@@ -1416,13 +1416,27 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
             &gain, &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel,
             &octave, &lowNote, &highNote, &velocityCurve, &midiDevice,
             &volumeLearn, &resetMidiLearnButton, &cutoffLearn, &reverbLearn,
-            &compressorLearn, &reverbEditButton, &compressorEditButton, &meter
+            &compressorLearn, &reverbEditButton, &compressorEditButton,
+            &cutoffLabel, &reverbLabel, &compressorLabel, &routingLabel, &meter
         };
         for (auto* control : controls)
             control->setVisible(false);
         resized();
         return;
     }
+    const std::initializer_list<juce::Component*> controls {
+        &loadButton, &externalInstrumentButton, &dx7Button, &deleteDx7LibraryButton,
+        &openExternalEditorButton, &deleteLibraryButton, &categoryBox, &libraryBox,
+        &presetBox, &externalInstrumentBox, &dx7LibraryBox, &dx7PatchBox, &fileLabel,
+        &gain, &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel,
+        &octave, &lowNote, &highNote, &velocityCurve, &midiDevice,
+        &volumeLearn, &resetMidiLearnButton, &cutoffLearn, &reverbLearn,
+        &compressorLearn, &reverbEditButton, &compressorEditButton,
+        &cutoffLabel, &reverbLabel, &compressorLabel, &routingLabel, &meter
+    };
+    for (auto* control : controls)
+        control->setVisible(true);
+    drumPadPanel.setVisible(false);
     fileLabel.setVisible(true);
     if (isAnalog)
         fileLabel.setText("CLASSIC KEYS ANALOG", juce::dontSendNotification);
