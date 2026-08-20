@@ -1117,7 +1117,15 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
+    const auto drumLayer = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::drumPads;
     g.setColour(juce::Colour(panel));
+    if (drumLayer)
+    {
+        g.fillRoundedRectangle(bounds, 7.0f);
+        g.setColour(juce::Colour(line));
+        g.drawRoundedRectangle(bounds.reduced(0.5f), 7.0f, 1.0f);
+        return;
+    }
     g.fillRoundedRectangle(bounds, 7.0f);
     g.setColour(juce::Colour(line));
     g.drawRoundedRectangle(bounds.reduced(0.5f), 7.0f, 1.0f);
