@@ -701,6 +701,83 @@ void ClassicPlayerAudioProcessorEditor::NamedKeyboard::setActiveColour(juce::Col
     repaint();
 }
 
+ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudioProcessor& p)
+    : processor(p)
+{
+    for (int pad = 0; pad < ClassicPlayerAudioProcessor::drumPadCount; ++pad)
+    {
+        auto& trigger = pads[(size_t) pad];
+        trigger.setButtonText("PAD " + juce::String(pad + 1));
+        trigger.setTooltip("Clique para tocar este pad");
+        flatButton(trigger);
+        trigger.onClick = [this, pad] { processor.triggerDrumPad(pad); };
+        addAndMakeVisible(trigger);
+
+        auto& load = loadButtons[(size_t) pad];
+        load.setButtonText("LOAD");
+        load.setTooltip("Carregar MP3/WAV neste pad");
+        flatButton(load);
+        load.onClick = [this, pad] { chooseSample(pad); };
+        addAndMakeVisible(load);
+
+        auto& learn = learnButtons[(size_t) pad];
+        learn.setButtonText("LEARN");
+        learn.setTooltip("Aprender um CC MIDI exclusivo para este pad");
+        flatButton(learn);
+        learn.onClick = [this, pad] { processor.beginDrumPadMidiLearn(pad); refresh(); };
+        addAndMakeVisible(learn);
+    }
+    refresh();
+}
+
+void ClassicPlayerAudioProcessorEditor::DrumPadPanel::chooseSample(int pad)
+{
+    fileChooser = std::make_unique<juce::FileChooser>(
+        "Carregar áudio do pad", juce::File{}, "*.mp3;*.wav;*.aiff;*.flac");
+    fileChooser->launchAsync(juce::FileBrowserComponent::openMode
+                             | juce::FileBrowserComponent::canSelectFiles,
+        [this, pad](const juce::FileChooser& chooser)
+        {
+            const auto file = chooser.getResult();
+            if (file.existsAsFile())
+            {
+                const auto result = processor.loadDrumPad(pad, file);
+                if (result.failed())
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon, "Drum pad", result.getErrorMessage());
+                refresh();
+            }
+        });
+}
+
+void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
+{
+    for (int pad = 0; pad < ClassicPlayerAudioProcessor::drumPadCount; ++pad)
+    {
+        pads[(size_t) pad].setButtonText(processor.drumPadName(pad));
+        const auto cc = processor.drumPadMidiCC(pad);
+        learnButtons[(size_t) pad].setButtonText(
+            processor.isDrumPadMidiLearning(pad) ? "MOVE CC"
+            : cc >= 0 ? "CC " + juce::String(cc) : "LEARN");
+    }
+}
+
+void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
+{
+    const auto cellWidth = getWidth() / 6;
+    for (int pad = 0; pad < ClassicPlayerAudioProcessor::drumPadCount; ++pad)
+    {
+        const auto column = pad % 6;
+        const auto row = pad / 6;
+        auto cell = juce::Rectangle<int>(column * cellWidth, row * 62,
+                                         cellWidth, 60).reduced(3, 2);
+        pads[(size_t) pad].setBounds(cell.removeFromTop(25));
+        auto buttons = cell.removeFromBottom(25);
+        loadButtons[(size_t) pad].setBounds(buttons.removeFromLeft(buttons.getWidth() / 2).reduced(1, 0));
+        learnButtons[(size_t) pad].setBounds(buttons.reduced(1, 0));
+    }
+}
+
 ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     ClassicPlayerAudioProcessor& p, int layerIndex, std::function<void()> mixChanged)
     : processor(p), index(layerIndex), mixStateChanged(std::move(mixChanged))
@@ -1571,7 +1648,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMidiLearnState()
 }
 
 ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlayerAudioProcessor& p)
-    : AudioProcessorEditor(&p), classicProcessor(p), keyboard(p.keyboardState)
+    : AudioProcessorEditor(&p), classicProcessor(p), keyboard(p.keyboardState), drumPadPanel(p)
 {
     juce::Logger::writeToLog("Editor Classic Player inicializado");
     setLookAndFeel(&classicLookAndFeel);
@@ -1800,6 +1877,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     }
     addLayerButton.setEnabled(visibleLayerCount < Sf2Engine::layerCount);
     addAndMakeVisible(keyboard);
+    addAndMakeVisible(drumPadPanel);
     classicProcessor.keyboardState.addListener(this);
 
     addAndMakeVisible(activationPanel);
@@ -2000,10 +2078,15 @@ void ClassicPlayerAudioProcessorEditor::resized()
     {
         auto keyboardArea = area.removeFromBottom(112);
         keyboard.setBounds(keyboardArea.reduced(0, 4));
+        auto padArea = area.removeFromBottom(128);
+        drumPadPanel.setBounds(padArea.reduced(0, 4));
+        drumPadPanel.setVisible(true);
         area.removeFromBottom(8);
         layerViewport.setBounds(area);
         layoutLayerStrips();
     }
+    if (showingLiveSet)
+        drumPadPanel.setVisible(false);
 
     activationPanel.setBounds(getLocalBounds());
     auto activation = activationPanel.getLocalBounds().withSizeKeepingCentre(
@@ -2022,6 +2105,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
 void ClassicPlayerAudioProcessorEditor::timerCallback()
 {
     classicProcessor.consumeMidiControlUpdates();
+    drumPadPanel.refresh();
     if (classicProcessor.consumeLiveSetSlotMidiLearnChanged())
     {
         classicProcessor.saveLiveSetSlotMidiLearnState();
