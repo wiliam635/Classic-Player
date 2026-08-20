@@ -2111,9 +2111,6 @@ void ClassicPlayerAudioProcessorEditor::resized()
     }
     else
     {
-        auto padArea = area.removeFromBottom(128);
-        drumPadPanel.setBounds(padArea.reduced(0, 4));
-        drumPadPanel.setVisible(true);
         auto keyboardArea = area.removeFromBottom(112);
         keyboard.setBounds(keyboardArea.reduced(0, 4));
         area.removeFromBottom(8);
