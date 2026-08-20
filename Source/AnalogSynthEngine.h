@@ -121,6 +121,7 @@ private:
         float lfoPhase = 0.0f;
         bool sustainPedal = false;
         float modWheel = 0.0f;
+        float pitchBendSemitones = 0.0f;
     };
 
     static float waveform(Waveform waveform, float phase, float phaseIncrement);
@@ -136,9 +137,10 @@ private:
     float processLadder(Voice& voice, float input, float cutoffHz, float resonance,
                         float drive) noexcept;
     void renderVoice(Voice& voice, const Config& config, float lfo, float modWheel,
-                     float& left, float& right);
+                     float pitchBendSemitones, float& left, float& right);
 
     std::array<Layer, layerCount> layers {};
     std::array<std::atomic<float>, layerCount> peaks {};
     double sampleRate = 44100.0;
 };
+
