@@ -206,32 +206,22 @@ public:
 
     void resized() override
     {
-        if (analogHardwareLayout && knobs.size() == 20)
+        if (analogHardwareLayout && knobs.size() == 19)
         {
-            // Positions follow the five functional sections of the original
-            // Classic Keys Analog panel. They are deliberately explicit: a
-            // synth panel is read as an instrument, not as a generic form.
-            static constexpr std::array<std::array<float, 4>, 20> layout {{
-                {{ 182,  36, 82, 102 }}, {{ 278,  36, 82, 102 }}, {{ 374,  36, 82, 102 }},
-                {{ 225, 175, 82, 102 }}, {{ 330, 175, 82, 102 }}, {{ 480,  50, 82, 102 }},
-                {{ 635,  38, 82, 102 }}, {{ 728,  38, 82, 102 }}, {{ 821,  38, 82, 102 }},
-                {{ 625, 285, 72, 96  }}, {{ 700, 285, 72, 96  }}, {{ 775, 285, 72, 96  }},
-                {{ 850, 285, 72, 96  }}, {{  12,  42, 72, 96  }}, {{  92,  42, 72, 96  }},
-                {{  12, 180, 72, 96  }}, {{  92, 180, 72, 96  }}, {{ 535, 185, 72, 96  }},
-                {{ 650, 175, 72, 96  }}, {{ 745, 175, 72, 96  }}
-            }};
-
-            const auto sx = (float) getWidth() / 1000.0f;
-            const auto sy = (float) getHeight() / 410.0f;
+            // Keep every label and knob inside a predictable three-row grid.
+            // The old hand-written coordinates assumed a 1000px panel and
+            // overlapped when the editor was resized by JUCE on smaller Macs.
+            constexpr int gridColumns = 6;
+            const auto cellWidth = getWidth() / gridColumns;
+            const auto rowHeight = getHeight() / 3;
             for (int item = 0; item < knobs.size(); ++item)
             {
-                const auto& p = layout[(size_t) item];
-                auto cell = juce::Rectangle<int>(juce::roundToInt(p[0] * sx),
-                                                 juce::roundToInt(p[1] * sy),
-                                                 juce::roundToInt(p[2] * sx),
-                                                 juce::roundToInt(p[3] * sy)).reduced(2, 1);
+                const auto column = item % gridColumns;
+                const auto row = item / gridColumns;
+                auto cell = juce::Rectangle<int>(column * cellWidth, row * rowHeight,
+                                                 cellWidth, rowHeight).reduced(4, 2);
                 labels[item]->setBounds(cell.removeFromTop(18));
-                knobs[item]->setBounds(cell);
+                knobs[item]->setBounds(cell.reduced(2, 0));
             }
             return;
         }
@@ -430,7 +420,7 @@ public:
         }
 
         g.setColour(juce::Colour(0xffd4d0ca)); g.setFont(juce::FontOptions(10.0f));
-        g.drawText("Selecione um preset para carregar na hora ou ajuste os controles e aplique",
+        g.drawText("Selecione um preset ou ajuste os controles em tempo real.",
                    left + 8, top + 7, width - 16, 16, juce::Justification::centred);
 
         // Labels attached to the switches make the signal path readable even
@@ -1416,27 +1406,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
             &gain, &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel,
             &octave, &lowNote, &highNote, &velocityCurve, &midiDevice,
             &volumeLearn, &resetMidiLearnButton, &cutoffLearn, &reverbLearn,
-            &compressorLearn, &reverbEditButton, &compressorEditButton,
-            &cutoffLabel, &reverbLabel, &compressorLabel, &routingLabel, &meter
+            &compressorLearn, &reverbEditButton, &compressorEditButton, &meter
         };
         for (auto* control : controls)
             control->setVisible(false);
         resized();
         return;
     }
-    const std::initializer_list<juce::Component*> controls {
-        &loadButton, &externalInstrumentButton, &dx7Button, &deleteDx7LibraryButton,
-        &openExternalEditorButton, &deleteLibraryButton, &categoryBox, &libraryBox,
-        &presetBox, &externalInstrumentBox, &dx7LibraryBox, &dx7PatchBox, &fileLabel,
-        &gain, &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel,
-        &octave, &lowNote, &highNote, &velocityCurve, &midiDevice,
-        &volumeLearn, &resetMidiLearnButton, &cutoffLearn, &reverbLearn,
-        &compressorLearn, &reverbEditButton, &compressorEditButton,
-        &cutoffLabel, &reverbLabel, &compressorLabel, &routingLabel, &meter
-    };
-    for (auto* control : controls)
-        control->setVisible(true);
-    drumPadPanel.setVisible(false);
     fileLabel.setVisible(true);
     if (isAnalog)
         fileLabel.setText("CLASSIC KEYS ANALOG", juce::dontSendNotification);
@@ -2544,8 +2520,14 @@ void ClassicPlayerAudioProcessorEditor::removeLayer(int layer)
     if (!classicProcessor.removeLayer(layer)) return;
     displayedLayerCount = classicProcessor.activeLayerCount();
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
+    {
         if (strips[(size_t) i] != nullptr)
+        {
             strips[(size_t) i]->setVisible(i < displayedLayerCount);
+            if (i < displayedLayerCount)
+                strips[(size_t) i]->refresh();
+        }
+    }
     addLayerButton.setEnabled(displayedLayerCount < Sf2Engine::layerCount);
     layoutLayerStrips();
     applyMixerStates();
@@ -2585,3 +2567,4 @@ void ClassicPlayerAudioProcessorEditor::activate()
     else
         activationStatus.setText("Código de ativação inválido.", juce::dontSendNotification);
 }
+
