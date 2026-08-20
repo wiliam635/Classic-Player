@@ -223,6 +223,10 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         auto analogConfig = analogLayerConfigs[(size_t) i];
         analogConfig.routing = config;
         analogConfig.routing.enabled = config.enabled && layerType(i) == LayerType::analog;
+        // Analog Mono/Legato intentionally has no portamento mode.  Older
+        // saved programs may still carry the shared layer flag; do not let it
+        // turn every lead preset into a continuous theremin glide.
+        analogConfig.routing.portamento = false;
         analogLayerConfigs[(size_t) i] = analogConfig;
     }
     engine.process(buffer, midi, &routedMidiBuffers);
