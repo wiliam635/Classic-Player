@@ -211,9 +211,9 @@ public:
             // Keep every label and knob inside a predictable three-row grid.
             // The old hand-written coordinates assumed a 1000px panel and
             // overlapped when the editor was resized by JUCE on smaller Macs.
-            constexpr int gridColumns = 6;
+            constexpr int gridColumns = 5;
             const auto cellWidth = getWidth() / gridColumns;
-            const auto rowHeight = getHeight() / 3;
+            const auto rowHeight = getHeight() / 4;
             for (int item = 0; item < knobs.size(); ++item)
             {
                 const auto column = item % gridColumns;
@@ -423,16 +423,6 @@ public:
         g.drawText("Selecione um preset ou ajuste os controles em tempo real.",
                    left + 8, top + 7, width - 16, 16, juce::Justification::centred);
 
-        // Labels attached to the switches make the signal path readable even
-        // at notebook resolutions, where a dense synth panel must not depend
-        // on decorative artwork to explain its controls.
-        g.setColour(juce::Colour(0xffaaa69f));
-        g.setFont(juce::FontOptions(8.5f, juce::Font::bold));
-        g.drawText("OSC 1", 228, 120, 82, 14, juce::Justification::centred);
-        g.drawText("OSC 2", 367, 120, 82, 14, juce::Justification::centred);
-        g.drawText("OSC 3", 506, 120, 82, 14, juce::Justification::centred);
-        g.drawText("NOISE", 558, 151, 94, 14, juce::Justification::centred);
-
         // A simple output monitor belongs to the instrument panel, rather than
         // leaving the final section visually empty. The layer's master level
         // stays in Classic Player, so this is intentionally read-only.
@@ -453,12 +443,14 @@ public:
     void resized() override
     {
         presetBox.setBounds(25, 53, 270, 24);
-        const auto waveY = 108;
+        const auto waveY = 92;
         wave1.setBounds(204, waveY, 132, 26); wave2.setBounds(343, waveY, 132, 26); wave3.setBounds(482, waveY, 132, 26);
-        oscillator1On.setBounds(235, 134, 72, 20); oscillator2On.setBounds(374, 134, 72, 20);
-        oscillator3On.setBounds(513, 134, 72, 20); pinkNoise.setBounds(556, 164, 98, 20);
+        oscillator1On.setBounds(235, 120, 72, 20); oscillator2On.setBounds(374, 120, 72, 20);
+        oscillator3On.setBounds(513, 120, 72, 20); pinkNoise.setBounds(600, 120, 98, 20);
         monoPoly.setBounds(69, 112, 100, 25);
-        knobs.setBounds(22, 142, getWidth() - 44, getHeight() - 193);
+        // Reserve the right edge for the output meter and keep four complete
+        // rows of controls inside the cabinet on compact displays.
+        knobs.setBounds(22, 158, getWidth() - 180, getHeight() - 205);
     }
 
 private:
