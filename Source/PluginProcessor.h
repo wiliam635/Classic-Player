@@ -17,7 +17,7 @@ public:
     enum class LearnTarget { volume = 0, cutoff, reverb, compressor, release, count };
     // A source is chosen only when a new layer is created. The initial four
     // layers are SF2 by design.
-    enum class LayerType { sf2 = 0, vst, dx7, analog };
+    enum class LayerType { sf2 = 0, vst, dx7, analog, drumPads };
     ClassicPlayerAudioProcessor();
     ~ClassicPlayerAudioProcessor() override;
 
@@ -137,7 +137,7 @@ public:
 
     // Twelve independent drum pads. Pads are triggered by their own UI/MIDI
     // mapping and never enter the melodic keyboard/layer routing.
-    static constexpr int drumPadCount = 12;
+    static constexpr int drumPadCount = 8;
     juce::String drumPadName(int pad) const;
     juce::String drumPadPath(int pad) const;
     int drumPadMidiCC(int pad) const;
