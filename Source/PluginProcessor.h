@@ -141,6 +141,7 @@ public:
     juce::String drumPadName(int pad) const;
     juce::String drumPadPath(int pad) const;
     int drumPadMidiCC(int pad) const;
+    bool isDrumPadPlaying(int pad) const;
     void triggerDrumPad(int pad);
     void beginDrumPadMidiLearn(int pad);
     bool isDrumPadMidiLearning(int pad) const;
