@@ -324,7 +324,9 @@ public:
             applyFactoryPreset(presetBox.getSelectedId());
             // Preset selection is an audible action: update the layer now so
             // changing the name never requires a second confirmation click.
-            if (onPresetChanged)
+            if (onConfigChanged)
+                onConfigChanged(config());
+            else if (onPresetChanged)
                 onPresetChanged(config());
         };
         addAndMakeVisible(presetBox);
@@ -772,7 +774,8 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
     {
         auto& trigger = pads[(size_t) pad];
         const auto active = processor.isDrumPadPlaying(pad);
-        trigger.setButtonText(processor.drumPadName(pad));
+        const auto samplePath = processor.drumPadPath(pad);
+        trigger.setButtonText(samplePath.isNotEmpty() ? processor.drumPadName(pad) : juce::String{});
         trigger.setColour(juce::TextButton::buttonColourId,
                           active ? juce::Colour(yellow) : juce::Colour(0xfff4f4ee));
         trigger.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff15191d));
@@ -785,16 +788,17 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
 
 void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
 {
-    constexpr int columns = 4;
+    constexpr int columns = 2;
     const auto cellWidth = getWidth() / columns;
+    constexpr int rowHeight = 128;
     for (int pad = 0; pad < ClassicPlayerAudioProcessor::drumPadCount; ++pad)
     {
         const auto column = pad % columns;
         const auto row = pad / columns;
-        auto cell = juce::Rectangle<int>(column * cellWidth, row * 62,
-                                         cellWidth, 60).reduced(3, 2);
-        pads[(size_t) pad].setBounds(cell.removeFromTop(30));
-        auto buttons = cell.removeFromBottom(25);
+        auto cell = juce::Rectangle<int>(column * cellWidth, row * rowHeight,
+                                         cellWidth, rowHeight - 4).reduced(5, 3);
+        pads[(size_t) pad].setBounds(cell.removeFromTop(cell.getHeight() - 30));
+        auto buttons = cell.removeFromBottom(27);
         loadButtons[(size_t) pad].setBounds(buttons.removeFromLeft(buttons.getWidth() / 2).reduced(1, 0));
         learnButtons[(size_t) pad].setBounds(buttons.reduced(1, 0));
     }
