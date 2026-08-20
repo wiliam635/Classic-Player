@@ -1041,11 +1041,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
     dialog->addButton("APLICAR", 1, juce::KeyPress(juce::KeyPress::returnKey));
     dialog->addButton("CANCELAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
-    controls->onPresetChanged = [safe, index](const AnalogSynthEngine::Config& config)
-    {
-        if (safe != nullptr)
-            safe->processor.setAnalogSynthConfig(index, config);
-    };
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, dialog, knobs, prefix](int result)
         {
