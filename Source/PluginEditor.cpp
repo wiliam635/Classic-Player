@@ -1145,7 +1145,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     const auto type = processor.layerType(index);
     if (type == ClassicPlayerAudioProcessor::LayerType::drumPads)
     {
-        drumPadPanel.setBounds(getLocalBounds().reduced(5));
+        drumPadPanel.setBounds(area.reduced(0, 2));
         return;
     }
     if (type == ClassicPlayerAudioProcessor::LayerType::sf2)
