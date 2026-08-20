@@ -1662,7 +1662,15 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 const auto path = state.getProperty(
                     "drumPadPath" + juce::String(pad + 1)).toString();
                 if (path.isNotEmpty())
-                    loadDrumPad(pad, juce::File(path));
+                {
+                    if (loadDrumPad(pad, juce::File(path)).failed())
+                    {
+                        const juce::ScopedLock padLock(drumPadLock);
+                        drumPad.audio.setSize(0, 0);
+                        drumPad.path.clear();
+                        drumPad.position.store(-1, std::memory_order_release);
+                    }
+                }
                 else
                 {
                     const juce::ScopedLock padLock(drumPadLock);
