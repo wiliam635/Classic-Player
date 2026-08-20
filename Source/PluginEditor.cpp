@@ -414,7 +414,7 @@ public:
         for (int i = 0; i < 8; ++i)
         {
             const auto segment = meter.withTrimmedTop((float) i * 21.0f).withHeight(15.0f).reduced(4.0f, 1.0f);
-            g.setColour(i < 5 ? juce::Colour(teal) : (i < 7 ? juce::Colour(yellow) : juce::Colour(0xffcd5a42));
+            g.setColour(i < 5 ? juce::Colour(teal) : (i < 7 ? juce::Colour(yellow) : juce::Colour(0xffcd5a42)));
             g.fillRoundedRectangle(segment, 1.0f);
         }
         g.setColour(juce::Colour(0xffd6d2cc)); g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
