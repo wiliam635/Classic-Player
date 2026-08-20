@@ -89,6 +89,8 @@ private:
         int selectedProgram = 0;
         int monoNote = -1;
         int monoChannel = 1;
+        // FluidSynth uses the standard 14-bit pitch-bend domain.
+        int pitchBendValue = 8192;
         bool sustainDown = false;
         std::array<bool, 128> heldNotes {};
         std::array<float, 128> heldVelocities {};
