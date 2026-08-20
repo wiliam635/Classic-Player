@@ -1369,15 +1369,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     deleteDx7LibraryButton.setVisible(isDx7);
     if (isDrumPads)
     {
-        for (auto* control : { static_cast<juce::Component*>(&loadButton), &externalInstrumentButton,
-                               &dx7Button, &deleteDx7LibraryButton, &openExternalEditorButton,
-                               &deleteLibraryButton, &categoryBox, &libraryBox, &presetBox,
-                               &externalInstrumentBox, &dx7LibraryBox, &dx7PatchBox, &fileLabel,
-                               &gain, &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel,
-                               &octave, &lowNote, &highNote, &velocityCurve, &midiDevice,
-                               &volumeLearn, &resetMidiLearnButton, &cutoffLearn, &reverbLearn,
-                               &compressorLearn, &reverbEditButton, &compressorEditButton,
-                               &meter })
+        const std::initializer_list<juce::Component*> controls {
+            &loadButton, &externalInstrumentButton, &dx7Button, &deleteDx7LibraryButton,
+            &openExternalEditorButton, &deleteLibraryButton, &categoryBox, &libraryBox,
+            &presetBox, &externalInstrumentBox, &dx7LibraryBox, &dx7PatchBox, &fileLabel,
+            &gain, &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel,
+            &octave, &lowNote, &highNote, &velocityCurve, &midiDevice,
+            &volumeLearn, &resetMidiLearnButton, &cutoffLearn, &reverbLearn,
+            &compressorLearn, &reverbEditButton, &compressorEditButton, &meter
+        };
+        for (auto* control : controls)
             control->setVisible(false);
         resized();
         return;
