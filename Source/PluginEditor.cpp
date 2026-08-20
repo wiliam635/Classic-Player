@@ -1430,8 +1430,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     dx7PatchBox.setVisible(isDx7);
     deleteDx7LibraryButton.setVisible(isDx7);
     editButton.setVisible(! isDrumPads);
-    sourceSummary.setText(isSf2 ? "SF2" : isDx7 ? "DX7" : isAnalog ? "CLASSIC KEYS ANALOG"
-                                             : isVst ? "VST" : "DRUM PADS",
+    sourceSummary.setText(fileLabel.getText().isNotEmpty()
+                              ? fileLabel.getText()
+                              : (isSf2 ? "SF2" : isDx7 ? "DX7" : isAnalog ? "CLASSIC KEYS ANALOG"
+                                                   : isVst ? "VST" : "DRUM PADS"),
                           juce::dontSendNotification);
     if (isDrumPads)
     {
