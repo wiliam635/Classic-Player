@@ -423,31 +423,49 @@ public:
         g.drawText("Selecione um preset ou ajuste os controles em tempo real.",
                    left + 8, top + 7, width - 16, 16, juce::Justification::centred);
 
-        // A simple output monitor belongs to the instrument panel, rather than
-        // leaving the final section visually empty. The layer's master level
-        // stays in Classic Player, so this is intentionally read-only.
-        const auto meter = juce::Rectangle<float>((float) left + width * 0.905f, (float) top + 76.0f,
-                                                   width * 0.055f, 180.0f);
-        g.setColour(juce::Colour(0xff080909)); g.fillRoundedRectangle(meter, 3.0f);
-        for (int i = 0; i < 8; ++i)
+        // Replace the non-functional static meter with a compact oscilloscope.
+        // It is intentionally a visual monitor: audio metering remains in the
+        // main layer, while this display makes the Analog editor feel alive.
+        const auto scope = juce::Rectangle<float>((float) left + width * 0.895f,
+                                                  (float) top + 76.0f,
+                                                  width * 0.085f, 118.0f);
+        g.setColour(juce::Colour(0xff080909));
+        g.fillRoundedRectangle(scope, 3.0f);
+        g.setColour(juce::Colour(0xff4d3d20));
+        g.drawRoundedRectangle(scope, 3.0f, 1.0f);
+        g.setColour(juce::Colour(0xff2b2b22));
+        g.drawHorizontalLine(juce::roundToInt(scope.getCentreY()), scope.getX() + 4.0f, scope.getRight() - 4.0f);
+        juce::Path waveform;
+        for (int sample = 0; sample <= 48; ++sample)
         {
-            const auto segment = meter.withTrimmedTop((float) i * 21.0f).withHeight(15.0f).reduced(4.0f, 1.0f);
-            g.setColour(i < 5 ? juce::Colour(teal) : (i < 7 ? juce::Colour(yellow) : juce::Colour(0xffcd5a42)));
-            g.fillRoundedRectangle(segment, 1.0f);
+            const auto t = static_cast<float>(sample) / 48.0f;
+            const auto y = scope.getCentreY() - std::sin(t * juce::MathConstants<float>::twoPi * 2.0f)
+                                           * scope.getHeight() * 0.32f;
+            const auto xPos = scope.getX() + 5.0f + t * (scope.getWidth() - 10.0f);
+            if (sample == 0) waveform.startNewSubPath(xPos, y);
+            else waveform.lineTo(xPos, y);
         }
+        g.setColour(juce::Colour(0xffe09a27));
+        g.strokePath(waveform, juce::PathStrokeType(1.5f));
         g.setColour(juce::Colour(0xffd6d2cc)); g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
-        g.drawText("OUTPUT", meter.getX() - 12.0f, meter.getBottom() + 9.0f, meter.getWidth() + 24.0f, 14.0f,
-                   juce::Justification::centred);
+        g.drawText("OSCILLOSCOPE", scope.getX() - 8.0f, scope.getBottom() + 9.0f,
+                   scope.getWidth() + 16.0f, 14.0f, juce::Justification::centred);
     }
 
     void resized() override
     {
-        presetBox.setBounds(25, 53, 270, 24);
+        const auto w = getWidth();
+        presetBox.setBounds(25, 53, juce::jmin(270, w / 3), 24);
         const auto waveY = 92;
-        wave1.setBounds(204, waveY, 132, 26); wave2.setBounds(343, waveY, 132, 26); wave3.setBounds(482, waveY, 132, 26);
-        oscillator1On.setBounds(235, 120, 72, 20); oscillator2On.setBounds(374, 120, 72, 20);
-        oscillator3On.setBounds(513, 120, 72, 20); pinkNoise.setBounds(600, 120, 98, 20);
-        monoPoly.setBounds(69, 112, 100, 25);
+        const auto waveWidth = juce::jmax(92, (w - 260) / 5);
+        wave1.setBounds(juce::roundToInt(w * 0.20f), waveY, waveWidth, 26);
+        wave2.setBounds(juce::roundToInt(w * 0.36f), waveY, waveWidth, 26);
+        wave3.setBounds(juce::roundToInt(w * 0.52f), waveY, waveWidth, 26);
+        oscillator1On.setBounds(wave1.getX() + 8, 120, waveWidth - 16, 20);
+        oscillator2On.setBounds(wave2.getX() + 8, 120, waveWidth - 16, 20);
+        oscillator3On.setBounds(wave3.getX() + 8, 120, waveWidth - 16, 20);
+        pinkNoise.setBounds(juce::roundToInt(w * 0.70f), 120, juce::jmin(98, w / 8), 20);
+        monoPoly.setBounds(juce::roundToInt(w * 0.07f), 112, juce::jmin(100, w / 7), 25);
         // Reserve the right edge for the output meter and keep four complete
         // rows of controls inside the cabinet on compact displays.
         knobs.setBounds(22, 158, getWidth() - 180, getHeight() - 205);
