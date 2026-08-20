@@ -179,26 +179,28 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // activation refresh must never make the MIDI UI appear disconnected.
     keyboardState.processNextMidiBuffer(midi, 0, buffer.getNumSamples(), true);
 
+    auto inspectDrumPadMidi = [this](const juce::MidiMessage& message)
+    {
+        if (!message.isController()) return;
+        for (auto& pad : drumPads)
+        {
+            if (pad.learning.exchange(false, std::memory_order_acq_rel))
+            {
+                pad.midiCC.store(message.getControllerNumber(), std::memory_order_release);
+                pad.trigger.store(1, std::memory_order_release);
+            }
+            else if (pad.midiCC.load(std::memory_order_acquire) == message.getControllerNumber()
+                     && message.getControllerValue() >= 64)
+            {
+                pad.trigger.store(1, std::memory_order_release);
+            }
+        }
+    };
+
     for (const auto metadata : midi)
     {
         processLiveSetSlotMidiMessage(metadata.getMessage());
-        const auto& message = metadata.getMessage();
-        if (message.isController())
-        {
-            for (auto& pad : drumPads)
-            {
-                if (pad.learning.exchange(false, std::memory_order_acq_rel))
-                {
-                    pad.midiCC.store(message.getControllerNumber(), std::memory_order_release);
-                    pad.trigger.store(1, std::memory_order_release);
-                }
-                else if (pad.midiCC.load(std::memory_order_acquire) == message.getControllerNumber()
-                         && message.getControllerValue() >= 64)
-                {
-                    pad.trigger.store(1, std::memory_order_release);
-                }
-            }
-        }
+        inspectDrumPadMidi(metadata.getMessage());
         processMidiControlMessage(metadata.getMessage());
     }
 
@@ -207,6 +209,8 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         routedMidiBuffers[(size_t) layer].clear();
         routedMidiCollectors[(size_t) layer].removeNextBlockOfMessages(
             routedMidiBuffers[(size_t) layer], buffer.getNumSamples());
+        for (const auto metadata : routedMidiBuffers[(size_t) layer])
+            inspectDrumPadMidi(metadata.getMessage());
     }
     visualMidiBuffer.clear();
     visualMidiCollector.removeNextBlockOfMessages(visualMidiBuffer, buffer.getNumSamples());
