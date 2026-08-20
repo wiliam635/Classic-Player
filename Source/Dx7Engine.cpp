@@ -385,6 +385,16 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
         return;
     }
 
+    if (message.isPitchWheel())
+    {
+        // MSFA/Dexed applies this 14-bit controller during compute(), so keep
+        // the wheel in its native MIDI range and let the configured DX7 bend
+        // range remain in effect for every operator.
+        controllers.values_[kControllerPitch]
+            = juce::jlimit(0, 16383, message.getPitchWheelValue());
+        return;
+    }
+
     if (message.isController() && message.getControllerNumber() == 64)
     {
         if (!config.sustainEnabled) return;
