@@ -33,6 +33,7 @@ void Sf2Engine::createSynth(Layer& layer)
     layer.soundFontId = -1;
     layer.monoNote = -1;
     layer.monoChannel = 1;
+    layer.pitchBendValue = 8192;
     layer.sustainDown = false;
     layer.heldNotes.fill(false);
     layer.heldVelocities.fill(0.0f);
@@ -293,7 +294,12 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
     if (!message.isNoteOnOrOff())
     {
         if (message.isPitchWheel())
-            fluid_synth_pitch_bend(layer.synth.get(), channel - 1, message.getPitchWheelValue());
+        {
+            // Keep the layer state explicit and forward the full 14-bit value
+            // to FluidSynth so SF2 pitch bend matches DX7 and Analog layers.
+            layer.pitchBendValue = juce::jlimit(0, 16383, message.getPitchWheelValue());
+            fluid_synth_pitch_bend(layer.synth.get(), channel - 1, layer.pitchBendValue);
+        }
         else if (message.isProgramChange())
             fluid_synth_program_change(layer.synth.get(), channel - 1, message.getProgramChangeNumber());
         return;
