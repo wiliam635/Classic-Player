@@ -232,8 +232,9 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
     voice->velocity = juce::jlimit(0.0f, 1.0f, velocity);
     voice->targetFrequency = frequency;
 
-    if (!legato || config.glideMs <= 0.0f)
-        voice->currentFrequency = frequency;
+    // Analog uses the browser's Mono/Legato behavior: retune immediately and
+    // preserve the envelope while another key is held. There is no glide mode.
+    voice->currentFrequency = frequency;
 
     if (!legato)
     {
@@ -346,15 +347,9 @@ float AnalogSynthEngine::processLadder(Voice& voice, float input, float cutoffHz
 void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lfo,
                                     float modWheel, float& left, float& right)
 {
-    // The browser implementation uses glide as a display/control value but
-    // deliberately keeps portamento disabled.  Mono/legato must retune
-    // immediately; applying glide unconditionally makes lead presets behave
-    // like a theremin.  Only an explicitly enabled routing portamento may
-    // interpolate the oscillator frequency.
-    const auto glideStep = !config.routing.portamento || config.glideMs <= 0.0f ? 1.0f
-        : juce::jlimit(0.00001f, 1.0f,
-            1.0f / (config.glideMs * 0.001f * static_cast<float>(sampleRate)));
-    voice.currentFrequency += (voice.targetFrequency - voice.currentFrequency) * glideStep;
+    // No portamento/glide in Analog: Mono/Legato transitions are immediate,
+    // matching the browser implementation and avoiding theremin-like slides.
+    voice.currentFrequency = voice.targetFrequency;
 
     const auto amp = nextEnvelope(voice.amp, config.ampAttackMs, config.ampDecayMs,
                                   config.ampSustain, config.ampReleaseMs, sampleRate);
