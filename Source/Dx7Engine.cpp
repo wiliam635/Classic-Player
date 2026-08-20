@@ -37,6 +37,7 @@ void Dx7Engine::prepare(double newSampleRate, int newMaximumBlockSize)
         layer.lfoDelayProgress = 0.0;
         layer.dcInput = {};
         layer.dcOutput = {};
+        layer.deClickPrevious = {};
     }
     // MSFA/Dexed lookup tables are sample-rate dependent. Initialising them
     // here prevents silent/invalid oscillator output on the first DX7 note.
@@ -583,7 +584,18 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
                                 + 0.995f * layer.dcOutput[(size_t) channel];
             layer.dcInput[(size_t) channel] = input;
             layer.dcOutput[(size_t) channel] = filtered;
-            dry[sample] = filtered;
+
+            // A very large one-sample jump is an audio click, not a musical
+            // transient. Limit only that abnormal jump; ordinary DX7 attacks
+            // and high-frequency harmonics remain untouched.
+            auto& previous = layer.deClickPrevious[(size_t) channel];
+            const auto jump = filtered - previous;
+            constexpr float maxClickJump = 0.32f;
+            const auto guarded = std::abs(jump) > maxClickJump
+                ? previous + juce::jlimit(-maxClickJump, maxClickJump, jump)
+                : filtered;
+            previous = guarded;
+            dry[sample] = guarded;
         }
         layer.chorusWritePosition = (layer.chorusWritePosition + 1) % delayLength;
         layer.chorusPhase += juce::MathConstants<double>::twoPi * 0.28 / sampleRate;
