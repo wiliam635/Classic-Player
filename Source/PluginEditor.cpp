@@ -775,8 +775,8 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
     constexpr int columns = 4;\n    const auto cellWidth = getWidth() / columns;
     for (int pad = 0; pad < ClassicPlayerAudioProcessor::drumPadCount; ++pad)
     {
-        const auto column = pad % 6;
-        const auto row = pad / 6;
+        const auto column = pad % columns;
+        const auto row = pad / columns;
         auto cell = juce::Rectangle<int>(column * cellWidth, row * 62,
                                          cellWidth, 60).reduced(3, 2);
         pads[(size_t) pad].setBounds(cell.removeFromTop(30));
