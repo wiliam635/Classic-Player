@@ -345,7 +345,8 @@ float AnalogSynthEngine::processLadder(Voice& voice, float input, float cutoffHz
 }
 
 void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lfo,
-                                    float modWheel, float& left, float& right)
+                                    float modWheel, float pitchBendSemitones,
+                                    float& left, float& right)
 {
     // No portamento/glide in Analog: Mono/Legato transitions are immediate,
     // matching the browser implementation and avoiding theremin-like slides.
@@ -363,7 +364,8 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
     }
 
     const auto pitchDepth = config.lfoToPitch + modWheel * config.modWheelToPitch;
-    const auto pitchRatio = std::pow(2.0f, (lfo * pitchDepth) / 12.0f);
+    const auto pitchRatio = std::pow(2.0f,
+        (pitchBendSemitones + lfo * pitchDepth) / 12.0f);
     const auto base = voice.currentFrequency * pitchRatio;
     const auto ratio2 = std::pow(2.0f, (config.oscillator2Semitones
                                          + config.oscillator2FineCents * 0.01f) / 12.0f);
@@ -424,6 +426,15 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
         if (message.isController() && message.getControllerNumber() == 1)
         {
             layer.modWheel = static_cast<float>(message.getControllerValue()) / 127.0f;
+        }
+        else if (message.isPitchWheel())
+        {
+            // Standard MIDI pitch-bend range is ±2 semitones. Apply it to all
+            // active voices in the layer, preserving their envelopes and
+            // phases so bending never retriggers or clicks the note.
+            const auto normalized = (static_cast<float>(message.getPitchWheelValue()) - 8192.0f)
+                                  / 8192.0f;
+            layer.pitchBendSemitones = juce::jlimit(-2.0f, 2.0f, normalized * 2.0f);
         }
         else if (message.isController() && message.getControllerNumber() == 64)
         {
@@ -487,7 +498,8 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
 
             for (auto& voice : layer.voices)
                 if (voice.active)
-                    renderVoice(voice, config, lfo, layer.modWheel, left, right);
+                    renderVoice(voice, config, lfo, layer.modWheel,
+                               layer.pitchBendSemitones, left, right);
 
             peak = juce::jmax(peak, juce::jmax(std::abs(left), std::abs(right)));
             if (output.getNumChannels() > 0)
@@ -499,3 +511,4 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
         peaks[static_cast<size_t>(layerIndex)].store(peak, std::memory_order_relaxed);
     }
 }
+
