@@ -772,7 +772,7 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
 
 void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
 {
-    const auto cellWidth = getWidth() / 6;
+    constexpr int columns = 4;\n    const auto cellWidth = getWidth() / columns;
     for (int pad = 0; pad < ClassicPlayerAudioProcessor::drumPadCount; ++pad)
     {
         const auto column = pad % 6;
