@@ -70,6 +70,7 @@ private:
         void setEngineEnabled(bool);
         bool isMuted() const { return muted; }
         bool isSolo() const { return solo; }
+        bool isExpanded() const { return expanded; }
         void setRemoveCallback(std::function<void()> callback) { removeLayerCallback = std::move(callback); }
 
     private:
@@ -99,6 +100,7 @@ private:
         std::function<void()> removeLayerCallback;
         bool muted = false;
         bool solo = false;
+        bool expanded = false;
         std::vector<Sf2Engine::Preset> presets;
         juce::Array<juce::File> libraryFiles;
         juce::Array<juce::File> externalInstrumentFiles;
@@ -109,6 +111,7 @@ private:
         juce::TextButton soloButton { "S" };
         juce::TextButton resetButton { "RESET" };
         juce::TextButton removeButton { "X" };
+        juce::TextButton editButton { "EDITAR" };
         juce::TextButton loadButton { "IMPORTAR SF2" };
         juce::TextButton externalInstrumentButton { "CARREGAR VST" };
         juce::TextButton dx7Button { "IMPORTAR DX7" };
@@ -119,6 +122,7 @@ private:
         juce::ComboBox dx7PatchBox;
         juce::TextButton deleteLibraryButton { "EXCLUIR SF2" };
         juce::Label fileLabel;
+        juce::Label sourceSummary;
         juce::ComboBox categoryBox;
         juce::ComboBox libraryBox;
         juce::ComboBox presetBox;
@@ -215,6 +219,7 @@ private:
     juce::Component layerContent;
     std::array<std::unique_ptr<LayerStrip>, Sf2Engine::layerCount> strips;
     NamedKeyboard keyboard;
+
     juce::Component activationPanel;
     juce::Label activationTitle;
     juce::Label activationHelp;
