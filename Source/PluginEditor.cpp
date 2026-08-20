@@ -182,6 +182,13 @@ public:
             knobs[item]->setValue(newValue, juce::dontSendNotification);
     }
 
+    void setOnValueChange(std::function<void()> callback)
+    {
+        onValueChange = std::move(callback);
+        for (auto* knob : knobs)
+            knob->onValueChange = [this] { if (onValueChange) onValueChange(); };
+    }
+
     void resized() override
     {
         if (analogHardwareLayout && knobs.size() == 20)
@@ -228,6 +235,7 @@ public:
 private:
     int columns = 1;
     bool analogHardwareLayout = false;
+    std::function<void()> onValueChange;
     juce::OwnedArray<juce::Label> labels;
     juce::OwnedArray<juce::Slider> knobs;
 };
@@ -329,6 +337,9 @@ public:
         addAndMakeVisible(pinkNoise);
         addAndMakeVisible(monoPoly);
         knobs.useAnalogHardwareLayout(true);
+        knobs.setOnValueChange([this] { if (onConfigChanged) onConfigChanged(config()); });
+        for (auto* button : { &oscillator1On, &oscillator2On, &oscillator3On, &pinkNoise })
+            button->onClick = [this] { if (onConfigChanged) onConfigChanged(config()); };
         addAndMakeVisible(knobs);
         setSize(1120, 650);
     }
@@ -359,6 +370,7 @@ public:
     }
 
     std::function<void(const AnalogSynthEngine::Config&)> onPresetChanged;
+    std::function<void(const AnalogSynthEngine::Config&)> onConfigChanged;
 
     void paint(juce::Graphics& g) override
     {
@@ -559,6 +571,7 @@ private:
             auto value = static_cast<int>(waves[(size_t) oscillator]);
             waves[(size_t) oscillator] = static_cast<AnalogSynthEngine::Waveform>((value + 1) % 5);
             buttonPtr->setButtonText("OSC " + juce::String(oscillator + 1) + " - " + waveformName(waves[(size_t) oscillator]));
+            if (onConfigChanged) onConfigChanged(config());
         };
         button.setButtonText("OSC " + juce::String(oscillator + 1) + " - " + waveformName(waves[(size_t) oscillator]));
     }
@@ -578,7 +591,7 @@ private:
         flatButton(monoPoly);
         monoPoly.setClickingTogglesState(true);
         monoPoly.setToggleState(monophonic, juce::dontSendNotification);
-        monoPoly.onClick = [this] { updateMonoPolyText(); };
+        monoPoly.onClick = [this] { updateMonoPolyText(); if (onConfigChanged) onConfigChanged(config()); };
         updateMonoPolyText();
     }
 
@@ -1967,15 +1980,15 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* controls = new AnalogSynthEditorPanel(processor.analogSynthConfig(index));
     dialog->addCustomComponent(controls);
-    dialog->addButton("APLICAR", 1, juce::KeyPress(juce::KeyPress::returnKey));
-    dialog->addButton("CANCELAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
+    controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
+    {
+        if (safe != nullptr)
+            safe->processor.setAnalogSynthConfig(safe->index, config);
+    };
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
-        [safe, controls](int result)
-        {
-            if (safe != nullptr && result == 1)
-                safe->processor.setAnalogSynthConfig(safe->index, controls->config());
-        }), true);
+        [](int) {}), true);
 }
 
 void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
