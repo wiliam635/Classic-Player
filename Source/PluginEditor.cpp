@@ -788,12 +788,14 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
 
 ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     ClassicPlayerAudioProcessor& p, int layerIndex, std::function<void()> mixChanged)
-    : processor(p), index(layerIndex), mixStateChanged(std::move(mixChanged))
+    : processor(p), index(layerIndex), mixStateChanged(std::move(mixChanged)), drumPadPanel(p)
 {
     layerTitle.setText("LAYER " + juce::String(index + 1), juce::dontSendNotification);
     layerTitle.setFont(juce::FontOptions(14.0f, juce::Font::bold));
     layerTitle.setColour(juce::Label::textColourId, juce::Colour(text));
     addAndMakeVisible(layerTitle);
+    addAndMakeVisible(drumPadPanel);
+    drumPadPanel.setVisible(false);
 
     for (auto* button : { &muteButton, &soloButton, &resetButton, &removeButton, &loadButton,
                           &externalInstrumentButton, &dx7Button, &deleteDx7LibraryButton, &openExternalEditorButton, &deleteLibraryButton })
@@ -1141,6 +1143,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     removeButton.setBounds(top.removeFromRight(24).reduced(1));
     area.removeFromTop(5);
     const auto type = processor.layerType(index);
+    if (type == ClassicPlayerAudioProcessor::LayerType::drumPads)
+    {
+        drumPadPanel.setBounds(getLocalBounds().reduced(5));
+        return;
+    }
     if (type == ClassicPlayerAudioProcessor::LayerType::sf2)
     {
         loadButton.setBounds(area.removeFromTop(28));
@@ -1345,6 +1352,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     const auto isVst = type == ClassicPlayerAudioProcessor::LayerType::vst;
     const auto isDx7 = type == ClassicPlayerAudioProcessor::LayerType::dx7;
     const auto isAnalog = type == ClassicPlayerAudioProcessor::LayerType::analog;
+    const auto isDrumPads = type == ClassicPlayerAudioProcessor::LayerType::drumPads;
+    drumPadPanel.setVisible(isDrumPads);
     loadButton.setVisible(isSf2);
     categoryBox.setVisible(isSf2);
     libraryBox.setVisible(isSf2);
@@ -1357,6 +1366,22 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     dx7LibraryBox.setVisible(isDx7);
     dx7PatchBox.setVisible(isDx7);
     deleteDx7LibraryButton.setVisible(isDx7);
+    if (isDrumPads)
+    {
+        for (auto* control : { static_cast<juce::Component*>(&layerTitle), &muteButton, &soloButton,
+                               &resetButton, &removeButton, &loadButton, &externalInstrumentButton,
+                               &dx7Button, &deleteDx7LibraryButton, &openExternalEditorButton,
+                               &deleteLibraryButton, &categoryBox, &libraryBox, &presetBox,
+                               &externalInstrumentBox, &dx7LibraryBox, &dx7PatchBox, &fileLabel,
+                               &gain, &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel,
+                               &octave, &lowNote, &highNote, &velocityCurve, &midiDevice,
+                               &volumeLearn, &resetMidiLearnButton, &cutoffLearn, &reverbLearn,
+                               &compressorLearn, &reverbEditButton, &compressorEditButton,
+                               &meter })
+            control->setVisible(false);
+        resized();
+        return;
+    }
     fileLabel.setVisible(true);
     if (isAnalog)
         fileLabel.setText("CLASSIC KEYS ANALOG", juce::dontSendNotification);
@@ -1540,6 +1565,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::deleteSelectedDx7Bank()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
 {
     const auto type = processor.layerType(index);
+    if (type == ClassicPlayerAudioProcessor::LayerType::drumPads)
+    {
+        updateSourceTypeVisibility();
+        drumPadPanel.refresh();
+        return;
+    }
     const auto path = processor.soundFontPath(index);
     const auto externalName = processor.externalInstrumentName(index);
     const auto dx7Name = processor.dx7PatchName(index);
@@ -1651,7 +1682,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMidiLearnState()
 }
 
 ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlayerAudioProcessor& p)
-    : AudioProcessorEditor(&p), classicProcessor(p), keyboard(p.keyboardState), drumPadPanel(p)
+    : AudioProcessorEditor(&p), classicProcessor(p), keyboard(p.keyboardState)
 {
     juce::Logger::writeToLog("Editor Classic Player inicializado");
     setLookAndFeel(&classicLookAndFeel);
@@ -1752,13 +1783,15 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
         menu.addItem(1, "Layer SF2");
         menu.addItem(2, "Layer DX7 (.syx)");
         menu.addItem(3, "Classic Keys Analog");
+        menu.addItem(4, "Layer Drum Pads (8)");
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addLayerButton),
             [safeThis = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this)](int choice)
             {
                 if (safeThis == nullptr || choice == 0) return;
                 const auto type = choice == 1 ? ClassicPlayerAudioProcessor::LayerType::sf2
                                 : choice == 2 ? ClassicPlayerAudioProcessor::LayerType::dx7
-                                              : ClassicPlayerAudioProcessor::LayerType::analog;
+                                : choice == 3 ? ClassicPlayerAudioProcessor::LayerType::analog
+                                              : ClassicPlayerAudioProcessor::LayerType::drumPads;
                 safeThis->addLayer(type);
             });
     };
@@ -1880,7 +1913,6 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     }
     addLayerButton.setEnabled(visibleLayerCount < Sf2Engine::layerCount);
     addAndMakeVisible(keyboard);
-    addAndMakeVisible(drumPadPanel);
     classicProcessor.keyboardState.addListener(this);
 
     addAndMakeVisible(activationPanel);
@@ -2088,8 +2120,6 @@ void ClassicPlayerAudioProcessorEditor::resized()
         layerViewport.setBounds(area);
         layoutLayerStrips();
     }
-    if (showingLiveSet)
-        drumPadPanel.setVisible(false);
 
     activationPanel.setBounds(getLocalBounds());
     auto activation = activationPanel.getLocalBounds().withSizeKeepingCentre(
@@ -2108,7 +2138,6 @@ void ClassicPlayerAudioProcessorEditor::resized()
 void ClassicPlayerAudioProcessorEditor::timerCallback()
 {
     classicProcessor.consumeMidiControlUpdates();
-    drumPadPanel.refresh();
     if (classicProcessor.consumeLiveSetSlotMidiLearnChanged())
     {
         classicProcessor.saveLiveSetSlotMidiLearnState();
