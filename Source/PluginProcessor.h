@@ -135,6 +135,17 @@ public:
     bool consumeLiveSetSlotMidiLearnChanged();
     void saveLiveSetSlotMidiLearnState() const;
 
+    // Twelve independent drum pads. Pads are triggered by their own UI/MIDI
+    // mapping and never enter the melodic keyboard/layer routing.
+    static constexpr int drumPadCount = 12;
+    juce::String drumPadName(int pad) const;
+    juce::String drumPadPath(int pad) const;
+    int drumPadMidiCC(int pad) const;
+    void triggerDrumPad(int pad);
+    void beginDrumPadMidiLearn(int pad);
+    bool isDrumPadMidiLearning(int pad) const;
+    juce::Result loadDrumPad(int pad, const juce::File& file);
+
     void refreshActivation();
     bool isActivated() const { return activated.load(); }
     juce::AudioProcessorValueTreeState parameters;
@@ -154,6 +165,7 @@ private:
     void loadLiveSetState();
     void saveLiveSetState() const;
     void updateMasterEq();
+    void processDrumPads(juce::AudioBuffer<float>&, const juce::MidiBuffer&);
 
     Sf2Engine engine;
     Dx7Engine dx7Engine;
@@ -212,6 +224,18 @@ private:
     juce::StringArray registeredMidiInputIds;
     std::array<juce::String, liveSetBankCount * liveSetSlotsPerBank> liveSetPrograms;
     mutable juce::CriticalSection liveSetLock;
+    struct DrumPadState
+    {
+        juce::AudioBuffer<float> audio;
+        juce::String path;
+        std::atomic<int> trigger { 0 };
+        std::atomic<int> position { -1 };
+        std::atomic<int> midiCC { -1 };
+        std::atomic<bool> learning { false };
+    };
+    std::array<DrumPadState, drumPadCount> drumPads;
+    juce::AudioFormatManager drumPadFormats;
+    mutable juce::CriticalSection drumPadLock;
     std::atomic<bool> activated { false };
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ClassicPlayerAudioProcessor)
 };
