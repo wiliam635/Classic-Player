@@ -2323,10 +2323,8 @@ void ClassicPlayerAudioProcessorEditor::refreshLiveSet()
         const auto name = classicProcessor.liveSetSlotName(activeLiveSetBank, slot);
         const auto layers = classicProcessor.liveSetSlotLayerSummary(activeLiveSetBank, slot);
         button.setButtonText(juce::String(slot + 1).paddedLeft('0', 2)
-                             + "
-" + (name.isNotEmpty() ? name : "SEM PERFORMANCE")
-                             + (layers.isNotEmpty() ? "
-" + layers : juce::String{}));
+                             + "\n" + (name.isNotEmpty() ? name : "SEM PERFORMANCE")
+                             + (layers.isNotEmpty() ? "\n" + layers : juce::String{}));
         const auto active = slot == activeLiveSetSlot;
         button.setColour(juce::TextButton::buttonColourId,
                          active ? juce::Colour(yellow) : juce::Colour(panel));
