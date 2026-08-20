@@ -346,7 +346,12 @@ float AnalogSynthEngine::processLadder(Voice& voice, float input, float cutoffHz
 void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lfo,
                                     float modWheel, float& left, float& right)
 {
-    const auto glideStep = config.glideMs <= 0.0f ? 1.0f
+    // The browser implementation uses glide as a display/control value but
+    // deliberately keeps portamento disabled.  Mono/legato must retune
+    // immediately; applying glide unconditionally makes lead presets behave
+    // like a theremin.  Only an explicitly enabled routing portamento may
+    // interpolate the oscillator frequency.
+    const auto glideStep = !config.routing.portamento || config.glideMs <= 0.0f ? 1.0f
         : juce::jlimit(0.00001f, 1.0f,
             1.0f / (config.glideMs * 0.001f * static_cast<float>(sampleRate)));
     voice.currentFrequency += (voice.targetFrequency - voice.currentFrequency) * glideStep;
