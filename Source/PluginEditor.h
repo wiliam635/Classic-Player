@@ -41,6 +41,21 @@ private:
         static juce::String noteLabel(int);
     };
 
+    class DrumPadPanel final : public juce::Component
+    {
+    public:
+        explicit DrumPadPanel(ClassicPlayerAudioProcessor&);
+        void resized() override;
+        void refresh();
+    private:
+        void chooseSample(int pad);
+        ClassicPlayerAudioProcessor& processor;
+        std::array<juce::TextButton, ClassicPlayerAudioProcessor::drumPadCount> pads;
+        std::array<juce::TextButton, ClassicPlayerAudioProcessor::drumPadCount> loadButtons;
+        std::array<juce::TextButton, ClassicPlayerAudioProcessor::drumPadCount> learnButtons;
+        std::unique_ptr<juce::FileChooser> fileChooser;
+    };
+
     class LayerStrip final : public juce::Component
     {
     public:
@@ -199,6 +214,7 @@ private:
     juce::Component layerContent;
     std::array<std::unique_ptr<LayerStrip>, Sf2Engine::layerCount> strips;
     NamedKeyboard keyboard;
+    DrumPadPanel drumPadPanel;
 
     juce::Component activationPanel;
     juce::Label activationTitle;
