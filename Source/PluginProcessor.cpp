@@ -8,6 +8,7 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       parameters(*this, nullptr, "CLASSIC_PLAYER", createParameters())
 {
+    drumPadFormats.registerBasicFormats();
     juce::Logger::writeToLog("ClassicPlayer processor criado (instrumento MIDI, saída estéreo)");
     for (auto& layer : learnedCCs)
         for (auto& cc : layer) cc.store(-1);
@@ -181,6 +182,23 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     for (const auto metadata : midi)
     {
         processLiveSetSlotMidiMessage(metadata.getMessage());
+        const auto& message = metadata.getMessage();
+        if (message.isController())
+        {
+            for (auto& pad : drumPads)
+            {
+                if (pad.learning.exchange(false, std::memory_order_acq_rel))
+                {
+                    pad.midiCC.store(message.getControllerNumber(), std::memory_order_release);
+                    pad.trigger.store(1, std::memory_order_release);
+                }
+                else if (pad.midiCC.load(std::memory_order_acquire) == message.getControllerNumber()
+                         && message.getControllerValue() >= 64)
+                {
+                    pad.trigger.store(1, std::memory_order_release);
+                }
+            }
+        }
         processMidiControlMessage(metadata.getMessage());
     }
 
@@ -233,6 +251,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     renderExternalInstruments(buffer, midi);
     dx7Engine.process(buffer, midi, &routedMidiBuffers, dx7LayerConfigs);
     analogSynthEngine.process(buffer, midi, analogLayerConfigs, &routedMidiBuffers);
+    processDrumPads(buffer, midi);
     // The master control is calibrated with +6 dB of nominal output gain.
     // The limiter immediately after it keeps the boosted output clip-safe.
     const auto masterLinear = parameters.getRawParameterValue("master")->load() / 100.0f;
@@ -366,6 +385,88 @@ bool ClassicPlayerAudioProcessor::isAudioRecording() const noexcept
 juce::String ClassicPlayerAudioProcessor::recordingFilePath() const
 {
     return recordingFile.getFullPathName();
+}
+
+juce::String ClassicPlayerAudioProcessor::drumPadName(int pad) const
+{
+    if (!juce::isPositiveAndBelow(pad, drumPadCount)) return {};
+    const auto& state = drumPads[(size_t) pad];
+    return state.path.isNotEmpty() ? juce::File(state.path).getFileNameWithoutExtension()
+                                   : "PAD " + juce::String(pad + 1);
+}
+
+juce::String ClassicPlayerAudioProcessor::drumPadPath(int pad) const
+{
+    return juce::isPositiveAndBelow(pad, drumPadCount) ? drumPads[(size_t) pad].path : juce::String{};
+}
+
+int ClassicPlayerAudioProcessor::drumPadMidiCC(int pad) const
+{
+    return juce::isPositiveAndBelow(pad, drumPadCount)
+        ? drumPads[(size_t) pad].midiCC.load(std::memory_order_acquire) : -1;
+}
+
+void ClassicPlayerAudioProcessor::triggerDrumPad(int pad)
+{
+    if (juce::isPositiveAndBelow(pad, drumPadCount))
+        drumPads[(size_t) pad].trigger.store(1, std::memory_order_release);
+}
+
+void ClassicPlayerAudioProcessor::beginDrumPadMidiLearn(int pad)
+{
+    if (juce::isPositiveAndBelow(pad, drumPadCount))
+        drumPads[(size_t) pad].learning.store(true, std::memory_order_release);
+}
+
+bool ClassicPlayerAudioProcessor::isDrumPadMidiLearning(int pad) const
+{
+    return juce::isPositiveAndBelow(pad, drumPadCount)
+        && drumPads[(size_t) pad].learning.load(std::memory_order_acquire);
+}
+
+juce::Result ClassicPlayerAudioProcessor::loadDrumPad(int pad, const juce::File& file)
+{
+    if (!juce::isPositiveAndBelow(pad, drumPadCount) || !file.existsAsFile())
+        return juce::Result::fail("Arquivo de pad inválido.");
+    std::unique_ptr<juce::AudioFormatReader> reader(drumPadFormats.createReaderFor(file));
+    if (reader == nullptr)
+        return juce::Result::fail("Formato de áudio não suportado.");
+
+    juce::AudioBuffer<float> decoded(juce::jmin(2, (int) reader->numChannels),
+                                     (int) reader->lengthInSamples);
+    if (decoded.getNumChannels() == 0 || decoded.getNumSamples() == 0
+        || !reader->read(&decoded, 0, decoded.getNumSamples(), 0, true, true))
+        return juce::Result::fail("Não foi possível ler o áudio do pad.");
+
+    const juce::ScopedLock lock(drumPadLock);
+    auto& state = drumPads[(size_t) pad];
+    state.audio = std::move(decoded);
+    state.path = file.getFullPathName();
+    state.position.store(-1, std::memory_order_release);
+    return juce::Result::ok();
+}
+
+void ClassicPlayerAudioProcessor::processDrumPads(juce::AudioBuffer<float>& output,
+                                                  const juce::MidiBuffer&)
+{
+    const juce::ScopedTryLock lock(drumPadLock);
+    if (!lock.isLocked()) return;
+
+    for (auto& state : drumPads)
+    {
+        if (state.trigger.exchange(0, std::memory_order_acq_rel) != 0
+            && state.audio.getNumSamples() > 0)
+            state.position.store(0, std::memory_order_release);
+
+        auto position = state.position.load(std::memory_order_acquire);
+        if (position < 0 || state.audio.getNumSamples() <= 0) continue;
+        const auto channels = juce::jmin(2, state.audio.getNumChannels(), output.getNumChannels());
+        for (int sample = 0; sample < output.getNumSamples() && position < state.audio.getNumSamples(); ++sample, ++position)
+            for (int channel = 0; channel < channels; ++channel)
+                output.addSample(channel, sample, state.audio.getSample(channel, position));
+        state.position.store(position < state.audio.getNumSamples() ? position : -1,
+                             std::memory_order_release);
+    }
 }
 
 void ClassicPlayerAudioProcessor::refreshActivation()
@@ -1363,6 +1464,11 @@ void ClassicPlayerAudioProcessor::stopAllSoundsBeforeProgramChange()
     analogSynthEngine.stopAllSounds();
     for (auto& instrument : externalInstruments)
         instrument.stopAllSounds();
+    for (auto& pad : drumPads)
+    {
+        pad.trigger.store(0, std::memory_order_release);
+        pad.position.store(-1, std::memory_order_release);
+    }
 
     const juce::ScopedLock midiLock(midiRoutingLock);
     for (auto& collector : routedMidiCollectors) collector.reset(currentSampleRate);
@@ -1469,6 +1575,11 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
                               learnedChannels[(size_t) i][(size_t) target].load(), nullptr);
         }
     }
+    for (int pad = 0; pad < drumPadCount; ++pad)
+    {
+        state.setProperty("drumPadPath" + juce::String(pad + 1), drumPads[(size_t) pad].path, nullptr);
+        state.setProperty("drumPadCC" + juce::String(pad + 1), drumPads[(size_t) pad].midiCC.load(), nullptr);
+    }
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, destination);
 }
 
@@ -1538,6 +1649,24 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             }
             state.setProperty("stateVersion", 165, nullptr);
             parameters.replaceState(state);
+            for (int pad = 0; pad < drumPadCount; ++pad)
+            {
+                auto& drumPad = drumPads[(size_t) pad];
+                drumPad.midiCC.store(static_cast<int>(state.getProperty(
+                    "drumPadCC" + juce::String(pad + 1), -1)), std::memory_order_release);
+                drumPad.learning.store(false, std::memory_order_release);
+                const auto path = state.getProperty(
+                    "drumPadPath" + juce::String(pad + 1)).toString();
+                if (path.isNotEmpty())
+                    loadDrumPad(pad, juce::File(path));
+                else
+                {
+                    const juce::ScopedLock padLock(drumPadLock);
+                    drumPad.audio.setSize(0, 0);
+                    drumPad.path.clear();
+                    drumPad.position.store(-1, std::memory_order_release);
+                }
+            }
             for (int i = 0; i < Sf2Engine::layerCount; ++i)
             {
                 auto savedType = juce::jlimit(0, 3, static_cast<int>(state.getProperty(
