@@ -329,10 +329,10 @@ public:
             applyFactoryPreset(presetBox.getSelectedId());
             // Preset selection is an audible action: update the layer now so
             // changing the name never requires a second confirmation click.
-            if (onConfigChanged)
-                onConfigChanged(config());
-            else if (onPresetChanged)
+            if (onPresetChanged)
                 onPresetChanged(config());
+            else if (onConfigChanged)
+                onConfigChanged(config());
         };
         addAndMakeVisible(presetBox);
         addAndMakeVisible(wave1);
@@ -2191,6 +2191,14 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     {
         if (safe != nullptr)
             safe->processor.setAnalogSynthConfig(safe->index, config);
+    };
+    controls->onPresetChanged = [safe](const AnalogSynthEngine::Config& config)
+    {
+        if (safe != nullptr)
+        {
+            safe->processor.resetAnalogSynthVoices(safe->index);
+            safe->processor.setAnalogSynthConfig(safe->index, config);
+        }
     };
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [](int) {}), true);
