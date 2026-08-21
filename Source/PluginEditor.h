@@ -92,6 +92,7 @@ private:
         void updateMidiLearnState();
         void showReverbEditor();
         void showCompressorEditor();
+        void showLayerEditor();
         void showAnalogSynthEditor();
         void showDx7Editor();
 
