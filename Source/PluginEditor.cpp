@@ -2716,8 +2716,9 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
     // desktop window, reducing responsively only when the window is narrow.
     const auto availableWidth = juce::jmax(1,
         layerViewport.getWidth() - layerViewport.getScrollBarThickness());
-    const int columns = availableWidth >= 1200 ? 4
-                       : availableWidth >= 720  ? 2
+    const int columns = availableWidth >= 1000 ? 6
+                       : availableWidth >= 720  ? 4
+                       : availableWidth >= 450  ? 2
                                                   : 1;
     constexpr int expandedHeight = 590;
     const auto viewportHeight = layerViewport.getHeight()
