@@ -122,6 +122,9 @@ private:
         bool sustainPedal = false;
         float modWheel = 0.0f;
         float pitchBendSemitones = 0.0f;
+        juce::Reverb reverb;
+        std::array<float, 2> compressorEnvelope {};
+        std::array<float, 2> filterState {};
     };
 
     static float waveform(Waveform waveform, float phase, float phaseIncrement);
@@ -141,6 +144,7 @@ private:
 
     std::array<Layer, layerCount> layers {};
     std::array<std::atomic<float>, layerCount> peaks {};
+    juce::AudioBuffer<float> renderScratch;
     double sampleRate = 44100.0;
 };
 
