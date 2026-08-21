@@ -265,32 +265,40 @@ class LayerEffectButtons final : public juce::Component
 {
 public:
     LayerEffectButtons(std::function<void()> reverbCallback,
-                       std::function<void()> compressorCallback)
-        : onReverb(std::move(reverbCallback)), onCompressor(std::move(compressorCallback))
+                       std::function<void()> compressorCallback,
+                       std::function<void()> chorusCallback = {})
+        : onReverb(std::move(reverbCallback)), onCompressor(std::move(compressorCallback)),
+          onChorus(std::move(chorusCallback))
     {
         reverb.setButtonText("EDITAR REVERB");
         compressor.setButtonText("EDITAR COMP");
-        for (auto* button : { &reverb, &compressor })
+        chorus.setButtonText("EDITAR CHORUS");
+        for (auto* button : { &reverb, &compressor, &chorus })
         {
             flatButton(*button);
             addAndMakeVisible(*button);
         }
         reverb.onClick = [this] { if (onReverb) onReverb(); };
         compressor.onClick = [this] { if (onCompressor) onCompressor(); };
+        chorus.onClick = [this] { if (onChorus) onChorus(); };
+        chorus.setVisible((bool) onChorus);
         setSize(300, 38);
     }
 
     void resized() override
     {
         auto row = getLocalBounds();
-        reverb.setBounds(row.removeFromLeft(row.getWidth() / 2).reduced(2, 1));
-        compressor.setBounds(row.reduced(2, 1));
+        const auto columns = onChorus ? 3 : 2;
+        reverb.setBounds(row.removeFromLeft(row.getWidth() / columns).reduced(2, 1));
+        compressor.setBounds(row.removeFromLeft(row.getWidth() / (columns - 1)).reduced(2, 1));
+        chorus.setBounds(row.reduced(2, 1));
     }
 
 private:
     std::function<void()> onReverb;
     std::function<void()> onCompressor;
-    juce::TextButton reverb, compressor;
+    std::function<void()> onChorus;
+    juce::TextButton reverb, compressor, chorus;
 };
 
 class AnalogSynthEditorPanel final : public juce::Component, private juce::Timer
@@ -2843,6 +2851,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         { "CHORUS", valueOf("Dx7Chorus", 20.0f), 0.0f, 100.0f, 1.0f, 0 }
     }, 5);
     dialog->addCustomComponent(common);
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    auto* effectButtons = new LayerEffectButtons(
+        [safe] { if (safe != nullptr) safe->showReverbEditor(); },
+        [safe] { if (safe != nullptr) safe->showCompressorEditor(); },
+        [safe] { if (safe != nullptr) safe->showChorusEditor(); });
+    dialog->addCustomComponent(effectButtons);
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
     {
         if (safe == nullptr) return;
@@ -2856,13 +2870,14 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         set("Dx7Chorus", common->value(4));
     });
     dialog->addCustomComponent(new LayerMidiLearnPanel(processor, index));
-    dialog->setSize(760, 650);
+    // Reserve a full row for effect controls and MIDI Learn before the
+    // footer so FECHAR cannot cover the reverb Learn button.
+    dialog->setSize(760, 780);
     auto* dx7CloseButton = new juce::TextButton("FECHAR");
     flatButton(*dx7CloseButton);
     dx7CloseButton->setSize(120, 36);
     dx7CloseButton->onClick = [dialog] { dialog->exitModalState(0); };
     dialog->addCustomComponent(dx7CloseButton);
-    const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, common, prefix](int)
         {
