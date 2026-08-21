@@ -288,7 +288,8 @@ public:
     void resized() override
     {
         auto row = getLocalBounds();
-        const auto columns = onChorus ? 3 : 2;
+        const bool hasChorus = static_cast<bool>(onChorus);
+        const auto columns = hasChorus ? 3 : 2;
         reverb.setBounds(row.removeFromLeft(row.getWidth() / columns).reduced(2, 1));
         compressor.setBounds(row.removeFromLeft(row.getWidth() / (columns - 1)).reduced(2, 1));
         chorus.setBounds(row.reduced(2, 1));
