@@ -73,6 +73,9 @@ public:
     bool hasAnalogSynth(int layer) const;
     AnalogSynthEngine::Config analogSynthConfig(int layer) const;
     void setAnalogSynthConfig(int layer, const AnalogSynthEngine::Config& config);
+    // Preset changes follow the web laboratory and start a clean voice while
+    // ordinary knob edits keep the currently held note alive.
+    void resetAnalogSynthVoices(int layer);
     juce::String dx7PatchName(int layer) const;
     juce::String dx7PatchName(int layer, int patch) const;
     int dx7PatchCount(int layer) const;
