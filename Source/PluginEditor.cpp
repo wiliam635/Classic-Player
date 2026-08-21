@@ -247,7 +247,7 @@ private:
     juce::OwnedArray<juce::Slider> knobs;
 };
 
-class AnalogSynthEditorPanel final : public juce::Component
+class AnalogSynthEditorPanel final : public juce::Component, private juce::Timer
 {
 public:
     explicit AnalogSynthEditorPanel(const AnalogSynthEngine::Config& source)
@@ -350,7 +350,8 @@ public:
         for (auto* button : { &oscillator1On, &oscillator2On, &oscillator3On, &pinkNoise })
             button->onClick = [this] { if (onConfigChanged) onConfigChanged(config()); };
         addAndMakeVisible(knobs);
-        setSize(1000, 640);
+        setSize(1000, 560);
+        startTimerHz(30);
     }
 
     AnalogSynthEngine::Config config() const
@@ -375,6 +376,11 @@ public:
         result.pinkNoise = pinkNoise.getToggleState();
         result.monophonic = monoPoly.getToggleState();
         result.routing.mono = result.monophonic;
+        // Keep the editor's filter value in the same signal path used by the
+        // layer mixer. This makes the common Cutoff control and the Analog
+        // panel operate on the same parameter instead of two disconnected
+        // filters.
+        result.routing.cutoff = result.cutoff;
         return result;
     }
 
@@ -403,10 +409,12 @@ public:
         g.setColour(juce::Colour(teal)); g.setFont(juce::FontOptions(20.0f, juce::Font::bold));
         g.drawText("CLASSIC KEYS ANALOG", 76, 10, 340, 25, juce::Justification::left);
         g.setColour(juce::Colour(text)); g.setFont(juce::FontOptions(10.0f));
-        g.drawText("SINTETIZADOR NATIVO DE TRÊS OSCILADORES", 77, 31, 360, 13, juce::Justification::left);
+        g.drawText("3-OSCILLATOR ANALOG SYNTHESIZER", 77, 31, 360, 13, juce::Justification::left);
 
         const int left = 20, top = 78, width = getWidth() - 40, height = getHeight() - 128;
-        const std::array<float, 5> edges {{ 0.17f, 0.46f, 0.62f, 0.88f, 1.0f }};
+        // Five equal module columns match the hardware-style knob grid below;
+        // the old uneven edges crossed labels and controls at narrow sizes.
+        const std::array<float, 5> edges {{ 0.20f, 0.40f, 0.60f, 0.80f, 1.0f }};
         int x = left;
         for (int group = 0; group < 5; ++group)
         {
@@ -434,7 +442,7 @@ public:
         for (int sample = 0; sample <= 48; ++sample)
         {
             const auto t = static_cast<float>(sample) / 48.0f;
-            const auto y = scope.getCentreY() - std::sin(t * juce::MathConstants<float>::twoPi * 2.0f)
+            const auto y = scope.getCentreY() - std::sin(t * juce::MathConstants<float>::twoPi * 2.0f + scopePhase)
                                            * scope.getHeight() * 0.32f;
             const auto xPos = scope.getX() + 5.0f + t * (scope.getWidth() - 10.0f);
             if (sample == 0) waveform.startNewSubPath(xPos, y);
@@ -445,6 +453,12 @@ public:
         g.setColour(juce::Colour(0xffd6d2cc)); g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
         g.drawText("OSCILLOSCOPE", scope.getX() - 8.0f, scope.getBottom() + 9.0f,
                    scope.getWidth() + 16.0f, 14.0f, juce::Justification::centred);
+    }
+
+    void timerCallback() override
+    {
+        scopePhase = std::fmod(scopePhase + 0.16f, juce::MathConstants<float>::twoPi);
+        repaint();
     }
 
     void resized() override
@@ -463,7 +477,7 @@ public:
         monoPoly.setBounds(juce::roundToInt(w * 0.06f), 108, juce::jmin(112, w / 7), 25);
         // Reserve the right edge for the output meter and keep four complete
         // rows of controls inside the cabinet on compact displays.
-        knobs.setBounds(22, 153, juce::jmax(560, getWidth() - 190), juce::jmax(430, getHeight() - 195));
+        knobs.setBounds(22, 153, juce::jmax(560, getWidth() - 190), juce::jmax(360, getHeight() - 195));
     }
 
 private:
@@ -618,6 +632,7 @@ private:
     juce::TextButton wave1, wave2, wave3;
     juce::TextButton oscillator1On, oscillator2On, oscillator3On, pinkNoise, monoPoly;
     KnobEditorPanel knobs;
+    float scopePhase = 0.0f;
 };
 
 class Sf2EditorPanel final : public juce::Component
@@ -2691,7 +2706,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         set("Reverb", common->value(2)); set("Comp", common->value(3));
     });
     dialog->addCustomComponent(new LayerMidiLearnPanel(processor, index));
-    dialog->setSize(1120, 820);
+    // Leave a dedicated row for routing and MIDI Learn before the close
+    // button. The previous automatic AlertWindow height put FECHAR on top of
+    // the Learn controls on smaller displays.
+    dialog->setSize(1120, 920);
     dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
@@ -3358,4 +3376,3 @@ void ClassicPlayerAudioProcessorEditor::activate()
     else
         activationStatus.setText("Código de ativação inválido.", juce::dontSendNotification);
 }
-
