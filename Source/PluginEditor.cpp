@@ -2718,7 +2718,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     // AlertWindow close button. A fixed height prevents FECHAR from covering
     // the compressor Learn button on macOS and Windows.
     dialog->setSize(1120, 1120);
-    dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    auto* closeButton = new juce::TextButton("FECHAR");
+    flatButton(*closeButton);
+    closeButton->setSize(120, 36);
+    closeButton->onClick = [dialog] { dialog->exitModalState(0); };
+    dialog->addCustomComponent(closeButton);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
     {
