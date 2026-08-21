@@ -404,7 +404,6 @@ public:
         g.drawText("SINTETIZADOR NATIVO DE TRÊS OSCILADORES", 77, 31, 360, 13, juce::Justification::left);
 
         const int left = 20, top = 78, width = getWidth() - 40, height = getHeight() - 128;
-        const std::array<juce::String, 5> titles {{ "CONTROLLERS", "OSCILLATOR BANK", "MIXER", "MODIFIERS", "OUTPUT" }};
         const std::array<float, 5> edges {{ 0.17f, 0.46f, 0.62f, 0.88f, 1.0f }};
         int x = left;
         for (int group = 0; group < 5; ++group)
@@ -414,14 +413,8 @@ public:
                                                    juce::Colour(0xff161718), (float) x, (float) (top + height), false));
             g.fillRect(x, top, right - x, height);
             g.setColour(juce::Colour(0xff514d49)); g.drawRect(x, top, right - x, height, 1);
-            g.setColour(juce::Colour(0xffd6d2cc)); g.setFont(juce::FontOptions(14.0f));
-            g.drawText(titles[(size_t) group], x + 3, top + height - 31, right - x - 6, 24, juce::Justification::centred);
             x = right;
         }
-
-        g.setColour(juce::Colour(0xffd4d0ca)); g.setFont(juce::FontOptions(10.0f));
-        g.drawText("Selecione um preset ou ajuste os controles em tempo real.",
-                   left + 8, top + 7, width - 16, 16, juce::Justification::centred);
 
         // Replace the non-functional static meter with a compact oscilloscope.
         // It is intentionally a visual monitor: audio metering remains in the
