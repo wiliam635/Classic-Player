@@ -2714,7 +2714,8 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
     constexpr int gap = 8;
     // Keep each layer as a vertical strip.  Use four columns on a normal
     // desktop window, reducing responsively only when the window is narrow.
-    const auto availableWidth = layerViewport.getWidth();
+    const auto availableWidth = juce::jmax(1,
+        layerViewport.getWidth() - layerViewport.getScrollBarThickness());
     const int columns = availableWidth >= 1200 ? 4
                        : availableWidth >= 720  ? 2
                                                   : 1;
@@ -2726,7 +2727,7 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
     const int compactHeight = juce::jmax(148, viewportHeight - gap * 2);
     const auto stripWidth = juce::jmax(260,
         (layerViewport.getWidth() - gap * (columns - 1)) / columns);
-    const auto contentWidth = juce::jmax(layerViewport.getWidth(),
+    const auto contentWidth = juce::jmax(availableWidth,
         columns * stripWidth + gap * (columns - 1));
     const auto rows = (count + columns - 1) / columns;
     std::vector<int> rowHeights((size_t) rows, compactHeight);
