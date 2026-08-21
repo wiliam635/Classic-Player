@@ -259,7 +259,8 @@ public:
             // overlapped when the editor was resized by JUCE on smaller Macs.
             constexpr int gridColumns = 5;
             const auto cellWidth = getWidth() / gridColumns;
-            const auto rowHeight = juce::jmax(104, getHeight() / 4);
+            // Compact four-row grid matching the reference editor.
+            const auto rowHeight = juce::jmax(64, getHeight() / 4);
             for (int item = 0; item < knobs.size(); ++item)
             {
                 const auto column = item % gridColumns;
@@ -570,7 +571,8 @@ public:
         monoPoly.setBounds(juce::roundToInt(w * 0.06f), 108, juce::jmin(112, w / 7), 25);
         // Reserve the right edge for the output meter and keep four complete
         // rows of controls inside the cabinet on compact displays.
-        knobs.setBounds(22, 153, juce::jmax(560, getWidth() - 190), juce::jmax(430, getHeight() - 195));
+        knobs.setBounds(22, 145, juce::jmax(560, getWidth() - 190),
+                        juce::jmax(250, getHeight() - 165));
     }
 
 private:
@@ -1375,8 +1377,10 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
         juce::Rectangle<int> buttons;
         if (controlsVisible)
             buttons = padAreaBounds.removeFromBottom(27);
-        const auto padSize = juce::jmax(1, juce::jmin(padAreaBounds.getWidth(), padAreaBounds.getHeight()));
-        auto padArea = padAreaBounds.withSizeKeepingCentre(padSize, padSize);
+        // Wide, shallow pad bodies keep each LOAD/LEARN pair in its own column.
+        const auto padHeight = juce::jmin(86, padAreaBounds.getHeight());
+        auto padArea = padAreaBounds.withHeight(padHeight);
+        padArea.setY(cellInner.getY());
         if (controlsVisible)
         {
             pads[(size_t) pad].setBounds(padArea);
@@ -1699,7 +1703,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     auto* sf2Panel = new Sf2EditorPanel(processor, index);
     // Match the compact editor slot so the SF2 controls are not followed by
     // an oversized empty region when the dialog is displayed at full size.
-    sf2Panel->setSize(700, 275);
+    sf2Panel->setSize(680, 275);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     auto* effectButtons = new LayerEffectButtons(
         [safe] { if (safe != nullptr) safe->showReverbEditor(); },
@@ -1733,11 +1737,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     // library/routing controls.  Keeping the old 430 px slot created a large
     // empty gap before the effect knobs and made the dialog unnecessarily
     // tall.  Reserve only the space the controls actually occupy.
-    dialog->addCustomComponent(new CenteredPanel(sf2Panel, 740, 275));
+    dialog->addCustomComponent(new CenteredPanel(sf2Panel, 700, 275));
     // Four SF2 controls share one compact row in the reference editor.
-    dialog->addCustomComponent(new CenteredPanel(knobs, 740, 124));
-    dialog->addCustomComponent(new CenteredPanel(effectButtons, 740, 38));
-    dialog->addCustomComponent(new CenteredPanel(midiPanel, 740, 52));
+    dialog->addCustomComponent(new CenteredPanel(knobs, 600, 124));
+    dialog->addCustomComponent(new CenteredPanel(effectButtons, 420, 38));
+    dialog->addCustomComponent(new CenteredPanel(midiPanel, 600, 52));
     knobs->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), knobs, prefix]
     {
         if (safe == nullptr) return;
@@ -2857,16 +2861,17 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
                 owned.add(child);
                 addAndMakeVisible(child);
             }
-            setSize(640, 972);
+            // Keep the complete editor in one view at the reference dialog size.
+            setSize(740, 700);
         }
 
         void resized() override
         {
-            synthPanel->setBounds(0, 0, 640, 560);
-            routingPanel->setBounds(0, 570, 640, 170);
-            commonPanel->setBounds(0, 750, 520, 124);
-            effectsPanel->setBounds(0, 878, 300, 38);
-            learnPanel->setBounds(0, 920, 520, 52);
+            synthPanel->setBounds(0, 0, 740, 410);
+            routingPanel->setBounds(0, 418, 740, 132);
+            commonPanel->setBounds(0, 558, 620, 100);
+            effectsPanel->setBounds(0, 662, 420, 34);
+            learnPanel->setBounds(0, 700, 620, 48);
         }
 
     private:
@@ -2882,7 +2887,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     auto* viewport = new juce::Viewport("ANALOG EDITOR");
     viewport->setViewedComponent(content, true);
     viewport->setScrollBarsShown(true, false);
-    viewport->setSize(640, 410);
+    viewport->setSize(740, 620);
     dialog->addCustomComponent(viewport);
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
     {
@@ -2983,11 +2988,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         juce::OwnedArray<juce::Component> owned;
     };
 
-    dialog->addCustomComponent(new CenteredPanel(dx7Panel, 740, 150));
-    dialog->addCustomComponent(new CenteredPanel(routingPanel, 740, 170));
+    dialog->addCustomComponent(new CenteredPanel(dx7Panel, 700, 104));
+    dialog->addCustomComponent(new CenteredPanel(routingPanel, 700, 122));
     // DX7 has five controls on one row, matching the supplied reference.
-    dialog->addCustomComponent(new CenteredPanel(common, 740, 124));
-    dialog->addCustomComponent(new CenteredPanel(effectButtons, 740, 38));
+    dialog->addCustomComponent(new CenteredPanel(common, 700, 100));
+    dialog->addCustomComponent(new CenteredPanel(effectButtons, 700, 34));
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
     {
         if (safe == nullptr) return;
@@ -3000,7 +3005,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         set("Reverb", common->value(2)); set("Comp", common->value(3));
         set("Dx7Chorus", common->value(4));
     });
-    dialog->addCustomComponent(new CenteredPanel(midiPanel, 740, 52));
+    dialog->addCustomComponent(new CenteredPanel(midiPanel, 600, 52));
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.
     dialog->setSize(758, 599);
@@ -3107,7 +3112,8 @@ void ClassicPlayerAudioProcessorEditor::resized()
     addLayerButton.setBounds(bottomButtonRow.reduced(1));
     // Keep the accidental selector directly below the left button column,
     // matching the compact header layout without changing the chord display.
-    accidentalStyleBox.setBounds(colourControls.getX(), colourControls.getY() + 62,
+    // Anchor MISTO to the header rather than the consumed button-row bounds.
+    accidentalStyleBox.setBounds(colourControls.getX(), header.getY() + 76,
                                  buttonWidth - 2, 32);
 
     auto programArea = chordArea.removeFromBottom(54);
