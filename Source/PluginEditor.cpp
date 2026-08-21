@@ -625,6 +625,74 @@ private:
     KnobEditorPanel knobs;
 };
 
+class Dx7EditorPanel final : public juce::Component
+{
+public:
+    Dx7EditorPanel(ClassicPlayerAudioProcessor& p, int layer) : processor(p), index(layer)
+    {
+        bankLabel.setText("BANCO DX7", juce::dontSendNotification);
+        patchLabel.setText("TIMBRE DX7", juce::dontSendNotification);
+        for (auto* label : { &bankLabel, &patchLabel })
+        {
+            label->setColour(juce::Label::textColourId, juce::Colour(text));
+            label->setFont(juce::FontOptions(12.0f, juce::Font::bold));
+            addAndMakeVisible(*label);
+        }
+        const auto banks = processor.libraryDx7Banks();
+        for (int i = 0; i < banks.size(); ++i)
+            bankBox.addItem(banks.getReference(i).getFileNameWithoutExtension(), i + 1);
+        bankBox.setTextWhenNothingSelected("BIBLIOTECA DX7 VAZIA");
+        bankBox.setSelectedItemIndex(processor.dx7Path(index).isNotEmpty()
+                                         ? juce::jmax(0, banks.indexOf(juce::File(processor.dx7Path(index)))) : -1,
+                                     juce::dontSendNotification);
+        bankBox.onChange = [this]
+        {
+            const auto selected = bankBox.getSelectedItemIndex();
+            const auto banksNow = processor.libraryDx7Banks();
+            if (juce::isPositiveAndBelow(selected, banksNow.size()))
+            {
+                processor.loadDx7(index, banksNow.getReference(selected));
+                rebuildPatches();
+            }
+        };
+        patchBox.onChange = [this]
+        {
+            const auto selected = patchBox.getSelectedItemIndex();
+            if (selected >= 0) processor.selectDx7Patch(index, selected);
+        };
+        addAndMakeVisible(bankBox);
+        addAndMakeVisible(patchBox);
+        rebuildPatches();
+        setSize(460, 150);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(12);
+        auto row = area.removeFromTop(22);
+        bankLabel.setBounds(row.removeFromLeft(100)); bankBox.setBounds(row);
+        area.removeFromTop(10);
+        row = area.removeFromTop(22);
+        patchLabel.setBounds(row.removeFromLeft(100)); patchBox.setBounds(row);
+    }
+
+private:
+    void rebuildPatches()
+    {
+        patchBox.clear(juce::dontSendNotification);
+        const auto count = processor.dx7PatchCount(index);
+        for (int patch = 0; patch < count; ++patch)
+            patchBox.addItem(juce::String(patch + 1) + ": " + processor.dx7PatchName(index, patch), patch + 1);
+        if (count > 0)
+            patchBox.setSelectedId(processor.dx7SelectedPatch(index) + 1, juce::dontSendNotification);
+    }
+
+    ClassicPlayerAudioProcessor& processor;
+    int index;
+    juce::Label bankLabel, patchLabel;
+    juce::ComboBox bankBox, patchBox;
+};
+
 class ColourPicker final : public juce::Component, private juce::ChangeListener
 {
 public:
@@ -849,6 +917,11 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
         {
             // Analog already has a dedicated, independent editor window.
             showAnalogSynthEditor();
+            return;
+        }
+        if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::dx7)
+        {
+            showDx7Editor();
             return;
         }
         expanded = ! expanded;
@@ -2092,6 +2165,17 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     };
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [](int) {}), true);
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
+{
+    if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::dx7) return;
+    auto* dialog = new juce::AlertWindow(
+        "DX7", "Selecione o banco e o timbre desta camada.", juce::MessageBoxIconType::NoIcon);
+    dialog->setLookAndFeel(&classicLookAndFeel);
+    dialog->addCustomComponent(new Dx7EditorPanel(processor, index));
+    dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create([](int) {}), true);
 }
 
 void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
