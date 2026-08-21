@@ -3090,10 +3090,6 @@ void ClassicPlayerAudioProcessorEditor::resized()
     masterEqButton.setBounds(masterArea.removeFromTop(20).reduced(1, 0));
     header.removeFromRight(12);
 
-    auto accidentalArea = header.removeFromRight(126);
-    accidentalStyleBox.setBounds(accidentalArea.withSizeKeepingCentre(118, 32));
-    header.removeFromRight(4);
-
     auto chordArea = header.reduced(4, 1);
     auto colourControls = chordArea.removeFromRight(320).reduced(5, 2);
     // Arrange the four header actions as a 2x2 block beside the chord
@@ -3107,6 +3103,10 @@ void ClassicPlayerAudioProcessorEditor::resized()
     liveSetButton.setBounds(topButtonRow.reduced(1));
     keyColourButton.setBounds(bottomButtonRow.removeFromLeft(buttonWidth).reduced(1));
     addLayerButton.setBounds(bottomButtonRow.reduced(1));
+    // Keep the accidental selector directly below the left button column,
+    // matching the compact header layout without changing the chord display.
+    accidentalStyleBox.setBounds(colourControls.getX(), colourControls.getY() + 62,
+                                 buttonWidth - 2, 32);
 
     auto programArea = chordArea.removeFromBottom(54);
     programBox.setBounds(programArea.removeFromTop(28).reduced(1, 0));
