@@ -73,8 +73,9 @@ public:
         else if (shouldDrawButtonAsHighlighted) colour = colour.brighter(0.08f);
         g.setColour(colour);
         g.fillRoundedRectangle(bounds, 5.0f);
-        g.setColour(juce::Colour(line));
-        g.drawRoundedRectangle(bounds, 5.0f, 1.0f);
+        const auto isDrumPad = button.getName().startsWith("DRUM_PAD");
+        g.setColour(isDrumPad ? colour.darker(0.32f) : juce::Colour(line));
+        g.drawRoundedRectangle(bounds, isDrumPad ? 8.0f : 5.0f, isDrumPad ? 2.0f : 1.0f);
     }
 
     void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height,
@@ -912,6 +913,74 @@ private:
                    lowNoteBox, highNoteBox, velocityBox;
 };
 
+class LayerMidiLearnPanel final : public juce::Component
+{
+public:
+    LayerMidiLearnPanel(ClassicPlayerAudioProcessor& p, int layer)
+        : processor(p), index(layer)
+    {
+        const std::array<const char*, 4> names {{ "VOLUME", "CUTOFF", "REVERB", "COMP" }};
+        const std::array<ClassicPlayerAudioProcessor::LearnTarget, 4> targets {{
+            ClassicPlayerAudioProcessor::LearnTarget::volume,
+            ClassicPlayerAudioProcessor::LearnTarget::cutoff,
+            ClassicPlayerAudioProcessor::LearnTarget::reverb,
+            ClassicPlayerAudioProcessor::LearnTarget::compressor
+        }};
+        for (int i = 0; i < 4; ++i)
+        {
+            labels[(size_t) i].setText(names[(size_t) i], juce::dontSendNotification);
+            labels[(size_t) i].setColour(juce::Label::textColourId, juce::Colour(text));
+            labels[(size_t) i].setFont(juce::FontOptions(9.0f, juce::Font::bold));
+            labels[(size_t) i].setJustificationType(juce::Justification::centred);
+            addAndMakeVisible(labels[(size_t) i]);
+            flatButton(buttons[(size_t) i]);
+            buttons[(size_t) i].setButtonText("LEARN");
+            buttons[(size_t) i].onClick = [this, target = targets[(size_t) i]]
+            {
+                processor.beginMidiLearn(index, target);
+                refresh();
+            };
+            addAndMakeVisible(buttons[(size_t) i]);
+        }
+        setSize(520, 52);
+        refresh();
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(4, 2);
+        const auto width = area.getWidth() / 4;
+        for (int i = 0; i < 4; ++i)
+        {
+            auto cell = area.removeFromLeft(width);
+            labels[(size_t) i].setBounds(cell.removeFromTop(18));
+            buttons[(size_t) i].setBounds(cell.reduced(2, 1));
+        }
+    }
+
+private:
+    void refresh()
+    {
+        using Target = ClassicPlayerAudioProcessor::LearnTarget;
+        const std::array<Target, 4> targets {{ Target::volume, Target::cutoff,
+                                                Target::reverb, Target::compressor }};
+        for (int i = 0; i < 4; ++i)
+        {
+            const auto cc = processor.midiLearnCC(index, targets[(size_t) i]);
+            const auto channel = processor.midiLearnChannel(index, targets[(size_t) i]);
+            const auto learning = processor.isMidiLearning(index, targets[(size_t) i]);
+            buttons[(size_t) i].setButtonText(learning ? "MOVA O CC"
+                : cc < 0 ? "LEARN" : "CC " + juce::String(cc)
+                    + (channel > 0 ? " C" + juce::String(channel) : juce::String{}));
+        }
+    }
+
+    ClassicPlayerAudioProcessor& processor;
+    int index = 0;
+    std::array<juce::Label, 4> labels;
+    std::array<juce::TextButton, 4> buttons;
+};
+
 class Dx7EditorPanel final : public juce::Component
 {
 public:
@@ -1089,12 +1158,18 @@ void ClassicPlayerAudioProcessorEditor::NamedKeyboard::setActiveColour(juce::Col
 ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudioProcessor& p)
     : processor(p)
 {
+    const std::array<juce::Colour, ClassicPlayerAudioProcessor::drumPadCount> padColours {
+        juce::Colour(0xfff4f4ee), juce::Colour(0xffeaf6ff), juce::Colour(0xfff4edff),
+        juce::Colour(0xffeffff3), juce::Colour(0xfffff2e5), juce::Colour(0xfffff8d8),
+        juce::Colour(0xffe9f2ff), juce::Colour(0xffffeaf2)
+    };
     for (int pad = 0; pad < ClassicPlayerAudioProcessor::drumPadCount; ++pad)
     {
         auto& trigger = pads[(size_t) pad];
+        trigger.setName("DRUM_PAD_" + juce::String(pad + 1));
         trigger.setButtonText("PAD " + juce::String(pad + 1));
         trigger.setTooltip("Clique para tocar este pad");
-        trigger.setColour(juce::TextButton::buttonColourId, juce::Colour(0xfff4f4ee));
+        trigger.setColour(juce::TextButton::buttonColourId, padColours[(size_t) pad]);
         trigger.setColour(juce::TextButton::buttonOnColourId, juce::Colour(yellow));
         trigger.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff15191d));
         trigger.setColour(juce::TextButton::textColourOnId, juce::Colour(0xff15191d));
@@ -1116,6 +1191,17 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
         addAndMakeVisible(learn);
     }
     refresh();
+}
+
+void ClassicPlayerAudioProcessorEditor::DrumPadPanel::setControlsVisible(bool shouldShow)
+{
+    controlsVisible = shouldShow;
+    for (int pad = 0; pad < ClassicPlayerAudioProcessor::drumPadCount; ++pad)
+    {
+        loadButtons[(size_t) pad].setVisible(controlsVisible);
+        learnButtons[(size_t) pad].setVisible(controlsVisible);
+    }
+    resized();
 }
 
 void ClassicPlayerAudioProcessorEditor::DrumPadPanel::chooseSample(int pad)
@@ -1148,7 +1234,9 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
         trigger.setButtonText(samplePath.isNotEmpty() ? processor.drumPadName(pad)
                                                       : "PAD " + juce::String(pad + 1));
         trigger.setColour(juce::TextButton::buttonColourId,
-                          active ? juce::Colour(yellow) : juce::Colour(0xfff4f4ee));
+                          active ? juce::Colour(yellow)
+                                 : juce::Colour::fromHSV(0.08f + 0.10f * (float) pad,
+                                                         0.08f, 0.98f, 1.0f));
         trigger.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff15191d));
         const auto cc = processor.drumPadMidiCC(pad);
         learnButtons[(size_t) pad].setButtonText(
@@ -1168,10 +1256,19 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
         const auto row = pad / columns;
         auto cell = juce::Rectangle<int>(column * cellWidth, row * rowHeight,
                                          cellWidth, rowHeight - 4).reduced(5, 3);
-        pads[(size_t) pad].setBounds(cell.removeFromTop(cell.getHeight() - 30));
-        auto buttons = cell.removeFromBottom(27);
-        loadButtons[(size_t) pad].setBounds(buttons.removeFromLeft(buttons.getWidth() / 2).reduced(1, 0));
-        learnButtons[(size_t) pad].setBounds(buttons.reduced(1, 0));
+        if (controlsVisible)
+        {
+            pads[(size_t) pad].setBounds(cell.removeFromTop(cell.getHeight() - 30));
+            auto buttons = cell.removeFromBottom(27);
+            loadButtons[(size_t) pad].setBounds(buttons.removeFromLeft(buttons.getWidth() / 2).reduced(1, 0));
+            learnButtons[(size_t) pad].setBounds(buttons.reduced(1, 0));
+        }
+        else
+        {
+            pads[(size_t) pad].setBounds(cell);
+            loadButtons[(size_t) pad].setBounds({});
+            learnButtons[(size_t) pad].setBounds({});
+        }
     }
 }
 
@@ -1209,6 +1306,11 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
         if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::dx7)
         {
             showDx7Editor();
+            return;
+        }
+        if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::drumPads)
+        {
+            showDrumPadEditor();
             return;
         }
         showLayerEditor();
@@ -1464,6 +1566,18 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     }, 4);
     dialog->addCustomComponent(new Sf2EditorPanel(processor, index));
     dialog->addCustomComponent(knobs);
+    dialog->addCustomComponent(new LayerMidiLearnPanel(processor, index));
+    knobs->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), knobs, prefix]
+    {
+        if (safe == nullptr) return;
+        const auto set = [safe, prefix](const juce::String& id, float value)
+        {
+            if (auto* parameter = safe->processor.parameters.getParameter(prefix + id))
+                parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
+        };
+        set("Gain", knobs->value(0)); set("Cutoff", knobs->value(1));
+        set("Reverb", knobs->value(2)); set("Comp", knobs->value(3));
+    });
     dialog->addButton("FECHAR", 1, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
@@ -1496,22 +1610,22 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
         { "LARGURA ESTEREO", processor.parameters.getRawParameterValue(prefix + "ReverbWidth")->load(), 0.0f, 100.0f, 1.0f, 0 }
     }, 3);
     dialog->addCustomComponent(knobs);
-    dialog->addButton("APLICAR", 1, juce::KeyPress(juce::KeyPress::returnKey));
-    dialog->addButton("CANCELAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
-    dialog->enterModalState(true, juce::ModalCallbackFunction::create(
-        [safe, dialog, knobs, prefix](int result)
+    knobs->setOnValueChange([safe, knobs, prefix]
+    {
+        if (safe == nullptr) return;
+        const auto set = [safe, prefix](const juce::String& id, float value)
         {
-            if (safe == nullptr || result != 1) return;
-            const auto set = [safe, prefix](const juce::String& id, float value)
-            {
-                if (auto* parameter = safe->processor.parameters.getParameter(prefix + id))
-                    parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
-            };
-            set("ReverbSize", juce::jlimit(0.0f, 100.0f, knobs->value(0)));
-            set("ReverbDamping", juce::jlimit(0.0f, 100.0f, knobs->value(1)));
-            set("ReverbWidth", juce::jlimit(0.0f, 100.0f, knobs->value(2)));
-        }), true);
+            if (auto* parameter = safe->processor.parameters.getParameter(prefix + id))
+                parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
+        };
+        set("ReverbSize", juce::jlimit(0.0f, 100.0f, knobs->value(0)));
+        set("ReverbDamping", juce::jlimit(0.0f, 100.0f, knobs->value(1)));
+        set("ReverbWidth", juce::jlimit(0.0f, 100.0f, knobs->value(2)));
+    });
+    dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create(
+        [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
@@ -1529,25 +1643,42 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
         { "MAKEUP dB", processor.parameters.getRawParameterValue(prefix + "CompMakeup")->load(), 0.0f, 24.0f, 0.1f, 1 }
     }, 3);
     dialog->addCustomComponent(knobs);
-    dialog->addButton("APLICAR", 1, juce::KeyPress(juce::KeyPress::returnKey));
-    dialog->addButton("CANCELAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    knobs->setOnValueChange([safe, knobs, prefix]
+    {
+        if (safe == nullptr) return;
+        const auto set = [safe, prefix](const juce::String& id, float value)
+        {
+            if (auto* parameter = safe->processor.parameters.getParameter(prefix + id))
+                parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
+        };
+        set("CompThreshold", juce::jlimit(-60.0f, 0.0f, knobs->value(0)));
+        set("CompRatio", juce::jlimit(1.0f, 20.0f, knobs->value(1)));
+        set("CompAttack", juce::jlimit(0.1f, 100.0f, knobs->value(2)));
+        set("CompRelease", juce::jlimit(5.0f, 1000.0f, knobs->value(3)));
+        set("CompMakeup", juce::jlimit(0.0f, 24.0f, knobs->value(4)));
+    });
+    dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create(
+        [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
+{
+    if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::drumPads) return;
+    auto* dialog = new juce::AlertWindow(
+        "DRUM PADS", "Carregue o áudio e configure o MIDI de cada pad.",
+        juce::MessageBoxIconType::NoIcon);
+    dialog->setLookAndFeel(&classicLookAndFeel);
+    auto* pads = new DrumPadPanel(processor);
+    pads->setControlsVisible(true);
+    dialog->addCustomComponent(pads);
+    dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
-        [safe, dialog, knobs, prefix](int result)
-        {
-            if (safe == nullptr || result != 1) return;
-            const auto set = [safe, prefix](const juce::String& id, float value)
-            {
-                if (auto* parameter = safe->processor.parameters.getParameter(prefix + id))
-                    parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
-            };
-            set("CompThreshold", juce::jlimit(-60.0f, 0.0f, knobs->value(0)));
-            set("CompRatio", juce::jlimit(1.0f, 20.0f, knobs->value(1)));
-            set("CompAttack", juce::jlimit(0.1f, 100.0f, knobs->value(2)));
-            set("CompRelease", juce::jlimit(5.0f, 1000.0f, knobs->value(3)));
-            set("CompMakeup", juce::jlimit(0.0f, 24.0f, knobs->value(4)));
-        }), true);
+        [safe](int) { if (safe != nullptr) safe->drumPadPanel.refresh(); }), true);
 }
+
 void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
@@ -1596,12 +1727,14 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     layerTitle.setBounds(top.removeFromLeft(72));
     muteButton.setBounds(top.removeFromLeft(30).reduced(1));
     soloButton.setBounds(top.removeFromLeft(30).reduced(1));
-    resetButton.setBounds(top.removeFromRight(52).reduced(1));
-    removeButton.setBounds(top.removeFromRight(24).reduced(1));
+    auto layerActions = area.removeFromTop(25);
+    resetButton.setBounds(layerActions.removeFromRight(52).reduced(1));
+    removeButton.setBounds(layerActions.removeFromRight(24).reduced(1));
     area.removeFromTop(5);
     const auto type = processor.layerType(index);
     if (type == ClassicPlayerAudioProcessor::LayerType::drumPads)
     {
+        editButton.setBounds(area.removeFromTop(28).removeFromRight(78).reduced(1, 1));
         drumPadPanel.setBounds(area.reduced(0, 2));
         return;
     }
@@ -1827,6 +1960,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     const auto isAnalog = type == ClassicPlayerAudioProcessor::LayerType::analog;
     const auto isDrumPads = type == ClassicPlayerAudioProcessor::LayerType::drumPads;
     drumPadPanel.setVisible(isDrumPads);
+    drumPadPanel.setControlsVisible(false);
 
     // Restore the shared layer controls on every non-drum refresh. Without
     // this explicit reset, switching from Drum Pads left the meter, knobs and
@@ -1853,7 +1987,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     dx7LibraryBox.setVisible(isDx7);
     dx7PatchBox.setVisible(isDx7);
     deleteDx7LibraryButton.setVisible(isDx7);
-    editButton.setVisible(! isDrumPads);
+    editButton.setVisible(true);
     sourceSummary.setText(fileLabel.getText().isNotEmpty()
                               ? fileLabel.getText()
                               : (isSf2 ? "SF2" : isDx7 ? "DX7" : isAnalog ? "CLASSIC KEYS ANALOG"
@@ -1868,7 +2002,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
             &gain, &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel,
             &octave, &lowNote, &highNote, &velocityCurve, &midiDevice,
             &volumeLearn, &resetMidiLearnButton, &cutoffLearn, &reverbLearn,
-            &compressorLearn, &reverbEditButton, &compressorEditButton, &meter
+            &compressorLearn, &reverbEditButton, &compressorEditButton, &meter,
+            &cutoffLabel, &reverbLabel, &compressorLabel, &routingLabel
         };
         for (auto* control : controls)
             control->setVisible(false);
@@ -1882,7 +2017,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
             &openExternalEditorButton, &deleteLibraryButton, &categoryBox, &libraryBox,
             &presetBox, &externalInstrumentBox, &dx7LibraryBox, &dx7PatchBox, &fileLabel,
             &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel, &octave,
-            &lowNote, &highNote, &velocityCurve, &midiDevice, &volumeLearn,
+            &lowNote, &highNote, &velocityCurve, &midiDevice,
             &resetMidiLearnButton, &cutoffLearn, &reverbLearn, &compressorLearn,
             &reverbEditButton, &compressorEditButton, &cutoffLabel, &reverbLabel,
             &compressorLabel, &routingLabel
@@ -1892,6 +2027,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
         sourceSummary.setVisible(true);
         gain.setVisible(true);
         meter.setVisible(true);
+        volumeLearn.setVisible(true);
         resized();
         return;
     }
@@ -2494,6 +2630,18 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         { "COMP", valueOf("Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 }
     }, 4);
     dialog->addCustomComponent(common);
+    common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
+    {
+        if (safe == nullptr) return;
+        const auto set = [safe, prefix](const juce::String& suffix, float value)
+        {
+            if (auto* parameter = safe->processor.parameters.getParameter(prefix + suffix))
+                parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
+        };
+        set("Gain", common->value(0)); set("Cutoff", common->value(1));
+        set("Reverb", common->value(2)); set("Comp", common->value(3));
+    });
+    dialog->addCustomComponent(new LayerMidiLearnPanel(processor, index));
     dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
@@ -2547,6 +2695,18 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         { "COMP", valueOf("Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 }
     }, 4);
     dialog->addCustomComponent(common);
+    common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
+    {
+        if (safe == nullptr) return;
+        const auto set = [safe, prefix](const juce::String& suffix, float value)
+        {
+            if (auto* parameter = safe->processor.parameters.getParameter(prefix + suffix))
+                parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
+        };
+        set("Gain", common->value(0)); set("Cutoff", common->value(1));
+        set("Reverb", common->value(2)); set("Comp", common->value(3));
+    });
+    dialog->addCustomComponent(new LayerMidiLearnPanel(processor, index));
     dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
@@ -2583,22 +2743,22 @@ void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
         { "HIGH CUT Hz", classicProcessor.masterEqValue("masterEqHighCut"), 2000.0f, 20000.0f, 1.0f, 0 }
     }, 4);
     dialog->addCustomComponent(knobs);
-    dialog->addButton("APLICAR", 1, juce::KeyPress(juce::KeyPress::returnKey));
-    dialog->addButton("CANCELAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
+    knobs->setOnValueChange([safe, knobs]
+    {
+        if (safe == nullptr) return;
+        safe->classicProcessor.setMasterEqValue("masterEqLowCut", juce::jlimit(20.0f, 250.0f, knobs->value(0)));
+        safe->classicProcessor.setMasterEqValue("masterEqLow", juce::jlimit(-12.0f, 12.0f, knobs->value(1)));
+        safe->classicProcessor.setMasterEqValue("masterEqLowFrequency", juce::jlimit(40.0f, 400.0f, knobs->value(2)));
+        safe->classicProcessor.setMasterEqValue("masterEqMid", juce::jlimit(-12.0f, 12.0f, knobs->value(3)));
+        safe->classicProcessor.setMasterEqValue("masterEqFrequency", juce::jlimit(200.0f, 6000.0f, knobs->value(4)));
+        safe->classicProcessor.setMasterEqValue("masterEqHigh", juce::jlimit(-12.0f, 12.0f, knobs->value(5)));
+        safe->classicProcessor.setMasterEqValue("masterEqHighFrequency", juce::jlimit(2000.0f, 16000.0f, knobs->value(6)));
+        safe->classicProcessor.setMasterEqValue("masterEqHighCut", juce::jlimit(2000.0f, 20000.0f, knobs->value(7)));
+    });
+    dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
-        [safe, dialog, knobs](int result)
-        {
-            if (safe == nullptr || result != 1) return;
-            safe->classicProcessor.setMasterEqValue("masterEqLowCut", juce::jlimit(20.0f, 250.0f, knobs->value(0)));
-            safe->classicProcessor.setMasterEqValue("masterEqLow", juce::jlimit(-12.0f, 12.0f, knobs->value(1)));
-            safe->classicProcessor.setMasterEqValue("masterEqLowFrequency", juce::jlimit(40.0f, 400.0f, knobs->value(2)));
-            safe->classicProcessor.setMasterEqValue("masterEqMid", juce::jlimit(-12.0f, 12.0f, knobs->value(3)));
-            safe->classicProcessor.setMasterEqValue("masterEqFrequency", juce::jlimit(200.0f, 6000.0f, knobs->value(4)));
-            safe->classicProcessor.setMasterEqValue("masterEqHigh", juce::jlimit(-12.0f, 12.0f, knobs->value(5)));
-            safe->classicProcessor.setMasterEqValue("masterEqHighFrequency", juce::jlimit(2000.0f, 16000.0f, knobs->value(6)));
-            safe->classicProcessor.setMasterEqValue("masterEqHighCut", juce::jlimit(2000.0f, 20000.0f, knobs->value(7)));
-        }), true);
+        [safe](int) { if (safe != nullptr) safe->repaint(); }), true);
 }
 void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
 {
@@ -2653,11 +2813,12 @@ void ClassicPlayerAudioProcessorEditor::resized()
     colourControls.removeFromTop(4);
     keyColourButton.setBounds(colourControls.removeFromTop(30));
 
-    auto programRow = chordArea.removeFromBottom(28);
-    loadProgramButton.setBounds(programRow.removeFromRight(76).reduced(1, 0));
-    deleteProgramButton.setBounds(programRow.removeFromRight(70).reduced(1, 0));
-    saveProgramButton.setBounds(programRow.removeFromRight(62).reduced(1, 0));
-    programBox.setBounds(programRow.reduced(1, 0));
+    auto programArea = chordArea.removeFromBottom(54);
+    programBox.setBounds(programArea.removeFromTop(28).reduced(1, 0));
+    auto programButtons = programArea.removeFromTop(24);
+    loadProgramButton.setBounds(programButtons.removeFromRight(76).reduced(1, 0));
+    deleteProgramButton.setBounds(programButtons.removeFromRight(70).reduced(1, 0));
+    saveProgramButton.setBounds(programButtons.removeFromRight(62).reduced(1, 0));
 
     auto chordBox = chordArea.reduced(2, 0);
     chordCaption.setBounds({});
@@ -3149,3 +3310,4 @@ void ClassicPlayerAudioProcessorEditor::activate()
     else
         activationStatus.setText("Código de ativação inválido.", juce::dontSendNotification);
 }
+
