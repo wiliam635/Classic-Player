@@ -845,10 +845,19 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     editButton.setTooltip("Mostrar ou ocultar os controles desta layer");
     editButton.onClick = [this]
     {
+        if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::analog)
+        {
+            // Analog already has a dedicated, independent editor window.
+            showAnalogSynthEditor();
+            return;
+        }
         expanded = ! expanded;
         editButton.setButtonText(expanded ? "FECHAR" : "EDITAR");
         mixStateChanged();
-        resized();
+        // Rebuild visibility for the selected source type before laying out
+        // the expanded editor. This restores DX7/Analog controls that were
+        // intentionally hidden while the layer was compact.
+        refresh();
     };
     removeButton.setTooltip("Excluir esta layer");
     removeButton.onClick = [this]
@@ -2615,10 +2624,10 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
     const auto count = classicProcessor.activeLayerCount();
     if (count <= 0 || layerViewport.getWidth() <= 0) return;
     constexpr int gap = 8;
-    constexpr int columns = 2;
+    constexpr int columns = 1;
     constexpr int compactHeight = 148;
     constexpr int expandedHeight = 590;
-    const auto stripWidth = juce::jmax(220,
+    const auto stripWidth = juce::jmax(260,
         (layerViewport.getWidth() - gap * (columns - 1)) / columns);
     const auto contentWidth = juce::jmax(layerViewport.getWidth(),
         columns * stripWidth + gap * (columns - 1));
