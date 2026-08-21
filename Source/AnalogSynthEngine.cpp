@@ -52,7 +52,17 @@ void AnalogSynthEngine::reset()
 {
     for (auto& layer : layers)
     {
-        layer = {};
+        for (auto& voice : layer.voices) voice = {};
+        layer.heldNotes.fill(false);
+        layer.heldVelocities.fill(0.0f);
+        layer.noteOrder.fill(0);
+        layer.noteSequence = 0;
+        layer.sustainPedal = false;
+        layer.modWheel = 0.0f;
+        layer.pitchBendSemitones = 0.0f;
+        layer.reverb.reset();
+        layer.compressorEnvelope = {};
+        layer.filterState = {};
         layer.lfoPhase = 0.0f;
     }
 
@@ -70,7 +80,19 @@ void AnalogSynthEngine::unload(int layerIndex)
     if (!juce::isPositiveAndBelow(layerIndex, layerCount))
         return;
 
-    layers[static_cast<size_t>(layerIndex)] = {};
+    auto& layer = layers[static_cast<size_t>(layerIndex)];
+    for (auto& voice : layer.voices) voice = {};
+    layer.heldNotes.fill(false);
+    layer.heldVelocities.fill(0.0f);
+    layer.noteOrder.fill(0);
+    layer.noteSequence = 0;
+    layer.sustainPedal = false;
+    layer.modWheel = 0.0f;
+    layer.pitchBendSemitones = 0.0f;
+    layer.reverb.reset();
+    layer.compressorEnvelope = {};
+    layer.filterState = {};
+    layer.lfoPhase = 0.0f;
     peaks[static_cast<size_t>(layerIndex)].store(0.0f, std::memory_order_relaxed);
 }
 
@@ -531,27 +553,27 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
                 renderScratch.setSample(channel, sampleIndex, state);
             }
 
-        if (config.reverb > 0.001f)
+        if (config.routing.reverb > 0.001f)
         {
             juce::Reverb::Parameters parameters;
-            parameters.roomSize = juce::jlimit(0.0f, 1.0f, config.reverbSize / 100.0f);
-            parameters.damping = juce::jlimit(0.0f, 1.0f, config.reverbDamping / 100.0f);
-            parameters.width = juce::jlimit(0.0f, 1.0f, config.reverbWidth / 100.0f);
-            parameters.wetLevel = juce::jlimit(0.0f, 1.0f, config.reverb / 100.0f);
+            parameters.roomSize = juce::jlimit(0.0f, 1.0f, config.routing.reverbSize / 100.0f);
+            parameters.damping = juce::jlimit(0.0f, 1.0f, config.routing.reverbDamping / 100.0f);
+            parameters.width = juce::jlimit(0.0f, 1.0f, config.routing.reverbWidth / 100.0f);
+            parameters.wetLevel = juce::jlimit(0.0f, 1.0f, config.routing.reverb / 100.0f);
             parameters.dryLevel = 1.0f;
             layer.reverb.setParameters(parameters);
             layer.reverb.processStereo(renderScratch.getWritePointer(0), renderScratch.getWritePointer(1),
                                        output.getNumSamples());
         }
 
-        if (config.compressor > 0.001f)
+        if (config.routing.compressor > 0.001f)
         {
-            const auto threshold = juce::Decibels::decibelsToGain(config.compressorThreshold);
-            const auto ratio = juce::jmax(1.0f, config.compressorRatio);
-            const auto attackCoeff = std::exp(-1.0f / (0.001f * juce::jmax(0.1f, config.compressorAttack) * static_cast<float>(sampleRate)));
-            const auto releaseCoeff = std::exp(-1.0f / (0.001f * juce::jmax(1.0f, config.compressorRelease) * static_cast<float>(sampleRate)));
-            const auto makeup = juce::Decibels::decibelsToGain(config.compressorMakeup);
-            const auto mix = juce::jlimit(0.0f, 1.0f, config.compressor / 100.0f);
+            const auto threshold = juce::Decibels::decibelsToGain(config.routing.compressorThreshold);
+            const auto ratio = juce::jmax(1.0f, config.routing.compressorRatio);
+            const auto attackCoeff = std::exp(-1.0f / (0.001f * juce::jmax(0.1f, config.routing.compressorAttack) * static_cast<float>(sampleRate)));
+            const auto releaseCoeff = std::exp(-1.0f / (0.001f * juce::jmax(1.0f, config.routing.compressorRelease) * static_cast<float>(sampleRate)));
+            const auto makeup = juce::Decibels::decibelsToGain(config.routing.compressorMakeup);
+            const auto mix = juce::jlimit(0.0f, 1.0f, config.routing.compressor / 100.0f);
             for (int sampleIndex = 0; sampleIndex < output.getNumSamples(); ++sampleIndex)
                 for (int channel = 0; channel < 2; ++channel)
                 {
@@ -579,4 +601,3 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
         peaks[static_cast<size_t>(layerIndex)].store(peak, std::memory_order_relaxed);
     }
 }
-
