@@ -47,6 +47,7 @@ private:
         explicit DrumPadPanel(ClassicPlayerAudioProcessor&);
         void resized() override;
         void refresh();
+        void setControlsVisible(bool shouldShow);
     private:
         void chooseSample(int pad);
         ClassicPlayerAudioProcessor& processor;
@@ -54,6 +55,7 @@ private:
         std::array<juce::TextButton, ClassicPlayerAudioProcessor::drumPadCount> loadButtons;
         std::array<juce::TextButton, ClassicPlayerAudioProcessor::drumPadCount> learnButtons;
         std::unique_ptr<juce::FileChooser> fileChooser;
+        bool controlsVisible = true;
     };
 
     class LayerStrip final : public juce::Component
@@ -92,6 +94,7 @@ private:
         void updateMidiLearnState();
         void showReverbEditor();
         void showCompressorEditor();
+        void showDrumPadEditor();
         void showLayerEditor();
         void showAnalogSynthEditor();
         void showDx7Editor();
@@ -239,3 +242,4 @@ private:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ClassicPlayerAudioProcessorEditor)
 };
+
