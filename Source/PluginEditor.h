@@ -93,6 +93,7 @@ private:
         void showReverbEditor();
         void showCompressorEditor();
         void showAnalogSynthEditor();
+        void showDx7Editor();
 
         ClassicPlayerAudioProcessor& processor;
         const int index;
