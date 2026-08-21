@@ -2847,13 +2847,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
                 owned.add(child);
                 addAndMakeVisible(child);
             }
-            setSize(700, 1100);
+            setSize(640, 1100);
         }
 
         void resized() override
         {
-            synthPanel->setBounds(0, 0, 700, 560);
-            routingPanel->setBounds(0, 570, 700, 170);
+            synthPanel->setBounds(0, 0, 640, 560);
+            routingPanel->setBounds(0, 570, 640, 170);
             commonPanel->setBounds(0, 750, 520, 248);
             effectsPanel->setBounds(0, 1008, 300, 38);
             learnPanel->setBounds(0, 1050, 520, 52);
@@ -2872,7 +2872,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     auto* viewport = new juce::Viewport("ANALOG EDITOR");
     viewport->setViewedComponent(content, true);
     viewport->setScrollBarsShown(true, false);
-    viewport->setSize(700, 410);
+    viewport->setSize(640, 410);
     dialog->addCustomComponent(viewport);
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
     {
