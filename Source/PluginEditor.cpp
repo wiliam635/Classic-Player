@@ -182,7 +182,7 @@ public:
         closeButton.setButtonText("×");
         closeButton.setTooltip("Fechar");
         flatButton(closeButton);
-        closeButton.setColour(juce::TextButton::textColourOffId, juce::Colour(text));
+        closeButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffedf4f7));
         closeButton.onClick = [this] { exitModalState(0); };
         addAndMakeVisible(closeButton);
     }
