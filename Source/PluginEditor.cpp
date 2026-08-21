@@ -1726,7 +1726,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         juce::OwnedArray<juce::Component> owned;
     };
 
-    dialog->addCustomComponent(new CenteredPanel(sf2Panel, 740, 430));
+    // The SF2 editor uses only the upper portion of its panel for the
+    // library/routing controls.  Keeping the old 430 px slot created a large
+    // empty gap before the effect knobs and made the dialog unnecessarily
+    // tall.  Reserve only the space the controls actually occupy.
+    dialog->addCustomComponent(new CenteredPanel(sf2Panel, 740, 275));
     dialog->addCustomComponent(new CenteredPanel(knobs, 740, 248));
     dialog->addCustomComponent(new CenteredPanel(effectButtons, 740, 38));
     dialog->addCustomComponent(new CenteredPanel(midiPanel, 740, 52));
@@ -1743,7 +1747,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     });
     // Keep the footer below the Learn controls.  The old height left the
     // custom close button on top of the final Learn row in the SF2 editor.
-    dialog->setSize(760, 780);
+    dialog->setSize(760, 625);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, dialog, knobs, prefix](int)
         {
