@@ -2771,6 +2771,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         { "COMP", valueOf("Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 }
     }, 4);
     dialog->addCustomComponent(common);
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    auto* effectButtons = new LayerEffectButtons(
+        [safe] { if (safe != nullptr) safe->showReverbEditor(); },
+        [safe] { if (safe != nullptr) safe->showCompressorEditor(); });
+    dialog->addCustomComponent(effectButtons);
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
     {
         if (safe == nullptr) return;
@@ -2789,9 +2794,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     // The last custom component (MIDI Learn) must have its own row above the
     // AlertWindow close button. A fixed height prevents FECHAR from covering
     // the compressor Learn button on macOS and Windows.
-    dialog->setSize(1120, 1120);
+    dialog->setSize(1120, 1160);
     dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
-    const juce::Component::SafePointer<LayerStrip> safe(this);
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
     {
         if (safe != nullptr)
