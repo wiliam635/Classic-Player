@@ -619,6 +619,179 @@ private:
     KnobEditorPanel knobs;
 };
 
+class Sf2EditorPanel final : public juce::Component
+{
+public:
+    Sf2EditorPanel(ClassicPlayerAudioProcessor& p, int layer) : processor(p), index(layer)
+    {
+        for (auto* label : { &categoryLabel, &libraryLabel, &presetLabel, &modeLabel,
+                             &sustainLabel, &channelLabel, &deviceLabel, &octaveLabel,
+                             &rangeLabel, &velocityLabel })
+        {
+            label->setColour(juce::Label::textColourId, juce::Colour(text));
+            label->setFont(juce::FontOptions(11.0f, juce::Font::bold));
+            addAndMakeVisible(*label);
+        }
+        categoryLabel.setText("CATEGORIA", juce::dontSendNotification);
+        libraryLabel.setText("BIBLIOTECA SF2", juce::dontSendNotification);
+        presetLabel.setText("PRESET", juce::dontSendNotification);
+        modeLabel.setText("MODO", juce::dontSendNotification);
+        sustainLabel.setText("SUSTAIN", juce::dontSendNotification);
+        channelLabel.setText("CANAL MIDI", juce::dontSendNotification);
+        deviceLabel.setText("ENTRADA MIDI", juce::dontSendNotification);
+        octaveLabel.setText("OITAVA", juce::dontSendNotification);
+        rangeLabel.setText("FAIXA DE NOTAS", juce::dontSendNotification);
+        velocityLabel.setText("VELOCIDADE", juce::dontSendNotification);
+
+        for (const auto& category : ClassicPlayerAudioProcessor::soundFontCategories())
+            categoryBox.addItem(category, categoryBox.getNumItems() + 1);
+        categoryBox.setSelectedId(1, juce::dontSendNotification);
+        categoryBox.onChange = [this] { rebuildLibrary(); };
+        libraryBox.onChange = [this]
+        {
+            const auto selected = libraryBox.getSelectedItemIndex();
+            if (juce::isPositiveAndBelow(selected, libraryFiles.size()))
+            {
+                const auto result = processor.loadSoundFont(index, libraryFiles.getReference(selected));
+                if (result.failed())
+                    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                           "Falha ao carregar SF2", result.getErrorMessage());
+                rebuildPresets();
+            }
+        };
+        presetBox.onChange = [this]
+        {
+            const auto selected = presetBox.getSelectedItemIndex();
+            if (juce::isPositiveAndBelow(selected, (int) presets.size()))
+                processor.selectLayerPreset(index, presets[(size_t) selected].bank,
+                                             presets[(size_t) selected].program);
+        };
+        importButton.setButtonText("IMPORTAR SF2");
+        deleteButton.setButtonText("EXCLUIR SF2");
+        flatButton(importButton); flatButton(deleteButton);
+        importButton.onClick = [this]
+        {
+            chooser = std::make_unique<juce::FileChooser>("Importar SoundFont", juce::File{}, "*.sf2");
+            chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                [this](const juce::FileChooser& c)
+                {
+                    const auto source = c.getResult();
+                    if (!source.existsAsFile()) return;
+                    juce::File imported;
+                    const auto result = processor.importSoundFont(source, categoryBox.getText(), imported);
+                    if (result.failed())
+                        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                               "Falha ao importar SF2", result.getErrorMessage());
+                    else
+                    {
+                        processor.loadSoundFont(index, imported);
+                        rebuildLibrary();
+                    }
+                });
+        };
+        deleteButton.onClick = [this]
+        {
+            const auto selected = libraryBox.getSelectedItemIndex();
+            if (juce::isPositiveAndBelow(selected, libraryFiles.size()))
+            {
+                processor.deleteLibrarySoundFont(libraryFiles.getReference(selected));
+                rebuildLibrary();
+            }
+        };
+        for (auto* box : { &categoryBox, &libraryBox, &presetBox, &modeBox, &sustainBox,
+                           &channelBox, &deviceBox, &octaveBox, &lowNoteBox, &highNoteBox,
+                           &velocityBox })
+        {
+            addAndMakeVisible(*box);
+            box->setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
+            box->setColour(juce::ComboBox::textColourId, juce::Colour(text));
+        }
+        addAndMakeVisible(importButton); addAndMakeVisible(deleteButton);
+        modeBox.addItem("POLI", 1); modeBox.addItem("MONO / LEGATO", 2); modeBox.addItem("PORTAMENTO", 3);
+        sustainBox.addItem("SUSTAIN ON", 1); sustainBox.addItem("SUSTAIN OFF", 2);
+        channelBox.addItem("MIDI OMNI", 1);
+        for (int channel = 1; channel <= 16; ++channel) channelBox.addItem("MIDI CH " + juce::String(channel), channel + 1);
+        for (int value = -4; value <= 4; ++value) octaveBox.addItem((value > 0 ? "+" : "") + juce::String(value) + " OIT", value + 5);
+        for (int note = 0; note < 128; ++note) { lowNoteBox.addItem(midiNoteName(note), note + 1); highNoteBox.addItem(midiNoteName(note), note + 1); }
+        velocityBox.addItem("VEL LINEAR", 1); velocityBox.addItem("VEL SOFT", 2); velocityBox.addItem("VEL HARD", 3);
+        for (auto* box : { &modeBox, &sustainBox, &channelBox, &octaveBox, &lowNoteBox, &highNoteBox, &velocityBox })
+            box->onChange = [this] { applyRouting(); };
+        deviceBox.addItem("TODOS OS CONTROLADORES", 1);
+        for (const auto& device : processor.availableMidiDevices())
+            deviceBox.addItem(device.name, deviceBox.getNumItems() + 1);
+        deviceBox.onChange = [this]
+        {
+            const auto selected = deviceBox.getSelectedId() - 2;
+            const auto devices = processor.availableMidiDevices();
+            processor.setLayerMidiDevice(index, juce::isPositiveAndBelow(selected, devices.size())
+                                                   ? devices.getReference(selected).identifier : juce::String{});
+        };
+        refreshFromProcessor();
+        setSize(700, 430);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(12);
+        auto top = area.removeFromTop(26);
+        categoryLabel.setBounds(top.removeFromLeft(105)); categoryBox.setBounds(top.removeFromLeft(250));
+        importButton.setBounds(top.removeFromLeft(150).reduced(2)); deleteButton.setBounds(top.reduced(2));
+        auto row = area.removeFromTop(25); libraryLabel.setBounds(row.removeFromLeft(105)); libraryBox.setBounds(row);
+        row = area.removeFromTop(25); presetLabel.setBounds(row.removeFromLeft(105)); presetBox.setBounds(row);
+        area.removeFromTop(10);
+        const auto cell = area.getWidth() / 3;
+        auto place = [cell](juce::Rectangle<int> r, juce::Label& l, juce::ComboBox& b) { l.setBounds(r.removeFromTop(18)); b.setBounds(r.reduced(2)); };
+        for (int rowIndex = 0; rowIndex < 3; ++rowIndex)
+        {
+            auto line = area.removeFromTop(62);
+            if (rowIndex == 0) { place(line.removeFromLeft(cell), modeLabel, modeBox); place(line.removeFromLeft(cell), sustainLabel, sustainBox); place(line, channelLabel, channelBox); }
+            if (rowIndex == 1) { place(line.removeFromLeft(cell), deviceLabel, deviceBox); place(line.removeFromLeft(cell), octaveLabel, octaveBox); place(line, velocityLabel, velocityBox); }
+            if (rowIndex == 2) { place(line.removeFromLeft(cell), rangeLabel, lowNoteBox); place(line.removeFromLeft(cell), rangeLabel, highNoteBox); }
+        }
+    }
+
+private:
+    void rebuildLibrary()
+    {
+        libraryFiles = processor.librarySoundFonts(categoryBox.getText());
+        libraryBox.clear(juce::dontSendNotification);
+        for (int i = 0; i < libraryFiles.size(); ++i) libraryBox.addItem(libraryFiles.getReference(i).getFileNameWithoutExtension(), i + 1);
+        libraryBox.setTextWhenNothingSelected("ESCOLHA O SF2");
+        rebuildPresets();
+    }
+    void rebuildPresets()
+    {
+        presets.clear(); presetBox.clear(juce::dontSendNotification);
+        presets = processor.layerPresets(index);
+        for (int i = 0; i < (int) presets.size(); ++i) presetBox.addItem(juce::String(presets[(size_t) i].bank) + ": " + presets[(size_t) i].name, i + 1);
+    }
+    void refreshFromProcessor()
+    {
+        const auto config = processor.layerConfig(index);
+        modeBox.setSelectedId(config.portamento ? 3 : config.mono ? 2 : 1, juce::dontSendNotification);
+        sustainBox.setSelectedId(config.sustainEnabled ? 1 : 2, juce::dontSendNotification);
+        channelBox.setSelectedId(config.midiChannel + 1, juce::dontSendNotification);
+        octaveBox.setSelectedId(config.octave + 5, juce::dontSendNotification);
+        lowNoteBox.setSelectedId(config.lowNote + 1, juce::dontSendNotification);
+        highNoteBox.setSelectedId(config.highNote + 1, juce::dontSendNotification);
+        velocityBox.setSelectedId(config.velocityCurve + 1, juce::dontSendNotification);
+        rebuildLibrary();
+    }
+    void applyRouting()
+    {
+        auto config = processor.layerConfig(index);
+        config.mono = modeBox.getSelectedId() == 2; config.portamento = modeBox.getSelectedId() == 3;
+        config.sustainEnabled = sustainBox.getSelectedId() != 2; config.midiChannel = channelBox.getSelectedId() - 1;
+        config.octave = octaveBox.getSelectedId() - 5; config.lowNote = lowNoteBox.getSelectedId() - 1; config.highNote = highNoteBox.getSelectedId() - 1;
+        config.velocityCurve = velocityBox.getSelectedId() - 1; processor.setLayerConfig(index, config);
+    }
+    ClassicPlayerAudioProcessor& processor; int index;
+    juce::Label categoryLabel, libraryLabel, presetLabel, modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel, rangeLabel, velocityLabel;
+    juce::ComboBox categoryBox, libraryBox, presetBox, modeBox, sustainBox, channelBox, deviceBox, octaveBox, lowNoteBox, highNoteBox, velocityBox;
+    juce::TextButton importButton, deleteButton; juce::Array<juce::File> libraryFiles; std::vector<Sf2Engine::Preset> presets;
+    std::unique_ptr<juce::FileChooser> chooser;
+};
+
 class Dx7EditorPanel final : public juce::Component
 {
 public:
@@ -1169,6 +1342,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         { "REVERB", valueOf(prefix + "Reverb", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "COMP", valueOf(prefix + "Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 }
     }, 4);
+    dialog->addCustomComponent(new Sf2EditorPanel(processor, index));
     dialog->addCustomComponent(knobs);
     dialog->addButton("FECHAR", 1, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
