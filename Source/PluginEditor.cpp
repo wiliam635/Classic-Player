@@ -924,13 +924,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
             showDx7Editor();
             return;
         }
-        expanded = ! expanded;
-        editButton.setButtonText(expanded ? "FECHAR" : "EDITAR");
-        mixStateChanged();
-        // Rebuild visibility for the selected source type before laying out
-        // the expanded editor. This restores DX7/Analog controls that were
-        // intentionally hidden while the layer was compact.
-        refresh();
+        showLayerEditor();
     };
     removeButton.setTooltip("Excluir esta layer");
     removeButton.onClick = [this]
@@ -1161,6 +1155,44 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refreshMidiDevices()
     }
     midiDevice.setSelectedId(selectedId, juce::dontSendNotification);
     midiDevice.setTextWhenNothingSelected("CONTROLADOR MIDI");
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
+{
+    const auto prefix = "layer" + juce::String(index + 1);
+    auto* dialog = new juce::AlertWindow(
+        "EDITAR LAYER", "Ajuste os controles desta layer sem expandir o canal.",
+        juce::MessageBoxIconType::NoIcon);
+    dialog->setLookAndFeel(&classicLookAndFeel);
+    auto valueOf = [this](const juce::String& id, float fallback)
+    {
+        if (auto* value = processor.parameters.getRawParameterValue(id)) return value->load();
+        return fallback;
+    };
+    auto* knobs = new KnobEditorPanel({
+        { "VOLUME", valueOf(prefix + "Gain", 80.0f), 0.0f, 100.0f, 1.0f, 0 },
+        { "CUTOFF", valueOf(prefix + "Cutoff", 100.0f), 0.0f, 100.0f, 1.0f, 0 },
+        { "REVERB", valueOf(prefix + "Reverb", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
+        { "COMP", valueOf(prefix + "Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 }
+    }, 4);
+    dialog->addCustomComponent(knobs);
+    dialog->addButton("FECHAR", 1, juce::KeyPress(juce::KeyPress::escapeKey));
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create(
+        [safe, dialog, knobs, prefix](int)
+        {
+            if (safe == nullptr) return;
+            const auto set = [safe, prefix](const juce::String& id, float value)
+            {
+                if (auto* parameter = safe->processor.parameters.getParameter(prefix + id))
+                    parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
+            };
+            set("Gain", knobs->value(0));
+            set("Cutoff", knobs->value(1));
+            set("Reverb", knobs->value(2));
+            set("Comp", knobs->value(3));
+            safe->refresh();
+        }), true);
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
