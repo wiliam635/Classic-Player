@@ -245,6 +245,11 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         auto analogConfig = analogLayerConfigs[(size_t) i];
         analogConfig.routing = config;
         analogConfig.routing.enabled = config.enabled && layerType(i) == LayerType::analog;
+        // The Analog filter is rendered from its native cutoff field, while
+        // the compact mixer edits the shared APVTS cutoff parameter. Mirror
+        // that parameter into the Analog config every audio block so the
+        // mixer cutoff knob has an audible effect on Analog layers too.
+        analogConfig.cutoff = config.cutoff;
         // Analog Mono/Legato intentionally has no portamento mode.  Older
         // saved programs may still carry the shared layer flag; do not let it
         // turn every lead preset into a continuous theremin glide.
