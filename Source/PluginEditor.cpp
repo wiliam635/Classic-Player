@@ -1268,24 +1268,32 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
 void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
 {
     constexpr int columns = 2;
-    const auto cellWidth = getWidth() / columns;
-    constexpr int rowHeight = 128;
+    const auto cellWidth = juce::jmax(1, getWidth() / columns);
+    // Derive the row height from the panel itself.  A fixed row size made the
+    // fourth row extend below compact mixer layers and clip the pads.  The
+    // pad body is then explicitly constrained to a square inside each cell.
+    const auto rowHeight = juce::jmax(1, getHeight() / 4);
     for (int pad = 0; pad < ClassicPlayerAudioProcessor::drumPadCount; ++pad)
     {
         const auto column = pad % columns;
         const auto row = pad / columns;
-        auto cell = juce::Rectangle<int>(column * cellWidth, row * rowHeight,
-                                         cellWidth, rowHeight - 4).reduced(5, 3);
+        const auto cell = juce::Rectangle<int>(column * cellWidth, row * rowHeight,
+                                               cellWidth, rowHeight);
+        auto cellInner = cell.reduced(5, 3);
+        const auto controlsHeight = controlsVisible ? 27 : 0;
+        const auto availablePadHeight = juce::jmax(1, cellInner.getHeight() - controlsHeight);
+        const auto padSize = juce::jmax(1, juce::jmin(cellInner.getWidth(), availablePadHeight));
+        auto padArea = cellInner.withSizeKeepingCentre(padSize, padSize);
         if (controlsVisible)
         {
-            pads[(size_t) pad].setBounds(cell.removeFromTop(cell.getHeight() - 30));
-            auto buttons = cell.removeFromBottom(27);
+            pads[(size_t) pad].setBounds(padArea);
+            auto buttons = cellInner.removeFromBottom(27);
             loadButtons[(size_t) pad].setBounds(buttons.removeFromLeft(buttons.getWidth() / 2).reduced(1, 0));
             learnButtons[(size_t) pad].setBounds(buttons.reduced(1, 0));
         }
         else
         {
-            pads[(size_t) pad].setBounds(cell);
+            pads[(size_t) pad].setBounds(padArea);
             loadButtons[(size_t) pad].setBounds({});
             learnButtons[(size_t) pad].setBounds({});
         }
