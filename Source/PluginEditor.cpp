@@ -1734,7 +1734,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     // empty gap before the effect knobs and made the dialog unnecessarily
     // tall.  Reserve only the space the controls actually occupy.
     dialog->addCustomComponent(new CenteredPanel(sf2Panel, 740, 275));
-    dialog->addCustomComponent(new CenteredPanel(knobs, 740, 248));
+    // Four SF2 controls share one compact row in the reference editor.
+    dialog->addCustomComponent(new CenteredPanel(knobs, 740, 124));
     dialog->addCustomComponent(new CenteredPanel(effectButtons, 740, 38));
     dialog->addCustomComponent(new CenteredPanel(midiPanel, 740, 52));
     knobs->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), knobs, prefix]
@@ -2856,16 +2857,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
                 owned.add(child);
                 addAndMakeVisible(child);
             }
-            setSize(640, 1100);
+            setSize(640, 972);
         }
 
         void resized() override
         {
             synthPanel->setBounds(0, 0, 640, 560);
             routingPanel->setBounds(0, 570, 640, 170);
-            commonPanel->setBounds(0, 750, 520, 248);
-            effectsPanel->setBounds(0, 1008, 300, 38);
-            learnPanel->setBounds(0, 1050, 520, 52);
+            commonPanel->setBounds(0, 750, 520, 124);
+            effectsPanel->setBounds(0, 878, 300, 38);
+            learnPanel->setBounds(0, 920, 520, 52);
         }
 
     private:
@@ -2984,7 +2985,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
 
     dialog->addCustomComponent(new CenteredPanel(dx7Panel, 740, 150));
     dialog->addCustomComponent(new CenteredPanel(routingPanel, 740, 170));
-    dialog->addCustomComponent(new CenteredPanel(common, 740, 248));
+    // DX7 has five controls on one row, matching the supplied reference.
+    dialog->addCustomComponent(new CenteredPanel(common, 740, 124));
     dialog->addCustomComponent(new CenteredPanel(effectButtons, 740, 38));
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
     {
