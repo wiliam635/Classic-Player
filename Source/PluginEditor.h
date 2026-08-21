@@ -94,6 +94,7 @@ private:
         void updateMidiLearnState();
         void showReverbEditor();
         void showCompressorEditor();
+        void showChorusEditor();
         void showDrumPadEditor();
         void showLayerEditor();
         void showAnalogSynthEditor();
@@ -146,6 +147,9 @@ private:
         juce::TextButton compressorLearn { "LEARN" };
         juce::TextButton reverbEditButton { "EDIT" };
         juce::TextButton compressorEditButton { "EDIT" };
+        juce::TextButton chorusEditButton { "EDIT" };
+        juce::Slider chorus;
+        juce::Label chorusLabel;
         juce::ComboBox mode;
         juce::ComboBox sustain;
         juce::ComboBox midiDevice;
@@ -159,6 +163,7 @@ private:
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> cutoffAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> reverbAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> compressorAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> chorusAttachment;
         std::unique_ptr<juce::FileChooser> fileChooser;
         std::unique_ptr<juce::DocumentWindow> externalEditorWindow;
         DrumPadPanel drumPadPanel;
