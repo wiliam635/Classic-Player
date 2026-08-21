@@ -2360,6 +2360,19 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* controls = new AnalogSynthEditorPanel(processor.analogSynthConfig(index));
     dialog->addCustomComponent(controls);
+    const auto prefix = "layer" + juce::String(index + 1);
+    auto valueOf = [this, prefix](const juce::String& suffix, float fallback)
+    {
+        if (auto* value = processor.parameters.getRawParameterValue(prefix + suffix)) return value->load();
+        return fallback;
+    };
+    auto* common = new KnobEditorPanel({
+        { "VOLUME", valueOf("Gain", 80.0f), 0.0f, 100.0f, 1.0f, 0 },
+        { "CUTOFF", valueOf("Cutoff", 100.0f), 0.0f, 100.0f, 1.0f, 0 },
+        { "REVERB", valueOf("Reverb", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
+        { "COMP", valueOf("Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 }
+    }, 4);
+    dialog->addCustomComponent(common);
     dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
@@ -2376,7 +2389,20 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         }
     };
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
-        [](int) {}), true);
+        [safe, common, prefix](int)
+        {
+            if (safe == nullptr) return;
+            const auto set = [safe, prefix](const juce::String& suffix, float value)
+            {
+                if (auto* parameter = safe->processor.parameters.getParameter(prefix + suffix))
+                    parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
+            };
+            set("Gain", common->value(0));
+            set("Cutoff", common->value(1));
+            set("Reverb", common->value(2));
+            set("Comp", common->value(3));
+            safe->refresh();
+        }), true);
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
