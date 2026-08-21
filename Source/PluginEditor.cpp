@@ -350,7 +350,10 @@ public:
         for (auto* button : { &oscillator1On, &oscillator2On, &oscillator3On, &pinkNoise })
             button->onClick = [this] { if (onConfigChanged) onConfigChanged(config()); };
         addAndMakeVisible(knobs);
-        setSize(1000, 560);
+        // Four complete rows of hardware-style knobs need this height; a
+        // shorter panel clipped the lower controls and made the footer appear
+        // to overlap the editor content.
+        setSize(1000, 650);
         startTimerHz(30);
     }
 
@@ -473,11 +476,13 @@ public:
         oscillator1On.setBounds(wave1.getX() + 10, 119, waveWidth - 20, 20);
         oscillator2On.setBounds(wave2.getX() + 10, 119, waveWidth - 20, 20);
         oscillator3On.setBounds(wave3.getX() + 10, 119, waveWidth - 20, 20);
-        pinkNoise.setBounds(juce::roundToInt(w * 0.73f), 119, juce::jmin(104, w / 8), 20);
+        // Keep Pink Noise wholly inside the mixer module; its old position
+        // crossed the divider and was visually cut by the oscilloscope.
+        pinkNoise.setBounds(juce::roundToInt(w * 0.78f), 119, juce::jmin(92, w / 9), 20);
         monoPoly.setBounds(juce::roundToInt(w * 0.06f), 108, juce::jmin(112, w / 7), 25);
         // Reserve the right edge for the output meter and keep four complete
         // rows of controls inside the cabinet on compact displays.
-        knobs.setBounds(22, 153, juce::jmax(560, getWidth() - 190), juce::jmax(360, getHeight() - 195));
+        knobs.setBounds(22, 153, juce::jmax(560, getWidth() - 190), juce::jmax(430, getHeight() - 195));
     }
 
 private:
@@ -2709,7 +2714,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     // Leave a dedicated row for routing and MIDI Learn before the close
     // button. The previous automatic AlertWindow height put FECHAR on top of
     // the Learn controls on smaller displays.
-    dialog->setSize(1120, 920);
+    // The last custom component (MIDI Learn) must have its own row above the
+    // AlertWindow close button. A fixed height prevents FECHAR from covering
+    // the compressor Learn button on macOS and Windows.
+    dialog->setSize(1120, 1120);
     dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
