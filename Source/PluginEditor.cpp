@@ -2929,8 +2929,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     auto* dialog = new LayerEditorWindow(
         "DX7", "Selecione o banco e o timbre desta camada.", juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
-    dialog->addCustomComponent(new Dx7EditorPanel(processor, index));
-    dialog->addCustomComponent(new LayerRoutingEditorPanel(processor, index));
+    auto* dx7Panel = new Dx7EditorPanel(processor, index);
+    auto* routingPanel = new LayerRoutingEditorPanel(processor, index);
     auto valueOf = [this, prefix](const juce::String& suffix, float fallback)
     {
         if (auto* value = processor.parameters.getRawParameterValue(prefix + suffix)) return value->load();
@@ -2943,13 +2943,40 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         { "COMP", valueOf("Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "CHORUS", valueOf("Dx7Chorus", 20.0f), 0.0f, 100.0f, 1.0f, 0 }
     }, 5);
-    dialog->addCustomComponent(common);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     auto* effectButtons = new LayerEffectButtons(
         [safe] { if (safe != nullptr) safe->showReverbEditor(); },
         [safe] { if (safe != nullptr) safe->showCompressorEditor(); },
         [safe] { if (safe != nullptr) safe->showChorusEditor(); });
-    dialog->addCustomComponent(effectButtons);
+    auto* midiPanel = new LayerMidiLearnPanel(processor, index);
+
+    class CenteredPanel final : public juce::Component
+    {
+    public:
+        CenteredPanel(juce::Component* child, int preferredWidth, int preferredHeight)
+            : content(child), width(preferredWidth)
+        {
+            owned.add(child);
+            addAndMakeVisible(child);
+            setSize(preferredWidth, preferredHeight);
+        }
+
+        void resized() override
+        {
+            content->setBounds(getLocalBounds().withSizeKeepingCentre(
+                juce::jmin(width, content->getWidth()), content->getHeight()));
+        }
+
+    private:
+        juce::Component* content;
+        int width;
+        juce::OwnedArray<juce::Component> owned;
+    };
+
+    dialog->addCustomComponent(new CenteredPanel(dx7Panel, 740, 150));
+    dialog->addCustomComponent(new CenteredPanel(routingPanel, 740, 170));
+    dialog->addCustomComponent(new CenteredPanel(common, 740, 248));
+    dialog->addCustomComponent(new CenteredPanel(effectButtons, 740, 38));
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
     {
         if (safe == nullptr) return;
@@ -2962,7 +2989,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         set("Reverb", common->value(2)); set("Comp", common->value(3));
         set("Dx7Chorus", common->value(4));
     });
-    dialog->addCustomComponent(new LayerMidiLearnPanel(processor, index));
+    dialog->addCustomComponent(new CenteredPanel(midiPanel, 740, 52));
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.
     dialog->setSize(760, 780);
