@@ -2716,7 +2716,7 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
     // desktop window, reducing responsively only when the window is narrow.
     const auto availableWidth = juce::jmax(1,
         layerViewport.getWidth() - layerViewport.getScrollBarThickness());
-    const int columns = availableWidth >= 1000 ? 6
+    const int columns = availableWidth >= 1000 ? 8
                        : availableWidth >= 720  ? 4
                        : availableWidth >= 450  ? 2
                                                   : 1;
@@ -2726,7 +2726,7 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
     // Mixer-style channels fill the complete area above the keyboard instead
     // of collapsing into short horizontal cards at the top.
     const int compactHeight = juce::jmax(148, viewportHeight - gap * 2);
-    const auto stripWidth = juce::jmax(260,
+    const auto stripWidth = juce::jmax(150,
         (layerViewport.getWidth() - gap * (columns - 1)) / columns);
     const auto contentWidth = juce::jmax(availableWidth,
         columns * stripWidth + gap * (columns - 1));
