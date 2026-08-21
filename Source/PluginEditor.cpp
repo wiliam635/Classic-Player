@@ -1750,7 +1750,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     });
     // Keep the footer below the Learn controls.  The old height left the
     // custom close button on top of the final Learn row in the SF2 editor.
-    dialog->setSize(1280, 720);
+    dialog->setSize(760, 680);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, dialog, knobs, prefix](int)
         {
@@ -1841,9 +1841,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
     pads->setControlsVisible(true);
     // Leave enough room for both complete columns and their LOAD/LEARN rows;
     // the previous width let the right column run underneath the dialog edge.
-    pads->setSize(680, 560);
+    // Keep both pad columns and their LOAD/LEARN rows inside the 678 px
+    // dialog shown by the reference layout.
+    pads->setSize(620, 560);
     dialog->addCustomComponent(pads);
-    dialog->setSize(1280, 720);
+    dialog->setSize(678, 630);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->drumPadPanel.refresh(); }), true);
@@ -2898,7 +2900,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     // The last custom component (MIDI Learn) must have its own row above the
     // AlertWindow close button. A fixed height prevents FECHAR from covering
     // the compressor Learn button on macOS and Windows.
-    dialog->setSize(1280, 720);
+    dialog->setSize(772, 707);
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
     {
         if (safe != nullptr)
@@ -2999,7 +3001,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     dialog->addCustomComponent(new CenteredPanel(midiPanel, 740, 52));
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.
-    dialog->setSize(1280, 720);
+    dialog->setSize(758, 599);
     // Use AlertWindow's footer button so JUCE reserves a dedicated row below
     // the MIDI Learn panel instead of treating FECHAR as another component.
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
