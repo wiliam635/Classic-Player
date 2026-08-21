@@ -439,7 +439,9 @@ public:
         // Four complete rows of hardware-style knobs need this height; a
         // shorter panel clipped the lower controls and made the footer appear
         // to overlap the editor content.
-        setSize(1000, 650);
+        // Keep the Analog editor compact enough for notebook displays while
+        // preserving all four rows of controls and the oscilloscope.
+        setSize(920, 620);
         startTimerHz(30);
     }
 
@@ -2820,7 +2822,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     // The last custom component (MIDI Learn) must have its own row above the
     // AlertWindow close button. A fixed height prevents FECHAR from covering
     // the compressor Learn button on macOS and Windows.
-    dialog->setSize(1120, 1160);
+    dialog->setSize(1000, 1100);
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
     {
         if (safe != nullptr)
