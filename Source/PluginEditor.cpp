@@ -1610,7 +1610,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         set("Gain", knobs->value(0)); set("Cutoff", knobs->value(1));
         set("Reverb", knobs->value(2)); set("Comp", knobs->value(3));
     });
-    dialog->addButton("FECHAR", 1, juce::KeyPress(juce::KeyPress::escapeKey));
+    dialog->setSize(760, 650);
+    auto* sf2CloseButton = new juce::TextButton("FECHAR");
+    flatButton(*sf2CloseButton);
+    sf2CloseButton->setSize(120, 36);
+    sf2CloseButton->onClick = [dialog] { dialog->exitModalState(1); };
+    dialog->addCustomComponent(sf2CloseButton);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, dialog, knobs, prefix](int)
@@ -2789,8 +2794,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         set("Dx7Chorus", common->value(4));
     });
     dialog->addCustomComponent(new LayerMidiLearnPanel(processor, index));
-    dialog->setSize(760, 520);
-    dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    dialog->setSize(760, 650);
+    auto* dx7CloseButton = new juce::TextButton("FECHAR");
+    flatButton(*dx7CloseButton);
+    dx7CloseButton->setSize(120, 36);
+    dx7CloseButton->onClick = [dialog] { dialog->exitModalState(0); };
+    dialog->addCustomComponent(dx7CloseButton);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, common, prefix](int)
