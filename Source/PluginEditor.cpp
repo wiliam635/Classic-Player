@@ -2894,11 +2894,17 @@ void ClassicPlayerAudioProcessorEditor::resized()
 
     auto chordArea = header.reduced(4, 1);
     auto colourControls = chordArea.removeFromRight(320).reduced(5, 2);
-    auto buttonRow = colourControls.removeFromTop(30);
-    chordColourButton.setBounds(buttonRow.removeFromLeft(82).reduced(1));
-    keyColourButton.setBounds(buttonRow.removeFromLeft(82).reduced(1));
-    liveSetButton.setBounds(buttonRow.removeFromLeft(82).reduced(1));
-    addLayerButton.setBounds(buttonRow.reduced(1));
+    // Arrange the four header actions as a 2x2 block beside the chord
+    // display: chord colour / Live Set on the first row, key colour / Add
+    // Layer on the second. This keeps the requested visual grouping without
+    // changing the chord display or program field dimensions.
+    const auto topButtonRow = colourControls.removeFromTop(30);
+    const auto bottomButtonRow = colourControls.removeFromTop(30);
+    const auto buttonWidth = topButtonRow.getWidth() / 2;
+    chordColourButton.setBounds(topButtonRow.removeFromLeft(buttonWidth).reduced(1));
+    liveSetButton.setBounds(topButtonRow.reduced(1));
+    keyColourButton.setBounds(bottomButtonRow.removeFromLeft(buttonWidth).reduced(1));
+    addLayerButton.setBounds(bottomButtonRow.reduced(1));
 
     auto programArea = chordArea.removeFromBottom(54);
     programBox.setBounds(programArea.removeFromTop(28).reduced(1, 0));
