@@ -41,9 +41,10 @@ AnalogSynthEngine::AnalogSynthEngine()
         peak.store(0.0f, std::memory_order_relaxed);
 }
 
-void AnalogSynthEngine::prepare(double newSampleRate, int)
+void AnalogSynthEngine::prepare(double newSampleRate, int maximumBlockSize)
 {
     sampleRate = juce::jmax(1.0, newSampleRate);
+    renderScratch.setSize(2, juce::jmax(1, maximumBlockSize), false, true, true);
     reset();
 }
 
@@ -499,6 +500,8 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
             continue;
         }
 
+        renderScratch.setSize(2, output.getNumSamples(), false, false, true);
+        renderScratch.clear();
         float peak = 0.0f;
         for (int sampleIndex = 0; sampleIndex < output.getNumSamples(); ++sampleIndex)
         {
@@ -512,13 +515,68 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
                     renderVoice(voice, config, lfo, layer.modWheel,
                                layer.pitchBendSemitones, left, right);
 
+            renderScratch.setSample(0, sampleIndex, left);
+            renderScratch.setSample(1, sampleIndex, right);
+        }
+
+        const auto cutoffHz = 120.0f + juce::jlimit(0.0f, 100.0f, config.cutoff) * 180.0f;
+        const auto alpha = juce::jlimit(0.001f, 0.95f,
+            1.0f - std::exp(-twoPi * cutoffHz / static_cast<float>(sampleRate)));
+        for (int sampleIndex = 0; sampleIndex < output.getNumSamples(); ++sampleIndex)
+            for (int channel = 0; channel < 2; ++channel)
+            {
+                auto sample = renderScratch.getSample(channel, sampleIndex);
+                auto& state = layer.filterState[(size_t) channel];
+                state += alpha * (sample - state);
+                renderScratch.setSample(channel, sampleIndex, state);
+            }
+
+        if (config.reverb > 0.001f)
+        {
+            juce::Reverb::Parameters parameters;
+            parameters.roomSize = juce::jlimit(0.0f, 1.0f, config.reverbSize / 100.0f);
+            parameters.damping = juce::jlimit(0.0f, 1.0f, config.reverbDamping / 100.0f);
+            parameters.width = juce::jlimit(0.0f, 1.0f, config.reverbWidth / 100.0f);
+            parameters.wetLevel = juce::jlimit(0.0f, 1.0f, config.reverb / 100.0f);
+            parameters.dryLevel = 1.0f;
+            layer.reverb.setParameters(parameters);
+            layer.reverb.processStereo(renderScratch.getWritePointer(0), renderScratch.getWritePointer(1),
+                                       output.getNumSamples());
+        }
+
+        if (config.compressor > 0.001f)
+        {
+            const auto threshold = juce::Decibels::decibelsToGain(config.compressorThreshold);
+            const auto ratio = juce::jmax(1.0f, config.compressorRatio);
+            const auto attackCoeff = std::exp(-1.0f / (0.001f * juce::jmax(0.1f, config.compressorAttack) * static_cast<float>(sampleRate)));
+            const auto releaseCoeff = std::exp(-1.0f / (0.001f * juce::jmax(1.0f, config.compressorRelease) * static_cast<float>(sampleRate)));
+            const auto makeup = juce::Decibels::decibelsToGain(config.compressorMakeup);
+            const auto mix = juce::jlimit(0.0f, 1.0f, config.compressor / 100.0f);
+            for (int sampleIndex = 0; sampleIndex < output.getNumSamples(); ++sampleIndex)
+                for (int channel = 0; channel < 2; ++channel)
+                {
+                    const auto dry = renderScratch.getSample(channel, sampleIndex);
+                    const auto level = std::abs(dry);
+                    auto& env = layer.compressorEnvelope[(size_t) channel];
+                    env = level > env ? attackCoeff * env + (1.0f - attackCoeff) * level
+                                      : releaseCoeff * env + (1.0f - releaseCoeff) * level;
+                    const auto over = env > threshold ? env / threshold : 1.0f;
+                    const auto reduction = over > 1.0f ? std::pow(over, -(1.0f - 1.0f / ratio)) : 1.0f;
+                    renderScratch.setSample(channel, sampleIndex,
+                        dry * (1.0f + mix * (reduction * makeup - 1.0f)));
+                }
+        }
+
+        for (int sampleIndex = 0; sampleIndex < output.getNumSamples(); ++sampleIndex)
+        {
+            const auto left = renderScratch.getSample(0, sampleIndex);
+            const auto right = renderScratch.getSample(1, sampleIndex);
             peak = juce::jmax(peak, juce::jmax(std::abs(left), std::abs(right)));
-            if (output.getNumChannels() > 0)
-                output.addSample(0, sampleIndex, left);
-            if (output.getNumChannels() > 1)
-                output.addSample(1, sampleIndex, right);
+            if (output.getNumChannels() > 0) output.addSample(0, sampleIndex, left);
+            if (output.getNumChannels() > 1) output.addSample(1, sampleIndex, right);
         }
 
         peaks[static_cast<size_t>(layerIndex)].store(peak, std::memory_order_relaxed);
     }
 }
+
