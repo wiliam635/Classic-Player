@@ -261,6 +261,38 @@ private:
     juce::OwnedArray<juce::Slider> knobs;
 };
 
+class LayerEffectButtons final : public juce::Component
+{
+public:
+    LayerEffectButtons(std::function<void()> reverbCallback,
+                       std::function<void()> compressorCallback)
+        : onReverb(std::move(reverbCallback)), onCompressor(std::move(compressorCallback))
+    {
+        reverb.setButtonText("EDITAR REVERB");
+        compressor.setButtonText("EDITAR COMP");
+        for (auto* button : { &reverb, &compressor })
+        {
+            flatButton(*button);
+            addAndMakeVisible(*button);
+        }
+        reverb.onClick = [this] { if (onReverb) onReverb(); };
+        compressor.onClick = [this] { if (onCompressor) onCompressor(); };
+        setSize(300, 38);
+    }
+
+    void resized() override
+    {
+        auto row = getLocalBounds();
+        reverb.setBounds(row.removeFromLeft(row.getWidth() / 2).reduced(2, 1));
+        compressor.setBounds(row.reduced(2, 1));
+    }
+
+private:
+    std::function<void()> onReverb;
+    std::function<void()> onCompressor;
+    juce::TextButton reverb, compressor;
+};
+
 class AnalogSynthEditorPanel final : public juce::Component, private juce::Timer
 {
 public:
@@ -1620,6 +1652,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     }, 4);
     dialog->addCustomComponent(new Sf2EditorPanel(processor, index));
     dialog->addCustomComponent(knobs);
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    auto* effectButtons = new LayerEffectButtons(
+        [safe] { if (safe != nullptr) safe->showReverbEditor(); },
+        [safe] { if (safe != nullptr) safe->showCompressorEditor(); });
+    dialog->addCustomComponent(effectButtons);
     dialog->addCustomComponent(new LayerMidiLearnPanel(processor, index));
     knobs->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), knobs, prefix]
     {
@@ -1632,13 +1669,14 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         set("Gain", knobs->value(0)); set("Cutoff", knobs->value(1));
         set("Reverb", knobs->value(2)); set("Comp", knobs->value(3));
     });
-    dialog->setSize(760, 650);
+    // Keep the footer below the Learn controls.  The old height left the
+    // custom close button on top of the final Learn row in the SF2 editor.
+    dialog->setSize(760, 780);
     auto* sf2CloseButton = new juce::TextButton("FECHAR");
     flatButton(*sf2CloseButton);
     sf2CloseButton->setSize(120, 36);
     sf2CloseButton->onClick = [dialog] { dialog->exitModalState(1); };
     dialog->addCustomComponent(sf2CloseButton);
-    const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, dialog, knobs, prefix](int)
         {
