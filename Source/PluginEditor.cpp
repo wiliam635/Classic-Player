@@ -179,7 +179,10 @@ public:
                       juce::MessageBoxIconType icon)
         : juce::AlertWindow(title, message, icon)
     {
-        closeButton.setButtonText("×");
+        // Use plain ASCII so every platform font renders the close control
+        // consistently (some macOS JUCE fonts substitute the multiplication
+        // sign with an unrelated glyph).
+        closeButton.setButtonText("X");
         closeButton.setTooltip("Fechar");
         flatButton(closeButton);
         closeButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffedf4f7));
@@ -190,7 +193,7 @@ public:
     void resized() override
     {
         juce::AlertWindow::resized();
-        closeButton.setBounds(getWidth() - 38, 4, 30, 28);
+        closeButton.setBounds(getWidth() - 38, 6, 30, 26);
     }
 
 private:
