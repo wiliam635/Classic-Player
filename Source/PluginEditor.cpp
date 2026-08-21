@@ -2708,7 +2708,12 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
     const auto count = classicProcessor.activeLayerCount();
     if (count <= 0 || layerViewport.getWidth() <= 0) return;
     constexpr int gap = 8;
-    constexpr int columns = 1;
+    // Keep each layer as a vertical strip.  Use four columns on a normal
+    // desktop window, reducing responsively only when the window is narrow.
+    const auto availableWidth = layerViewport.getWidth();
+    const int columns = availableWidth >= 1200 ? 4
+                       : availableWidth >= 720  ? 2
+                                                  : 1;
     constexpr int compactHeight = 148;
     constexpr int expandedHeight = 590;
     const auto stripWidth = juce::jmax(260,
