@@ -1697,6 +1697,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         { "COMP", valueOf(prefix + "Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 }
     }, 4);
     auto* sf2Panel = new Sf2EditorPanel(processor, index);
+    // Match the compact editor slot so the SF2 controls are not followed by
+    // an oversized empty region when the dialog is displayed at full size.
+    sf2Panel->setSize(700, 275);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     auto* effectButtons = new LayerEffectButtons(
         [safe] { if (safe != nullptr) safe->showReverbEditor(); },
@@ -1747,7 +1750,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     });
     // Keep the footer below the Learn controls.  The old height left the
     // custom close button on top of the final Learn row in the SF2 editor.
-    dialog->setSize(760, 625);
+    dialog->setSize(1280, 720);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, dialog, knobs, prefix](int)
         {
@@ -1840,7 +1843,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
     // the previous width let the right column run underneath the dialog edge.
     pads->setSize(680, 560);
     dialog->addCustomComponent(pads);
-    dialog->setSize(740, 650);
+    dialog->setSize(1280, 720);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->drumPadPanel.refresh(); }), true);
@@ -2895,7 +2898,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     // The last custom component (MIDI Learn) must have its own row above the
     // AlertWindow close button. A fixed height prevents FECHAR from covering
     // the compressor Learn button on macOS and Windows.
-    dialog->setSize(720, 480);
+    dialog->setSize(1280, 720);
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
     {
         if (safe != nullptr)
@@ -2996,7 +2999,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     dialog->addCustomComponent(new CenteredPanel(midiPanel, 740, 52));
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.
-    dialog->setSize(760, 780);
+    dialog->setSize(1280, 720);
     // Use AlertWindow's footer button so JUCE reserves a dedicated row below
     // the MIDI Learn panel instead of treating FECHAR as another component.
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
