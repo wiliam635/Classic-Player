@@ -2784,8 +2784,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* controls = new AnalogSynthEditorPanel(processor.analogSynthConfig(index));
-    dialog->addCustomComponent(controls);
-    dialog->addCustomComponent(new LayerRoutingEditorPanel(processor, index));
+    auto* routing = new LayerRoutingEditorPanel(processor, index);
     const auto prefix = "layer" + juce::String(index + 1);
     auto valueOf = [this, prefix](const juce::String& suffix, float fallback)
     {
@@ -2798,12 +2797,53 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         { "REVERB", valueOf("Reverb", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "COMP", valueOf("Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 }
     }, 4);
-    dialog->addCustomComponent(common);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     auto* effectButtons = new LayerEffectButtons(
         [safe] { if (safe != nullptr) safe->showReverbEditor(); },
         [safe] { if (safe != nullptr) safe->showCompressorEditor(); });
-    dialog->addCustomComponent(effectButtons);
+    auto* midi = new LayerMidiLearnPanel(processor, index);
+
+    class AnalogEditorContent final : public juce::Component
+    {
+    public:
+        AnalogEditorContent(juce::Component* synth, juce::Component* route,
+                            juce::Component* commonKnobs, juce::Component* effects,
+                            juce::Component* learn)
+            : synthPanel(synth), routingPanel(route), commonPanel(commonKnobs),
+              effectsPanel(effects), learnPanel(learn)
+        {
+            for (auto* child : { synthPanel, routingPanel, commonPanel, effectsPanel, learnPanel })
+            {
+                owned.add(child);
+                addAndMakeVisible(child);
+            }
+            setSize(700, 1100);
+        }
+
+        void resized() override
+        {
+            synthPanel->setBounds(0, 0, 700, 560);
+            routingPanel->setBounds(0, 570, 700, 170);
+            commonPanel->setBounds(0, 750, 520, 248);
+            effectsPanel->setBounds(0, 1008, 300, 38);
+            learnPanel->setBounds(0, 1050, 520, 52);
+        }
+
+    private:
+        juce::Component* synthPanel;
+        juce::Component* routingPanel;
+        juce::Component* commonPanel;
+        juce::Component* effectsPanel;
+        juce::Component* learnPanel;
+        juce::OwnedArray<juce::Component> owned;
+    };
+
+    auto* content = new AnalogEditorContent(controls, routing, common, effectButtons, midi);
+    auto* viewport = new juce::Viewport("ANALOG EDITOR");
+    viewport->setViewedComponent(content, true);
+    viewport->setScrollBarsShown(true, false);
+    viewport->setSize(700, 410);
+    dialog->addCustomComponent(viewport);
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
     {
         if (safe == nullptr) return;
@@ -2815,14 +2855,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         set("Gain", common->value(0)); set("Cutoff", common->value(1));
         set("Reverb", common->value(2)); set("Comp", common->value(3));
     });
-    dialog->addCustomComponent(new LayerMidiLearnPanel(processor, index));
     // Leave a dedicated row for routing and MIDI Learn before the close
     // button. The previous automatic AlertWindow height put FECHAR on top of
     // the Learn controls on smaller displays.
     // The last custom component (MIDI Learn) must have its own row above the
     // AlertWindow close button. A fixed height prevents FECHAR from covering
     // the compressor Learn button on macOS and Windows.
-    dialog->setSize(1000, 1100);
+    dialog->setSize(720, 480);
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
     {
         if (safe != nullptr)
