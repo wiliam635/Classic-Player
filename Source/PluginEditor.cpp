@@ -1724,7 +1724,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         void resized() override
         {
             content->setBounds(getLocalBounds().withSizeKeepingCentre(
-                juce::jmin(width, content->getWidth()), content->getHeight()));
+                juce::jmin(width, content->getWidth()),
+                juce::jmin(getHeight(), content->getHeight())));
         }
 
     private:
@@ -2979,7 +2980,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         void resized() override
         {
             content->setBounds(getLocalBounds().withSizeKeepingCentre(
-                juce::jmin(width, content->getWidth()), content->getHeight()));
+                juce::jmin(width, content->getWidth()),
+                juce::jmin(getHeight(), content->getHeight())));
         }
 
     private:
