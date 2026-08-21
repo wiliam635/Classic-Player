@@ -2970,8 +2970,8 @@ void ClassicPlayerAudioProcessorEditor::resized()
     // display: chord colour / Live Set on the first row, key colour / Add
     // Layer on the second. This keeps the requested visual grouping without
     // changing the chord display or program field dimensions.
-    const auto topButtonRow = colourControls.removeFromTop(30);
-    const auto bottomButtonRow = colourControls.removeFromTop(30);
+    auto topButtonRow = colourControls.removeFromTop(30);
+    auto bottomButtonRow = colourControls.removeFromTop(30);
     const auto buttonWidth = topButtonRow.getWidth() / 2;
     chordColourButton.setBounds(topButtonRow.removeFromLeft(buttonWidth).reduced(1));
     liveSetButton.setBounds(topButtonRow.reduced(1));
