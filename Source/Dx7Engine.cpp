@@ -201,6 +201,9 @@ juce::Result Dx7Engine::loadSysEx(int index, const juce::File& file)
     if (bulkStart < 0 && singleStart < 0)
         return juce::Result::fail("O arquivo nao contem um SysEx Yamaha DX7 valido.");
 
+    // Populate the existing layer in place. Layer contains JUCE reverb state
+    // and unique voice pointers, so assigning a temporary Layer would require
+    // a deleted copy/move assignment operator on macOS.
     Layer loaded;
     loaded.sourcePath = file.getFullPathName();
     if (bulkStart >= 0)
@@ -222,7 +225,24 @@ juce::Result Dx7Engine::loadSysEx(int index, const juce::File& file)
     loaded.chorusDelay.setSize(2, juce::jmax(8, (int) std::ceil(sampleRate * 0.045)),
                                false, true, true);
     const juce::ScopedLock guard(lock);
-    layers[(size_t) index] = std::move(loaded);
+    auto& target = layers[(size_t) index];
+    target.sourcePath = std::move(loaded.sourcePath);
+    target.patches = std::move(loaded.patches);
+    target.patchesLoaded = loaded.patchesLoaded;
+    target.selectedPatch = loaded.selectedPatch;
+    target.heldNotes.fill(false);
+    target.heldVelocities.fill(0.0f);
+    target.sustainDown = false;
+    target.lfoPhase = 0.0;
+    target.lfoDelayProgress = 0.0;
+    target.chorusPhase = 0.0;
+    target.chorusWritePosition = 0;
+    target.dcInput = {};
+    target.dcOutput = {};
+    target.compressorEnvelope = {};
+    target.filterState = {};
+    target.reverb.reset();
+    for (auto& voice : target.voices) voice = {};
     return juce::Result::ok();
 }
 
@@ -230,7 +250,23 @@ void Dx7Engine::unload(int index)
 {
     if (!juce::isPositiveAndBelow(index, layerCount)) return;
     const juce::ScopedLock guard(lock);
-    layers[(size_t) index] = {};
+    auto& layer = layers[(size_t) index];
+    layer.sourcePath.clear();
+    layer.patchesLoaded = 0;
+    layer.selectedPatch = 0;
+    layer.heldNotes.fill(false);
+    layer.heldVelocities.fill(0.0f);
+    layer.sustainDown = false;
+    layer.lfoPhase = 0.0;
+    layer.lfoDelayProgress = 0.0;
+    layer.chorusPhase = 0.0;
+    layer.chorusWritePosition = 0;
+    layer.dcInput = {};
+    layer.dcOutput = {};
+    layer.compressorEnvelope = {};
+    layer.filterState = {};
+    layer.reverb.reset();
+    for (auto& voice : layer.voices) voice = {};
     layerPeaks[(size_t) index].store(0.0f, std::memory_order_relaxed);
 }
 
@@ -661,4 +697,3 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
     for (int channel = 0; channel < juce::jmin(2, output.getNumChannels()); ++channel)
         output.addFrom(channel, 0, scratch, channel, 0, output.getNumSamples());
 }
-
