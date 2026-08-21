@@ -792,6 +792,126 @@ private:
     std::unique_ptr<juce::FileChooser> chooser;
 };
 
+class LayerRoutingEditorPanel final : public juce::Component
+{
+public:
+    LayerRoutingEditorPanel(ClassicPlayerAudioProcessor& p, int layer)
+        : processor(p), index(layer)
+    {
+        const std::array<std::pair<juce::Label*, const char*>, 8> fields {{
+            { &modeLabel, "MODO" }, { &sustainLabel, "SUSTAIN" },
+            { &channelLabel, "CANAL MIDI" }, { &deviceLabel, "ENTRADA MIDI" },
+            { &octaveLabel, "OITAVA" }, { &lowNoteLabel, "NOTA BAIXA" },
+            { &highNoteLabel, "NOTA ALTA" }, { &velocityLabel, "VELOCIDADE" }
+        }};
+        for (const auto& field : fields)
+        {
+            field.first->setText(field.second, juce::dontSendNotification);
+            field.first->setColour(juce::Label::textColourId, juce::Colour(text));
+            field.first->setFont(juce::FontOptions(10.0f, juce::Font::bold));
+            addAndMakeVisible(*field.first);
+        }
+        for (auto* box : { &modeBox, &sustainBox, &channelBox, &deviceBox,
+                           &octaveBox, &lowNoteBox, &highNoteBox, &velocityBox })
+        {
+            box->setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
+            box->setColour(juce::ComboBox::textColourId, juce::Colour(text));
+            addAndMakeVisible(*box);
+        }
+        modeBox.addItem("POLI", 1); modeBox.addItem("MONO / LEGATO", 2); modeBox.addItem("PORTAMENTO", 3);
+        sustainBox.addItem("SUSTAIN ON", 1); sustainBox.addItem("SUSTAIN OFF", 2);
+        channelBox.addItem("MIDI OMNI", 1);
+        for (int channel = 1; channel <= 16; ++channel)
+            channelBox.addItem("MIDI CH " + juce::String(channel), channel + 1);
+        deviceBox.addItem("TODOS OS CONTROLADORES", 1);
+        for (const auto& device : processor.availableMidiDevices())
+            deviceBox.addItem(device.name, deviceBox.getNumItems() + 1);
+        for (int value = -4; value <= 4; ++value)
+            octaveBox.addItem((value > 0 ? "+" : "") + juce::String(value) + " OIT", value + 5);
+        for (int note = 0; note < 128; ++note)
+        {
+            lowNoteBox.addItem(midiNoteName(note), note + 1);
+            highNoteBox.addItem(midiNoteName(note), note + 1);
+        }
+        velocityBox.addItem("VEL LINEAR", 1); velocityBox.addItem("VEL SOFT", 2); velocityBox.addItem("VEL HARD", 3);
+        for (auto* box : { &modeBox, &sustainBox, &channelBox, &octaveBox,
+                           &lowNoteBox, &highNoteBox, &velocityBox })
+            box->onChange = [this] { applyRouting(); };
+        deviceBox.onChange = [this]
+        {
+            const auto selected = deviceBox.getSelectedId() - 2;
+            const auto devices = processor.availableMidiDevices();
+            processor.setLayerMidiDevice(index, juce::isPositiveAndBelow(selected, devices.size())
+                                                   ? devices.getReference(selected).identifier : juce::String{});
+        };
+        refresh();
+        setSize(700, 170);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(8);
+        const auto cellWidth = area.getWidth() / 4;
+        auto place = [](juce::Rectangle<int> cell, juce::Label& label, juce::ComboBox& box)
+        {
+            label.setBounds(cell.removeFromTop(18));
+            box.setBounds(cell.reduced(2, 1));
+        };
+        for (int row = 0; row < 2; ++row)
+        {
+            auto line = area.removeFromTop(70);
+            if (row == 0)
+            {
+                place(line.removeFromLeft(cellWidth), modeLabel, modeBox);
+                place(line.removeFromLeft(cellWidth), sustainLabel, sustainBox);
+                place(line.removeFromLeft(cellWidth), channelLabel, channelBox);
+                place(line, deviceLabel, deviceBox);
+            }
+            else
+            {
+                place(line.removeFromLeft(cellWidth), octaveLabel, octaveBox);
+                place(line.removeFromLeft(cellWidth), lowNoteLabel, lowNoteBox);
+                place(line.removeFromLeft(cellWidth), highNoteLabel, highNoteBox);
+                place(line, velocityLabel, velocityBox);
+            }
+        }
+    }
+
+private:
+    void refresh()
+    {
+        const auto config = processor.layerConfig(index);
+        modeBox.setSelectedId(config.portamento ? 3 : config.mono ? 2 : 1, juce::dontSendNotification);
+        sustainBox.setSelectedId(config.sustainEnabled ? 1 : 2, juce::dontSendNotification);
+        channelBox.setSelectedId(config.midiChannel + 1, juce::dontSendNotification);
+        octaveBox.setSelectedId(config.octave + 5, juce::dontSendNotification);
+        lowNoteBox.setSelectedId(config.lowNote + 1, juce::dontSendNotification);
+        highNoteBox.setSelectedId(config.highNote + 1, juce::dontSendNotification);
+        velocityBox.setSelectedId(config.velocityCurve + 1, juce::dontSendNotification);
+    }
+
+    void applyRouting()
+    {
+        auto config = processor.layerConfig(index);
+        config.mono = modeBox.getSelectedId() == 2;
+        config.portamento = modeBox.getSelectedId() == 3;
+        config.sustainEnabled = sustainBox.getSelectedId() != 2;
+        config.midiChannel = channelBox.getSelectedId() - 1;
+        config.octave = octaveBox.getSelectedId() - 5;
+        config.lowNote = lowNoteBox.getSelectedId() - 1;
+        config.highNote = highNoteBox.getSelectedId() - 1;
+        config.velocityCurve = velocityBox.getSelectedId() - 1;
+        processor.setLayerConfig(index, config);
+    }
+
+    ClassicPlayerAudioProcessor& processor;
+    int index = 0;
+    juce::Label modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel,
+                lowNoteLabel, highNoteLabel, velocityLabel;
+    juce::ComboBox modeBox, sustainBox, channelBox, deviceBox, octaveBox,
+                   lowNoteBox, highNoteBox, velocityBox;
+};
+
 class Dx7EditorPanel final : public juce::Component
 {
 public:
@@ -2360,6 +2480,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* controls = new AnalogSynthEditorPanel(processor.analogSynthConfig(index));
     dialog->addCustomComponent(controls);
+    dialog->addCustomComponent(new LayerRoutingEditorPanel(processor, index));
     const auto prefix = "layer" + juce::String(index + 1);
     auto valueOf = [this, prefix](const juce::String& suffix, float fallback)
     {
@@ -2413,6 +2534,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         "DX7", "Selecione o banco e o timbre desta camada.", juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
     dialog->addCustomComponent(new Dx7EditorPanel(processor, index));
+    dialog->addCustomComponent(new LayerRoutingEditorPanel(processor, index));
     auto valueOf = [this, prefix](const juce::String& suffix, float fallback)
     {
         if (auto* value = processor.parameters.getRawParameterValue(prefix + suffix)) return value->load();
