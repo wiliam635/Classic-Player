@@ -728,6 +728,12 @@ void ClassicPlayerAudioProcessor::setAnalogSynthConfig(int layer,
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return;
     auto updated = config;
     updated.routing = engine.getConfig(layer);
+    // The compact mixer and the Analog editor share these parameters. Keep
+    // the APVTS values in sync so the realtime engine cannot overwrite an
+    // Analog-panel change on the next audio block.
+    const auto prefix = "layer" + juce::String(layer + 1);
+    if (auto* parameter = parameters.getParameter(prefix + "Cutoff"))
+        parameter->setValueNotifyingHost(parameter->convertTo0to1(updated.cutoff));
     analogLayerConfigs[(size_t) layer] = updated;
 }
 
