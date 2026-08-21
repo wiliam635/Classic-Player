@@ -11,8 +11,10 @@
 class Sf2Engine
 {
 public:
-    static constexpr int defaultLayerCount = 8;
-    static constexpr int layerCount = 8;
+    // Six channels are visible on first launch; additional channels can be
+    // created with + LAYER without the former eight-layer ceiling.
+    static constexpr int defaultLayerCount = 6;
+    static constexpr int layerCount = 16;
 
     struct LayerConfig
     {
