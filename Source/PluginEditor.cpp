@@ -1692,14 +1692,40 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         { "REVERB", valueOf(prefix + "Reverb", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "COMP", valueOf(prefix + "Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 }
     }, 4);
-    dialog->addCustomComponent(new Sf2EditorPanel(processor, index));
-    dialog->addCustomComponent(knobs);
+    auto* sf2Panel = new Sf2EditorPanel(processor, index);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     auto* effectButtons = new LayerEffectButtons(
         [safe] { if (safe != nullptr) safe->showReverbEditor(); },
         [safe] { if (safe != nullptr) safe->showCompressorEditor(); });
-    dialog->addCustomComponent(effectButtons);
-    dialog->addCustomComponent(new LayerMidiLearnPanel(processor, index));
+    auto* midiPanel = new LayerMidiLearnPanel(processor, index);
+
+    class CenteredPanel final : public juce::Component
+    {
+    public:
+        CenteredPanel(juce::Component* child, int preferredWidth, int preferredHeight)
+            : content(child), width(preferredWidth)
+        {
+            owned.add(child);
+            addAndMakeVisible(child);
+            setSize(preferredWidth, preferredHeight);
+        }
+
+        void resized() override
+        {
+            content->setBounds(getLocalBounds().withSizeKeepingCentre(
+                juce::jmin(width, content->getWidth()), content->getHeight()));
+        }
+
+    private:
+        juce::Component* content;
+        int width;
+        juce::OwnedArray<juce::Component> owned;
+    };
+
+    dialog->addCustomComponent(new CenteredPanel(sf2Panel, 740, 430));
+    dialog->addCustomComponent(new CenteredPanel(knobs, 740, 248));
+    dialog->addCustomComponent(new CenteredPanel(effectButtons, 740, 38));
+    dialog->addCustomComponent(new CenteredPanel(midiPanel, 740, 52));
     knobs->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), knobs, prefix]
     {
         if (safe == nullptr) return;
