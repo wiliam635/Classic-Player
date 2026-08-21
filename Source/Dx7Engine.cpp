@@ -37,7 +37,6 @@ void Dx7Engine::prepare(double newSampleRate, int newMaximumBlockSize)
         layer.lfoDelayProgress = 0.0;
         layer.dcInput = {};
         layer.dcOutput = {};
-        layer.deClickPrevious = {};
     }
     // MSFA/Dexed lookup tables are sample-rate dependent. Initialising them
     // here prevents silent/invalid oscillator output on the first DX7 note.
@@ -388,9 +387,10 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
 
     if (message.isPitchWheel())
     {
-        // MSFA/Dexed applies this 14-bit controller during compute(), so keep
-        // the wheel in its native MIDI range and let the configured DX7 bend
-        // range remain in effect for every operator.
+        // MSFA/Dexed already applies the controller value to every operator
+        // during compute(). Keep the wheel in the same 14-bit MIDI domain so
+        // the configured DX7 bend range and pitch-envelope behaviour remain
+        // identical to the native engine.
         controllers.values_[kControllerPitch]
             = juce::jlimit(0, 16383, message.getPitchWheelValue());
         return;
@@ -584,23 +584,73 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
                                 + 0.995f * layer.dcOutput[(size_t) channel];
             layer.dcInput[(size_t) channel] = input;
             layer.dcOutput[(size_t) channel] = filtered;
-
-            // A very large one-sample jump is an audio click, not a musical
-            // transient. Limit only that abnormal jump; ordinary DX7 attacks
-            // and high-frequency harmonics remain untouched.
-            auto& previous = layer.deClickPrevious[(size_t) channel];
-            const auto jump = filtered - previous;
-            constexpr float maxClickJump = 0.32f;
-            const auto guarded = std::abs(jump) > maxClickJump
-                ? previous + juce::jlimit(-maxClickJump, maxClickJump, jump)
-                : filtered;
-            previous = guarded;
-            dry[sample] = guarded;
+            dry[sample] = filtered;
         }
         layer.chorusWritePosition = (layer.chorusWritePosition + 1) % delayLength;
         layer.chorusPhase += juce::MathConstants<double>::twoPi * 0.28 / sampleRate;
         if (layer.chorusPhase >= juce::MathConstants<double>::twoPi)
             layer.chorusPhase -= juce::MathConstants<double>::twoPi;
+    }
+
+    // Apply the same layer effects used by SF2 so DX7 electric pianos and
+    // organs respond to the mixer controls instead of bypassing them.
+    const auto cutoffAmount = juce::jlimit(0.0f, 100.0f, config.cutoff);
+    if (cutoffAmount < 99.5f)
+    {
+        const auto frequency = 80.0f * std::pow(250.0f, cutoffAmount / 100.0f);
+        const auto coefficient = std::exp(-juce::MathConstants<float>::twoPi * frequency
+                                          / static_cast<float>(sampleRate));
+        for (int channel = 0; channel < 2; ++channel)
+        {
+            auto state = layer.filterState[(size_t) channel];
+            auto* samples = scratch.getWritePointer(channel);
+            for (int sample = 0; sample < scratch.getNumSamples(); ++sample)
+            {
+                state = (1.0f - coefficient) * samples[sample] + coefficient * state;
+                samples[sample] = state;
+            }
+            layer.filterState[(size_t) channel] = state;
+        }
+    }
+    const auto reverbMix = juce::jlimit(0.0f, 100.0f, config.reverb) / 100.0f;
+    juce::Reverb::Parameters reverbParameters;
+    reverbParameters.roomSize = juce::jlimit(0.0f, 1.0f, config.reverbSize / 100.0f);
+    reverbParameters.damping = juce::jlimit(0.0f, 1.0f, config.reverbDamping / 100.0f);
+    reverbParameters.width = juce::jlimit(0.0f, 1.0f, config.reverbWidth / 100.0f);
+    reverbParameters.wetLevel = reverbMix * 0.72f;
+    reverbParameters.dryLevel = 1.0f;
+    layer.reverb.setParameters(reverbParameters);
+    if (reverbMix > 0.001f)
+        layer.reverb.processStereo(scratch.getWritePointer(0), scratch.getWritePointer(1),
+                                   scratch.getNumSamples());
+    const auto compressorMix = juce::jlimit(0.0f, 100.0f, config.compressor) / 100.0f;
+    if (compressorMix > 0.001f)
+    {
+        const auto threshold = juce::jlimit(-60.0f, 0.0f, config.compressorThreshold);
+        const auto ratio = juce::jlimit(1.0f, 20.0f, config.compressorRatio);
+        const auto attack = std::exp(-1.0f / (juce::jmax(0.0001f, config.compressorAttack * 0.001f)
+                                              * (float) sampleRate));
+        const auto release = std::exp(-1.0f / (juce::jmax(0.001f, config.compressorRelease * 0.001f)
+                                               * (float) sampleRate));
+        const auto makeup = juce::Decibels::decibelsToGain(
+            juce::jlimit(0.0f, 24.0f, config.compressorMakeup));
+        for (int channel = 0; channel < 2; ++channel)
+        {
+            auto envelope = layer.compressorEnvelope[(size_t) channel];
+            auto* samples = scratch.getWritePointer(channel);
+            for (int sample = 0; sample < scratch.getNumSamples(); ++sample)
+            {
+                const auto dry = samples[sample];
+                const auto magnitude = juce::jmax(1.0e-8f, std::abs(dry));
+                const auto coefficient = magnitude > envelope ? attack : release;
+                envelope = coefficient * envelope + (1.0f - coefficient) * magnitude;
+                const auto over = juce::jmax(0.0f, juce::Decibels::gainToDecibels(envelope, -120.0f) - threshold);
+                const auto reduction = over * (1.0f - 1.0f / ratio);
+                const auto wet = dry * juce::Decibels::decibelsToGain(-reduction) * makeup;
+                samples[sample] = dry + (wet - dry) * compressorMix;
+            }
+            layer.compressorEnvelope[(size_t) channel] = envelope;
+        }
     }
 
     const auto renderedPeak = juce::jmax(scratch.getMagnitude(0, 0, output.getNumSamples()),
@@ -611,3 +661,4 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
     for (int channel = 0; channel < juce::jmin(2, output.getNumChannels()); ++channel)
         output.addFrom(channel, 0, scratch, channel, 0, output.getNumSamples());
 }
+
