@@ -1681,11 +1681,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     // Keep the footer below the Learn controls.  The old height left the
     // custom close button on top of the final Learn row in the SF2 editor.
     dialog->setSize(760, 780);
-    auto* sf2CloseButton = new juce::TextButton("FECHAR");
-    flatButton(*sf2CloseButton);
-    sf2CloseButton->setSize(120, 36);
-    sf2CloseButton->onClick = [dialog] { dialog->exitModalState(1); };
-    dialog->addCustomComponent(sf2CloseButton);
+    dialog->addButton("FECHAR", 1, juce::KeyPress(juce::KeyPress::escapeKey));
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, dialog, knobs, prefix](int)
         {
@@ -2794,11 +2790,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     // AlertWindow close button. A fixed height prevents FECHAR from covering
     // the compressor Learn button on macOS and Windows.
     dialog->setSize(1120, 1120);
-    auto* closeButton = new juce::TextButton("FECHAR");
-    flatButton(*closeButton);
-    closeButton->setSize(120, 36);
-    closeButton->onClick = [dialog] { dialog->exitModalState(0); };
-    dialog->addCustomComponent(closeButton);
+    dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
     {
@@ -2874,11 +2866,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.
     dialog->setSize(760, 780);
-    auto* dx7CloseButton = new juce::TextButton("FECHAR");
-    flatButton(*dx7CloseButton);
-    dx7CloseButton->setSize(120, 36);
-    dx7CloseButton->onClick = [dialog] { dialog->exitModalState(0); };
-    dialog->addCustomComponent(dx7CloseButton);
+    // Use AlertWindow's footer button so JUCE reserves a dedicated row below
+    // the MIDI Learn panel instead of treating FECHAR as another component.
+    dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, common, prefix](int)
         {
