@@ -1368,14 +1368,18 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
         const auto cell = juce::Rectangle<int>(column * cellWidth, row * rowHeight,
                                                cellWidth, rowHeight);
         auto cellInner = cell.reduced(5, 3);
-        const auto controlsHeight = controlsVisible ? 27 : 0;
-        const auto availablePadHeight = juce::jmax(1, cellInner.getHeight() - controlsHeight);
-        const auto padSize = juce::jmax(1, juce::jmin(cellInner.getWidth(), availablePadHeight));
-        auto padArea = cellInner.withSizeKeepingCentre(padSize, padSize);
+        // Reserve the control row before centering the pad.  Centering against
+        // the full cell made the square extend into LOAD/LEARN and looked
+        // vertically misaligned in the editor dialog.
+        auto padAreaBounds = cellInner;
+        juce::Rectangle<int> buttons;
+        if (controlsVisible)
+            buttons = padAreaBounds.removeFromBottom(27);
+        const auto padSize = juce::jmax(1, juce::jmin(padAreaBounds.getWidth(), padAreaBounds.getHeight()));
+        auto padArea = padAreaBounds.withSizeKeepingCentre(padSize, padSize);
         if (controlsVisible)
         {
             pads[(size_t) pad].setBounds(padArea);
-            auto buttons = cellInner.removeFromBottom(27);
             loadButtons[(size_t) pad].setBounds(buttons.removeFromLeft(buttons.getWidth() / 2).reduced(1, 0));
             learnButtons[(size_t) pad].setBounds(buttons.reduced(1, 0));
         }
