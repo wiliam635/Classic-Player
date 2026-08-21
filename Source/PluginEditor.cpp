@@ -213,15 +213,16 @@ public:
             // overlapped when the editor was resized by JUCE on smaller Macs.
             constexpr int gridColumns = 5;
             const auto cellWidth = getWidth() / gridColumns;
-            const auto rowHeight = getHeight() / 4;
+            const auto rowHeight = juce::jmax(104, getHeight() / 4);
             for (int item = 0; item < knobs.size(); ++item)
             {
                 const auto column = item % gridColumns;
                 const auto row = item / gridColumns;
                 auto cell = juce::Rectangle<int>(column * cellWidth, row * rowHeight,
                                                  cellWidth, rowHeight).reduced(4, 2);
-                labels[item]->setBounds(cell.removeFromTop(18));
-                knobs[item]->setBounds(cell.reduced(2, 0));
+                labels[item]->setBounds(cell.removeFromTop(17));
+                knobs[item]->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 58, 18);
+                knobs[item]->setBounds(cell.reduced(3, 1));
             }
             return;
         }
@@ -348,7 +349,7 @@ public:
         for (auto* button : { &oscillator1On, &oscillator2On, &oscillator3On, &pinkNoise })
             button->onClick = [this] { if (onConfigChanged) onConfigChanged(config()); };
         addAndMakeVisible(knobs);
-        setSize(1000, 540);
+        setSize(1000, 640);
     }
 
     AnalogSynthEngine::Config config() const
@@ -449,19 +450,19 @@ public:
     {
         const auto w = getWidth();
         presetBox.setBounds(25, 53, juce::jmin(270, w / 3), 24);
-        const auto waveY = 92;
-        const auto waveWidth = juce::jmax(92, (w - 260) / 5);
-        wave1.setBounds(juce::roundToInt(w * 0.20f), waveY, waveWidth, 26);
-        wave2.setBounds(juce::roundToInt(w * 0.36f), waveY, waveWidth, 26);
-        wave3.setBounds(juce::roundToInt(w * 0.52f), waveY, waveWidth, 26);
-        oscillator1On.setBounds(wave1.getX() + 8, 120, waveWidth - 16, 20);
-        oscillator2On.setBounds(wave2.getX() + 8, 120, waveWidth - 16, 20);
-        oscillator3On.setBounds(wave3.getX() + 8, 120, waveWidth - 16, 20);
-        pinkNoise.setBounds(juce::roundToInt(w * 0.70f), 120, juce::jmin(98, w / 8), 20);
-        monoPoly.setBounds(juce::roundToInt(w * 0.07f), 112, juce::jmin(100, w / 7), 25);
+        const auto waveY = 90;
+        const auto waveWidth = juce::jmax(112, juce::jmin(154, (w - 300) / 5));
+        wave1.setBounds(juce::roundToInt(w * 0.19f), waveY, waveWidth, 26);
+        wave2.setBounds(juce::roundToInt(w * 0.37f), waveY, waveWidth, 26);
+        wave3.setBounds(juce::roundToInt(w * 0.55f), waveY, waveWidth, 26);
+        oscillator1On.setBounds(wave1.getX() + 10, 119, waveWidth - 20, 20);
+        oscillator2On.setBounds(wave2.getX() + 10, 119, waveWidth - 20, 20);
+        oscillator3On.setBounds(wave3.getX() + 10, 119, waveWidth - 20, 20);
+        pinkNoise.setBounds(juce::roundToInt(w * 0.73f), 119, juce::jmin(104, w / 8), 20);
+        monoPoly.setBounds(juce::roundToInt(w * 0.06f), 108, juce::jmin(112, w / 7), 25);
         // Reserve the right edge for the output meter and keep four complete
         // rows of controls inside the cabinet on compact displays.
-        knobs.setBounds(22, 158, getWidth() - 180, getHeight() - 205);
+        knobs.setBounds(22, 153, juce::jmax(560, getWidth() - 190), juce::jmax(430, getHeight() - 195));
     }
 
 private:
