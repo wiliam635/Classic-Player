@@ -730,6 +730,12 @@ void ClassicPlayerAudioProcessor::setAnalogSynthConfig(int layer,
     updated.routing = engine.getConfig(layer);
     analogLayerConfigs[(size_t) layer] = updated;
 }
+
+void ClassicPlayerAudioProcessor::resetAnalogSynthVoices(int layer)
+{
+    if (juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
+        analogSynthEngine.unload(layer);
+}
 juce::String ClassicPlayerAudioProcessor::dx7PatchName(int layer) const { return dx7Engine.patchName(layer); }
 juce::String ClassicPlayerAudioProcessor::dx7PatchName(int layer, int patch) const { return dx7Engine.patchName(layer, patch); }
 int ClassicPlayerAudioProcessor::dx7PatchCount(int layer) const { return dx7Engine.patchCount(layer); }
