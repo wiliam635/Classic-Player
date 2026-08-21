@@ -71,9 +71,23 @@ public:
         auto colour = backgroundColour;
         if (shouldDrawButtonAsDown) colour = colour.darker(0.12f);
         else if (shouldDrawButtonAsHighlighted) colour = colour.brighter(0.08f);
-        g.setColour(colour);
-        g.fillRoundedRectangle(bounds, 5.0f);
         const auto isDrumPad = button.getName().startsWith("DRUM_PAD");
+        if (isDrumPad)
+        {
+            // Give every pad its own colour while keeping the centre visibly
+            // illuminated.  This makes the pad grid easier to scan and gives
+            // a clear visual response when a pad is pressed.
+            const auto centre = bounds.getCentre();
+            const auto radiusPoint = juce::Point<float>(bounds.getRight(), bounds.getBottom());
+            g.setGradientFill(juce::ColourGradient(colour.darker(0.32f), centre,
+                                                   colour.brighter(0.22f), radiusPoint, true));
+            g.fillRoundedRectangle(bounds, 8.0f);
+        }
+        else
+        {
+            g.setColour(colour);
+            g.fillRoundedRectangle(bounds, 5.0f);
+        }
         g.setColour(isDrumPad ? colour.darker(0.32f) : juce::Colour(line));
         g.drawRoundedRectangle(bounds, isDrumPad ? 8.0f : 5.0f, isDrumPad ? 2.0f : 1.0f);
     }
@@ -1715,10 +1729,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* pads = new DrumPadPanel(processor);
     pads->setControlsVisible(true);
-    pads->setSize(560, 560);
+    // Leave enough room for both complete columns and their LOAD/LEARN rows;
+    // the previous width let the right column run underneath the dialog edge.
+    pads->setSize(680, 560);
     dialog->addCustomComponent(pads);
     dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
-    dialog->setSize(590, 650);
+    dialog->setSize(740, 650);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->drumPadPanel.refresh(); }), true);
