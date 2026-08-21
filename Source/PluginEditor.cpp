@@ -1435,9 +1435,16 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
         processor.parameters, parameterPrefix + "Reverb", reverb);
     compressorAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor.parameters, parameterPrefix + "Comp", compressor);
+    chorus.setRange(0.0, 100.0, 1.0);
+    chorus.setValue(20.0);
+    chorus.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    chorus.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 54, 16);
+    addAndMakeVisible(chorus);
+    chorusAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processor.parameters, parameterPrefix + "Dx7Chorus", chorus);
     addAndMakeVisible(meter);
 
-    for (auto* label : { &cutoffLabel, &reverbLabel, &compressorLabel, &routingLabel })
+    for (auto* label : { &cutoffLabel, &reverbLabel, &compressorLabel, &chorusLabel, &routingLabel })
     {
         label->setJustificationType(juce::Justification::centred);
         label->setColour(juce::Label::textColourId, juce::Colour(mutedText));
@@ -1447,6 +1454,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     cutoffLabel.setText("CUTOFF", juce::dontSendNotification);
     reverbLabel.setText("REVERB", juce::dontSendNotification);
     compressorLabel.setText("COMP", juce::dontSendNotification);
+    chorusLabel.setText("CHORUS", juce::dontSendNotification);
     routingLabel.setText("ROTEAMENTO DA LAYER", juce::dontSendNotification);
 
     for (auto* button : { &volumeLearn, &cutoffLearn, &reverbLearn, &compressorLearn })
@@ -1467,6 +1475,10 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     }
     reverbEditButton.onClick = [this] { showReverbEditor(); };
     compressorEditButton.onClick = [this] { showCompressorEditor(); };
+    flatButton(chorusEditButton);
+    chorusEditButton.setTooltip("Ajustar chorus da layer DX7");
+    chorusEditButton.onClick = [this] { showChorusEditor(); };
+    addAndMakeVisible(chorusEditButton);
     flatButton(resetMidiLearnButton);
     resetMidiLearnButton.setTooltip("Apagar todos os endereçamentos MIDI Learn desta layer");
     resetMidiLearnButton.onClick = [this]
@@ -1666,17 +1678,41 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
 {
     if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::drumPads) return;
-    auto* dialog = new juce::AlertWindow(
-        "DRUM PADS", "Carregue o áudio e configure o MIDI de cada pad.",
-        juce::MessageBoxIconType::NoIcon);
+    auto* dialog = new juce::AlertWindow("DRUM PADS", {}, juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* pads = new DrumPadPanel(processor);
     pads->setControlsVisible(true);
+    pads->setSize(560, 560);
     dialog->addCustomComponent(pads);
     dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    dialog->setSize(590, 650);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->drumPadPanel.refresh(); }), true);
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::showChorusEditor()
+{
+    if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::dx7) return;
+    const auto prefix = "layer" + juce::String(index + 1);
+    auto* dialog = new juce::AlertWindow(
+        "CHORUS DA LAYER DX7", "Ajuste o chorus em tempo real.", juce::MessageBoxIconType::NoIcon);
+    dialog->setLookAndFeel(&classicLookAndFeel);
+    auto* knobs = new KnobEditorPanel({
+        { "MIX", processor.parameters.getRawParameterValue(prefix + "Dx7Chorus")->load(),
+          0.0f, 100.0f, 1.0f, 0 }
+    }, 1);
+    dialog->addCustomComponent(knobs);
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    knobs->setOnValueChange([safe, knobs, prefix]
+    {
+        if (safe == nullptr) return;
+        if (auto* parameter = safe->processor.parameters.getParameter(prefix + "Dx7Chorus"))
+            parameter->setValueNotifyingHost(parameter->convertTo0to1(knobs->value(0)));
+    });
+    dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create(
+        [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
@@ -1696,7 +1732,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
     g.drawRoundedRectangle(bounds.reduced(0.5f), 7.0f, 1.0f);
     g.setColour(juce::Colour(mutedText));
     g.setFont(9.0f);
-    const auto volumeY = expanded ? 151 : juce::jmax(48, meter.getY() - 18);
+    const auto volumeY = expanded ? 151 : juce::jmax(88, meter.getY() - 4);
     g.drawText("VOLUME", 8, volumeY, getWidth() - 16, 15, juce::Justification::centred);
 
     const auto scaleX = gain.getRight() - 22;
@@ -1806,7 +1842,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     controls.removeFromLeft(4);
 
     auto knobs = controls.removeFromTop(126);
-    const auto knobWidth = knobs.getWidth() / 3;
+    const auto knobWidth = knobs.getWidth() / 4;
     auto placeKnob = [knobWidth](juce::Rectangle<int>& row, juce::Label& label,
                                  juce::Slider& slider, juce::TextButton* learn,
                                  juce::TextButton* edit)
@@ -1828,6 +1864,14 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     placeKnob(knobs, cutoffLabel, cutoff, &cutoffLearn, nullptr);
     placeKnob(knobs, reverbLabel, reverb, &reverbLearn, &reverbEditButton);
     placeKnob(knobs, compressorLabel, compressor, &compressorLearn, &compressorEditButton);
+    if (type == ClassicPlayerAudioProcessor::LayerType::dx7)
+        placeKnob(knobs, chorusLabel, chorus, nullptr, &chorusEditButton);
+    else
+    {
+        chorus.setVisible(false);
+        chorusEditButton.setVisible(false);
+        chorusLabel.setVisible(false);
+    }
 
     controls.removeFromTop(5);
     auto routingRow = controls.removeFromTop(22);
@@ -1970,7 +2014,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
         &midiChannel, &octave, &lowNote, &highNote, &velocityCurve, &midiDevice,
         &volumeLearn, &resetMidiLearnButton, &cutoffLearn, &reverbLearn,
         &compressorLearn, &reverbEditButton, &compressorEditButton, &meter,
-        &cutoffLabel, &reverbLabel, &compressorLabel, &routingLabel
+        &chorus, &chorusEditButton, &cutoffLabel, &reverbLabel, &compressorLabel,
+        &chorusLabel, &routingLabel
     };
     for (auto* control : sharedControls)
         control->setVisible(!isDrumPads);
@@ -1988,6 +2033,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     dx7PatchBox.setVisible(isDx7);
     deleteDx7LibraryButton.setVisible(isDx7);
     editButton.setVisible(true);
+    chorus.setVisible(isDx7 && expanded);
+    chorusEditButton.setVisible(isDx7 && expanded);
+    chorusLabel.setVisible(isDx7 && expanded);
     sourceSummary.setText(fileLabel.getText().isNotEmpty()
                               ? fileLabel.getText()
                               : (isSf2 ? "SF2" : isDx7 ? "DX7" : isAnalog ? "CLASSIC KEYS ANALOG"
@@ -2003,7 +2051,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
             &octave, &lowNote, &highNote, &velocityCurve, &midiDevice,
             &volumeLearn, &resetMidiLearnButton, &cutoffLearn, &reverbLearn,
             &compressorLearn, &reverbEditButton, &compressorEditButton, &meter,
-            &cutoffLabel, &reverbLabel, &compressorLabel, &routingLabel
+            &chorus, &chorusEditButton, &cutoffLabel, &reverbLabel, &compressorLabel,
+            &chorusLabel, &routingLabel
         };
         for (auto* control : controls)
             control->setVisible(false);
@@ -2019,8 +2068,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
             &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel, &octave,
             &lowNote, &highNote, &velocityCurve, &midiDevice,
             &resetMidiLearnButton, &cutoffLearn, &reverbLearn, &compressorLearn,
-            &reverbEditButton, &compressorEditButton, &cutoffLabel, &reverbLabel,
-            &compressorLabel, &routingLabel
+            &reverbEditButton, &compressorEditButton, &chorus, &chorusEditButton,
+            &cutoffLabel, &reverbLabel, &compressorLabel, &chorusLabel, &routingLabel
         };
         for (auto* control : detailedControls)
             control->setVisible(false);
@@ -2642,6 +2691,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         set("Reverb", common->value(2)); set("Comp", common->value(3));
     });
     dialog->addCustomComponent(new LayerMidiLearnPanel(processor, index));
+    dialog->setSize(1120, 820);
     dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
@@ -2692,8 +2742,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         { "VOLUME", valueOf("Gain", 80.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "CUTOFF", valueOf("Cutoff", 100.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "REVERB", valueOf("Reverb", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
-        { "COMP", valueOf("Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 }
-    }, 4);
+        { "COMP", valueOf("Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
+        { "CHORUS", valueOf("Dx7Chorus", 20.0f), 0.0f, 100.0f, 1.0f, 0 }
+    }, 5);
     dialog->addCustomComponent(common);
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
     {
@@ -2705,8 +2756,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         };
         set("Gain", common->value(0)); set("Cutoff", common->value(1));
         set("Reverb", common->value(2)); set("Comp", common->value(3));
+        set("Dx7Chorus", common->value(4));
     });
     dialog->addCustomComponent(new LayerMidiLearnPanel(processor, index));
+    dialog->setSize(760, 520);
     dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
@@ -2722,6 +2775,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
             set("Cutoff", common->value(1));
             set("Reverb", common->value(2));
             set("Comp", common->value(3));
+            set("Dx7Chorus", common->value(4));
             safe->refresh();
         }), true);
 }
@@ -2765,9 +2819,9 @@ void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
     g.fillAll(juce::Colour(background));
     g.setGradientFill(juce::ColourGradient(juce::Colour(0xff122633), 0.0f, 0.0f,
                                            juce::Colour(background), (float) getWidth(), 220.0f, false));
-    g.fillRect(0, 0, getWidth(), 118);
+    g.fillRect(0, 0, getWidth(), 142);
     g.setColour(juce::Colour(line));
-    g.drawHorizontalLine(117, 18.0f, (float) getWidth() - 18.0f);
+    g.drawHorizontalLine(141, 18.0f, (float) getWidth() - 18.0f);
     g.drawHorizontalLine(getHeight() - 66, 18.0f, (float) getWidth() - 18.0f);
     g.setColour(juce::Colour(mutedText));
     g.setFont(10.5f);
@@ -2778,7 +2832,7 @@ void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
 void ClassicPlayerAudioProcessorEditor::resized()
 {
     auto area = getLocalBounds().reduced(14);
-    auto header = area.removeFromTop(96);
+    auto header = area.removeFromTop(120);
     appIcon.setBounds(header.removeFromLeft(78).reduced(4));
     header.removeFromLeft(8);
     const auto brandWidth = juce::jlimit(230, 330, getWidth() / 4);
@@ -2795,23 +2849,17 @@ void ClassicPlayerAudioProcessorEditor::resized()
     masterEqButton.setBounds(masterArea.removeFromTop(20).reduced(1, 0));
     header.removeFromRight(12);
 
-    auto addLayerArea = header.removeFromRight(100);
-    addLayerButton.setBounds(addLayerArea.withSizeKeepingCentre(88, 32));
-    header.removeFromRight(4);
-
-    auto liveSetArea = header.removeFromRight(100);
-    liveSetButton.setBounds(liveSetArea.withSizeKeepingCentre(88, 32));
-    header.removeFromRight(4);
-
     auto accidentalArea = header.removeFromRight(126);
     accidentalStyleBox.setBounds(accidentalArea.withSizeKeepingCentre(118, 32));
     header.removeFromRight(4);
 
     auto chordArea = header.reduced(4, 1);
-    auto colourControls = chordArea.removeFromRight(106).reduced(5, 2);
-    chordColourButton.setBounds(colourControls.removeFromTop(30));
-    colourControls.removeFromTop(4);
-    keyColourButton.setBounds(colourControls.removeFromTop(30));
+    auto colourControls = chordArea.removeFromRight(320).reduced(5, 2);
+    auto buttonRow = colourControls.removeFromTop(30);
+    chordColourButton.setBounds(buttonRow.removeFromLeft(82).reduced(1));
+    keyColourButton.setBounds(buttonRow.removeFromLeft(82).reduced(1));
+    liveSetButton.setBounds(buttonRow.removeFromLeft(82).reduced(1));
+    addLayerButton.setBounds(buttonRow.reduced(1));
 
     auto programArea = chordArea.removeFromBottom(54);
     programBox.setBounds(programArea.removeFromTop(28).reduced(1, 0));
