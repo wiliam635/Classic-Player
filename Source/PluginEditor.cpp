@@ -169,6 +169,34 @@ struct KnobEditorSpec
     int decimals;
 };
 
+// All layer editors use the same non-overlapping close control.  Keeping the
+// X in the title area leaves the footer entirely available for MIDI Learn and
+// effect controls, even when JUCE lays out a compact dialog on macOS.
+class LayerEditorWindow final : public juce::AlertWindow
+{
+public:
+    LayerEditorWindow(const juce::String& title, const juce::String& message,
+                      juce::MessageBoxIconType icon)
+        : juce::AlertWindow(title, message, icon)
+    {
+        closeButton.setButtonText("×");
+        closeButton.setTooltip("Fechar");
+        flatButton(closeButton);
+        closeButton.setColour(juce::TextButton::textColourOffId, juce::Colour(text));
+        closeButton.onClick = [this] { exitModalState(0); };
+        addAndMakeVisible(closeButton);
+    }
+
+    void resized() override
+    {
+        juce::AlertWindow::resized();
+        closeButton.setBounds(getWidth() - 38, 4, 30, 28);
+    }
+
+private:
+    juce::TextButton closeButton;
+};
+
 class KnobEditorPanel final : public juce::Component
 {
 public:
@@ -1644,7 +1672,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refreshMidiDevices()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
 {
     const auto prefix = "layer" + juce::String(index + 1);
-    auto* dialog = new juce::AlertWindow(
+    auto* dialog = new LayerEditorWindow(
         "EDITAR LAYER", "Ajuste os controles desta layer sem expandir o canal.",
         juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
@@ -1681,7 +1709,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     // Keep the footer below the Learn controls.  The old height left the
     // custom close button on top of the final Learn row in the SF2 editor.
     dialog->setSize(760, 780);
-    dialog->addButton("FECHAR", 1, juce::KeyPress(juce::KeyPress::escapeKey));
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, dialog, knobs, prefix](int)
         {
@@ -1702,7 +1729,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
 {
     const auto prefix = "layer" + juce::String(index + 1);
-    auto* dialog = new juce::AlertWindow(
+    auto* dialog = new LayerEditorWindow(
         "REVERB DA LAYER", "O knob REVERB controla a quantidade. Ajuste o carater da sala abaixo.",
         juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
@@ -1725,7 +1752,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
         set("ReverbDamping", juce::jlimit(0.0f, 100.0f, knobs->value(1)));
         set("ReverbWidth", juce::jlimit(0.0f, 100.0f, knobs->value(2)));
     });
-    dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
@@ -1733,7 +1759,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
 {
     const auto prefix = "layer" + juce::String(index + 1);
-    auto* dialog = new juce::AlertWindow(
+    auto* dialog = new LayerEditorWindow(
         "COMPRESSOR DA LAYER", "O knob COMP controla a mistura. Ajuste a dinamica abaixo.",
         juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
@@ -1760,7 +1786,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
         set("CompRelease", juce::jlimit(5.0f, 1000.0f, knobs->value(3)));
         set("CompMakeup", juce::jlimit(0.0f, 24.0f, knobs->value(4)));
     });
-    dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
@@ -1768,7 +1793,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
 {
     if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::drumPads) return;
-    auto* dialog = new juce::AlertWindow("DRUM PADS", {}, juce::MessageBoxIconType::NoIcon);
+    auto* dialog = new LayerEditorWindow("DRUM PADS", {}, juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* pads = new DrumPadPanel(processor);
     pads->setControlsVisible(true);
@@ -1776,7 +1801,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
     // the previous width let the right column run underneath the dialog edge.
     pads->setSize(680, 560);
     dialog->addCustomComponent(pads);
-    dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     dialog->setSize(740, 650);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
@@ -1787,7 +1811,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showChorusEditor()
 {
     if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::dx7) return;
     const auto prefix = "layer" + juce::String(index + 1);
-    auto* dialog = new juce::AlertWindow(
+    auto* dialog = new LayerEditorWindow(
         "CHORUS DA LAYER DX7", "Ajuste o chorus em tempo real.", juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* knobs = new KnobEditorPanel({
@@ -1802,7 +1826,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showChorusEditor()
         if (auto* parameter = safe->processor.parameters.getParameter(prefix + "Dx7Chorus"))
             parameter->setValueNotifyingHost(parameter->convertTo0to1(knobs->value(0)));
     });
-    dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
@@ -2751,7 +2774,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
 {
     if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::analog) return;
 
-    auto* dialog = new juce::AlertWindow(
+    auto* dialog = new LayerEditorWindow(
         "Classic Keys Analog", "Edite a camada Analog sem alterar as outras camadas.",
         juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
@@ -2795,7 +2818,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     // AlertWindow close button. A fixed height prevents FECHAR from covering
     // the compressor Learn button on macOS and Windows.
     dialog->setSize(1120, 1160);
-    dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
     {
         if (safe != nullptr)
@@ -2830,7 +2852,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
 {
     if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::dx7) return;
     const auto prefix = "layer" + juce::String(index + 1);
-    auto* dialog = new juce::AlertWindow(
+    auto* dialog = new LayerEditorWindow(
         "DX7", "Selecione o banco e o timbre desta camada.", juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
     dialog->addCustomComponent(new Dx7EditorPanel(processor, index));
@@ -2872,7 +2894,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     dialog->setSize(760, 780);
     // Use AlertWindow's footer button so JUCE reserves a dedicated row below
     // the MIDI Learn panel instead of treating FECHAR as another component.
-    dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, common, prefix](int)
         {
@@ -2893,7 +2914,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
 
 void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
 {
-    auto* dialog = new juce::AlertWindow(
+    auto* dialog = new LayerEditorWindow(
         "EQ MASTER", "EQ de cinco estagios: corte baixo, tres bandas e corte alto.",
         juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
@@ -2921,7 +2942,6 @@ void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
         safe->classicProcessor.setMasterEqValue("masterEqHighFrequency", juce::jlimit(2000.0f, 16000.0f, knobs->value(6)));
         safe->classicProcessor.setMasterEqValue("masterEqHighCut", juce::jlimit(2000.0f, 20000.0f, knobs->value(7)));
     });
-    dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->repaint(); }), true);
 }
