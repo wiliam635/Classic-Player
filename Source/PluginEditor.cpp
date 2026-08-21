@@ -1245,7 +1245,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
     g.drawRoundedRectangle(bounds.reduced(0.5f), 7.0f, 1.0f);
     g.setColour(juce::Colour(mutedText));
     g.setFont(9.0f);
-    g.drawText("VOLUME", 12, 151, 86, 15, juce::Justification::centred);
+    const auto volumeY = expanded ? 151 : juce::jmax(48, meter.getY() - 18);
+    g.drawText("VOLUME", 8, volumeY, getWidth() - 16, 15, juce::Justification::centred);
 
     const auto scaleX = gain.getRight() - 22;
     const auto scaleTop = gain.getY() + 8;
@@ -1290,9 +1291,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
         sourceSummary.setBounds(summaryRow.removeFromLeft(summaryRow.getWidth() - 70).reduced(3, 1));
         editButton.setBounds(summaryRow.reduced(1, 1));
         area.removeFromTop(4);
-        auto meterRow = area;
-        meter.setBounds(meterRow.removeFromLeft(16).reduced(1, 2));
-        gain.setBounds(meterRow.removeFromRight(58).reduced(1, 2));
+        auto faderArea = area.reduced(8, 4);
+        volumeLearn.setBounds(faderArea.removeFromBottom(24).withWidth(juce::jmin(86, faderArea.getWidth())));
+        faderArea.removeFromBottom(6);
+        meter.setBounds(faderArea.removeFromLeft(18).reduced(1, 2));
+        const auto faderWidth = juce::jmin(82, juce::jmax(54, faderArea.getWidth() / 2));
+        gain.setBounds(faderArea.removeFromLeft(faderWidth).reduced(4, 2));
         return;
     }
     editButton.setBounds(area.removeFromTop(28).removeFromRight(70).reduced(1, 1));
@@ -2714,8 +2718,12 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
     const int columns = availableWidth >= 1200 ? 4
                        : availableWidth >= 720  ? 2
                                                   : 1;
-    constexpr int compactHeight = 148;
     constexpr int expandedHeight = 590;
+    const auto viewportHeight = layerViewport.getHeight()
+        - layerViewport.getScrollBarThickness();
+    // Mixer-style channels fill the complete area above the keyboard instead
+    // of collapsing into short horizontal cards at the top.
+    const int compactHeight = juce::jmax(148, viewportHeight - gap * 2);
     const auto stripWidth = juce::jmax(260,
         (layerViewport.getWidth() - gap * (columns - 1)) / columns);
     const auto contentWidth = juce::jmax(layerViewport.getWidth(),
