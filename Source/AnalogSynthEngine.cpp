@@ -12,9 +12,18 @@ float wrapPhase(float value) noexcept
     return value - std::floor(value);
 }
 
-float millisecondsToStep(float milliseconds, double sampleRate) noexcept
+// The browser implementation uses exponential WebAudio ramps for every ADSR
+// transition.  A linear decrement in the native engine made short Minimoog
+// notes end with a discontinuity (the audible click users reported).  This
+// helper follows the same five-time-constant convention while remaining
+// sample based and real-time safe.
+float exponentialApproach(float current, float target, float milliseconds,
+                          double sampleRate) noexcept
 {
-    return 1.0f / juce::jmax(1.0f, milliseconds * 0.001f * static_cast<float>(sampleRate));
+    const auto duration = juce::jmax(3.0f, milliseconds) * 0.001f;
+    const auto tau = duration / 5.0f;
+    const auto coefficient = std::exp(-1.0f / juce::jmax(1.0, tau * sampleRate));
+    return target + (current - target) * static_cast<float>(coefficient);
 }
 
 float nextNoise(uint32_t& state) noexcept
@@ -159,8 +168,8 @@ float AnalogSynthEngine::nextEnvelope(Envelope& envelope, float attackMs, float 
             break;
 
         case EnvelopeStage::attack:
-            envelope.value += millisecondsToStep(attackMs, rate);
-            if (envelope.value >= 1.0f)
+            envelope.value = exponentialApproach(envelope.value, 1.0f, attackMs, rate);
+            if (envelope.value >= 0.9995f)
             {
                 envelope.value = 1.0f;
                 envelope.stage = EnvelopeStage::decay;
@@ -168,8 +177,8 @@ float AnalogSynthEngine::nextEnvelope(Envelope& envelope, float attackMs, float 
             break;
 
         case EnvelopeStage::decay:
-            envelope.value -= millisecondsToStep(decayMs, rate);
-            if (envelope.value <= sustain)
+            envelope.value = exponentialApproach(envelope.value, sustain, decayMs, rate);
+            if (std::abs(envelope.value - sustain) <= 0.0005f)
             {
                 envelope.value = sustain;
                 envelope.stage = EnvelopeStage::sustain;
@@ -181,9 +190,11 @@ float AnalogSynthEngine::nextEnvelope(Envelope& envelope, float attackMs, float 
             break;
 
         case EnvelopeStage::release:
-            envelope.value -= millisecondsToStep(releaseMs, rate)
-                            * juce::jmax(0.05f, envelope.releaseStart);
-            if (envelope.value <= 0.0001f)
+            // Keep a minimum 15 ms release, matching the web version's
+            // click-safe stopVoice() even when a preset asks for zero.
+            envelope.value = exponentialApproach(envelope.value, 0.0001f,
+                                                  juce::jmax(15.0f, releaseMs), rate);
+            if (envelope.value <= 0.00011f)
             {
                 envelope.value = 0.0f;
                 envelope.stage = EnvelopeStage::idle;
@@ -511,4 +522,3 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
         peaks[static_cast<size_t>(layerIndex)].store(peak, std::memory_order_relaxed);
     }
 }
-
