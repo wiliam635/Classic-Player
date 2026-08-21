@@ -2208,12 +2208,40 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
 {
     if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::dx7) return;
+    const auto prefix = "layer" + juce::String(index + 1);
     auto* dialog = new juce::AlertWindow(
         "DX7", "Selecione o banco e o timbre desta camada.", juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
     dialog->addCustomComponent(new Dx7EditorPanel(processor, index));
+    auto valueOf = [this, prefix](const juce::String& suffix, float fallback)
+    {
+        if (auto* value = processor.parameters.getRawParameterValue(prefix + suffix)) return value->load();
+        return fallback;
+    };
+    auto* common = new KnobEditorPanel({
+        { "VOLUME", valueOf("Gain", 80.0f), 0.0f, 100.0f, 1.0f, 0 },
+        { "CUTOFF", valueOf("Cutoff", 100.0f), 0.0f, 100.0f, 1.0f, 0 },
+        { "REVERB", valueOf("Reverb", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
+        { "COMP", valueOf("Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 }
+    }, 4);
+    dialog->addCustomComponent(common);
     dialog->addButton("FECHAR", 0, juce::KeyPress(juce::KeyPress::escapeKey));
-    dialog->enterModalState(true, juce::ModalCallbackFunction::create([](int) {}), true);
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create(
+        [safe, common, prefix](int)
+        {
+            if (safe == nullptr) return;
+            const auto set = [safe, prefix](const juce::String& suffix, float value)
+            {
+                if (auto* parameter = safe->processor.parameters.getParameter(prefix + suffix))
+                    parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
+            };
+            set("Gain", common->value(0));
+            set("Cutoff", common->value(1));
+            set("Reverb", common->value(2));
+            set("Comp", common->value(3));
+            safe->refresh();
+        }), true);
 }
 
 void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
