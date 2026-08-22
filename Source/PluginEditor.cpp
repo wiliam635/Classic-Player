@@ -22,6 +22,17 @@ constexpr auto yellow = 0xffffd84a;
 constexpr auto text = 0xffedf4f7;
 constexpr auto mutedText = 0xff9eabb5;
 
+juce::Colour drumPadColour(int pad)
+{
+    static const std::array<juce::Colour, 8> colours {
+        juce::Colour(0xfff3e4d8), juce::Colour(0xffeef0d8),
+        juce::Colour(0xffdff1d7), juce::Colour(0xffd8f0e5),
+        juce::Colour(0xffd9f0f1), juce::Colour(0xffdbe8f5),
+        juce::Colour(0xffe3def5), juce::Colour(0xffefdff1)
+    };
+    return colours[(size_t) juce::jlimit(0, 7, pad)];
+}
+
 void flatButton(juce::Button& button)
 {
     button.setColour(juce::TextButton::buttonColourId, juce::Colour(panelLight));
@@ -1279,7 +1290,7 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
         trigger.setName("DRUM_PAD_" + juce::String(pad + 1));
         trigger.setButtonText("PAD " + juce::String(pad + 1));
         trigger.setTooltip("Clique para tocar este pad");
-        trigger.setColour(juce::TextButton::buttonColourId, padColours[(size_t) pad]);
+        // The colour is assigned when a sample is loaded in refresh().
         trigger.setColour(juce::TextButton::buttonOnColourId, juce::Colour(yellow));
         trigger.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff15191d));
         trigger.setColour(juce::TextButton::textColourOnId, juce::Colour(0xff15191d));
@@ -1345,8 +1356,8 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
                                                       : "PAD " + juce::String(pad + 1));
         trigger.setColour(juce::TextButton::buttonColourId,
                           active ? juce::Colour(yellow)
-                                 : juce::Colour::fromHSV(0.08f + 0.10f * (float) pad,
-                                                         0.08f, 0.98f, 1.0f));
+                                 : samplePath.isNotEmpty() ? drumPadColour(pad)
+                                                           : juce::Colour(panelLight));
         trigger.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff15191d));
         const auto cc = processor.drumPadMidiCC(pad);
         learnButtons[(size_t) pad].setButtonText(
