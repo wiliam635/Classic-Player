@@ -2433,6 +2433,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
     {
         updateSourceTypeVisibility();
         drumPadPanel.refresh();
+        // Drum-pad layers do not use a SoundFont.  Keep the source label
+        // explicit so the mixer never presents them as an empty SF2 layer.
+        fileLabel.setText("DRUM PADS", juce::dontSendNotification);
+        fileLabel.setColour(juce::Label::backgroundColourId, juce::Colour(yellow));
+        fileLabel.setColour(juce::Label::textColourId, juce::Colours::black);
         return;
     }
     const auto path = processor.soundFontPath(index);
