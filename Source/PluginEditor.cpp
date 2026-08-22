@@ -2863,16 +2863,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
                 addAndMakeVisible(child);
             }
             // Keep the complete editor in one view at the reference dialog size.
-            setSize(620, 700);
+            setSize(820, 660);
         }
 
         void resized() override
         {
-            synthPanel->setBounds(0, 0, 620, 410);
-            routingPanel->setBounds(0, 418, 620, 132);
-            commonPanel->setBounds(0, 558, 620, 100);
-            effectsPanel->setBounds(0, 662, 420, 34);
-            learnPanel->setBounds(0, 700, 620, 48);
+            synthPanel->setBounds(0, 0, 820, 390);
+            routingPanel->setBounds(0, 398, 820, 100);
+            commonPanel->setBounds(0, 504, 700, 84);
+            effectsPanel->setBounds(0, 594, 500, 30);
+            learnPanel->setBounds(0, 630, 700, 40);
         }
 
     private:
@@ -2888,7 +2888,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     auto* viewport = new juce::Viewport("ANALOG EDITOR");
     viewport->setViewedComponent(content, true);
     viewport->setScrollBarsShown(true, false);
-    viewport->setSize(620, 620);
+    viewport->setSize(820, 640);
     dialog->addCustomComponent(viewport);
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
     {
@@ -2907,7 +2907,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     // The last custom component (MIDI Learn) must have its own row above the
     // AlertWindow close button. A fixed height prevents FECHAR from covering
     // the compressor Learn button on macOS and Windows.
-    dialog->setSize(772, 707);
+    dialog->setSize(900, 720);
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
     {
         if (safe != nullptr)
