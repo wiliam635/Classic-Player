@@ -1279,18 +1279,14 @@ void ClassicPlayerAudioProcessorEditor::NamedKeyboard::setActiveColour(juce::Col
 ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudioProcessor& p)
     : processor(p)
 {
-    const std::array<juce::Colour, ClassicPlayerAudioProcessor::drumPadCount> padColours {
-        juce::Colour(0xfff4f4ee), juce::Colour(0xffeaf6ff), juce::Colour(0xfff4edff),
-        juce::Colour(0xffeffff3), juce::Colour(0xfffff2e5), juce::Colour(0xfffff8d8),
-        juce::Colour(0xffe9f2ff), juce::Colour(0xffffeaf2)
-    };
     for (int pad = 0; pad < ClassicPlayerAudioProcessor::drumPadCount; ++pad)
     {
         auto& trigger = pads[(size_t) pad];
         trigger.setName("DRUM_PAD_" + juce::String(pad + 1));
         trigger.setButtonText("PAD " + juce::String(pad + 1));
         trigger.setTooltip("Clique para tocar este pad");
-        // The colour is assigned when a sample is loaded in refresh().
+        // Loaded pads receive unique colours in refresh(); empty pads stay neutral.
+        trigger.setColour(juce::TextButton::buttonColourId, juce::Colour(panelLight));
         trigger.setColour(juce::TextButton::buttonOnColourId, juce::Colour(yellow));
         trigger.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff15191d));
         trigger.setColour(juce::TextButton::textColourOnId, juce::Colour(0xff15191d));
