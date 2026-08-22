@@ -571,8 +571,8 @@ public:
         monoPoly.setBounds(juce::roundToInt(w * 0.06f), 108, juce::jmin(112, w / 7), 25);
         // Reserve the right edge for the output meter and keep four complete
         // rows of controls inside the cabinet on compact displays.
-        knobs.setBounds(22, 145, juce::jmax(560, getWidth() - 190),
-                        juce::jmax(250, getHeight() - 165));
+        knobs.setBounds(22, 140, juce::jmax(560, getWidth() - 190),
+                        juce::jmax(240, getHeight() - 140));
     }
 
 private:
@@ -2870,9 +2870,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         {
             synthPanel->setBounds(0, 0, 820, 390);
             routingPanel->setBounds(0, 398, 820, 100);
-            commonPanel->setBounds(0, 504, 700, 84);
-            effectsPanel->setBounds(0, 594, 500, 30);
-            learnPanel->setBounds(0, 630, 700, 40);
+            commonPanel->setBounds(0, 504, 700, 80);
+            effectsPanel->setBounds(0, 588, 500, 28);
+            learnPanel->setBounds(0, 620, 700, 40);
         }
 
     private:
