@@ -995,9 +995,10 @@ public:
             label.setBounds(cell.removeFromTop(18));
             box.setBounds(cell.reduced(2, 1));
         };
+        const auto rowHeight = juce::jmax(1, area.getHeight() / 2);
         for (int row = 0; row < 2; ++row)
         {
-            auto line = area.removeFromTop(70);
+            auto line = area.removeFromTop(rowHeight);
             if (row == 0)
             {
                 place(line.removeFromLeft(cellWidth), modeLabel, modeBox);
