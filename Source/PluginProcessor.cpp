@@ -226,7 +226,12 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     {
         auto config = engine.getConfig(i);
         const auto prefix = "layer" + juce::String(i + 1);
-        config.gain = parameters.getRawParameterValue(prefix + "Gain")->load() / 100.0f;
+        auto layerGain = parameters.getRawParameterValue(prefix + "Gain")->load() / 100.0f;
+        // DX7 and Classic Keys Analog are calibrated 6 dB lower than SF2.
+        const auto type = layerType(i);
+        if (type == LayerType::dx7 || type == LayerType::analog)
+            layerGain *= juce::Decibels::decibelsToGain(-6.0f);
+        config.gain = layerGain;
         config.release = parameters.getRawParameterValue(prefix + "Release")->load();
         config.cutoff = parameters.getRawParameterValue(prefix + "Cutoff")->load();
         config.reverb = parameters.getRawParameterValue(prefix + "Reverb")->load();
