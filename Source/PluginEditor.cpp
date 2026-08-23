@@ -453,7 +453,7 @@ public:
         // to overlap the editor content.
         // Keep the Analog editor compact enough for notebook displays while
         // preserving all four rows of controls and the oscilloscope.
-        setSize(920, 620);
+        setSize(820, 350);
         startTimerHz(30);
     }
 
@@ -567,23 +567,23 @@ public:
     void resized() override
     {
         const auto w = getWidth();
-        presetBox.setBounds(25, 53, juce::jmin(270, w / 3), 24);
-        const auto waveY = 90;
+        presetBox.setBounds(25, 42, juce::jmin(270, w / 3), 24);
+        const auto waveY = 70;
         const auto waveWidth = juce::jmax(112, juce::jmin(154, (w - 300) / 5));
         wave1.setBounds(juce::roundToInt(w * 0.19f), waveY, waveWidth, 26);
         wave2.setBounds(juce::roundToInt(w * 0.37f), waveY, waveWidth, 26);
         wave3.setBounds(juce::roundToInt(w * 0.55f), waveY, waveWidth, 26);
-        oscillator1On.setBounds(wave1.getX() + 10, 119, waveWidth - 20, 20);
+        oscillator1On.setBounds(wave1.getX() + 10, 98, waveWidth - 20, 20);
         oscillator2On.setBounds(wave2.getX() + 10, 119, waveWidth - 20, 20);
         oscillator3On.setBounds(wave3.getX() + 10, 119, waveWidth - 20, 20);
         // Keep Pink Noise wholly inside the mixer module; its old position
         // crossed the divider and was visually cut by the oscilloscope.
-        pinkNoise.setBounds(juce::roundToInt(w * 0.78f), 119, juce::jmin(92, w / 9), 20);
-        monoPoly.setBounds(juce::roundToInt(w * 0.06f), 108, juce::jmin(112, w / 7), 25);
+        pinkNoise.setBounds(juce::roundToInt(w * 0.78f), 98, juce::jmin(92, w / 9), 20);
+        monoPoly.setBounds(juce::roundToInt(w * 0.06f), 96, juce::jmin(112, w / 7), 25);
         // Reserve the right edge for the output meter and keep four complete
         // rows of controls inside the cabinet on compact displays.
-        knobs.setBounds(22, 140, juce::jmax(560, getWidth() - 190),
-                        juce::jmax(240, getHeight() - 140));
+        knobs.setBounds(22, 124, juce::jmax(560, getWidth() - 190),
+                        juce::jmax(220, getHeight() - 124));
     }
 
 private:
@@ -2875,16 +2875,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
                 addAndMakeVisible(child);
             }
             // Keep the complete editor in one view at the reference dialog size.
-            setSize(820, 660);
+            setSize(820, 730);
         }
 
         void resized() override
         {
-            synthPanel->setBounds(0, 0, 820, 390);
-            routingPanel->setBounds(0, 398, 820, 100);
-            commonPanel->setBounds(0, 504, 700, 80);
-            effectsPanel->setBounds(0, 588, 500, 28);
-            learnPanel->setBounds(0, 620, 700, 40);
+            synthPanel->setBounds(0, 0, 820, 350);
+            routingPanel->setBounds(0, 358, 820, 140);
+            commonPanel->setBounds(0, 506, 700, 124);
+            effectsPanel->setBounds(0, 634, 500, 28);
+            learnPanel->setBounds(0, 670, 700, 40);
         }
 
     private:
@@ -2900,7 +2900,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     auto* viewport = new juce::Viewport("ANALOG EDITOR");
     viewport->setViewedComponent(content, true);
     viewport->setScrollBarsShown(true, false);
-    viewport->setSize(820, 640);
+    viewport->setSize(820, 710);
     dialog->addCustomComponent(viewport);
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
     {
@@ -2919,7 +2919,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     // The last custom component (MIDI Learn) must have its own row above the
     // AlertWindow close button. A fixed height prevents FECHAR from covering
     // the compressor Learn button on macOS and Windows.
-    dialog->setSize(900, 720);
+    dialog->setSize(900, 800);
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
     {
         if (safe != nullptr)
