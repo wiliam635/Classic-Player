@@ -271,7 +271,7 @@ public:
             constexpr int gridColumns = 5;
             const auto cellWidth = getWidth() / gridColumns;
             // Compact four-row grid matching the reference editor.
-            const auto rowHeight = juce::jmax(64, getHeight() / 4);
+            const auto rowHeight = juce::jmax(54, getHeight() / 4);
             for (int item = 0; item < knobs.size(); ++item)
             {
                 const auto column = item % gridColumns;
