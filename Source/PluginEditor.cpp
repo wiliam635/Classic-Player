@@ -2893,7 +2893,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
                 addAndMakeVisible(child);
             }
             // Keep the complete editor in one view at the reference dialog size.
-            setSize(800, 620);
+            setSize(800, 630);
         }
 
         void resized() override
