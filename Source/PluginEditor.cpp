@@ -530,9 +530,12 @@ public:
         g.setColour(juce::Colour(text)); g.setFont(juce::FontOptions(10.0f));
         g.drawText("3-OSCILLATOR ANALOG SYNTHESIZER", 77, 31, 360, 13, juce::Justification::left);
 
-        const int left = 20, top = 78, width = getWidth() - 40, height = getHeight() - 128;
-        // Five equal module columns match the hardware-style knob grid below;
-        // the old uneven edges crossed labels and controls at narrow sizes.
+        // Reserve a dedicated right-hand column for the oscilloscope.  The
+        // five control modules never share its space, so labels and knobs
+        // cannot be painted underneath the display.
+        const int left = 20, top = 78;
+        const int moduleWidth = juce::jmax(420, getWidth() - 140);
+        const int width = moduleWidth, height = getHeight() - 128;
         const std::array<float, 5> edges {{ 0.20f, 0.40f, 0.60f, 0.80f, 1.0f }};
         int x = left;
         for (int group = 0; group < 5; ++group)
@@ -545,12 +548,9 @@ public:
             x = right;
         }
 
-        // Replace the non-functional static meter with a compact oscilloscope.
-        // It is intentionally a visual monitor: audio metering remains in the
-        // main layer, while this display makes the Analog editor feel alive.
-        const auto scope = juce::Rectangle<float>((float) left + width * 0.895f,
-                                                  (float) top + 76.0f,
-                                                  width * 0.085f, 118.0f);
+        const auto scopeX = juce::jmin(getWidth() - 78, left + moduleWidth + 18);
+        const auto scope = juce::Rectangle<float>((float) scopeX, (float) top + 76.0f,
+                                                  (float) juce::jmax(54, getWidth() - scopeX - 18), 118.0f);
         g.setColour(juce::Colour(0xff080909));
         g.fillRoundedRectangle(scope, 3.0f);
         g.setColour(juce::Colour(0xff4d3d20));
@@ -583,23 +583,22 @@ public:
     void resized() override
     {
         const auto w = getWidth();
-        presetBox.setBounds(25, 42, juce::jmin(270, w / 3), 24);
+        const int moduleWidth = juce::jmax(420, w - 140);
+        presetBox.setBounds(25, 42, juce::jmin(270, moduleWidth - 30), 24);
         const auto waveY = 70;
-        const auto waveWidth = juce::jmax(112, juce::jmin(154, (w - 300) / 5));
-        wave1.setBounds(juce::roundToInt(w * 0.19f), waveY, waveWidth, 26);
-        wave2.setBounds(juce::roundToInt(w * 0.37f), waveY, waveWidth, 26);
-        wave3.setBounds(juce::roundToInt(w * 0.55f), waveY, waveWidth, 26);
-        oscillator1On.setBounds(wave1.getX() + 10, 98, waveWidth - 20, 20);
-        oscillator2On.setBounds(wave2.getX() + 10, 119, waveWidth - 20, 20);
-        oscillator3On.setBounds(wave3.getX() + 10, 119, waveWidth - 20, 20);
-        // Keep Pink Noise wholly inside the mixer module; its old position
-        // crossed the divider and was visually cut by the oscilloscope.
-        pinkNoise.setBounds(juce::roundToInt(w * 0.78f), 98, juce::jmin(92, w / 9), 20);
-        monoPoly.setBounds(juce::roundToInt(w * 0.06f), 96, juce::jmin(112, w / 7), 25);
-        // Reserve the right edge for the output meter and keep four complete
-        // rows of controls inside the cabinet on compact displays.
-        knobs.setBounds(14, 116, juce::jmax(460, getWidth() - 120),
-                        juce::jmax(250, getHeight() - 116));
+        const auto waveWidth = juce::jmax(92, juce::jmin(132, (moduleWidth - 72) / 3));
+        wave1.setBounds(juce::roundToInt(moduleWidth * 0.22f), waveY, waveWidth, 24);
+        wave2.setBounds(juce::roundToInt(moduleWidth * 0.47f), waveY, waveWidth, 24);
+        wave3.setBounds(juce::roundToInt(moduleWidth * 0.72f), waveY, waveWidth, 24);
+        oscillator1On.setBounds(wave1.getX() + 8, 98, waveWidth - 16, 20);
+        oscillator2On.setBounds(wave2.getX() + 8, 98, waveWidth - 16, 20);
+        oscillator3On.setBounds(wave3.getX() + 8, 98, waveWidth - 16, 20);
+        monoPoly.setBounds(18, 96, juce::jmin(112, moduleWidth / 5), 25);
+        pinkNoise.setBounds(moduleWidth + 18, 98, juce::jmin(92, w - moduleWidth - 24), 20);
+        // Start the knob grid below all oscillator controls.  This is the
+        // single source of truth for the 19 controls, preventing overlap.
+        knobs.setBounds(14, 130, juce::jmax(420, moduleWidth - 20),
+                        juce::jmax(210, getHeight() - 136));
     }
 
 private:
