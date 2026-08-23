@@ -1155,12 +1155,11 @@ public:
     Dx7EditorPanel(ClassicPlayerAudioProcessor& p, int layer) : processor(p), index(layer)
     {
         bankLabel.setText("BANCO DX7", juce::dontSendNotification);
-        patchLabel.setText("TIMBRE DX7", juce::dontSendNotification);
+        patchLabel.setText("PRESET", juce::dontSendNotification);
         for (auto* label : { &bankLabel, &patchLabel })
         {
             label->setColour(juce::Label::textColourId, juce::Colour(text));
             label->setFont(juce::FontOptions(12.0f, juce::Font::bold));
-            addAndMakeVisible(*label);
         }
         const auto banks = processor.libraryDx7Banks();
         for (int i = 0; i < banks.size(); ++i)
@@ -1184,20 +1183,19 @@ public:
             const auto selected = patchBox.getSelectedItemIndex();
             if (selected >= 0) processor.selectDx7Patch(index, selected);
         };
-        addAndMakeVisible(bankBox);
+        bankLabel.setVisible(false);
+        bankBox.setVisible(false);
+        addAndMakeVisible(patchLabel);
         addAndMakeVisible(patchBox);
         rebuildPatches();
-        setSize(460, 150);
+        setSize(460, 74);
     }
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced(12);
-        auto row = area.removeFromTop(22);
-        bankLabel.setBounds(row.removeFromLeft(100)); bankBox.setBounds(row);
-        area.removeFromTop(10);
-        row = area.removeFromTop(22);
-        patchLabel.setBounds(row.removeFromLeft(100)); patchBox.setBounds(row);
+        auto row = getLocalBounds().reduced(12).removeFromTop(28);
+        patchLabel.setBounds(row.removeFromLeft(100));
+        patchBox.setBounds(row);
     }
 
 private:
