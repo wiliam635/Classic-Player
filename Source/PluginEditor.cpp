@@ -1951,12 +1951,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
     g.drawRoundedRectangle(bounds.reduced(0.5f), 7.0f, 1.0f);
     g.setColour(juce::Colour(mutedText));
     g.setFont(9.0f);
-    // Keep the volume caption inside the fader column so it never collides
-    // with the +6/+3/0 dB scale drawn to the right of the meter.
     const auto scaleX = gain.getRight() - 22;
-    const auto volumeY = expanded ? 151 : juce::jmax(72, meter.getY() - 22);
-    const auto volumeWidth = juce::jmax(42, scaleX - 16);
-    g.drawText("VOLUME", 8, volumeY, volumeWidth, 15, juce::Justification::centred);
     const auto scaleTop = gain.getY() + 8;
     const auto scaleHeight = juce::jmax(80, gain.getHeight() - 42);
     static const std::array<std::pair<float, const char*>, 8> marks {{
