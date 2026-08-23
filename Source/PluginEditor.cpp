@@ -242,6 +242,7 @@ public:
     }
 
     void useAnalogHardwareLayout(bool shouldUse) { analogHardwareLayout = shouldUse; resized(); }
+    void useCompactGrid(bool shouldUse) { compactGrid = shouldUse; resized(); }
 
     float value(int item) const
     {
@@ -263,6 +264,20 @@ public:
 
     void resized() override
     {
+        if (compactGrid)
+        {
+            const auto cellWidth = getWidth() / juce::jmax(1, columns);
+            for (int item = 0; item < knobs.size(); ++item)
+            {
+                auto cell = juce::Rectangle<int>((item % columns) * cellWidth, 0,
+                                                 cellWidth, getHeight()).reduced(2, 1);
+                labels[item]->setBounds(cell.removeFromTop(13));
+                knobs[item]->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 42, 16);
+                knobs[item]->setBounds(cell.reduced(1, 0));
+            }
+            return;
+        }
+
         if (analogHardwareLayout && knobs.size() == 19)
         {
             // Keep every label and knob inside a predictable three-row grid.
@@ -299,6 +314,7 @@ public:
 private:
     int columns = 1;
     bool analogHardwareLayout = false;
+    bool compactGrid = false;
     std::function<void()> onValueChange;
     juce::OwnedArray<juce::Label> labels;
     juce::OwnedArray<juce::Slider> knobs;
@@ -453,7 +469,7 @@ public:
         // to overlap the editor content.
         // Keep the Analog editor compact enough for notebook displays while
         // preserving all four rows of controls and the oscilloscope.
-        setSize(820, 350);
+        setSize(660, 410);
         startTimerHz(30);
     }
 
@@ -582,8 +598,8 @@ public:
         monoPoly.setBounds(juce::roundToInt(w * 0.06f), 96, juce::jmin(112, w / 7), 25);
         // Reserve the right edge for the output meter and keep four complete
         // rows of controls inside the cabinet on compact displays.
-        knobs.setBounds(22, 124, juce::jmax(560, getWidth() - 190),
-                        juce::jmax(220, getHeight() - 124));
+        knobs.setBounds(18, 124, juce::jmax(500, getWidth() - 145),
+                        juce::jmax(270, getHeight() - 124));
     }
 
 private:
@@ -2854,6 +2870,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         { "REVERB", valueOf("Reverb", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "COMP", valueOf("Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 }
     }, 4);
+    common->useCompactGrid(true);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     auto* effectButtons = new LayerEffectButtons(
         [safe] { if (safe != nullptr) safe->showReverbEditor(); },
@@ -2875,16 +2892,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
                 addAndMakeVisible(child);
             }
             // Keep the complete editor in one view at the reference dialog size.
-            setSize(820, 730);
+            setSize(660, 600);
         }
 
         void resized() override
         {
-            synthPanel->setBounds(0, 0, 820, 350);
-            routingPanel->setBounds(0, 358, 820, 140);
-            commonPanel->setBounds(0, 506, 700, 124);
-            effectsPanel->setBounds(0, 634, 500, 28);
-            learnPanel->setBounds(0, 670, 700, 40);
+            synthPanel->setBounds(0, 0, 660, 410);
+            routingPanel->setBounds(0, 418, 430, 116);
+            commonPanel->setBounds(440, 418, 220, 52);
+            effectsPanel->setBounds(440, 476, 220, 28);
+            learnPanel->setBounds(440, 510, 220, 40);
         }
 
     private:
@@ -2919,7 +2936,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     // The last custom component (MIDI Learn) must have its own row above the
     // AlertWindow close button. A fixed height prevents FECHAR from covering
     // the compressor Learn button on macOS and Windows.
-    dialog->setSize(900, 800);
+    dialog->setSize(720, 650);
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
     {
         if (safe != nullptr)
