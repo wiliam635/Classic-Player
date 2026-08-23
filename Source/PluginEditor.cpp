@@ -2983,7 +2983,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::dx7) return;
     const auto prefix = "layer" + juce::String(index + 1);
     auto* dialog = new LayerEditorWindow(
-        "DX7", "Selecione o banco e o timbre desta camada.", juce::MessageBoxIconType::NoIcon);
+        "DX7", "Selecione o preset desta camada.", juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* dx7Panel = new Dx7EditorPanel(processor, index);
     auto* routingPanel = new LayerRoutingEditorPanel(processor, index);
