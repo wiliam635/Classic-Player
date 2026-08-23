@@ -1162,13 +1162,12 @@ public:
             label->setFont(juce::FontOptions(12.0f, juce::Font::bold));
             addAndMakeVisible(*label);
         }
-        const auto banks = processor.libraryDx7Banks();
-        for (int i = 0; i < banks.size(); ++i)
-            bankBox.addItem(banks.getReference(i).getFileNameWithoutExtension(), i + 1);
-        bankBox.setTextWhenNothingSelected("BIBLIOTECA DX7 VAZIA");
-        bankBox.setSelectedItemIndex(processor.dx7Path(index).isNotEmpty()
-                                         ? juce::jmax(0, banks.indexOf(juce::File(processor.dx7Path(index)))) : -1,
-                                     juce::dontSendNotification);
+        flatButton(importButton);
+        importButton.setButtonText("IMPORTAR DX7");
+        importButton.setTooltip("Importar banco ou voz DX7 em formato SysEx (.syx)");
+        importButton.onClick = [this] { chooseDx7(); };
+        addAndMakeVisible(importButton);
+        rebuildBanks();
         bankBox.onChange = [this]
         {
             const auto selected = bankBox.getSelectedItemIndex();
@@ -1187,20 +1186,60 @@ public:
         addAndMakeVisible(bankBox);
         addAndMakeVisible(patchBox);
         rebuildPatches();
-        setSize(460, 150);
+        setSize(560, 150);
     }
 
     void resized() override
     {
         auto area = getLocalBounds().reduced(12);
         auto row = area.removeFromTop(22);
-        bankLabel.setBounds(row.removeFromLeft(100)); bankBox.setBounds(row);
+        bankLabel.setBounds(row.removeFromLeft(100));
+        importButton.setBounds(row.removeFromRight(112).reduced(1, 0));
+        bankBox.setBounds(row);
         area.removeFromTop(10);
         row = area.removeFromTop(22);
-        patchLabel.setBounds(row.removeFromLeft(100)); patchBox.setBounds(row);
+        patchLabel.setBounds(row.removeFromLeft(100));
+        patchBox.setBounds(row);
     }
 
 private:
+    void rebuildBanks()
+    {
+        bankBox.clear(juce::dontSendNotification);
+        const auto banks = processor.libraryDx7Banks();
+        for (int i = 0; i < banks.size(); ++i)
+            bankBox.addItem(banks.getReference(i).getFileNameWithoutExtension(), i + 1);
+        bankBox.setTextWhenNothingSelected("BIBLIOTECA DX7 VAZIA");
+        const auto selected = processor.dx7Path(index).isNotEmpty()
+            ? banks.indexOf(juce::File(processor.dx7Path(index))) : -1;
+        bankBox.setSelectedItemIndex(selected, juce::dontSendNotification);
+    }
+
+    void chooseDx7()
+    {
+        fileChooser = std::make_unique<juce::FileChooser>(
+            "Escolha um arquivo DX7 SysEx", juce::File{}, "*.syx;*.SYX");
+        fileChooser->launchAsync(juce::FileBrowserComponent::openMode
+                                 | juce::FileBrowserComponent::canSelectFiles,
+            [this](const juce::FileChooser& chooser)
+            {
+                const auto file = chooser.getResult();
+                if (file == juce::File{}) return;
+                importButton.setEnabled(false);
+                juce::File importedFile;
+                auto result = processor.importDx7Bank(file, importedFile);
+                if (result.wasOk())
+                    result = processor.loadDx7(index, importedFile);
+                importButton.setEnabled(true);
+                if (result.failed())
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon,
+                        "Falha ao carregar DX7", result.getErrorMessage());
+                rebuildBanks();
+                rebuildPatches();
+            });
+    }
+
     void rebuildPatches()
     {
         patchBox.clear(juce::dontSendNotification);
@@ -1215,6 +1254,8 @@ private:
     int index;
     juce::Label bankLabel, patchLabel;
     juce::ComboBox bankBox, patchBox;
+    juce::TextButton importButton;
+    std::unique_ptr<juce::FileChooser> fileChooser;
 };
 
 class ColourPicker final : public juce::Component, private juce::ChangeListener
