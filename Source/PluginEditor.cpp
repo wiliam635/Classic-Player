@@ -469,7 +469,7 @@ public:
         // to overlap the editor content.
         // Keep the Analog editor compact enough for notebook displays while
         // preserving all four rows of controls and the oscilloscope.
-        setSize(800, 400);
+        setSize(700, 360);
         startTimerHz(30);
     }
 
@@ -2893,16 +2893,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
                 addAndMakeVisible(child);
             }
             // Keep the complete editor in one view at the reference dialog size.
-            setSize(800, 630);
+            setSize(700, 580);
         }
 
         void resized() override
         {
-            synthPanel->setBounds(0, 0, 800, 400);
-            routingPanel->setBounds(0, 408, 800, 88);
-            commonPanel->setBounds(0, 504, 800, 58);
-            effectsPanel->setBounds(0, 566, 420, 28);
-            learnPanel->setBounds(0, 598, 800, 28);
+            synthPanel->setBounds(0, 0, 700, 360);
+            routingPanel->setBounds(0, 368, 700, 82);
+            commonPanel->setBounds(0, 458, 700, 54);
+            effectsPanel->setBounds(0, 516, 420, 28);
+            learnPanel->setBounds(0, 548, 700, 28);
         }
 
     private:
@@ -2918,7 +2918,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     auto* viewport = new juce::Viewport("ANALOG EDITOR");
     viewport->setViewedComponent(content, true);
     viewport->setScrollBarsShown(true, false);
-    viewport->setSize(800, 590);
+    viewport->setSize(700, 580);
     dialog->addCustomComponent(viewport);
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
     {
