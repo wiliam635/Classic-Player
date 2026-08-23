@@ -469,7 +469,7 @@ public:
         // to overlap the editor content.
         // Keep the Analog editor compact enough for notebook displays while
         // preserving all four rows of controls and the oscilloscope.
-        setSize(700, 360);
+        setSize(700, 320);
         startTimerHz(30);
     }
 
@@ -508,55 +508,52 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        g.fillAll(juce::Colour(0xff111214));
-        const auto wood = juce::Colour(0xff5e3522), woodLight = juce::Colour(0xffa8663d);
-        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff7f4b2b), 0.0f, 0.0f,
-                                               juce::Colour(0xff432319), 0.0f, 48.0f, false));
-        g.fillRect(0, 0, getWidth(), 48);
-        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff432319), 0.0f, (float) getHeight() - 42.0f,
-                                               juce::Colour(0xff7f4b2b), 0.0f, (float) getHeight(), false));
-        g.fillRect(0, getHeight() - 42, getWidth(), 42);
-        g.setColour(woodLight); g.drawLine(0.0f, 3.0f, (float) getWidth(), 3.0f, 1.5f);
-        g.drawLine(0.0f, (float) getHeight() - 4.0f, (float) getWidth(), (float) getHeight() - 4.0f, 1.5f);
+        // Purpose-built Classic Keys Analog layout: clean functional sections,
+        // no imitation of the reference hardware panel.
+        g.fillAll(juce::Colour(0xff0b131b));
 
-        const auto cabinet = juce::Rectangle<int>(18, 48, getWidth() - 36, getHeight() - 90);
-        g.setColour(juce::Colour(0xff222324)); g.fillRect(cabinet);
-        g.setColour(juce::Colour(0xff77716a)); g.drawRect(cabinet, 2);
+        g.setColour(juce::Colour(0xff16242f));
+        g.fillRoundedRectangle(8.0f, 6.0f, (float) getWidth() - 16.0f, 48.0f, 7.0f);
+        g.setColour(juce::Colour(teal));
+        g.fillRoundedRectangle(18.0f, 44.0f, (float) getWidth() - 36.0f, 2.0f, 1.0f);
 
-        const auto icon = embeddedImage("classicplayerappicon_png");
-        if (icon.isValid()) g.drawImageWithin(icon, 26, 4, 38, 38, juce::RectanglePlacement::centred);
-        g.setColour(juce::Colour(teal)); g.setFont(juce::FontOptions(20.0f, juce::Font::bold));
-        g.drawText("CLASSIC KEYS ANALOG", 76, 10, 340, 25, juce::Justification::left);
-        g.setColour(juce::Colour(text)); g.setFont(juce::FontOptions(10.0f));
-        g.drawText("3-OSCILLATOR ANALOG SYNTHESIZER", 77, 31, 360, 13, juce::Justification::left);
+        g.setColour(juce::Colour(text));
+        g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+        g.drawText("CLASSIC KEYS ANALOG", 22, 13, 250, 20, juce::Justification::left);
+        g.setColour(juce::Colour(mutedText));
+        g.setFont(juce::FontOptions(9.0f));
+        g.drawText("OSCILLATOR • FILTER • MODULATION", 22, 33, 250, 12, juce::Justification::left);
 
-        // Reserve a dedicated right-hand column for the oscilloscope.  The
-        // five control modules never share its space, so labels and knobs
-        // cannot be painted underneath the display.
-        const int left = 20, top = 78;
+        const int left = 14, top = 62;
         const int moduleWidth = juce::jmax(420, getWidth() - 140);
-        const int width = moduleWidth, height = getHeight() - 128;
-        const std::array<float, 5> edges {{ 0.20f, 0.40f, 0.60f, 0.80f, 1.0f }};
-        int x = left;
+        const int width = moduleWidth, height = getHeight() - 76;
+        const int cardGap = 5;
+        const int cardWidth = (width - cardGap * 4) / 5;
         for (int group = 0; group < 5; ++group)
         {
-            const int right = left + juce::roundToInt(width * edges[(size_t) group]);
-            g.setGradientFill(juce::ColourGradient(juce::Colour(0xff272728), (float) x, (float) top,
-                                                   juce::Colour(0xff161718), (float) x, (float) (top + height), false));
-            g.fillRect(x, top, right - x, height);
-            g.setColour(juce::Colour(0xff514d49)); g.drawRect(x, top, right - x, height, 1);
-            x = right;
+            const auto card = juce::Rectangle<float>(
+                (float) left + (float) group * (cardWidth + cardGap),
+                (float) top, (float) cardWidth, (float) height);
+            g.setColour(juce::Colour(0xff131e27));
+            g.fillRoundedRectangle(card, 5.0f);
+            g.setColour(juce::Colour(0xff2d404c));
+            g.drawRoundedRectangle(card, 5.0f, 1.0f);
         }
 
-        const auto scopeX = juce::jmin(getWidth() - 78, left + moduleWidth + 18);
-        const auto scope = juce::Rectangle<float>((float) scopeX, (float) top + 76.0f,
-                                                  (float) juce::jmax(54, getWidth() - scopeX - 18), 118.0f);
-        g.setColour(juce::Colour(0xff080909));
+        // Dedicated scope card, separate from every control column.
+        const auto scopeCard = juce::Rectangle<float>((float) left + moduleWidth + 10.0f,
+                                                       (float) top, (float) getWidth() - left - moduleWidth - 20.0f,
+                                                       (float) height);
+        g.setColour(juce::Colour(0xff101a22));
+        g.fillRoundedRectangle(scopeCard, 5.0f);
+        g.setColour(juce::Colour(0xff2d404c));
+        g.drawRoundedRectangle(scopeCard, 5.0f, 1.0f);
+
+        const auto scope = scopeCard.reduced(8.0f).withHeight(118.0f).withY(scopeCard.getY() + 34.0f);
+        g.setColour(juce::Colour(0xff05090d));
         g.fillRoundedRectangle(scope, 3.0f);
-        g.setColour(juce::Colour(0xff4d3d20));
+        g.setColour(juce::Colour(0xff3a5361));
         g.drawRoundedRectangle(scope, 3.0f, 1.0f);
-        g.setColour(juce::Colour(0xff2b2b22));
-        g.drawHorizontalLine(juce::roundToInt(scope.getCentreY()), scope.getX() + 4.0f, scope.getRight() - 4.0f);
         juce::Path waveform;
         for (int sample = 0; sample <= 48; ++sample)
         {
@@ -567,11 +564,12 @@ public:
             if (sample == 0) waveform.startNewSubPath(xPos, y);
             else waveform.lineTo(xPos, y);
         }
-        g.setColour(juce::Colour(0xffe09a27));
+        g.setColour(juce::Colour(0xfff0a52b));
         g.strokePath(waveform, juce::PathStrokeType(1.5f));
-        g.setColour(juce::Colour(0xffd6d2cc)); g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
-        g.drawText("OSCILLOSCOPE", scope.getX() - 8.0f, scope.getBottom() + 9.0f,
-                   scope.getWidth() + 16.0f, 14.0f, juce::Justification::centred);
+        g.setColour(juce::Colour(mutedText));
+        g.setFont(juce::FontOptions(8.0f, juce::Font::bold));
+        g.drawText("OSCILLOSCOPE", scopeCard.getX(), scope.getBottom() + 7.0f,
+                   scopeCard.getWidth(), 12.0f, juce::Justification::centred);
     }
 
     void timerCallback() override
@@ -597,8 +595,8 @@ public:
         pinkNoise.setBounds(moduleWidth + 18, 98, juce::jmin(92, w - moduleWidth - 24), 20);
         // Start the knob grid below all oscillator controls.  This is the
         // single source of truth for the 19 controls, preventing overlap.
-        knobs.setBounds(14, 130, juce::jmax(420, moduleWidth - 20),
-                        juce::jmax(210, getHeight() - 136));
+        knobs.setBounds(14, 126, juce::jmax(420, moduleWidth - 20),
+                        juce::jmax(180, getHeight() - 132));
     }
 
 private:
@@ -2892,16 +2890,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
                 addAndMakeVisible(child);
             }
             // Keep the complete editor in one view at the reference dialog size.
-            setSize(700, 580);
+            setSize(700, 500);
         }
 
         void resized() override
         {
-            synthPanel->setBounds(0, 0, 700, 360);
-            routingPanel->setBounds(0, 368, 700, 82);
-            commonPanel->setBounds(0, 458, 700, 54);
-            effectsPanel->setBounds(0, 516, 420, 28);
-            learnPanel->setBounds(0, 548, 700, 28);
+            synthPanel->setBounds(0, 0, 700, 320);
+            routingPanel->setBounds(0, 328, 700, 62);
+            commonPanel->setBounds(0, 398, 700, 44);
+            effectsPanel->setBounds(0, 446, 420, 26);
+            learnPanel->setBounds(0, 476, 700, 26);
         }
 
     private:
@@ -2917,7 +2915,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     auto* viewport = new juce::Viewport("ANALOG EDITOR");
     viewport->setViewedComponent(content, true);
     viewport->setScrollBarsShown(true, false);
-    viewport->setSize(700, 580);
+    viewport->setSize(700, 500);
     dialog->addCustomComponent(viewport);
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
     {
