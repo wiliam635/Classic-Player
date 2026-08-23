@@ -2917,7 +2917,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     auto* viewport = new juce::Viewport("ANALOG EDITOR");
     viewport->setViewedComponent(content, true);
     viewport->setScrollBarsShown(true, false);
-    viewport->setSize(820, 710);
+    viewport->setSize(660, 580);
     dialog->addCustomComponent(viewport);
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
     {
