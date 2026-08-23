@@ -469,7 +469,7 @@ public:
         // to overlap the editor content.
         // Keep the Analog editor compact enough for notebook displays while
         // preserving all four rows of controls and the oscilloscope.
-        setSize(600, 380);
+        setSize(800, 400);
         startTimerHz(30);
     }
 
@@ -2893,16 +2893,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
                 addAndMakeVisible(child);
             }
             // Keep the complete editor in one view at the reference dialog size.
-            setSize(600, 550);
+            setSize(800, 620);
         }
 
         void resized() override
         {
-            synthPanel->setBounds(0, 0, 600, 380);
-            routingPanel->setBounds(0, 388, 370, 108);
-            commonPanel->setBounds(378, 388, 222, 52);
-            effectsPanel->setBounds(378, 446, 222, 28);
-            learnPanel->setBounds(378, 480, 222, 40);
+            synthPanel->setBounds(0, 0, 800, 400);
+            routingPanel->setBounds(0, 408, 800, 88);
+            commonPanel->setBounds(0, 504, 800, 58);
+            effectsPanel->setBounds(0, 566, 420, 28);
+            learnPanel->setBounds(0, 598, 800, 28);
         }
 
     private:
@@ -2918,7 +2918,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     auto* viewport = new juce::Viewport("ANALOG EDITOR");
     viewport->setViewedComponent(content, true);
     viewport->setScrollBarsShown(true, false);
-    viewport->setSize(600, 530);
+    viewport->setSize(800, 590);
     dialog->addCustomComponent(viewport);
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
     {
@@ -2937,7 +2937,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     // The last custom component (MIDI Learn) must have its own row above the
     // AlertWindow close button. A fixed height prevents FECHAR from covering
     // the compressor Learn button on macOS and Windows.
-    dialog->setSize(660, 620);
+    dialog->setSize(800, 650);
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
     {
         if (safe != nullptr)
