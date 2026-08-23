@@ -1155,11 +1155,12 @@ public:
     Dx7EditorPanel(ClassicPlayerAudioProcessor& p, int layer) : processor(p), index(layer)
     {
         bankLabel.setText("BANCO DX7", juce::dontSendNotification);
-        patchLabel.setText("PRESET", juce::dontSendNotification);
+        patchLabel.setText("TIMBRE DX7", juce::dontSendNotification);
         for (auto* label : { &bankLabel, &patchLabel })
         {
             label->setColour(juce::Label::textColourId, juce::Colour(text));
             label->setFont(juce::FontOptions(12.0f, juce::Font::bold));
+            addAndMakeVisible(*label);
         }
         const auto banks = processor.libraryDx7Banks();
         for (int i = 0; i < banks.size(); ++i)
@@ -1183,19 +1184,20 @@ public:
             const auto selected = patchBox.getSelectedItemIndex();
             if (selected >= 0) processor.selectDx7Patch(index, selected);
         };
-        bankLabel.setVisible(false);
-        bankBox.setVisible(false);
-        addAndMakeVisible(patchLabel);
+        addAndMakeVisible(bankBox);
         addAndMakeVisible(patchBox);
         rebuildPatches();
-        setSize(460, 74);
+        setSize(460, 150);
     }
 
     void resized() override
     {
-        auto row = getLocalBounds().reduced(12).removeFromTop(28);
-        patchLabel.setBounds(row.removeFromLeft(100));
-        patchBox.setBounds(row);
+        auto area = getLocalBounds().reduced(12);
+        auto row = area.removeFromTop(22);
+        bankLabel.setBounds(row.removeFromLeft(100)); bankBox.setBounds(row);
+        area.removeFromTop(10);
+        row = area.removeFromTop(22);
+        patchLabel.setBounds(row.removeFromLeft(100)); patchBox.setBounds(row);
     }
 
 private:
@@ -2983,7 +2985,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::dx7) return;
     const auto prefix = "layer" + juce::String(index + 1);
     auto* dialog = new LayerEditorWindow(
-        "DX7", "Selecione o preset desta camada.", juce::MessageBoxIconType::NoIcon);
+        "DX7", "Selecione o banco e o timbre desta camada.", juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* dx7Panel = new Dx7EditorPanel(processor, index);
     auto* routingPanel = new LayerRoutingEditorPanel(processor, index);
