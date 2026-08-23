@@ -473,6 +473,24 @@ public:
         startTimerHz(30);
     }
 
+    void setPresetOnlyMode()
+    {
+        presetOnly = true;
+        for (auto* component : { static_cast<juce::Component*>(&wave1),
+                                 static_cast<juce::Component*>(&wave2),
+                                 static_cast<juce::Component*>(&wave3),
+                                 static_cast<juce::Component*>(&oscillator1On),
+                                 static_cast<juce::Component*>(&oscillator2On),
+                                 static_cast<juce::Component*>(&oscillator3On),
+                                 static_cast<juce::Component*>(&pinkNoise),
+                                 static_cast<juce::Component*>(&monoPoly),
+                                 static_cast<juce::Component*>(&knobs) })
+            component->setVisible(false);
+        setSize(600, 86);
+        resized();
+        repaint();
+    }
+
     AnalogSynthEngine::Config config() const
     {
         auto result = initial;
@@ -508,6 +526,15 @@ public:
 
     void paint(juce::Graphics& g) override
     {
+        if (presetOnly)
+        {
+            g.fillAll(juce::Colour(0xff151f28));
+            g.setColour(juce::Colour(mutedText));
+            g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+            g.drawText("PRESET ANALOG", 12, 8, getWidth() - 24, 16, juce::Justification::left);
+            return;
+        }
+
         // Purpose-built Classic Keys Analog layout: clean functional sections,
         // no imitation of the reference hardware panel.
         g.fillAll(juce::Colour(0xff0b131b));
@@ -580,6 +607,11 @@ public:
 
     void resized() override
     {
+        if (presetOnly)
+        {
+            presetBox.setBounds(12, 28, juce::jmax(120, getWidth() - 24), 28);
+            return;
+        }
         const auto w = getWidth();
         const int moduleWidth = juce::jmax(420, w - 140);
         presetBox.setBounds(25, 42, juce::jmin(270, moduleWidth - 30), 24);
@@ -752,6 +784,7 @@ private:
     juce::TextButton oscillator1On, oscillator2On, oscillator3On, pinkNoise, monoPoly;
     KnobEditorPanel knobs;
     float scopePhase = 0.0f;
+    bool presetOnly = false;
 };
 
 class Sf2EditorPanel final : public juce::Component
@@ -2851,10 +2884,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::analog) return;
 
     auto* dialog = new LayerEditorWindow(
-        "Classic Keys Analog", "Edite a camada Analog sem alterar as outras camadas.",
+        "Classic Keys Analog", "Selecione o preset desta camada.",
         juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
+
+    // The Analog layer intentionally follows the compact DX7 editor: one
+    // preset selector, routing, shared layer controls and MIDI learn.  The
+    // oscillator controls remain implemented in the engine but are not exposed
+    // in this window, avoiding a second, oversized editor layout.
     auto* controls = new AnalogSynthEditorPanel(processor.analogSynthConfig(index));
+    controls->setPresetOnlyMode();
     auto* routing = new LayerRoutingEditorPanel(processor, index);
     const auto prefix = "layer" + juce::String(index + 1);
     auto valueOf = [this, prefix](const juce::String& suffix, float fallback)
@@ -2868,55 +2907,40 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         { "REVERB", valueOf("Reverb", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "COMP", valueOf("Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 }
     }, 4);
-    common->useCompactGrid(true);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     auto* effectButtons = new LayerEffectButtons(
         [safe] { if (safe != nullptr) safe->showReverbEditor(); },
         [safe] { if (safe != nullptr) safe->showCompressorEditor(); });
-    auto* midi = new LayerMidiLearnPanel(processor, index);
+    auto* midiPanel = new LayerMidiLearnPanel(processor, index);
 
-    class AnalogEditorContent final : public juce::Component
+    class CenteredPanel final : public juce::Component
     {
     public:
-        AnalogEditorContent(juce::Component* synth, juce::Component* route,
-                            juce::Component* commonKnobs, juce::Component* effects,
-                            juce::Component* learn)
-            : synthPanel(synth), routingPanel(route), commonPanel(commonKnobs),
-              effectsPanel(effects), learnPanel(learn)
+        CenteredPanel(juce::Component* child, int preferredWidth, int preferredHeight)
+            : content(child), width(preferredWidth)
         {
-            for (auto* child : { synthPanel, routingPanel, commonPanel, effectsPanel, learnPanel })
-            {
-                owned.add(child);
-                addAndMakeVisible(child);
-            }
-            // Keep the complete editor in one view at the reference dialog size.
-            setSize(700, 500);
+            owned.add(child);
+            addAndMakeVisible(child);
+            setSize(preferredWidth, preferredHeight);
         }
-
         void resized() override
         {
-            synthPanel->setBounds(0, 0, 700, 320);
-            routingPanel->setBounds(0, 328, 700, 62);
-            commonPanel->setBounds(0, 398, 700, 44);
-            effectsPanel->setBounds(0, 446, 420, 26);
-            learnPanel->setBounds(0, 476, 700, 26);
+            content->setBounds(getLocalBounds().withSizeKeepingCentre(
+                juce::jmin(width, content->getWidth()),
+                juce::jmin(getHeight(), content->getHeight())));
         }
-
     private:
-        juce::Component* synthPanel;
-        juce::Component* routingPanel;
-        juce::Component* commonPanel;
-        juce::Component* effectsPanel;
-        juce::Component* learnPanel;
+        juce::Component* content;
+        int width;
         juce::OwnedArray<juce::Component> owned;
     };
 
-    auto* content = new AnalogEditorContent(controls, routing, common, effectButtons, midi);
-    auto* viewport = new juce::Viewport("ANALOG EDITOR");
-    viewport->setViewedComponent(content, true);
-    viewport->setScrollBarsShown(true, false);
-    viewport->setSize(700, 500);
-    dialog->addCustomComponent(viewport);
+    dialog->addCustomComponent(new CenteredPanel(controls, 600, 86));
+    dialog->addCustomComponent(new CenteredPanel(routing, 600, 122));
+    common->useCompactGrid(false);
+    dialog->addCustomComponent(new CenteredPanel(common, 600, 100));
+    dialog->addCustomComponent(new CenteredPanel(effectButtons, 600, 34));
+    dialog->addCustomComponent(new CenteredPanel(midiPanel, 600, 44));
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
     {
         if (safe == nullptr) return;
@@ -2928,17 +2952,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         set("Gain", common->value(0)); set("Cutoff", common->value(1));
         set("Reverb", common->value(2)); set("Comp", common->value(3));
     });
-    // Leave a dedicated row for routing and MIDI Learn before the close
-    // button. The previous automatic AlertWindow height put FECHAR on top of
-    // the Learn controls on smaller displays.
-    // The last custom component (MIDI Learn) must have its own row above the
-    // AlertWindow close button. A fixed height prevents FECHAR from covering
-    // the compressor Learn button on macOS and Windows.
-    dialog->setSize(800, 650);
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
     {
-        if (safe != nullptr)
-            safe->processor.setAnalogSynthConfig(safe->index, config);
+        if (safe != nullptr) safe->processor.setAnalogSynthConfig(safe->index, config);
     };
     controls->onPresetChanged = [safe](const AnalogSynthEngine::Config& config)
     {
@@ -2948,6 +2964,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
             safe->processor.setAnalogSynthConfig(safe->index, config);
         }
     };
+    dialog->setSize(758, 599);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, common, prefix](int)
         {
@@ -2957,10 +2974,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
                 if (auto* parameter = safe->processor.parameters.getParameter(prefix + suffix))
                     parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
             };
-            set("Gain", common->value(0));
-            set("Cutoff", common->value(1));
-            set("Reverb", common->value(2));
-            set("Comp", common->value(3));
+            set("Gain", common->value(0)); set("Cutoff", common->value(1));
+            set("Reverb", common->value(2)); set("Comp", common->value(3));
             safe->refresh();
         }), true);
 }
