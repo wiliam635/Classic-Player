@@ -206,6 +206,23 @@ if(CLASSIC_PLAYER_BUILD_WEBUI_APP)
 endif()
 
 if(CLASSIC_PLAYER_BUILD_TESTS)
+    enable_testing()
+    juce_add_console_app(ClassicPlayerMasterMidiTest PRODUCT_NAME "Classic Player Master MIDI Test")
+    target_sources(ClassicPlayerMasterMidiTest PRIVATE Source/MasterMidiRegressionTest.cpp)
+    target_include_directories(ClassicPlayerMasterMidiTest PRIVATE third_party/msfa)
+    target_link_libraries(ClassicPlayerMasterMidiTest PRIVATE ClassicPlayer ${CLASSIC_PLAYER_FLUID_TARGET}
+        juce::juce_audio_utils juce::juce_dsp)
+    add_test(NAME master-midi COMMAND ClassicPlayerMasterMidiTest)
+    juce_add_console_app(ClassicPlayerAudioRegressionTest PRODUCT_NAME "Classic Player Audio Regression Test")
+    target_sources(ClassicPlayerAudioRegressionTest PRIVATE
+        Source/AudioRegressionTest.cpp Source/AnalogSynthEngine.cpp Source/Dx7Engine.cpp
+        third_party/msfa/dx7note.cc third_party/msfa/env.cc third_party/msfa/exp2.cc
+        third_party/msfa/fm_core.cc third_party/msfa/fm_op_kernel.cc third_party/msfa/freqlut.cc
+        third_party/msfa/pitchenv.cc third_party/msfa/porta.cpp third_party/msfa/sin.cc third_party/msfa/tuning.cc)
+    target_include_directories(ClassicPlayerAudioRegressionTest PRIVATE third_party/msfa)
+    target_compile_definitions(ClassicPlayerAudioRegressionTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+    target_link_libraries(ClassicPlayerAudioRegressionTest PRIVATE ${CLASSIC_PLAYER_FLUID_TARGET} juce::juce_audio_basics juce::juce_core)
+    add_test(NAME audio-regression COMMAND ClassicPlayerAudioRegressionTest)
     juce_add_console_app(ClassicPlayerEngineSmokeTest PRODUCT_NAME "Classic Player Engine Smoke Test")
     target_sources(ClassicPlayerEngineSmokeTest PRIVATE
         Source/Sf2EngineSmokeTest.cpp

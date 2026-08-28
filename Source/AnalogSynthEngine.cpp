@@ -46,6 +46,11 @@ void AnalogSynthEngine::prepare(double newSampleRate, int maximumBlockSize)
     sampleRate = juce::jmax(1.0, newSampleRate);
     renderScratch.setSize(2, juce::jmax(1, maximumBlockSize), false, true, true);
     reset();
+    for (auto& layer : layers)
+    {
+        layer.gain.reset(sampleRate, 0.02);
+        layer.gain.setCurrentAndTargetValue(0.0f);
+    }
 }
 
 void AnalogSynthEngine::reset()
@@ -64,6 +69,7 @@ void AnalogSynthEngine::reset()
         layer.compressorEnvelope = {};
         layer.filterState = {};
         layer.lfoPhase = 0.0f;
+        layer.gainReady = false;
     }
 
     for (auto& peak : peaks)
@@ -258,6 +264,7 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
     const auto frequency = midiNoteToFrequency(note + config.routing.octave * 12
                                                + static_cast<int>(config.oscillator1Semitones));
     const auto legato = mono && voice->active && voice->keyDown;
+    voice->transition.retarget(sampleRate);
 
     voice->active = true;
     voice->keyDown = true;
@@ -306,6 +313,8 @@ void AnalogSynthEngine::noteOff(int layerIndex, int midiChannel, int note, const
         auto& voice = layer.voices.front();
         if (replacement >= 0)
         {
+            if (voice.note == replacement) return;
+            voice.transition.retarget(sampleRate);
             voice.active = true;
             voice.keyDown = true;
             voice.note = replacement;
@@ -439,7 +448,8 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
     const auto cutoffHz = 25.0f * std::pow(700.0f, normalizedCutoff) * keyboardTracking;
 
     sample = processLadder(voice, sample, cutoffHz, config.resonance, config.filterDrive);
-    sample *= amp * voice.velocity * config.routing.gain;
+    sample *= amp * voice.velocity;
+    sample = voice.transition.process(sample);
 
     left += sample;
     right += sample;
@@ -503,15 +513,6 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
         }
     };
 
-    for (const auto metadata : midi)
-        for (int layerIndex = 0; layerIndex < layerCount; ++layerIndex)
-            dispatch(layerIndex, metadata.getMessage());
-
-    if (routedMidi != nullptr)
-        for (int layerIndex = 0; layerIndex < layerCount; ++layerIndex)
-            for (const auto metadata : (*routedMidi)[static_cast<size_t>(layerIndex)])
-                dispatch(layerIndex, metadata.getMessage());
-
     for (int layerIndex = 0; layerIndex < layerCount; ++layerIndex)
     {
         auto& layer = layers[static_cast<size_t>(layerIndex)];
@@ -524,9 +525,28 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
 
         renderScratch.setSize(2, output.getNumSamples(), false, false, true);
         renderScratch.clear();
+        if (!layer.gainReady)
+        {
+            layer.gain.setCurrentAndTargetValue(config.routing.gain);
+            layer.gainReady = true;
+        }
+        layer.gain.setTargetValue(config.routing.gain);
+        const juce::MidiBuffer empty;
+        const auto& routedMessages = routedMidi != nullptr ? (*routedMidi)[(size_t) layerIndex] : empty;
+        auto host = midi.begin();
+        auto routed = routedMessages.begin();
         float peak = 0.0f;
         for (int sampleIndex = 0; sampleIndex < output.getNumSamples(); ++sampleIndex)
         {
+            while (host != midi.end() || routed != routedMessages.end())
+            {
+                const bool useHost = routed == routedMessages.end()
+                    || (host != midi.end() && (*host).samplePosition <= (*routed).samplePosition);
+                const auto event = useHost ? *host : *routed;
+                if (event.samplePosition > sampleIndex) break;
+                dispatch(layerIndex, event.getMessage());
+                if (useHost) ++host; else ++routed;
+            }
             layer.lfoPhase = wrapPhase(layer.lfoPhase
                 + config.lfoRateHz / static_cast<float>(sampleRate));
             const auto lfo = std::sin(layer.lfoPhase * twoPi);
@@ -537,8 +557,9 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
                     renderVoice(voice, config, lfo, layer.modWheel,
                                layer.pitchBendSemitones, left, right);
 
-            renderScratch.setSample(0, sampleIndex, left);
-            renderScratch.setSample(1, sampleIndex, right);
+            const auto gain = layer.gain.getNextValue();
+            renderScratch.setSample(0, sampleIndex, left * gain);
+            renderScratch.setSample(1, sampleIndex, right * gain);
         }
 
         const auto cutoffHz = 120.0f + juce::jlimit(0.0f, 100.0f, config.cutoff) * 180.0f;

@@ -28,6 +28,9 @@ void Dx7Engine::prepare(double newSampleRate, int newMaximumBlockSize)
         auto& layer = layers[(size_t) layerIndex];
         layerPeaks[(size_t) layerIndex].store(0.0f, std::memory_order_relaxed);
         layer.renderScratch.setSize(2, maximumBlockSize, false, true, true);
+        layer.gain.reset(sampleRate, 0.02);
+        layer.gain.setCurrentAndTargetValue(0.0f);
+        layer.gainReady = false;
         // 45 ms accommodates a gently modulated stereo chorus at any supported rate.
         layer.chorusDelay.setSize(2, juce::jmax(8, (int) std::ceil(sampleRate * 0.045)),
                                   false, true, true);
@@ -222,10 +225,15 @@ juce::Result Dx7Engine::loadSysEx(int index, const juce::File& file)
     }
 
     loaded.renderScratch.setSize(2, maximumBlockSize, false, true, true);
+    loaded.gain.reset(sampleRate, 0.02);
+    loaded.gain.setCurrentAndTargetValue(0.0f);
     loaded.chorusDelay.setSize(2, juce::jmax(8, (int) std::ceil(sampleRate * 0.045)),
                                false, true, true);
     const juce::ScopedLock guard(lock);
     auto& target = layers[(size_t) index];
+    target.gain.reset(sampleRate, 0.02);
+    target.gain.setCurrentAndTargetValue(0.0f);
+    target.gainReady = false;
     target.sourcePath = std::move(loaded.sourcePath);
     target.patches = std::move(loaded.patches);
     target.patchesLoaded = loaded.patchesLoaded;
@@ -362,6 +370,8 @@ void Dx7Engine::beginCoreVoice(Voice& voice, const Patch& patch, int note,
         replacement->initPortamento(*voice.coreVoice);
     }
     voice.coreVoice = std::move(replacement);
+    voice.fmRead = N;
+    voice.transition.retarget(sampleRate);
 }
 
 void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
@@ -371,15 +381,21 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
 
     const auto releaseVoice = [] (Voice& voice)
     {
-        if (!voice.active) return;
+        if (!voice.active || voice.releasing) return;
         voice.releasing = true;
         if (voice.coreVoice != nullptr) voice.coreVoice->keyup();
     };
     const auto highestHeld = [&layer] ()
     {
-        for (int note = 127; note >= 0; --note)
-            if (layer.heldNotes[(size_t) note]) return note;
-        return -1;
+        int latest = -1;
+        uint64_t order = 0;
+        for (int note = 0; note < 128; ++note)
+            if (layer.heldNotes[(size_t) note] && layer.noteOrder[(size_t) note] >= order)
+            {
+                latest = note;
+                order = layer.noteOrder[(size_t) note];
+            }
+        return latest;
     };
     const auto retargetMono = [this, &layer, &config] (int note, float velocity)
     {
@@ -466,6 +482,7 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
         layer.heldNotes[(size_t) note] = false;
         if (config.mono || config.portamento)
         {
+            if (layer.voices.front().note != note) return;
             const auto fallback = highestHeld();
             if (fallback >= 0)
                 retargetMono(fallback, layer.heldVelocities[(size_t) fallback]);
@@ -483,6 +500,7 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
     const auto velocity = shapedVelocity(config, message.getFloatVelocity());
     layer.heldNotes[(size_t) note] = true;
     layer.heldVelocities[(size_t) note] = velocity;
+    layer.noteOrder[(size_t) note] = ++layer.noteSequence;
 
     if (config.mono || config.portamento)
     {
@@ -494,7 +512,10 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
 
     Voice* target = nullptr;
     for (auto& voice : layer.voices)
-        if (!voice.active || voice.releasing) { target = &voice; break; }
+        if (!voice.active) { target = &voice; break; }
+    if (target == nullptr)
+        for (auto& voice : layer.voices)
+            if (voice.releasing) { target = &voice; break; }
     if (target == nullptr) target = &layer.voices.front();
 
     target->active = true;
@@ -531,26 +552,29 @@ void Dx7Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
             continue;
         }
 
-        for (const auto metadata : hostMidi)
-            dispatch(layer, config, metadata.getMessage());
-
-        if (routedMidi != nullptr)
-            for (const auto metadata : (*routedMidi)[(size_t) index])
-                dispatch(layer, config, metadata.getMessage());
-
-        render(index, layer, config, output);
+        const juce::MidiBuffer empty;
+        render(index, layer, config, output, hostMidi,
+               routedMidi != nullptr ? (*routedMidi)[(size_t) index] : empty);
     }
 }
 
 void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfig& config,
-                       juce::AudioBuffer<float>& output)
+                       juce::AudioBuffer<float>& output, const juce::MidiBuffer& hostMidi,
+                       const juce::MidiBuffer& routedMidi)
 {
     if (!juce::isPositiveAndBelow(layer.selectedPatch, layer.patchesLoaded)) return;
-    if (layer.renderScratch.getNumSamples() < output.getNumSamples()
+    if (maximumBlockSize < output.getNumSamples()
         || layer.chorusDelay.getNumSamples() == 0) return;
 
     auto& scratch = layer.renderScratch;
+    scratch.setSize(2, output.getNumSamples(), false, false, true);
     scratch.clear();
+    if (!layer.gainReady)
+    {
+        layer.gain.setCurrentAndTargetValue(config.gain);
+        layer.gainReady = true;
+    }
+    layer.gain.setTargetValue(config.gain);
     const auto& patch = layer.patches[(size_t) layer.selectedPatch];
     constexpr float fixedToFloat = 1.0f / (float) (1 << 24);
     const auto lfoSpeed = juce::jlimit(0.0f, 1.0f, (float) patch.raw[137] / 99.0f);
@@ -560,12 +584,31 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
     const auto lfoStep = juce::MathConstants<double>::twoPi * lfoHz / sampleRate;
     const auto delaySeconds = 0.015 + 2.2 * (double) patch.raw[138] / 99.0;
 
-    for (auto& voice : layer.voices)
+    auto host = hostMidi.begin();
+    auto routed = routedMidi.begin();
+    for (int offset = 0; offset < scratch.getNumSamples(); ++offset)
     {
-        if (!voice.active || voice.coreVoice == nullptr) continue;
-        int offset = 0;
-        while (offset < scratch.getNumSamples())
+        // Merge both input streams by sample position, with host first on ties.
+        while (host != hostMidi.end() || routed != routedMidi.end())
         {
+            const bool useHost = routed == routedMidi.end()
+                || (host != hostMidi.end() && (*host).samplePosition <= (*routed).samplePosition);
+            const auto event = useHost ? *host : *routed;
+            if (event.samplePosition > offset) break;
+            dispatch(layer, config, event.getMessage());
+            if (useHost) ++host; else ++routed;
+        }
+        const auto layerGain = layer.gain.getNextValue();
+        for (auto& voice : layer.voices)
+        {
+            if (!voice.active || voice.coreVoice == nullptr) continue;
+            if (voice.fmRead == N)
+            {
+                if (voice.releasing && !voice.coreVoice->isPlaying())
+                {
+                    voice = {};
+                    continue;
+                }
             // MSFA expects a Q24 LFO value. The previous fixed centre value
             // disabled the DX7's native amplitude modulation entirely.
             const auto blockPhase = layer.lfoPhase + (double) offset * lfoStep;
@@ -575,20 +618,17 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
                     + (double) offset / sampleRate) / delaySeconds) : 1.0;
             const auto lfoValue = juce::jlimit(0, 1 << 24,
                 (int) std::lround((0.5 + (lfoWave - 0.5) * delayedDepth) * (double) (1 << 24)));
-            std::array<int32_t, N> fmBlock {};
-            voice.coreVoice->compute(fmBlock.data(), lfoValue, 1 << 24, &controllers);
-
-            const auto count = juce::jmin(N, scratch.getNumSamples() - offset);
-            const auto gain = config.gain * voice.velocity * 0.24f;
-            for (int sample = 0; sample < count; ++sample)
-            {
-                const auto value = (float) fmBlock[(size_t) sample] * fixedToFloat * gain;
-                scratch.addSample(0, offset + sample, value);
-                scratch.addSample(1, offset + sample, value);
+                voice.fmSamples.fill(0);
+                voice.coreVoice->compute(voice.fmSamples.data(), lfoValue, 1 << 24, &controllers);
+                voice.fmRead = 0;
             }
-            offset += count;
+            // Preserve every MSFA sample across arbitrary host block sizes.
+            const auto raw = static_cast<float>(voice.fmSamples[(size_t) voice.fmRead++])
+                           * fixedToFloat * voice.velocity * 0.24f;
+            const auto value = voice.transition.process(raw) * layerGain;
+            scratch.addSample(0, offset, value);
+            scratch.addSample(1, offset, value);
         }
-        if (voice.releasing && !voice.coreVoice->isPlaying()) voice = {};
     }
     layer.lfoPhase = std::fmod(layer.lfoPhase + (double) scratch.getNumSamples() * lfoStep,
                                juce::MathConstants<double>::twoPi);
@@ -690,7 +730,7 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
     }
 
     const auto renderedPeak = juce::jmax(scratch.getMagnitude(0, 0, output.getNumSamples()),
-                                         scratch.getMagnitude(1, 0, output.getNumSamples())) * config.gain;
+                                         scratch.getMagnitude(1, 0, output.getNumSamples()));
     const auto previousPeak = layerPeaks[(size_t) layerIndex].load(std::memory_order_relaxed) * 0.82f;
     layerPeaks[(size_t) layerIndex].store(juce::jmax(renderedPeak, previousPeak), std::memory_order_relaxed);
 

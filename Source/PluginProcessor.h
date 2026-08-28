@@ -11,14 +11,21 @@
 #include <atomic>
 
 class ClassicPlayerAudioProcessor final : public juce::AudioProcessor,
-                                          private juce::MidiInputCallback
+                                          private juce::MidiInputCallback,
+                                          private juce::Timer
 {
 public:
     enum class LearnTarget { volume = 0, cutoff, reverb, compressor, release, count };
+    void beginMasterMidiLearn();
+    void resetMasterMidiLearn();
+    bool isMasterMidiLearning() const { return masterLearning.load(); }
+    int masterMidiLearnCC() const { return masterCC.load(); }
+    int masterMidiLearnChannel() const { return masterCCChannel.load(); }
+    juce::String currentSavedProgramName() const { return currentSavedProgram; }
     // A source is chosen only when a new layer is created. The initial four
     // layers are SF2 by design.
     enum class LayerType { sf2 = 0, vst, dx7, analog, drumPads };
-    ClassicPlayerAudioProcessor();
+    explicit ClassicPlayerAudioProcessor(juce::File programStorageOverride = {});
     ~ClassicPlayerAudioProcessor() override;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
@@ -156,6 +163,20 @@ public:
     juce::MidiKeyboardState keyboardState;
 
 private:
+    void timerCallback() override;
+    void processMasterMidiMessage(const juce::MidiMessage&);
+    void saveStartupSettings();
+    void restoreStartupSettings();
+    juce::File startupSettingsFile() const;
+    juce::File programStorageDirectory() const;
+    const juce::File programStorageRoot;
+    juce::String lastSavedProgram;
+    juce::String currentSavedProgram;
+    bool startupRestored = false;
+    std::atomic<bool> masterLearning { false }, startupSettingsDirty { false };
+    std::atomic<int> masterCC { -1 }, masterCCChannel { -1 };
+    std::atomic<float> pendingMasterValue { -1.0f };
+    juce::SmoothedValue<float> masterGain;
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameters();
     void restoreLayerPaths();
     void stopAllSoundsBeforeProgramChange();

@@ -11,6 +11,7 @@
 #include "fm_core.h"
 #include "controllers.h"
 #include "tuning.h"
+#include "AudioTransition.h"
 
 // Native DX7-compatible SysEx reader and six-operator FM player.
 // A Yamaha bulk dump exposes all 32 voices; the selected voice is rendered
@@ -75,6 +76,9 @@ private:
         std::array<int, 6> operatorStage {};
         std::array<float, 6> feedback {};
         std::unique_ptr<Dx7Note> coreVoice;
+        std::array<int32_t, N> fmSamples {};
+        int fmRead = N;
+        AudioTransition transition;
     };
 
     struct Layer
@@ -87,6 +91,8 @@ private:
         // lets Mono Legato return to a still-held earlier note.
         std::array<bool, 128> heldNotes {};
         std::array<float, 128> heldVelocities {};
+        std::array<uint64_t, 128> noteOrder {};
+        uint64_t noteSequence = 0;
         bool sustainDown = false;
         // LFO/chorus buffers are prepared when the engine is prepared or a
         // bank is loaded. They are never allocated by render().
@@ -95,6 +101,8 @@ private:
         double chorusPhase = 0.0;
         int chorusWritePosition = 0;
         juce::AudioBuffer<float> renderScratch;
+        juce::SmoothedValue<float> gain;
+        bool gainReady = false;
         juce::AudioBuffer<float> chorusDelay;
         std::array<float, 2> dcInput {};
         std::array<float, 2> dcOutput {};
@@ -113,7 +121,8 @@ private:
 
     void dispatch(Layer&, const Sf2Engine::LayerConfig&, const juce::MidiMessage&);
     void beginCoreVoice(Voice&, const Patch&, int note, float velocity, bool preserveLegato);
-    void render(int layerIndex, Layer&, const Sf2Engine::LayerConfig&, juce::AudioBuffer<float>&);
+    void render(int layerIndex, Layer&, const Sf2Engine::LayerConfig&, juce::AudioBuffer<float>&,
+                const juce::MidiBuffer&, const juce::MidiBuffer&);
 
     std::array<Layer, layerCount> layers;
     // Separate peak state keeps Layer movable when a DX7 bank is reloaded.
@@ -125,4 +134,3 @@ private:
     int maximumBlockSize = 512;
     juce::CriticalSection lock;
 };
-

@@ -218,6 +218,7 @@ private:
     juce::Slider master;
     juce::Label masterLabel;
     juce::TextButton masterEqButton { "EQ MASTER" };
+    juce::TextButton masterLearnButton { "LEARN" };
     LevelMeter masterMeter;
     juce::ImageComponent appIcon;
     juce::ImageComponent classicKeysLogo;
@@ -247,4 +248,3 @@ private:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ClassicPlayerAudioProcessorEditor)
 };
-

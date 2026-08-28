@@ -2851,6 +2851,16 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     masterLabel.setJustificationType(juce::Justification::centred);
     masterLabel.setColour(juce::Label::textColourId, juce::Colour(text));
     addAndMakeVisible(masterLabel);
+    flatButton(masterLearnButton);
+    masterLearnButton.setTooltip("Aprender CC e canal do volume master. Clique novamente para cancelar; Shift+clique apaga o mapeamento. CC64 reservado ao sustain.");
+    masterLearnButton.onClick = [this]
+    {
+        if (juce::ModifierKeys::getCurrentModifiers().isShiftDown())
+            classicProcessor.resetMasterMidiLearn();
+        else
+            classicProcessor.beginMasterMidiLearn();
+    };
+    addAndMakeVisible(masterLearnButton);
     addAndMakeVisible(masterMeter);
     masterAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         classicProcessor.parameters, "master", master);
@@ -3176,7 +3186,10 @@ void ClassicPlayerAudioProcessorEditor::resized()
     masterLabel.setBounds(masterArea.removeFromTop(17));
     auto masterKnobArea = masterArea.removeFromTop(57);
     master.setBounds(masterKnobArea.reduced(3, 0));
-    masterEqButton.setBounds(masterArea.removeFromTop(20).reduced(1, 0));
+    auto masterActions = masterArea.removeFromTop(20);
+    masterLearnButton.setBounds(masterActions.removeFromRight(59).reduced(1, 0));
+    masterEqButton.setButtonText("EQ");
+    masterEqButton.setBounds(masterActions.reduced(1, 0));
     header.removeFromRight(12);
 
     auto chordArea = header.reduced(4, 1);
@@ -3269,6 +3282,9 @@ void ClassicPlayerAudioProcessorEditor::resized()
 
 void ClassicPlayerAudioProcessorEditor::timerCallback()
 {
+    const auto masterCC = classicProcessor.masterMidiLearnCC();
+    masterLearnButton.setButtonText(classicProcessor.isMasterMidiLearning() ? "MOVE CC"
+        : masterCC < 0 ? "LEARN" : "CC " + juce::String(masterCC));
     classicProcessor.consumeMidiControlUpdates();
     if (classicProcessor.consumeLiveSetSlotMidiLearnChanged())
     {
@@ -3362,7 +3378,8 @@ void ClassicPlayerAudioProcessorEditor::refreshExternalInstrumentLibrary()
 void ClassicPlayerAudioProcessorEditor::refreshProgramLibrary()
 {
     programFiles = classicProcessor.savedPrograms();
-    const auto currentName = programBox.getText();
+    const auto currentName = programBox.getText().isEmpty()
+        ? classicProcessor.currentSavedProgramName() : programBox.getText();
     programBox.clear(juce::dontSendNotification);
     int selectedId = 0;
     for (int item = 0; item < programFiles.size(); ++item)

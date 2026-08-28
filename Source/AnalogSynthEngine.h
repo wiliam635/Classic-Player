@@ -1,4 +1,5 @@
 #pragma once
+#include "AudioTransition.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
 #include "Sf2Engine.h"
@@ -109,6 +110,7 @@ private:
         uint32_t noiseState = 0x12345678u;
         Envelope amp;
         Envelope filter;
+        AudioTransition transition;
     };
 
     struct Layer
@@ -119,6 +121,8 @@ private:
         std::array<uint64_t, 128> noteOrder {};
         uint64_t noteSequence = 0;
         float lfoPhase = 0.0f;
+        juce::SmoothedValue<float> gain;
+        bool gainReady = false;
         bool sustainPedal = false;
         float modWheel = 0.0f;
         float pitchBendSemitones = 0.0f;
@@ -147,4 +151,3 @@ private:
     juce::AudioBuffer<float> renderScratch;
     double sampleRate = 44100.0;
 };
-

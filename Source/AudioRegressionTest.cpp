@@ -1,0 +1,163 @@
+#include "Dx7Engine.h"
+#include "AnalogSynthEngine.h"
+#include <iostream>
+#include <stdexcept>
+#include <vector>
+
+static void require(bool condition, const char* message)
+{
+    if (!condition) throw std::runtime_error(message);
+}
+
+static juce::MidiBuffer events(int start, int count, bool transitions)
+{
+    juce::MidiBuffer result;
+    const auto add = [&](int at, juce::MidiMessage message)
+    {
+        if (at >= start && at < start + count) result.addEvent(message, at - start);
+    };
+    add(73, juce::MidiMessage::noteOn(1, 60, 0.8f));
+    if (transitions)
+    {
+        add(399, juce::MidiMessage::noteOn(1, 67, 0.3f));
+        add(613, juce::MidiMessage::noteOff(1, 67));
+        add(871, juce::MidiMessage::noteOff(1, 60));
+        add(910, juce::MidiMessage::noteOn(1, 64, 0.9f));
+        add(1200, juce::MidiMessage::noteOff(1, 64));
+    }
+    return result;
+}
+
+static std::vector<float> dx7(const juce::File& fixture, int block, bool mono, bool transitions)
+{
+    auto engine = std::make_unique<Dx7Engine>();
+    engine->prepare(48000, 512);
+    require(engine->loadSysEx(0, fixture).wasOk(), "DX7 fixture load");
+    std::array<Sf2Engine::LayerConfig, Dx7Engine::layerCount> configs;
+    for (auto& config : configs) config.enabled = false;
+    configs[0].enabled = true;
+    configs[0].mono = mono;
+    configs[0].dx7Chorus = 0;
+    configs[0].cutoff = 100;
+    configs[0].gain = 0.8f;
+    std::vector<float> result;
+    for (int start = 0; start < 4096; start += block)
+    {
+        const auto count = std::min(block, 4096 - start);
+        juce::AudioBuffer<float> audio(2, count);
+        audio.clear();
+        auto midi = events(start, count, transitions);
+        engine->process(audio, midi, nullptr, configs);
+        result.insert(result.end(), audio.getReadPointer(0), audio.getReadPointer(0) + count);
+    }
+    return result;
+}
+
+static std::vector<float> analog(int block, bool mono, bool transitions)
+{
+    auto engine = std::make_unique<AnalogSynthEngine>();
+    engine->prepare(48000, 512);
+    std::array<AnalogSynthEngine::Config, AnalogSynthEngine::layerCount> configs;
+    for (auto& config : configs) config.routing.enabled = false;
+    configs[0].routing.enabled = true;
+    configs[0].monophonic = mono;
+    configs[0].routing.gain = 0.8f;
+    std::vector<float> result;
+    for (int start = 0; start < 4096; start += block)
+    {
+        const auto count = std::min(block, 4096 - start);
+        juce::AudioBuffer<float> audio(2, count);
+        audio.clear();
+        auto midi = events(start, count, transitions);
+        engine->process(audio, midi, configs);
+        result.insert(result.end(), audio.getReadPointer(0), audio.getReadPointer(0) + count);
+    }
+    return result;
+}
+
+static void compare(const std::vector<float>& a, const std::vector<float>& b)
+{
+    float error = 0, peak = 0;
+    for (size_t i = 0; i < a.size(); ++i)
+    {
+        require(std::isfinite(a[i]) && std::isfinite(b[i]), "non-finite audio");
+        error = std::max(error, std::abs(a[i] - b[i]));
+        peak = std::max(peak, std::abs(a[i]));
+        if (i < 73) require(a[i] == 0 && b[i] == 0, "MIDI note rendered before its timestamp");
+    }
+    require(peak > 0.0001f, "silent engine");
+    std::cout << "partition error: " << error << ", peak: " << peak << '\n';
+    require(error < 0.00001f, "audio depends on host block size");
+}
+
+static void volumeRamp(const juce::File& fixture)
+{
+    auto reference = std::make_unique<Dx7Engine>();
+    auto changed = std::make_unique<Dx7Engine>();
+    reference->prepare(48000, 512); changed->prepare(48000, 512);
+    require(reference->loadSysEx(0, fixture).wasOk(), "reference fixture");
+    require(changed->loadSysEx(0, fixture).wasOk(), "changed fixture");
+    std::array<Sf2Engine::LayerConfig, Dx7Engine::layerCount> configs;
+    for (auto& config : configs) config.enabled = false;
+    configs[0].enabled = true; configs[0].gain = 0.8f; configs[0].dx7Chorus = 0;
+    juce::AudioBuffer<float> a(2, 512), b(2, 512);
+    for (int block = 0; block < 8; ++block)
+    {
+        a.clear(); b.clear();
+        juce::MidiBuffer midi;
+        if (block == 0) midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.8f), 0);
+        reference->process(a, midi, nullptr, configs);
+        changed->process(b, midi, nullptr, configs);
+    }
+    a.clear(); b.clear();
+    juce::MidiBuffer empty;
+    reference->process(a, empty, nullptr, configs);
+    configs[0].gain = 0.0f;
+    changed->process(b, empty, nullptr, configs);
+    const auto initialDifference = std::abs(a.getSample(0, 0) - b.getSample(0, 0));
+    std::cout << "volume step initial difference: " << initialDifference << '\n';
+    require(initialDifference < 0.001f, "volume changed discontinuously");
+    for (int block = 0; block < 16; ++block) { b.clear(); changed->process(b, empty, nullptr, configs); }
+    require(b.getMagnitude(0, 512) < 0.0001f, "volume did not settle at silence");
+}
+
+int main()
+{
+    try
+    {
+        juce::TemporaryFile fixture(".syx");
+        std::array<uint8_t, 163> bytes {};
+        bytes[0] = 0xf0; bytes[1] = 0x43; bytes[4] = 1; bytes[5] = 27;
+        auto* patch = bytes.data() + 6;
+        for (int op = 0; op < 6; ++op)
+        {
+            const int offset = op * 21;
+            patch[offset] = 99; patch[offset + 1] = 80;
+            patch[offset + 2] = 80; patch[offset + 3] = 70;
+            patch[offset + 4] = 99; patch[offset + 5] = 80; patch[offset + 6] = 80;
+            patch[offset + 16] = 75; patch[offset + 18] = 1; patch[offset + 20] = 7;
+        }
+        for (int i = 0; i < 4; ++i) { patch[126 + i] = 99; patch[130 + i] = 50; }
+        patch[134] = 31; patch[135] = 7; patch[144] = 24;
+        for (int i = 145; i < 155; ++i) patch[i] = 'T';
+        int sum = 0; for (int i = 0; i < 155; ++i) sum += patch[i];
+        bytes[161] = static_cast<uint8_t>((128 - (sum & 127)) & 127); bytes[162] = 0xf7;
+        require(fixture.getFile().replaceWithData(bytes.data(), bytes.size()), "fixture write");
+        volumeRamp(fixture.getFile());
+        for (bool mono : {false, true})
+            for (bool transitions : {false, true})
+            {
+                compare(dx7(fixture.getFile(), 512, mono, transitions), dx7(fixture.getFile(), 127, mono, transitions));
+                compare(analog(512, mono, transitions), analog(127, mono, transitions));
+            }
+        AudioTransition transition;
+        transition.process(0.8f);
+        transition.retarget(48000);
+        require(std::abs(transition.process(-0.7f) - 0.8f) < 1e-6f, "voice replacement discontinuity");
+        for (int i = 0; i < 145; ++i) transition.process(-0.7f);
+        require(std::abs(transition.last + 0.7f) < 1e-6f, "transition did not settle");
+        std::cout << "Audio regression tests passed\n";
+        return 0;
+    }
+    catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
+}

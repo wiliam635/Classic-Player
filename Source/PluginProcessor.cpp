@@ -4,9 +4,103 @@
 #include <algorithm>
 #include <array>
 
-ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor()
+juce::File ClassicPlayerAudioProcessor::startupSettingsFile() const
+{
+    return programStorageDirectory().getChildFile("Startup.xml");
+}
+
+juce::File ClassicPlayerAudioProcessor::programStorageDirectory() const
+{
+    // Explicit storage injection keeps regression tests out of the user's library.
+    return programStorageRoot != juce::File{} ? programStorageRoot
+        : juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+            .getChildFile("Classic Player");
+}
+
+void ClassicPlayerAudioProcessor::saveStartupSettings()
+{
+    if (wrapperType != wrapperType_Standalone) return;
+    juce::XmlElement settings("ClassicPlayerStartup");
+    settings.setAttribute("lastSavedProgram", lastSavedProgram);
+    settings.setAttribute("masterCC", masterCC.load());
+    settings.setAttribute("masterChannel", masterCCChannel.load());
+    const auto file = startupSettingsFile();
+    if (file.getParentDirectory().createDirectory().failed() || !settings.writeTo(file))
+        juce::Logger::writeToLog("Não foi possível salvar as preferências de inicialização.");
+}
+
+void ClassicPlayerAudioProcessor::restoreStartupSettings()
+{
+    if (auto settings = juce::XmlDocument::parse(startupSettingsFile());
+        settings != nullptr && settings->hasTagName("ClassicPlayerStartup"))
+    {
+        lastSavedProgram = settings->getStringAttribute("lastSavedProgram");
+        if (lastSavedProgram.isNotEmpty())
+        {
+            const auto result = loadProgram(juce::File(lastSavedProgram));
+            if (result.failed()) juce::Logger::writeToLog("Última programação: " + result.getErrorMessage());
+        }
+        // Hardware mapping survives even if another/older program is restored.
+        masterCC.store(juce::jlimit(-1, 119, settings->getIntAttribute("masterCC", -1)));
+        masterCCChannel.store(juce::jlimit(-1, 16, settings->getIntAttribute("masterChannel", -1)));
+    }
+    else if (!startupSettingsFile().existsAsFile())
+    {
+        // One-time migration for programs saved before Startup.xml existed.
+        juce::File latest;
+        for (const auto& file : savedPrograms())
+            if (!latest.existsAsFile() || file.getLastModificationTime() > latest.getLastModificationTime())
+                latest = file;
+        if (latest.existsAsFile() && loadProgram(latest).wasOk())
+        {
+            lastSavedProgram = latest.getFullPathName();
+            saveStartupSettings();
+        }
+    }
+}
+
+void ClassicPlayerAudioProcessor::beginMasterMidiLearn()
+{
+    activeMidiLearn.store(-1);
+    masterLearning.store(!masterLearning.load());
+}
+
+void ClassicPlayerAudioProcessor::resetMasterMidiLearn()
+{
+    masterLearning.store(false);
+    masterCC.store(-1);
+    masterCCChannel.store(-1);
+    pendingMasterValue.store(-1.0f);
+    startupSettingsDirty.store(true);
+}
+
+void ClassicPlayerAudioProcessor::processMasterMidiMessage(const juce::MidiMessage& message)
+{
+    if (!message.isController()) return;
+    const auto cc = message.getControllerNumber();
+    // Sustain and MIDI channel-mode messages must not become a volume control.
+    if (cc == 64 || cc >= 120) return;
+    if (masterLearning.exchange(false))
+    {
+        masterCCChannel.store(message.getChannel());
+        masterCC.store(cc);
+        startupSettingsDirty.store(true);
+    }
+    if (cc == masterCC.load() && message.getChannel() == masterCCChannel.load())
+        pendingMasterValue.store(message.getControllerValue() / 127.0f);
+}
+
+void ClassicPlayerAudioProcessor::timerCallback()
+{
+    consumeMidiControlUpdates();
+    // Message-thread updates and file I/O work even with the editor closed.
+    if (startupSettingsDirty.exchange(false)) saveStartupSettings();
+}
+
+ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStorageOverride)
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-      parameters(*this, nullptr, "CLASSIC_PLAYER", createParameters())
+      parameters(*this, nullptr, "CLASSIC_PLAYER", createParameters()),
+      programStorageRoot(std::move(programStorageOverride))
 {
     drumPadFormats.registerBasicFormats();
     juce::Logger::writeToLog("ClassicPlayer processor criado (instrumento MIDI, saída estéreo)");
@@ -28,10 +122,13 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor()
     }
     loadLiveSetState();
     refreshActivation();
+    startTimerHz(30);
 }
 
 ClassicPlayerAudioProcessor::~ClassicPlayerAudioProcessor()
 {
+    stopTimer();
+    if (startupSettingsDirty.exchange(false)) saveStartupSettings();
     stopAudioRecording();
     recordingThread.stopThread(2000);
     if (standaloneDeviceManager != nullptr)
@@ -148,6 +245,13 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     lastMasterEqValues.fill(-999.0f);
     updateMasterEq();
     restoreLayerPaths();
+    if (!startupRestored && wrapperType == wrapperType_Standalone)
+    {
+        startupRestored = true;
+        restoreStartupSettings();
+    }
+    masterGain.reset(sampleRate, 0.02);
+    masterGain.setCurrentAndTargetValue(parameters.getRawParameterValue("master")->load() / 100.0f);
 }
 
 void ClassicPlayerAudioProcessor::releaseResources()
@@ -202,6 +306,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         processLiveSetSlotMidiMessage(metadata.getMessage());
         inspectDrumPadMidi(metadata.getMessage());
         processMidiControlMessage(metadata.getMessage());
+        processMasterMidiMessage(metadata.getMessage());
     }
 
     for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
@@ -269,7 +374,13 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // The master control is calibrated with +6 dB of nominal output gain.
     // The limiter immediately after it keeps the boosted output clip-safe.
     const auto masterLinear = parameters.getRawParameterValue("master")->load() / 100.0f;
-    buffer.applyGain(masterLinear * juce::Decibels::decibelsToGain(6.0f));
+    masterGain.setTargetValue(masterLinear);
+    for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+    {
+        const auto gain = masterGain.getNextValue() * juce::Decibels::decibelsToGain(6.0f);
+        for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+            buffer.getWritePointer(channel)[sample] *= gain;
+    }
     updateMasterEq();
     for (int channel = 0; channel < juce::jmin(2, buffer.getNumChannels()); ++channel)
     {
@@ -932,6 +1043,7 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
 
 void ClassicPlayerAudioProcessor::beginMidiLearn(int layer, LearnTarget target)
 {
+    masterLearning.store(false);
     const auto targetIndex = static_cast<int>(target);
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount) ||
         !juce::isPositiveAndBelow(targetIndex, learnTargetCount)) return;
@@ -979,6 +1091,9 @@ bool ClassicPlayerAudioProcessor::isMidiLearning(int layer, LearnTarget target) 
 
 void ClassicPlayerAudioProcessor::consumeMidiControlUpdates()
 {
+    const auto masterValue = pendingMasterValue.exchange(-1.0f);
+    if (masterValue >= 0.0f)
+        parameters.getParameter("master")->setValueNotifyingHost(masterValue);
     static const std::array<const char*, learnTargetCount> suffixes { "Gain", "Cutoff", "Reverb", "Comp", "Release" };
     for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
     {
@@ -1283,6 +1398,7 @@ void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* sou
                                                              const juce::MidiMessage& message)
 {
     const auto sourceId = source != nullptr ? source->getIdentifier() : juce::String{};
+    processMasterMidiMessage(message);
     processLiveSetSlotMidiMessage(message);
     const juce::ScopedLock guard(midiRoutingLock);
     auto routed = false;
@@ -1442,8 +1558,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLiveSetSlot(int bank, int slot)
 juce::Array<juce::File> ClassicPlayerAudioProcessor::savedPrograms() const
 {
     juce::Array<juce::File> result;
-    const auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                            .getChildFile("Classic Player").getChildFile("Programs");
+    const auto folder = programStorageDirectory().getChildFile("Programs");
     folder.findChildFiles(result, juce::File::findFiles, false, "*.ckprogram");
     std::sort(result.begin(), result.end(), [](const auto& a, const auto& b)
     {
@@ -1460,8 +1575,7 @@ juce::Result ClassicPlayerAudioProcessor::saveProgram(const juce::String& reques
     if (name.isEmpty())
         return juce::Result::fail("Digite um nome para a programação.");
 
-    const auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                            .getChildFile("Classic Player").getChildFile("Programs");
+    const auto folder = programStorageDirectory().getChildFile("Programs");
     if (const auto result = folder.createDirectory(); result.failed())
         return result;
 
@@ -1475,19 +1589,30 @@ juce::Result ClassicPlayerAudioProcessor::saveProgram(const juce::String& reques
         return juce::Result::fail("Não foi possível salvar a programação.");
 
     savedFile = destination;
+    currentSavedProgram = destination.getFileNameWithoutExtension();
+    if (wrapperType == wrapperType_Standalone)
+    {
+        lastSavedProgram = destination.getFullPathName();
+        saveStartupSettings();
+    }
     return juce::Result::ok();
 }
 
 juce::Result ClassicPlayerAudioProcessor::deleteProgram(const juce::File& programFile)
 {
-    const auto programsFolder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                                    .getChildFile("Classic Player").getChildFile("Programs");
+    const auto programsFolder = programStorageDirectory().getChildFile("Programs");
     if (!programFile.existsAsFile() || programFile.getParentDirectory() != programsFolder
         || programFile.getFileExtension().toLowerCase() != ".ckprogram")
         return juce::Result::fail("Selecione uma programacao salva valida.");
 
     if (!programFile.deleteFile())
         return juce::Result::fail("Nao foi possivel excluir a programacao.");
+    if (currentSavedProgram == programFile.getFileNameWithoutExtension()) currentSavedProgram.clear();
+    if (lastSavedProgram == programFile.getFullPathName())
+    {
+        lastSavedProgram.clear();
+        saveStartupSettings();
+    }
 
     bool liveSetChanged = false;
     {
@@ -1535,19 +1660,23 @@ juce::Result ClassicPlayerAudioProcessor::loadProgram(const juce::File& programF
     if (!programFile.loadFileAsData(data) || data.getSize() == 0)
         return juce::Result::fail("Não foi possível ler a programação.");
 
-    if (auto xml = getXmlFromBinary(data.getData(), static_cast<int>(data.getSize())); xml == nullptr)
+    if (auto xml = getXmlFromBinary(data.getData(), static_cast<int>(data.getSize()));
+        xml == nullptr || !xml->hasTagName(parameters.state.getType().toString()))
         return juce::Result::fail("A programação está corrompida ou é incompatível.");
 
     // A performance change is a hard stop: sustained notes from the previous
     // SF2 or external instrument must never remain audible in the next one.
     stopAllSoundsBeforeProgramChange();
     setStateInformation(data.getData(), static_cast<int>(data.getSize()));
+    currentSavedProgram = programFile.getFileNameWithoutExtension();
     return juce::Result::ok();
 }
 
 void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
 {
     auto state = parameters.copyState();
+    state.setProperty("masterLearnCC", masterCC.load(), nullptr);
+    state.setProperty("masterLearnChannel", masterCCChannel.load(), nullptr);
     state.setProperty("stateVersion", 165, nullptr);
     state.setProperty("activeLayers", activeLayerCount(), nullptr);
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
@@ -1640,6 +1769,10 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
         auto state = juce::ValueTree::fromXml(*xml);
         if (state.isValid())
         {
+            masterCC.store(juce::jlimit(-1, 119, (int) state.getProperty("masterLearnCC", -1)));
+            masterCCChannel.store(juce::jlimit(-1, 16, (int) state.getProperty("masterLearnChannel", -1)));
+            masterLearning.store(false);
+            pendingMasterValue.store(-1.0f);
             const auto savedStateVersion = static_cast<int>(state.getProperty("stateVersion", 0));
             auto findParameterState = [&state](const juce::String& parameterId)
             {
