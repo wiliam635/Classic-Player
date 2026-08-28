@@ -74,10 +74,90 @@ static void analogEditorLifecycle()
     std::cout<<"Analog editor preset/volume/host updates and close/reopen lifecycle passed\n";
 }
 
+struct DrumPadRegressionAccess
+{
+    static void run()
+    {
+        auto p=std::make_unique<ClassicPlayerAudioProcessor>();
+        p->setLayerType(0,ClassicPlayerAudioProcessor::LayerType::drumPads);
+        p->prepareToPlay(48000,128);
+        auto& pad=p->drumPads[0];pad.audio.setSize(2,48000);
+        for(int ch=0;ch<2;++ch)for(int i=0;i<48000;++i)pad.audio.setSample(ch,i,.25f);
+        pad.position.store(0);
+        const auto gain=[&](float value){auto* g=p->parameters.getParameter("layer1Gain");g->setValueNotifyingHost(g->convertTo0to1(value));};
+        const auto block=[&]{
+            juce::AudioBuffer<float> b(2,128);b.clear();juce::MidiBuffer m;
+            p->processDrumPads(b,m);return b.getSample(0,127);
+        };
+        gain(100);check(std::abs(block()-.25f)<1e-6,"drum unity gain");
+        gain(50);const auto transition=block();check(transition>.125f&&transition<.25f,"drum gain not smoothed");
+        for(int i=0;i<10;++i)block();
+        check(std::abs(block()-.125f)<1e-6,"drum half gain");
+        gain(0);for(int i=0;i<10;++i)block();check(std::abs(block())<1e-6,"drum mute gain");
+        gain(50);auto config=p->layerConfig(0);config.enabled=false;p->setLayerConfig(0,config);
+        for(int i=0;i<10;++i)block();check(std::abs(block())<1e-6,"drum layer mute ignored");
+        config.enabled=true;p->setLayerConfig(0,config);for(int i=0;i<10;++i)block();
+        check(std::abs(block()-.125f)<1e-6,"drum layer unmute failed");
+        juce::MemoryBlock state;p->getStateInformation(state);
+        p->setStateInformation(state.getData(),(int)state.getSize());
+        check(std::abs(p->parameters.getRawParameterValue("layer1Gain")->load()-50)<1e-6,"drum gain persistence");
+        std::cout<<"Drum volume, 20 ms ramp, mute/unmute and persistence passed\n";
+    }
+};
+
+static void hammondPresetAndWheel()
+{
+    auto p=std::make_unique<ClassicPlayerAudioProcessor>();
+    p->setLayerType(0,ClassicPlayerAudioProcessor::LayerType::hammond);
+    for(int preset:{1,3,28,32})
+    {
+        p->setHammondConfig(0,HammondEngine::preset(0));
+        auto panel=std::make_unique<HammondEditorPanel>(*p,0);
+        auto* selection=dynamic_cast<juce::ComboBox*>(panel->getChildComponent(0));
+        check(selection!=nullptr,"Hammond preset selector missing");
+        selection->setSelectedId(preset+2,juce::sendNotificationSync);
+        // Flush the callbacks used by delayed slider notifications from widget
+        // setup, without synthesizing an actual change of value.
+        for(int i=0;i<panel->getNumChildComponents();++i)
+            if(auto* slider=dynamic_cast<juce::Slider*>(panel->getChildComponent(i)))
+                if(slider->onValueChange)slider->onValueChange();
+        check(p->hammondConfig(0).preset==preset,"opening panel lost preset name");
+        panel.reset();panel=std::make_unique<HammondEditorPanel>(*p,0);
+        auto* combo=dynamic_cast<juce::ComboBox*>(panel->getChildComponent(0));
+        check(combo&&combo->getSelectedId()==preset+2,"reopened preset label");
+        panel.reset();
+        juce::MemoryBlock state;p->getStateInformation(state);
+        p->setStateInformation(state.getData(),(int)state.getSize());
+        check(p->hammondConfig(0).preset==preset,"preset identity persistence");
+    }
+    auto engine=std::make_unique<HammondEngine>();engine->prepare(48000,128);
+    auto c=configs();c[0]=HammondEngine::preset(1);c[0].routing.midiChannel=3;
+    c[0].cc[0]=1;c[0].channel[0]=3; // Legacy CC1 drawbar assignment must not steal the wheel.
+    const auto bars=c[0].bars;
+    const auto send=[&](int channel,int value,bool routed){
+        juce::AudioBuffer<float> audio(2,128);audio.clear();juce::MidiBuffer m,empty;
+        m.addEvent(juce::MidiMessage::controllerEvent(channel,1,value),0);
+        std::array<juce::MidiBuffer,HammondEngine::layerCount> local;
+        if(routed)local[0].swapWith(m);
+        engine->process(audio,routed?empty:m,c,routed?&local:nullptr);
+    };
+    send(2,127,false);check(c[0].leslie==1,"wheel wrong channel");
+    for(bool routed:{false,true}){
+        send(3,64,routed);check(c[0].leslie==2,"wheel fast boundary");
+        send(3,63,routed);check(c[0].leslie==1,"wheel slow boundary");
+        send(3,127,routed);check(c[0].leslie==2,"wheel maximum");
+        send(3,0,routed);check(c[0].leslie==1,"wheel minimum stopped rotor");
+    }
+    check(c[0].preset==1&&c[0].bars==bars,"wheel changed registration or preset name");
+    std::cout<<"Hammond preset reopen, CC1 channel/threshold and host/routed checks passed\n";
+}
+
 int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
     try{
+        DrumPadRegressionAccess::run();
+        hammondPresetAndWheel();
         analogEditorLifecycle();
         for(double rate:{44100.,48000.}){
             const auto a=render(512,rate,false),b=render(127,rate,false),d=render(127,rate,true);

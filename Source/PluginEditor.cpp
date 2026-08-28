@@ -1948,9 +1948,17 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     if (type == ClassicPlayerAudioProcessor::LayerType::drumPads)
     {
         editButton.setBounds(area.removeFromTop(28).removeFromRight(78).reduced(1, 1));
+        gain.setSliderStyle(juce::Slider::LinearHorizontal);
+        gain.setTextBoxStyle(juce::Slider::TextBoxRight,false,42,18);
+        gain.setTooltip("Volume da layer de drum pads");
+        gain.setBounds(area.removeFromBottom(38).reduced(2));
+        sourceSummary.setText("VOLUME",juce::dontSendNotification);
+        sourceSummary.setBounds(area.removeFromBottom(18));
         drumPadPanel.setBounds(area.reduced(0, 2));
         return;
     }
+    gain.setSliderStyle(juce::Slider::LinearVertical);
+    gain.setTextBoxStyle(juce::Slider::TextBoxBelow,false,58,18);
     if (! expanded)
     {
         auto summaryRow = area.removeFromTop(28);
@@ -2235,6 +2243,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
         };
         for (auto* control : controls)
             control->setVisible(false);
+        gain.setVisible(true);
+        sourceSummary.setVisible(true);
         resized();
         return;
     }

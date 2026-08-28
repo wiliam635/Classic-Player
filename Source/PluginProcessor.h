@@ -264,6 +264,10 @@ private:
         std::atomic<bool> learning { false };
     };
     std::array<DrumPadState, drumPadCount> drumPads;
+    friend struct DrumPadRegressionAccess;
+    std::array<juce::SmoothedValue<float>, Sf2Engine::layerCount> drumLayerGains;
+    std::array<bool, Sf2Engine::layerCount> drumGainReady {};
+    juce::AudioBuffer<float> drumGainScratch;
     juce::AudioFormatManager drumPadFormats;
     mutable juce::CriticalSection drumPadLock;
     std::atomic<bool> activated { false };

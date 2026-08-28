@@ -110,16 +110,25 @@ void HammondEngine::message(int index,const juce::MidiMessage& m,Config& c)
                 for(auto& v:l.voices)if(v.channel==ch&&!v.down)release(v);}
             return;
         }
+        // CC1 is dedicated to Leslie performance control on the layer's MIDI
+        // channel, even when an older program assigned CC1 to another target.
+        if(cc==1){
+            if(c.learning==9){c.cc[9]=1;c.channel[9]=ch+1;c.learning=-1;}
+            c.leslie=value>=64?2:1;return;
+        }
         if(c.learning>=0){
             for(size_t i=0;i<c.cc.size();++i)if(c.cc[i]==cc&&c.channel[i]==ch+1)c.cc[i]=-1;
             c.cc[(size_t)c.learning]=cc;c.channel[(size_t)c.learning]=ch+1;c.learning=-1;
         }
         bool mapped=false;
         for(size_t i=0;i<c.cc.size();++i)if(c.cc[i]==cc&&(c.channel[i]==0||c.channel[i]==ch+1)){
-            if(i<9)c.bars[i]=(int)std::round(value*8.f/127);
-            else if(i==9)c.leslie=value<43?0:value<85?1:2;
+            if(i<9){
+                const auto bar=(int)std::round(value*8.f/127);
+                if(c.bars[i]!=bar){c.bars[i]=bar;c.preset=-1;}
+            }
+            else if(i==9)c.leslie=value>=64?2:1;
             else c.level=value/127.f;
-            c.preset=-1;mapped=true;
+            mapped=true;
         }
         if(!mapped){
             if(cc==1)c.leslie=value>=64?2:1;

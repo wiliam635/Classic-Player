@@ -26,14 +26,15 @@ public:
             labels[i].setJustificationType(juce::Justification::centred);addAndMakeVisible(labels[i]);
             bars[i].setSliderStyle(juce::Slider::LinearVertical);bars[i].setRange(0,8,1);
             bars[i].setTextBoxStyle(juce::Slider::TextBoxBelow,false,48,22);addAndMakeVisible(bars[i]);
-            bars[i].onValueChange=[this,i]{auto c=processor.hammondConfig(index);c.bars[i]=(int)bars[i].getValue();c.preset=-1;processor.setHammondConfig(index,c);};
+            bars[i].onValueChange=[this,i]{auto c=processor.hammondConfig(index);const auto value=(int)bars[i].getValue();if(c.bars[i]==value)return;c.bars[i]=value;c.preset=-1;processor.setHammondConfig(index,c);};
             target.addItem("Drawbar "+juce::String(namesOfBars[i]),(int)i+1);
         }
         leslie.addItem("LESLIE STOP",1);leslie.addItem("LESLIE CHORALE",2);leslie.addItem("LESLIE FAST",3);
         percussion.addItem("PERC OFF",1);percussion.addItem("PERC 2ND",2);percussion.addItem("PERC 3RD",3);
         addAndMakeVisible(leslie);addAndMakeVisible(percussion);
-        leslie.onChange=[this]{auto c=processor.hammondConfig(index);c.leslie=leslie.getSelectedId()-1;c.preset=-1;processor.setHammondConfig(index,c);};
-        percussion.onChange=[this]{auto c=processor.hammondConfig(index);c.percussion=percussion.getSelectedId()==1?0:percussion.getSelectedId();c.preset=-1;processor.setHammondConfig(index,c);};
+        leslie.setTooltip("Mod wheel (CC1): 0-63 lento, 64-127 rapido");
+        leslie.onChange=[this]{auto c=processor.hammondConfig(index);const auto value=leslie.getSelectedId()-1;if(c.leslie==value)return;c.leslie=value;processor.setHammondConfig(index,c);};
+        percussion.onChange=[this]{auto c=processor.hammondConfig(index);const auto value=percussion.getSelectedId()==1?0:percussion.getSelectedId();if(c.percussion==value)return;c.percussion=value;c.preset=-1;processor.setHammondConfig(index,c);};
         const std::array<const char*,4> knobNames {"KEY CLICK","LEAKAGE","DRIVE","LEVEL"};
         for(size_t i=0;i<knobs.size();++i){
             knobLabels[i].setText(knobNames[i],juce::dontSendNotification);
@@ -42,10 +43,12 @@ public:
             knobs[i].setTextBoxStyle(juce::Slider::TextBoxBelow,false,52,18);addAndMakeVisible(knobs[i]);
             knobs[i].onValueChange=[this,i]{
                 auto c=processor.hammondConfig(index);float* values[]{&c.click,&c.leakage,&c.drive,&c.level};
-                *values[i]=(float)knobs[i].getValue();c.preset=-1;processor.setHammondConfig(index,c);
+                const auto value=(float)knobs[i].getValue();
+                if(std::abs(*values[i]-value)<0.0001f)return;
+                *values[i]=value;if(i!=3)c.preset=-1;processor.setHammondConfig(index,c);
             };
         }
-        target.addItem("Leslie",10);target.addItem("Level",11);target.setSelectedId(1);
+        target.addItem("Leslie / Mod wheel",10);target.addItem("Level",11);target.setSelectedId(1,juce::dontSendNotification);
         for(auto* component:std::initializer_list<juce::Component*>{&target,&learn,&clear,&mapping})addAndMakeVisible(component);
         target.onChange=[this]{auto c=processor.hammondConfig(index);c.learning=-1;processor.setHammondConfig(index,c);refresh();};
         learn.onClick=[this]{auto c=processor.hammondConfig(index);c.learning=c.learning>=0?-1:target.getSelectedId()-1;processor.setHammondConfig(index,c);refresh();};
@@ -81,7 +84,8 @@ private:
         for(size_t i=0;i<4;++i)if(!knobs[i].isMouseButtonDown())knobs[i].setValue(values[i],juce::dontSendNotification);
         learn.setButtonText(c.learning>=0?"CANCELAR":"LEARN CC");
         const auto selected=(size_t)(target.getSelectedId()-1);
-        mapping.setText(c.cc[selected]<0?"Sem CC":"CC "+juce::String(c.cc[selected])+" / CH "+juce::String(c.channel[selected]),juce::dontSendNotification);
+        const auto learned=c.cc[selected]<0?juce::String{}:"CC "+juce::String(c.cc[selected])+" / CH "+juce::String(c.channel[selected]);
+        mapping.setText(selected==9?"MOD: CC 1"+(learned.isEmpty()?juce::String{}:" + "+learned):learned.isEmpty()?"Sem CC":learned,juce::dontSendNotification);
     }
     ClassicPlayerAudioProcessor& processor;int index;
     std::array<juce::Slider,9> bars;

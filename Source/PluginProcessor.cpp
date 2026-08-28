@@ -227,6 +227,9 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     dx7Engine.prepare(sampleRate, samplesPerBlock);
     analogSynthEngine.prepare(sampleRate, samplesPerBlock);
     hammondEngine.prepare(sampleRate, samplesPerBlock);
+    drumGainScratch.setSize(1,samplesPerBlock);
+    drumGainReady.fill(false);
+    for(auto& gain:drumLayerGains){gain.reset(sampleRate,0.02);gain.setCurrentAndTargetValue(0);}
     for (auto& hosted : externalInstruments) hosted.prepare(sampleRate, samplesPerBlock);
     for (auto& scratch : externalScratch)
         scratch.setSize(2, samplesPerBlock, false, true, true);
@@ -597,6 +600,20 @@ void ClassicPlayerAudioProcessor::processDrumPads(juce::AudioBuffer<float>& outp
     const juce::ScopedTryLock lock(drumPadLock);
     if (!lock.isLocked()) return;
 
+    drumGainScratch.setSize(1,output.getNumSamples(),false,false,true);
+    drumGainScratch.clear();
+    for(int layer=0;layer<activeLayerCount();++layer)
+    {
+        if(layerType(layer)!=LayerType::drumPads)continue;
+        const auto target=engine.getConfig(layer).enabled
+            ? parameters.getRawParameterValue("layer"+juce::String(layer+1)+"Gain")->load()/100.f : 0.f;
+        auto& gain=drumLayerGains[(size_t)layer];
+        if(!drumGainReady[(size_t)layer]){gain.setCurrentAndTargetValue(target);drumGainReady[(size_t)layer]=true;}
+        gain.setTargetValue(target);
+        for(int sample=0;sample<output.getNumSamples();++sample)
+            drumGainScratch.addSample(0,sample,gain.getNextValue());
+    }
+
     for (auto& state : drumPads)
     {
         if (state.trigger.exchange(0, std::memory_order_acq_rel) != 0
@@ -608,7 +625,7 @@ void ClassicPlayerAudioProcessor::processDrumPads(juce::AudioBuffer<float>& outp
         const auto channels = juce::jmin(2, state.audio.getNumChannels(), output.getNumChannels());
         for (int sample = 0; sample < output.getNumSamples() && position < state.audio.getNumSamples(); ++sample, ++position)
             for (int channel = 0; channel < channels; ++channel)
-                output.addSample(channel, sample, state.audio.getSample(channel, position));
+                output.addSample(channel, sample, state.audio.getSample(channel, position)*drumGainScratch.getSample(0,sample));
         state.position.store(position < state.audio.getNumSamples() ? position : -1,
                              std::memory_order_release);
     }
@@ -820,7 +837,7 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
     hammondEngine.unload(layer);
         savedPaths[(size_t) layer].clear();
         auto config = engine.getConfig(layer);
-        config.enabled = false;
+        config.enabled = true;
         engine.setConfig(layer, config);
         analogLayerConfigs[(size_t) layer] = AnalogSynthEngine::Config{};
     }
@@ -958,7 +975,7 @@ bool ClassicPlayerAudioProcessor::addLayer(LayerType type)
         if (activeLayers.compare_exchange_weak(count, count + 1, std::memory_order_relaxed))
         {
             auto config = engine.getConfig(count);
-            config.enabled = type != LayerType::drumPads;
+            config.enabled = true;
             engine.setConfig(count, config);
             setLayerType(count, type);
             return true;
@@ -2056,8 +2073,6 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             {
                 auto config = engine.getConfig(i);
                 config.enabled = i < restoredLayerCount;
-                if (layerType(i) == LayerType::drumPads)
-                    config.enabled = false;
                 if (i >= restoredLayerCount)
                 {
                     // Never leave an inactive layer holding the instrument from
