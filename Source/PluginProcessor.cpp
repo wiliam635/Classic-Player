@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "AnalogBrowserPresets.h"
 #include "PluginEditor.h"
 #include "LicenseVerifier.h"
 #include <algorithm>
@@ -178,7 +179,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 50.0f));
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"layer" + n + "Cutoff", 1}, "Layer " + n + " Cutoff",
-            juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 100.0f));
+            juce::NormalisableRange<float>(0.0f, 100.0f), 100.0f));
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"layer" + n + "Reverb", 1}, "Layer " + n + " Reverb",
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 0.0f));
@@ -225,6 +226,7 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     engine.prepare(sampleRate, samplesPerBlock);
     dx7Engine.prepare(sampleRate, samplesPerBlock);
     analogSynthEngine.prepare(sampleRate, samplesPerBlock);
+    hammondEngine.prepare(sampleRate, samplesPerBlock);
     for (auto& hosted : externalInstruments) hosted.prepare(sampleRate, samplesPerBlock);
     for (auto& scratch : externalScratch)
         scratch.setSize(2, samplesPerBlock, false, true, true);
@@ -259,6 +261,7 @@ void ClassicPlayerAudioProcessor::releaseResources()
     engine.reset();
     dx7Engine.stopAllSounds();
     analogSynthEngine.stopAllSounds();
+    hammondEngine.stopAllSounds();
     for (auto& hosted : externalInstruments) hosted.releaseResources();
     outputLimiter.reset();
 }
@@ -332,9 +335,12 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         auto config = engine.getConfig(i);
         const auto prefix = "layer" + juce::String(i + 1);
         auto layerGain = parameters.getRawParameterValue(prefix + "Gain")->load() / 100.0f;
-        // DX7 and Classic Keys Analog are calibrated 6 dB lower than SF2.
+        // DX7 needs an additional 6 dB trim relative to the approved build.
+        // Keep Analog and all other sources at their approved levels.
         const auto type = layerType(i);
-        if (type == LayerType::dx7 || type == LayerType::analog)
+        if (type == LayerType::dx7)
+            layerGain *= juce::Decibels::decibelsToGain(-12.0f);
+        else if (type == LayerType::analog)
             layerGain *= juce::Decibels::decibelsToGain(-6.0f);
         config.gain = layerGain;
         config.release = parameters.getRawParameterValue(prefix + "Release")->load();
@@ -365,11 +371,15 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         // turn every lead preset into a continuous theremin glide.
         analogConfig.routing.portamento = false;
         analogLayerConfigs[(size_t) i] = analogConfig;
+        auto& hammond = hammondLayerConfigs[(size_t)i];
+        hammond.routing = config;
+        hammond.routing.enabled = config.enabled && type == LayerType::hammond;
     }
     engine.process(buffer, midi, &routedMidiBuffers);
     renderExternalInstruments(buffer, midi);
     dx7Engine.process(buffer, midi, &routedMidiBuffers, dx7LayerConfigs);
     analogSynthEngine.process(buffer, midi, analogLayerConfigs, &routedMidiBuffers);
+    hammondEngine.process(buffer, midi, hammondLayerConfigs, &routedMidiBuffers);
     processDrumPads(buffer, midi);
     // The master control is calibrated with +6 dB of nominal output gain.
     // The limiter immediately after it keeps the boosted output clip-safe.
@@ -616,6 +626,7 @@ juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::F
         return juce::Result::fail("Layer inválida.");
     externalInstruments[(size_t) layer].unload();
     analogSynthEngine.unload(layer);
+    hammondEngine.unload(layer);
     const auto result = engine.loadSoundFont(layer, file);
     if (result.wasOk())
     {
@@ -758,14 +769,14 @@ float ClassicPlayerAudioProcessor::layerPeak(int layer) const
     return juce::jmax(engine.getLayerPeak(layer),
                       juce::jmax(dx7Engine.getLayerPeak(layer),
                                  juce::jmax(analogSynthEngine.getLayerPeak(layer),
-                                            externalPeaks[(size_t) layer].load(std::memory_order_relaxed))));
+                                            juce::jmax(hammondEngine.getLayerPeak(layer), externalPeaks[(size_t) layer].load(std::memory_order_relaxed)))));
 }
 
 ClassicPlayerAudioProcessor::LayerType ClassicPlayerAudioProcessor::layerType(int layer) const
 {
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return LayerType::sf2;
     const auto value = layerTypes[(size_t) layer].load(std::memory_order_relaxed);
-    return static_cast<LayerType>(juce::jlimit(0, 4, value));
+    return static_cast<LayerType>(juce::jlimit(0, 5, value));
 }
 
 void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
@@ -775,6 +786,15 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
 
     const juce::ScopedLock callbackLock(getCallbackLock());
     const auto previousType = layerType(layer);
+    if (previousType == LayerType::hammond && type != LayerType::hammond) hammondEngine.unload(layer);
+    if (type == LayerType::hammond && previousType != type)
+    {
+        externalInstruments[(size_t)layer].unload(); engine.unloadSoundFont(layer);
+        dx7Engine.unload(layer); analogSynthEngine.unload(layer); hammondEngine.unload(layer);
+        savedPaths[(size_t)layer].clear(); hammondLayerConfigs[(size_t)layer] = HammondEngine::Config{};
+        const auto prefix = "layer" + juce::String(layer + 1);
+        if(auto* p = parameters.getParameter(prefix + "Reverb")) p->setValueNotifyingHost(p->convertTo0to1(18.f));
+    }
     if (previousType == LayerType::analog && type != LayerType::analog)
         analogSynthEngine.unload(layer);
 
@@ -786,8 +806,9 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
         engine.unloadSoundFont(layer);
         dx7Engine.unload(layer);
         analogSynthEngine.unload(layer);
+    hammondEngine.unload(layer);
         savedPaths[(size_t) layer].clear();
-        analogLayerConfigs[(size_t) layer] = AnalogSynthEngine::Config{};
+        setAnalogSynthConfig(layer, AnalogBrowserPresets::config(0, engine.getConfig(layer)));
     }
 
     if (type == LayerType::drumPads && previousType != LayerType::drumPads)
@@ -796,6 +817,7 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
         engine.unloadSoundFont(layer);
         dx7Engine.unload(layer);
         analogSynthEngine.unload(layer);
+    hammondEngine.unload(layer);
         savedPaths[(size_t) layer].clear();
         auto config = engine.getConfig(layer);
         config.enabled = false;
@@ -814,6 +836,7 @@ juce::Result ClassicPlayerAudioProcessor::loadDx7(int layer, const juce::File& f
     externalInstruments[(size_t) layer].unload();
     engine.unloadSoundFont(layer);
     analogSynthEngine.unload(layer);
+    hammondEngine.unload(layer);
     const auto result = dx7Engine.loadSysEx(layer, file);
     if (result.wasOk())
     {
@@ -839,6 +862,7 @@ bool ClassicPlayerAudioProcessor::hasAnalogSynth(int layer) const
 
 AnalogSynthEngine::Config ClassicPlayerAudioProcessor::analogSynthConfig(int layer) const
 {
+    const juce::ScopedLock lock(getCallbackLock());
     return juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)
         ? analogLayerConfigs[(size_t) layer] : AnalogSynthEngine::Config{};
 }
@@ -846,6 +870,7 @@ AnalogSynthEngine::Config ClassicPlayerAudioProcessor::analogSynthConfig(int lay
 void ClassicPlayerAudioProcessor::setAnalogSynthConfig(int layer,
                                                         const AnalogSynthEngine::Config& config)
 {
+    const juce::ScopedLock lock(getCallbackLock());
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return;
     auto updated = config;
     updated.routing = engine.getConfig(layer);
@@ -860,6 +885,7 @@ void ClassicPlayerAudioProcessor::setAnalogSynthConfig(int layer,
 
 void ClassicPlayerAudioProcessor::resetAnalogSynthVoices(int layer)
 {
+    const juce::ScopedLock lock(getCallbackLock());
     if (juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
         analogSynthEngine.unload(layer);
 }
@@ -924,6 +950,7 @@ juce::Result ClassicPlayerAudioProcessor::deleteLibraryDx7Bank(const juce::File&
 
 bool ClassicPlayerAudioProcessor::addLayer(LayerType type)
 {
+    const juce::ScopedLock callbackLock(getCallbackLock());
     if (type == LayerType::vst) type = LayerType::sf2;
     auto count = activeLayers.load(std::memory_order_relaxed);
     while (count < Sf2Engine::layerCount)
@@ -933,7 +960,7 @@ bool ClassicPlayerAudioProcessor::addLayer(LayerType type)
             auto config = engine.getConfig(count);
             config.enabled = type != LayerType::drumPads;
             engine.setConfig(count, config);
-            layerTypes[(size_t) count].store(static_cast<int>(type), std::memory_order_relaxed);
+            setLayerType(count, type);
             return true;
         }
     }
@@ -966,6 +993,7 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         const auto sourceDx7Patch = dx7Engine.selectedPatch(source);
         const auto sourceConfig = engine.getConfig(source);
         const auto sourceAnalogConfig = analogLayerConfigs[(size_t) source];
+        const auto sourceHammondConfig = hammondLayerConfigs[(size_t)source];
         const auto sourceSavedPath = savedPaths[(size_t) source];
         const auto sourceMidiDevice = layerMidiDeviceIds[(size_t) source];
 
@@ -973,6 +1001,7 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         engine.unloadSoundFont(destination);
         dx7Engine.unload(destination);
         analogSynthEngine.unload(destination);
+    hammondEngine.unload(destination);
 
         if (sourceType == LayerType::sf2 && sourcePath.isNotEmpty())
             engine.loadSoundFont(destination, juce::File(sourcePath));
@@ -990,6 +1019,9 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
             ? sourceAnalogConfig : AnalogSynthEngine::Config{};
         movedAnalogConfig.routing = sourceConfig;
         analogLayerConfigs[(size_t) destination] = movedAnalogConfig;
+        hammondLayerConfigs[(size_t)destination] = restoredType == LayerType::hammond ? sourceHammondConfig : HammondEngine::Config{};
+        hammondLayerConfigs[(size_t)destination].routing = sourceConfig;
+        hammondLayerConfigs[(size_t)destination].learning = -1;
         savedPaths[(size_t) destination] = restoredType == LayerType::sf2
             ? sourceSavedPath : juce::String{};
         layerMidiDeviceIds[(size_t) destination] = sourceMidiDevice;
@@ -1019,11 +1051,13 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     engine.unloadSoundFont(last);
     dx7Engine.unload(last);
     analogSynthEngine.unload(last);
+    hammondEngine.unload(last);
     auto disabled = engine.getConfig(last);
     disabled.enabled = false;
     engine.setConfig(last, disabled);
     savedPaths[(size_t) last].clear();
     analogLayerConfigs[(size_t) last] = AnalogSynthEngine::Config{};
+    hammondLayerConfigs[(size_t)last] = HammondEngine::Config{};
     layerMidiDeviceIds[(size_t) last].clear();
     layerTypes[(size_t) last].store(static_cast<int>(LayerType::sf2), std::memory_order_relaxed);
     for (int target = 0; target < learnTargetCount; ++target)
@@ -1636,6 +1670,7 @@ void ClassicPlayerAudioProcessor::stopAllSoundsBeforeProgramChange()
     engine.stopAllSounds();
     dx7Engine.stopAllSounds();
     analogSynthEngine.stopAllSounds();
+    hammondEngine.stopAllSounds();
     for (auto& instrument : externalInstruments)
         instrument.stopAllSounds();
     for (auto& pad : drumPads)
@@ -1674,6 +1709,7 @@ juce::Result ClassicPlayerAudioProcessor::loadProgram(const juce::File& programF
 
 void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
 {
+    const juce::ScopedLock callbackLock(getCallbackLock());
     auto state = parameters.copyState();
     state.setProperty("masterLearnCC", masterCC.load(), nullptr);
     state.setProperty("masterLearnChannel", masterCCChannel.load(), nullptr);
@@ -1705,6 +1741,10 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("portamento" + juce::String(i), config.portamento, nullptr);
         state.setProperty("sustain" + juce::String(i), config.sustainEnabled, nullptr);
         state.setProperty("midiDevice" + juce::String(i), layerMidiDevice(i), nullptr);
+        for(int child = state.getNumChildren(); --child >= 0;)
+            if(state.getChild(child).hasType("Hammond") && (int)state.getChild(child).getProperty("layer",-1)==i)
+                state.removeChild(child,nullptr);
+        state.addChild(HammondEngine::save(hammondLayerConfigs[(size_t)i],i),-1,nullptr);
         const auto& analog = analogLayerConfigs[(size_t) i];
         state.setProperty("analogOsc1Wave" + juce::String(i + 1), static_cast<int>(analog.oscillator1Wave), nullptr);
         state.setProperty("analogOsc2Wave" + juce::String(i + 1), static_cast<int>(analog.oscillator2Wave), nullptr);
@@ -1745,6 +1785,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("analogModWheelPitch" + juce::String(i + 1), analog.modWheelToPitch, nullptr);
         state.setProperty("analogModWheelFilter" + juce::String(i + 1), analog.modWheelToFilter, nullptr);
         state.setProperty("analogAmpDecaySwitch" + juce::String(i + 1), analog.ampDecaySwitch, nullptr);
+        state.setProperty("analogBrowserCompatible" + juce::String(i + 1), analog.browserCompatible, nullptr);
         for (int target = 0; target < learnTargetCount; ++target)
         {
             state.setProperty("learn" + juce::String(i) + "_" + juce::String(target),
@@ -1859,7 +1900,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             }
             for (int i = 0; i < Sf2Engine::layerCount; ++i)
             {
-                auto savedType = juce::jlimit(0, 4, static_cast<int>(state.getProperty(
+                auto savedType = juce::jlimit(0, 5, static_cast<int>(state.getProperty(
                     "layerType" + juce::String(i + 1), static_cast<int>(LayerType::sf2))));
                 // Programs created by older releases may contain VST layers.
                 // They are restored as empty SF2 layers rather than loading a
@@ -1925,6 +1966,11 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                             "dx7Patch" + juce::String(i + 1), 0)));
                     }
                 }
+                hammondEngine.unload(i);
+                hammondLayerConfigs[(size_t)i] = HammondEngine::Config{};
+                for(const auto child : state)
+                    if(child.hasType("Hammond") && (int)child.getProperty("layer",-1)==i)
+                        hammondLayerConfigs[(size_t)i] = HammondEngine::restore(child);
                 auto analog = AnalogSynthEngine::Config{};
                 const auto analogKey = juce::String(i + 1);
                 analog.oscillator1Wave = static_cast<AnalogSynthEngine::Waveform>(juce::jlimit(
@@ -1969,6 +2015,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 analog.modWheelToPitch = static_cast<float>(state.getProperty("analogModWheelPitch" + analogKey, analog.modWheelToPitch));
                 analog.modWheelToFilter = static_cast<float>(state.getProperty("analogModWheelFilter" + analogKey, analog.modWheelToFilter));
                 analog.ampDecaySwitch = state.getProperty("analogAmpDecaySwitch" + analogKey, analog.ampDecaySwitch);
+                analog.browserCompatible = state.getProperty("analogBrowserCompatible" + analogKey, false);
 
                 auto config = engine.getConfig(i);
                 config.lowNote = state.getProperty("low" + juce::String(i), 0);
@@ -2020,6 +2067,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     externalInstruments[(size_t) i].unload();
                     dx7Engine.unload(i);
                     analogSynthEngine.unload(i);
+    hammondEngine.unload(i);
                     analogLayerConfigs[(size_t) i] = AnalogSynthEngine::Config{};
                     savedPaths[(size_t) i].clear();
                     layerTypes[(size_t) i].store(static_cast<int>(LayerType::sf2), std::memory_order_relaxed);
@@ -2047,4 +2095,17 @@ juce::AudioProcessorEditor* ClassicPlayerAudioProcessor::createEditor()
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new ClassicPlayerAudioProcessor();
+}
+
+HammondEngine::Config ClassicPlayerAudioProcessor::hammondConfig(int layer) const
+{
+    const juce::ScopedLock lock(getCallbackLock());
+    return juce::isPositiveAndBelow(layer,Sf2Engine::layerCount) ? hammondLayerConfigs[(size_t)layer] : HammondEngine::Config{};
+}
+void ClassicPlayerAudioProcessor::setHammondConfig(int layer,const HammondEngine::Config& config)
+{
+    const juce::ScopedLock lock(getCallbackLock());
+    if(!juce::isPositiveAndBelow(layer,Sf2Engine::layerCount) || layerType(layer)!=LayerType::hammond)return;
+    auto c=HammondEngine::validated(config);c.routing=engine.getConfig(layer);
+    hammondLayerConfigs[(size_t)layer]=c;
 }

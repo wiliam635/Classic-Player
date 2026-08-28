@@ -63,6 +63,8 @@ public:
         // Factory presets explicitly choose their note mode. This keeps lead and
         // bass patches authentically monophonic while pads remain polyphonic.
         bool monophonic = false;
+        // Opt-in for approved browser presets; existing saved sounds remain legacy.
+        bool browserCompatible = false;
     };
 
     AnalogSynthEngine();
@@ -81,13 +83,14 @@ public:
     float getLayerPeak(int layer) const noexcept;
 
 private:
-    enum class EnvelopeStage { idle, attack, decay, sustain, release };
+    enum class EnvelopeStage { idle, attack, decay, sustain, release, legato };
 
     struct Envelope
     {
         float value = 0.0f;
         float releaseStart = 0.0f;
         EnvelopeStage stage = EnvelopeStage::idle;
+        uint64_t elapsed = 0;
     };
 
     struct Voice
@@ -111,6 +114,10 @@ private:
         Envelope amp;
         Envelope filter;
         AudioTransition transition;
+        double biquadX1 = 0, biquadX2 = 0, biquadY1 = 0, biquadY2 = 0;
+        double browserLfoPhase = 0;
+        uint64_t age = 0;
+        bool browserVoice = false;
     };
 
     struct Layer
@@ -138,6 +145,8 @@ private:
                                const juce::MidiMessage& message);
     static float nextEnvelope(Envelope& envelope, float attackMs, float decayMs,
                               float sustain, float releaseMs, double sampleRate);
+    float nextBrowserEnvelope(Voice&, const Config&);
+    float processBrowserFilter(Voice&, float input, float cutoffHz, float resonanceDb);
 
     void noteOn(int layer, int midiChannel, int note, float velocity, const Config& config);
     void noteOff(int layer, int midiChannel, int note, const Config& config);

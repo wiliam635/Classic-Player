@@ -1,4 +1,7 @@
 #include "PluginEditor.h"
+#include "AnalogEditorPanel.h"
+#include "AnalogBrowserPresets.h"
+#include "HammondEditorPanel.h"
 #include "LicenseVerifier.h"
 #include "ClassicPlayerAssets.h"
 #include "ChordDetector.h"
@@ -262,6 +265,11 @@ public:
             knob->onValueChange = [this] { if (onValueChange) onValueChange(); };
     }
 
+    void bindParameter(int item, juce::AudioProcessorValueTreeState& state, const juce::String& id)
+    {
+        attachments.add(new juce::AudioProcessorValueTreeState::SliderAttachment(state, id, *knobs[item]));
+    }
+
     void resized() override
     {
         if (compactGrid)
@@ -318,6 +326,8 @@ private:
     std::function<void()> onValueChange;
     juce::OwnedArray<juce::Label> labels;
     juce::OwnedArray<juce::Slider> knobs;
+    // Disconnect listeners before their sliders are destroyed.
+    juce::OwnedArray<juce::AudioProcessorValueTreeState::SliderAttachment> attachments;
 };
 
 class LayerEffectButtons final : public juce::Component
@@ -375,14 +385,14 @@ public:
               { "OSC 2 TUNE", source.oscillator2Semitones, -24.0f, 24.0f, 1.0f, 0 },
               { "OSC 3 TUNE", source.oscillator3Semitones, -24.0f, 24.0f, 1.0f, 0 },
               { "NOISE", source.noiseLevel * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
-              { "CUTOFF", source.cutoff, 0.0f, 100.0f, 1.0f, 0 },
-              { "EMPHASIS", source.resonance * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
+              { "CUTOFF", source.cutoff, 0.0f, 100.0f, 0.0f, 2 },
+              { "EMPHASIS", source.resonance * 100.0f, 0.0f, 100.0f, 0.0f, 2 },
               { "FILTER CONTOUR", source.filterEnvelopeAmount * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
               { "ATTACK ms", source.ampAttackMs, 1.0f, 2000.0f, 1.0f, 0 },
-              { "DECAY ms", source.ampDecayMs, 1.0f, 3000.0f, 1.0f, 0 },
+              { "DECAY ms", source.ampDecayMs, 1.0f, 5000.0f, 1.0f, 0 },
               { "SUSTAIN", source.ampSustain * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
               { "RELEASE ms", source.ampReleaseMs, 1.0f, 5000.0f, 1.0f, 0 },
-              { "LFO RATE Hz", source.lfoRateHz, 0.1f, 20.0f, 0.1f, 1 },
+              { "LFO RATE Hz", source.lfoRateHz, 0.05f, 20.0f, 0.01f, 2 },
               { "LFO PITCH", source.lfoToPitch, 0.0f, 12.0f, 0.1f, 1 },
               { "LFO FILTER", source.lfoToFilter, 0.0f, 100.0f, 1.0f, 0 },
               { "DRIVE", source.mixerDrive * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
@@ -399,43 +409,11 @@ public:
         configureSwitch(pinkNoise, "PINK NOISE", source.pinkNoise);
         configureMonoPoly(source.monophonic);
         presetBox.addItem("INICIAL", 1);
-        // The full MIT-licensed Minimoog factory list is represented here.
-        // Values are adapted only to controls implemented by Classic Keys Analog.
-        presetBox.addItem("[LEAD] SOLO LEAD", 2);
-        presetBox.addItem("[PAD] WARM PAD", 3);
-        presetBox.addItem("[PAD] ATMOSPHERIC PAD", 4);
-        presetBox.addItem("[PAD] SPACE MOD", 5);
-        presetBox.addItem("[LEAD] MODERN LEAD", 6);
-        presetBox.addItem("[PAD] CRYSTAL PAD", 7);
-        presetBox.addItem("[LEAD] EASY LEAD", 8);
-        presetBox.addItem("[LEAD] SCREAMING LEAD", 9);
-        presetBox.addItem("[PAD] DREAM PAD", 10);
-        presetBox.addItem("[LEAD] CLASSIC MINIMOOG LEAD", 11);
-        presetBox.addItem("[BASS] TAURUS BASS", 12);
-        presetBox.addItem("[LEAD] ANALOG LEAD", 13);
-        presetBox.addItem("[LEAD] UNISON LEAD", 14);
-        presetBox.addItem("[BASS] THICK BASS", 15);
-        presetBox.addItem("[BASS] FUNK BASS", 16);
-        presetBox.addItem("[PAD] EASY PAD", 17);
-        presetBox.addItem("[BASS] ANALOG BASS", 18);
-        presetBox.addItem("[LEAD] VINTAGE LEAD", 19);
-        presetBox.addItem("[BASS] PERCUSSIVE BASS", 20);
-        presetBox.addItem("[LEAD] LUCKY MAN", 21);
-        presetBox.addItem("[LEAD] WATERY LEAD", 22);
-        presetBox.addItem("[PAD] VINTAGE MINIMOOG PAD", 23);
-        presetBox.addItem("[BASS] AUTHENTIC MINIMOOG BASS", 24);
-        presetBox.addItem("[LEAD] PROGRESSIVE ROCK LEAD", 25);
-        presetBox.addItem("[PAD] SPACE ECHO", 26);
-        presetBox.addItem("[PAD] CATHEDRAL PAD", 27);
-        presetBox.addItem("[BASS] DUB BASS", 28);
-        presetBox.addItem("[EXPERIMENTAL] ALIEN LANDSCAPE", 29);
-        presetBox.addItem("[EXPERIMENTAL] GLASS HARMONICA", 30);
-        presetBox.addItem("[EXPERIMENTAL] WIND CHIMES", 31);
-        presetBox.addItem("[EXPERIMENTAL] SUBMARINE SONAR", 32);
-        presetBox.addItem("[EXPERIMENTAL] CRYSTAL BELLS", 33);
-        presetBox.addItem("[EXPERIMENTAL] THUNDER STORM", 34);
-        presetBox.addItem("[EXPERIMENTAL] DIGITAL RAIN", 35);
-        presetBox.addItem("[EXPERIMENTAL] COSMIC DRONE", 36);
+        for (size_t i = 0; i < AnalogBrowserPresets::bank.size(); ++i)
+        {
+            const auto& p = AnalogBrowserPresets::bank[i];
+            presetBox.addItem("[" + juce::String(p.category) + "] " + p.name, static_cast<int>(i) + 2);
+        }
         presetBox.setSelectedId(1, juce::dontSendNotification);
         presetBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
         presetBox.setColour(juce::ComboBox::textColourId, juce::Colour(text));
@@ -531,7 +509,8 @@ public:
             g.fillAll(juce::Colour(0xff151f28));
             g.setColour(juce::Colour(mutedText));
             g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
-            g.drawText("PRESET ANALOG", 12, 8, getWidth() - 24, 16, juce::Justification::left);
+            g.drawText(initial.browserCompatible ? "PRESET ANALOG - BROWSER 12 dB" : "PRESET ANALOG - LEGADO",
+                       12, 8, getWidth() - 24, 16, juce::Justification::left);
             return;
         }
 
@@ -549,7 +528,8 @@ public:
         g.drawText("CLASSIC KEYS ANALOG", 22, 13, 250, 20, juce::Justification::left);
         g.setColour(juce::Colour(mutedText));
         g.setFont(juce::FontOptions(9.0f));
-        g.drawText("OSCILLATOR • FILTER • MODULATION", 22, 33, 250, 12, juce::Justification::left);
+        g.drawText(initial.browserCompatible ? "BROWSER 12 dB - SOM APROVADO" : "OSCILLATOR - FILTER - MODULATION",
+                   22, 33, 250, 12, juce::Justification::left);
 
         const int left = 14, top = 62;
         const int moduleWidth = juce::jmax(420, getWidth() - 140);
@@ -640,74 +620,8 @@ private:
             return;
         }
 
-        // These are the 35 distinct, audible configurations used by the web
-        // laboratory.  They intentionally live here rather than being inferred
-        // from the name: selecting a preset must change the actual synth voice.
-        struct WebPreset
-        {
-            AnalogSynthEngine::Waveform one, two, three;
-            float oneLevel, twoLevel, threeLevel;
-            float oneTune, twoTune, threeTune;
-            float cutoff, resonance, attack, decay, sustain, release, lfo, glide, modulation, noise;
-            bool mono;
-        };
-
-        using W = AnalogSynthEngine::Waveform;
-        static const std::array<WebPreset, 35> webPresets {{
-            { W::saw, W::triangle, W::saw, .66f,.36f,0.f, 0,0,0, 2350,.20f,.034f,3.90f,.76f,.048f,4.0f,.06f,.25f,0.f, true },
-            { W::triangle,W::triangle,W::triangle,.55f,.34f,.16f,0,7,12,920,1.5f,.56f,.72f,.80f,2.4f,.28f,0,.31f,0,false },
-            { W::triangle,W::saw,W::saw,.36f,.44f,.15f,0,12,24,820,2.1f,.90f,1.10f,.76f,3.1f,.12f,0,.52f,0,false },
-            { W::saw,W::triangle,W::triangle,.34f,.52f,.16f,0,12,19,1100,3.0f,.65f,.90f,.70f,2.3f,.15f,0,.60f,0,false },
-            { W::square,W::saw,W::saw,.57f,.38f,.28f,0,12,19,6100,2.4f,.006f,.18f,.62f,.09f,5.8f,.05f,.38f,0,true },
-            { W::triangle,W::triangle,W::saw,.50f,.33f,.11f,0,12,19,2800,2.0f,.38f,.60f,.72f,1.5f,.33f,0,.38f,0,false },
-            { W::square,W::triangle,W::saw,.62f,.26f,.19f,0,7,12,2500,4.0f,.015f,.34f,.70f,.13f,2.2f,.10f,.34f,0,true },
-            { W::saw,W::saw,W::square,.70f,.42f,.15f,0,12,24,3800,11.f,.004f,.14f,.57f,.07f,6.5f,.035f,.42f,0,true },
-            { W::triangle,W::triangle,W::sine,.62f,.36f,.12f,0,7,12,1250,2.0f,.50f,.70f,.78f,1.9f,.23f,0,.46f,0,false },
-            { W::saw,W::saw,W::square,.76f,.41f,.13f,0,0,-12,760,12.f,.013f,.28f,.58f,.10f,4.5f,.08f,.16f,0,true },
-            { W::saw,W::square,W::triangle,.80f,.35f,.15f,-12,-12,-24,380,13.f,.008f,.25f,.70f,.18f,2.0f,.04f,.05f,0,true },
-            { W::square,W::triangle,W::saw,.48f,.46f,.18f,-12,-24,0,650,5.5f,.010f,.29f,.61f,.17f,1.8f,.025f,.05f,0,true },
-            { W::saw,W::saw,W::square,.62f,.48f,.18f,0,12,12,4100,3.2f,.009f,.24f,.64f,.10f,5.1f,.06f,.28f,0,true },
-            { W::saw,W::saw,W::square,.70f,.40f,.13f,-12,-24,-12,540,8.f,.006f,.20f,.69f,.13f,2.2f,.03f,.06f,0,true },
-            { W::saw,W::square,W::triangle,.62f,.45f,.10f,-12,0,-12,720,6.f,.004f,.13f,.45f,.10f,3.f,0,.08f,0,false },
-            { W::triangle,W::triangle,W::sine,.62f,.36f,.12f,0,7,12,1250,2.f,.50f,.70f,.78f,1.9f,.23f,0,.46f,0,false },
-            { W::square,W::triangle,W::saw,.48f,.46f,.18f,-12,-24,0,650,5.5f,.010f,.29f,.61f,.17f,1.8f,.025f,.05f,0,true },
-            { W::triangle,W::saw,W::triangle,.72f,.27f,.12f,0,0,-12,1120,5.2f,.025f,.48f,.66f,.14f,3.6f,.05f,.11f,0,true },
-            { W::square,W::saw,W::triangle,.62f,.37f,.11f,-12,-12,-24,980,8.6f,.004f,.09f,.34f,.055f,3.f,.01f,.04f,0,true },
-            { W::triangle,W::saw,W::sine,.55f,.52f,.12f,-12,12,0,1450,4.5f,.022f,.55f,.68f,.12f,3.2f,.12f,.12f,0,true },
-            { W::saw,W::sine,W::triangle,.49f,.31f,.28f,0,12,19,2050,2.6f,.030f,.70f,.72f,.20f,1.1f,.09f,.46f,0,true },
-            { W::saw,W::triangle,W::square,.31f,.44f,.09f,0,12,19,1030,3.8f,.48f,.80f,.73f,2.1f,.22f,0,.48f,0,false },
-            { W::saw,W::saw,W::triangle,.75f,.32f,.09f,-12,-12,-24,460,11.f,.008f,.22f,.55f,.16f,2.5f,.02f,.08f,0,true },
-            { W::saw,W::saw,W::square,.68f,.43f,.14f,0,12,24,3000,6.5f,.012f,.30f,.60f,.11f,4.8f,.06f,.30f,0,true },
-            { W::saw,W::triangle,W::sine,.37f,.45f,.18f,0,12,19,1450,3.1f,.18f,.85f,.68f,2.6f,.18f,0,.48f,0,false },
-            { W::saw,W::triangle,W::square,.33f,.40f,.12f,0,12,19,970,3.8f,.62f,1.10f,.75f,3.0f,.17f,0,.40f,0,false },
-            { W::sine,W::square,W::triangle,.52f,.32f,.28f,-24,-12,-12,390,4.2f,.018f,.45f,.74f,.27f,.75f,.05f,.09f,0,true },
-            { W::sine,W::triangle,W::square,.40f,.27f,.09f,0,19,24,900,5.f,.70f,1.10f,.65f,2.6f,.12f,0,.72f,.08f,false },
-            { W::sine,W::triangle,W::sine,.52f,.24f,.18f,0,12,19,3150,2.8f,.16f,.75f,.62f,2.2f,.42f,0,.34f,0,false },
-            { W::triangle,W::sine,W::sine,.38f,.30f,.22f,0,12,24,2600,2.2f,.10f,.85f,.66f,2.8f,.35f,0,.28f,.02f,false },
-            { W::sine,W::sine,W::triangle,.80f,.25f,.08f,0,12,-12,650,12.f,.010f,.40f,.10f,2.8f,.18f,.10f,.18f,0,true },
-            { W::sine,W::triangle,W::sine,.60f,.28f,.18f,0,12,19,3400,3.4f,.03f,.55f,.48f,2.0f,.65f,0,.36f,0,false },
-            { W::square,W::saw,W::sine,.18f,.26f,.33f,-12,0,19,720,8.f,.30f,.90f,.55f,3.2f,.14f,0,.78f,.12f,false },
-            { W::square,W::sine,W::triangle,.33f,.40f,.19f,0,12,24,2300,4.f,.010f,.12f,.25f,.45f,7.f,0,.30f,0,false },
-            { W::saw,W::sine,W::triangle,.27f,.43f,.25f,-12,0,7,1250,4.5f,.18f,1.20f,.83f,4.0f,.09f,0,.70f,0,false }
-        }};
-
-        const auto& presetValue = webPresets[(size_t) juce::jlimit(2, 36, preset) - 2];
-        auto browserValue = sourceAtOpen;
-        browserValue.oscillator1Wave = presetValue.one; browserValue.oscillator2Wave = presetValue.two; browserValue.oscillator3Wave = presetValue.three;
-        browserValue.oscillator1Level = presetValue.oneLevel; browserValue.oscillator2Level = presetValue.twoLevel; browserValue.oscillator3Level = presetValue.threeLevel;
-        browserValue.oscillator1Semitones = presetValue.oneTune; browserValue.oscillator2Semitones = presetValue.twoTune; browserValue.oscillator3Semitones = presetValue.threeTune;
-        browserValue.oscillator1Enabled = presetValue.oneLevel > 0.0f; browserValue.oscillator2Enabled = presetValue.twoLevel > 0.0f; browserValue.oscillator3Enabled = presetValue.threeLevel > 0.0f;
-        browserValue.noiseLevel = presetValue.noise; browserValue.cutoff = juce::jlimit(0.0f, 100.0f, 100.0f * std::log(juce::jmax(25.0f, presetValue.cutoff) / 25.0f) / std::log(700.0f));
-        browserValue.resonance = juce::jlimit(0.0f, 1.0f, presetValue.resonance / 20.0f); browserValue.filterEnvelopeAmount = juce::jlimit(0.0f, 1.0f, presetValue.modulation);
-        browserValue.ampAttackMs = presetValue.attack * 1000.0f; browserValue.ampDecayMs = presetValue.decay * 1000.0f; browserValue.ampSustain = presetValue.sustain; browserValue.ampReleaseMs = presetValue.release * 1000.0f;
-        browserValue.filterAttackMs = browserValue.ampAttackMs; browserValue.filterDecayMs = browserValue.ampDecayMs; browserValue.filterSustain = browserValue.ampSustain; browserValue.filterReleaseMs = browserValue.ampReleaseMs;
-        browserValue.lfoRateHz = presetValue.lfo; browserValue.lfoToFilter = presetValue.modulation * 40.0f; browserValue.lfoToPitch = presetValue.modulation * 0.25f;
-        // Classic Keys Analog exposes Mono/Legato only; factory glide values
-        // from the web presets are intentionally ignored.
-        browserValue.glideMs = 0.0f; browserValue.monophonic = presetValue.mono; browserValue.routing.mono = presetValue.mono; browserValue.routing.portamento = false;
-        setFromConfig(browserValue);
-        return;
-
+        setFromConfig(AnalogBrowserPresets::config(
+            static_cast<size_t>(juce::jlimit(2, 33, preset) - 2), sourceAtOpen.routing));
     }
 
     void setFromConfig(const AnalogSynthEngine::Config& value)
@@ -1013,6 +927,10 @@ public:
                                                    ? devices.getReference(selected).identifier : juce::String{});
         };
         refresh();
+        if(processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::hammond){
+            modeBox.setSelectedId(1,juce::dontSendNotification);modeBox.setEnabled(false);
+            velocityBox.setEnabled(false);
+        }
         setSize(700, 170);
     }
 
@@ -1516,6 +1434,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     editButton.setTooltip("Mostrar ou ocultar os controles desta layer");
     editButton.onClick = [this]
     {
+        if(processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::hammond){showHammondEditor();return;}
         if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::analog)
         {
             // Analog already has a dedicated, independent editor window.
@@ -1546,6 +1465,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     externalInstrumentButton.onClick = [this] { chooseExternalInstrument(); };
     dx7Button.onClick = [this]
     {
+        if(processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::hammond){showHammondEditor();return;}
         if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::analog)
             showAnalogSynthEditor();
         else
@@ -2259,6 +2179,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     const auto isVst = type == ClassicPlayerAudioProcessor::LayerType::vst;
     const auto isDx7 = type == ClassicPlayerAudioProcessor::LayerType::dx7;
     const auto isAnalog = type == ClassicPlayerAudioProcessor::LayerType::analog;
+    const auto isHammond = type == ClassicPlayerAudioProcessor::LayerType::hammond;
     const auto isDrumPads = type == ClassicPlayerAudioProcessor::LayerType::drumPads;
     drumPadPanel.setVisible(isDrumPads);
     drumPadPanel.setControlsVisible(false);
@@ -2285,7 +2206,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     externalInstrumentBox.setVisible(isVst && processor.supportsExternalInstruments());
     externalInstrumentButton.setVisible(isVst && processor.supportsExternalInstruments());
     openExternalEditorButton.setVisible(isVst && processor.supportsExternalInstruments());
-    dx7Button.setVisible(isDx7 || isAnalog);
+    dx7Button.setVisible(isDx7 || isAnalog || isHammond);
+    mode.setEnabled(!isHammond); velocityCurve.setEnabled(!isHammond);
     dx7LibraryBox.setVisible(isDx7);
     dx7PatchBox.setVisible(isDx7);
     deleteDx7LibraryButton.setVisible(isDx7);
@@ -2296,7 +2218,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     sourceSummary.setText(fileLabel.getText().isNotEmpty()
                               ? fileLabel.getText()
                               : (isSf2 ? "SF2" : isDx7 ? "DX7" : isAnalog ? "CLASSIC KEYS ANALOG"
-                                                   : isVst ? "VST" : "DRUM PADS"),
+                                                   : isHammond ? "HAMMOND" : isVst ? "VST" : "DRUM PADS"),
                           juce::dontSendNotification);
     if (isDrumPads)
     {
@@ -2339,6 +2261,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     }
     sourceSummary.setVisible(false);
     fileLabel.setVisible(true);
+    if (isHammond) fileLabel.setText("HAMMOND", juce::dontSendNotification);
     if (isAnalog)
         fileLabel.setText("CLASSIC KEYS ANALOG", juce::dontSendNotification);
     resized();
@@ -2536,7 +2459,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
     const auto externalName = processor.externalInstrumentName(index);
     const auto dx7Name = processor.dx7PatchName(index);
     dx7Button.setButtonText(type == ClassicPlayerAudioProcessor::LayerType::analog
-                                 ? "ABRIR CLASSIC KEYS ANALOG" : "IMPORTAR DX7");
+                                 ? "ABRIR CLASSIC KEYS ANALOG" : type == ClassicPlayerAudioProcessor::LayerType::hammond ? "ABRIR HAMMOND" : "IMPORTAR DX7");
     if (type == ClassicPlayerAudioProcessor::LayerType::sf2)
     {
         if (path.isNotEmpty())
@@ -2560,14 +2483,14 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
     const auto hasSource = type == ClassicPlayerAudioProcessor::LayerType::sf2 ? path.isNotEmpty()
         : type == ClassicPlayerAudioProcessor::LayerType::vst ? externalName.isNotEmpty()
         : type == ClassicPlayerAudioProcessor::LayerType::dx7 ? processor.hasDx7(index)
-        : processor.hasAnalogSynth(index);
+        : type == ClassicPlayerAudioProcessor::LayerType::hammond || processor.hasAnalogSynth(index);
     fileLabel.setText(type == ClassicPlayerAudioProcessor::LayerType::sf2
                         ? (path.isNotEmpty() ? juce::File(path).getFileName() : "Sem SoundFont")
                         : type == ClassicPlayerAudioProcessor::LayerType::vst
                             ? (externalName.isNotEmpty() ? externalName : "Sem VST")
                             : type == ClassicPlayerAudioProcessor::LayerType::dx7
                                 ? (dx7Name.isNotEmpty() ? dx7Name : "Sem DX7")
-                                : "CLASSIC KEYS ANALOG",
+                                : type == ClassicPlayerAudioProcessor::LayerType::hammond ? "HAMMOND" : "CLASSIC KEYS ANALOG",
                       juce::dontSendNotification);
     fileLabel.setColour(juce::Label::backgroundColourId,
                         hasSource ? juce::Colour(yellow) : juce::Colour(0xff0b1218));
@@ -2745,6 +2668,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
         menu.addItem(2, "Layer DX7 (.syx)");
         menu.addItem(3, "Classic Keys Analog");
         menu.addItem(4, "Layer Drum Pads (8)");
+        menu.addItem(5, "Hammond");
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addLayerButton),
             [safeThis = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this)](int choice)
             {
@@ -2752,6 +2676,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
                 const auto type = choice == 1 ? ClassicPlayerAudioProcessor::LayerType::sf2
                                 : choice == 2 ? ClassicPlayerAudioProcessor::LayerType::dx7
                                 : choice == 3 ? ClassicPlayerAudioProcessor::LayerType::analog
+                                : choice == 5 ? ClassicPlayerAudioProcessor::LayerType::hammond
                                               : ClassicPlayerAudioProcessor::LayerType::drumPads;
                 safeThis->addLayer(type);
             });
@@ -2943,18 +2868,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     auto* controls = new AnalogSynthEditorPanel(processor.analogSynthConfig(index));
     controls->setPresetOnlyMode();
     auto* routing = new LayerRoutingEditorPanel(processor, index);
-    const auto prefix = "layer" + juce::String(index + 1);
-    auto valueOf = [this, prefix](const juce::String& suffix, float fallback)
-    {
-        if (auto* value = processor.parameters.getRawParameterValue(prefix + suffix)) return value->load();
-        return fallback;
-    };
-    auto* common = new KnobEditorPanel({
-        { "VOLUME", valueOf("Gain", 80.0f), 0.0f, 100.0f, 1.0f, 0 },
-        { "CUTOFF", valueOf("Cutoff", 100.0f), 0.0f, 100.0f, 1.0f, 0 },
-        { "REVERB", valueOf("Reverb", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
-        { "COMP", valueOf("Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 }
-    }, 4);
+    auto* common = createAnalogCommonControls(processor, index).release();
     const juce::Component::SafePointer<LayerStrip> safe(this);
     auto* effectButtons = new LayerEffectButtons(
         [safe] { if (safe != nullptr) safe->showReverbEditor(); },
@@ -2985,21 +2899,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
 
     dialog->addCustomComponent(new CenteredPanel(controls, 600, 86));
     dialog->addCustomComponent(new CenteredPanel(routing, 600, 122));
-    common->useCompactGrid(false);
     dialog->addCustomComponent(new CenteredPanel(common, 600, 100));
     dialog->addCustomComponent(new CenteredPanel(effectButtons, 600, 34));
     dialog->addCustomComponent(new CenteredPanel(midiPanel, 600, 44));
-    common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
-    {
-        if (safe == nullptr) return;
-        const auto set = [safe, prefix](const juce::String& suffix, float value)
-        {
-            if (auto* parameter = safe->processor.parameters.getParameter(prefix + suffix))
-                parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
-        };
-        set("Gain", common->value(0)); set("Cutoff", common->value(1));
-        set("Reverb", common->value(2)); set("Comp", common->value(3));
-    });
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
     {
         if (safe != nullptr) safe->processor.setAnalogSynthConfig(safe->index, config);
@@ -3014,16 +2916,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     };
     dialog->setSize(758, 599);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
-        [safe, common, prefix](int)
+        [safe](int)
         {
             if (safe == nullptr) return;
-            const auto set = [safe, prefix](const juce::String& suffix, float value)
-            {
-                if (auto* parameter = safe->processor.parameters.getParameter(prefix + suffix))
-                    parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
-            };
-            set("Gain", common->value(0)); set("Cutoff", common->value(1));
-            set("Reverb", common->value(2)); set("Comp", common->value(3));
+            // Edits are already live. Closing must never replay stale UI values.
             safe->refresh();
         }), true);
 }
@@ -3711,4 +3607,106 @@ void ClassicPlayerAudioProcessorEditor::activate()
     }
     else
         activationStatus.setText("Código de ativação inválido.", juce::dontSendNotification);
+}
+
+std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioProcessor& processor, int index)
+{
+    class Content final : public juce::Component
+    {
+    public:
+        Content()
+        {
+            heading.setText(juce::String::fromUTF8("Drawbars, Leslie e MIDI. Salve a programação para guardar o timbre."),
+                            juce::dontSendNotification);
+            heading.setJustificationType(juce::Justification::centred);
+            heading.setColour(juce::Label::textColourId,juce::Colour(text));
+            addAndMakeVisible(heading);
+        }
+        void add(juce::Component* child,int height)
+        {
+            children.add(child);heights.push_back(height);addAndMakeVisible(child);
+        }
+        void paint(juce::Graphics& g) override { g.fillAll(juce::Colour(panel)); }
+        void resized() override
+        {
+            heading.setBounds(12,6,getWidth()-24,30);
+            int y=42;
+            for(int i=0;i<children.size();++i){
+                children[i]->setBounds(12,y,getWidth()-24,heights[(size_t)i]);
+                y+=heights[(size_t)i]+8;
+            }
+        }
+        juce::OwnedArray<juce::Component> children;
+        std::vector<int> heights;
+        juce::Label heading;
+    };
+    auto content=std::make_unique<Content>();
+    content->add(new HammondEditorPanel(processor,index),344);
+    content->add(new LayerRoutingEditorPanel(processor,index),108);
+    const auto prefix="layer"+juce::String(index+1);
+    const auto value=[&processor,prefix](const char* name){return processor.parameters.getRawParameterValue(prefix+name)->load();};
+    auto* common=new KnobEditorPanel({
+        {"VOLUME",value("Gain"),0,100,1,0},{"CUTOFF",value("Cutoff"),0,100,1,0},
+        {"REVERB",value("Reverb"),0,100,1,0},{"COMP",value("Comp"),0,100,1,0}},4);
+    // This layout follows the available height, including each numeric field.
+    common->useCompactGrid(true);
+    content->add(common,94);
+    common->setOnValueChange([&processor,common,prefix]{
+        const std::array<const char*,4> names {"Gain","Cutoff","Reverb","Comp"};
+        for(int i=0;i<4;++i)if(auto* p=processor.parameters.getParameter(prefix+names[(size_t)i]))
+            p->setValueNotifyingHost(p->convertTo0to1(common->value(i)));
+    });
+    content->add(new LayerMidiLearnPanel(processor,index),44);
+    content->setSize(704,668);
+    return content;
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::showHammondEditor()
+{
+    if(processor.layerType(index)!=ClassicPlayerAudioProcessor::LayerType::hammond)return;
+    class Window final : public juce::DocumentWindow
+    {
+    public:
+        explicit Window(std::unique_ptr<juce::Component> content)
+            :DocumentWindow("Hammond",juce::Colour(panel),juce::DocumentWindow::closeButton)
+        {
+            setLookAndFeel(&classicLookAndFeel);
+            setUsingNativeTitleBar(true);
+            auto* viewport=new juce::Viewport();
+            viewport->setViewedComponent(content.release(),true);
+            viewport->setScrollBarsShown(true,true);
+            setContentOwned(viewport,false);
+            const auto* display=juce::Desktop::getInstance().getDisplays().getPrimaryDisplay();
+            const auto area=display!=nullptr?display->userArea:juce::Rectangle<int>(0,0,1280,800);
+            centreWithSize(juce::jmin(740,area.getWidth()-40),juce::jmin(724,area.getHeight()-60));
+        }
+        ~Window() override { clearContentComponent();setLookAndFeel(nullptr); }
+        void resized() override
+        {
+            DocumentWindow::resized();
+            if(auto* viewport=dynamic_cast<juce::Viewport*>(getContentComponent()))
+                if(auto* content=viewport->getViewedComponent())
+                    content->setSize(juce::jmax(620,viewport->getWidth()-viewport->getScrollBarThickness()),668);
+        }
+        void closeButtonPressed() override { exitModalState(0); }
+    };
+    auto* window=new Window(createHammondEditorContent(processor,index));
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    window->enterModalState(true,juce::ModalCallbackFunction::create([safe](int){if(safe!=nullptr)safe->refresh();}),true);
+}
+
+std::unique_ptr<juce::Component> createAnalogCommonControls(ClassicPlayerAudioProcessor& processor, int layer)
+{
+    auto controls = std::make_unique<KnobEditorPanel>(std::initializer_list<KnobEditorSpec>{
+        { "VOLUME", 80, 0, 100, 1, 0 },
+        { "CUTOFF", 100, 0, 100, 0, 2 },
+        { "REVERB", 0, 0, 100, 1, 0 },
+        { "COMP", 0, 0, 100, 1, 0 }
+    }, 4);
+    const auto prefix = "layer" + juce::String(layer + 1);
+    const std::array<const char*, 4> suffixes { "Gain", "Cutoff", "Reverb", "Comp" };
+    for (int i = 0; i < 4; ++i)
+        controls->bindParameter(i, processor.parameters, prefix + suffixes[(size_t) i]);
+    controls->useCompactGrid(false);
+    return controls;
 }

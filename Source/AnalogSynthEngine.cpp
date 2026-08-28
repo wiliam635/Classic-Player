@@ -215,6 +215,7 @@ float AnalogSynthEngine::nextEnvelope(Envelope& envelope, float attackMs, float 
             break;
 
         case EnvelopeStage::sustain:
+        case EnvelopeStage::legato:
             envelope.value = sustain;
             break;
 
@@ -261,8 +262,20 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
             voice = &layer.voices.front();
     }
 
-    const auto frequency = midiNoteToFrequency(note + config.routing.octave * 12
-                                               + static_cast<int>(config.oscillator1Semitones));
+    const auto frequency = midiNoteToFrequency(note + config.routing.octave * 12);
+    if (config.browserCompatible && mono && voice->active && voice->browserVoice)
+    {
+        // The approved lab treats the first 80 ms as a simultaneous chord.
+        if (voice->age < static_cast<uint64_t>(sampleRate * 0.08))
+            return;
+        voice->transition.retarget(sampleRate);
+        voice->note = note;
+        voice->midiChannel = midiChannel;
+        voice->keyDown = true;
+        voice->targetFrequency = frequency;
+        voice->amp.stage = EnvelopeStage::legato;
+        return;
+    }
     const auto legato = mono && voice->active && voice->keyDown;
     voice->transition.retarget(sampleRate);
 
@@ -286,6 +299,12 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
         voice->noiseState = 0x12345678u ^ static_cast<uint32_t>(note * 1664525);
         voice->amp = { 0.0f, 0.0f, EnvelopeStage::attack };
         voice->filter = { 0.0f, 0.0f, EnvelopeStage::attack };
+        voice->biquadX1 = voice->biquadX2 = voice->biquadY1 = voice->biquadY2 = 0;
+        voice->browserLfoPhase = 0;
+        voice->age = 0;
+        voice->browserVoice = config.browserCompatible;
+        if (config.browserCompatible)
+            voice->amp.value = 0.0001f;
     }
 }
 
@@ -320,8 +339,9 @@ void AnalogSynthEngine::noteOff(int layerIndex, int midiChannel, int note, const
             voice.note = replacement;
             voice.midiChannel = midiChannel;
             voice.velocity = layer.heldVelocities[static_cast<size_t>(replacement)];
-            voice.targetFrequency = midiNoteToFrequency(replacement + config.routing.octave * 12
-                                                         + static_cast<int>(config.oscillator1Semitones));
+            voice.targetFrequency = midiNoteToFrequency(replacement + config.routing.octave * 12);
+            if (config.browserCompatible)
+                voice.amp.stage = EnvelopeStage::legato;
             return; // Last-note priority with a continuous envelope: true legato.
         }
 
@@ -333,6 +353,7 @@ void AnalogSynthEngine::noteOff(int layerIndex, int midiChannel, int note, const
                 voice.amp.releaseStart = voice.amp.value;
                 voice.filter.releaseStart = voice.filter.value;
                 voice.amp.stage = EnvelopeStage::release;
+                voice.amp.elapsed = 0;
                 voice.filter.stage = EnvelopeStage::release;
             }
         }
@@ -349,10 +370,73 @@ void AnalogSynthEngine::noteOff(int layerIndex, int midiChannel, int note, const
                 voice.amp.releaseStart = voice.amp.value;
                 voice.filter.releaseStart = voice.filter.value;
                 voice.amp.stage = EnvelopeStage::release;
+                voice.amp.elapsed = 0;
                 voice.filter.stage = EnvelopeStage::release;
             }
         }
     }
+}
+
+float AnalogSynthEngine::nextBrowserEnvelope(Voice& voice, const Config& config)
+{
+    auto& e = voice.amp;
+    const auto sustain = std::max(0.001f, 0.34f * config.ampSustain);
+    const auto attackSamples = std::max(1.0, sampleRate * config.ampAttackMs * 0.001);
+    const auto decaySamples = std::max(1.0, sampleRate * config.ampDecayMs * 0.001);
+    switch (e.stage)
+    {
+        case EnvelopeStage::attack:
+            e.value = static_cast<float>(0.0001 * std::pow(3400.0, std::min(1.0, e.elapsed / attackSamples)));
+            if (++e.elapsed >= attackSamples) { e.stage = EnvelopeStage::decay; e.elapsed = 0; }
+            break;
+        case EnvelopeStage::decay:
+            e.value = static_cast<float>(0.34 * std::pow(sustain / 0.34, std::min(1.0, e.elapsed / decaySamples)));
+            if (++e.elapsed >= decaySamples) { e.stage = EnvelopeStage::sustain; e.elapsed = 0; }
+            break;
+        case EnvelopeStage::sustain:
+            e.value = sustain;
+            break;
+        case EnvelopeStage::legato:
+            e.value = sustain + (e.value - sustain) * static_cast<float>(std::exp(-1.0 / (sampleRate * 0.008)));
+            break;
+        case EnvelopeStage::release:
+        {
+            const auto release = config.ampDecaySwitch ? std::max(0.015, config.ampReleaseMs * 0.001) : 0.015;
+            const auto tau = std::max(0.003, release / 5.0);
+            e.value = 0.0001f + (e.value - 0.0001f) * static_cast<float>(std::exp(-1.0 / (sampleRate * tau)));
+            // Mono keeps its oscillators running for the next note, as the lab
+            // does. Poly voices are disconnected after release + 30 ms.
+            if (++e.elapsed > (release + 0.03) * sampleRate
+                && !(config.monophonic || config.routing.mono))
+            {
+                e.value = 0;
+                e.stage = EnvelopeStage::idle;
+            }
+            break;
+        }
+        case EnvelopeStage::idle: e.value = 0; break;
+    }
+    return e.value;
+}
+
+float AnalogSynthEngine::processBrowserFilter(Voice& v, float input, float cutoffHz, float resonanceDb)
+{
+    // W3C Web Audio lowpass coefficients. Q is expressed in dB, not linear Q:
+    // https://www.w3.org/TR/webaudio-1.0/#filters-characteristics
+    const auto frequency = juce::jlimit(0.01, sampleRate * 0.4999, static_cast<double>(cutoffHz));
+    const auto omega = juce::MathConstants<double>::twoPi * frequency / sampleRate;
+    const auto cosine = std::cos(omega);
+    const auto alpha = std::sin(omega) / (2.0 * std::pow(10.0, resonanceDb / 20.0));
+    const auto a0 = 1.0 + alpha;
+    const auto b0 = (1.0 - cosine) * 0.5 / a0;
+    const auto b1 = (1.0 - cosine) / a0;
+    const auto a1 = -2.0 * cosine / a0;
+    const auto a2 = (1.0 - alpha) / a0;
+    const auto output = b0 * input + b1 * v.biquadX1 + b0 * v.biquadX2
+                      - a1 * v.biquadY1 - a2 * v.biquadY2;
+    v.biquadX2 = v.biquadX1; v.biquadX1 = input;
+    v.biquadY2 = v.biquadY1; v.biquadY1 = output;
+    return static_cast<float>(output);
 }
 
 float AnalogSynthEngine::processLadder(Voice& voice, float input, float cutoffHz,
@@ -395,8 +479,9 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
     // matching the browser implementation and avoiding theremin-like slides.
     voice.currentFrequency = voice.targetFrequency;
 
-    const auto amp = nextEnvelope(voice.amp, config.ampAttackMs, config.ampDecayMs,
-                                  config.ampSustain, config.ampReleaseMs, sampleRate);
+    const auto amp = config.browserCompatible ? nextBrowserEnvelope(voice, config)
+        : nextEnvelope(voice.amp, config.ampAttackMs, config.ampDecayMs,
+                       config.ampSustain, config.ampReleaseMs, sampleRate);
     const auto filterEnvelope = nextEnvelope(voice.filter, config.filterAttackMs,
                                              config.filterDecayMs, config.filterSustain,
                                              config.filterReleaseMs, sampleRate);
@@ -410,25 +495,35 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
     const auto pitchRatio = std::pow(2.0f,
         (pitchBendSemitones + lfo * pitchDepth) / 12.0f);
     const auto base = voice.currentFrequency * pitchRatio;
+    const auto ratio1 = std::pow(2.0f, (config.oscillator1Semitones
+                                         + config.oscillator1FineCents * 0.01f) / 12.0f);
     const auto ratio2 = std::pow(2.0f, (config.oscillator2Semitones
                                          + config.oscillator2FineCents * 0.01f) / 12.0f);
     const auto ratio3 = std::pow(2.0f, (config.oscillator3Semitones
                                          + config.oscillator3FineCents * 0.01f) / 12.0f);
 
-    const auto increment1 = juce::jlimit(0.0f, 0.49f, base / static_cast<float>(sampleRate));
+    const auto increment1 = juce::jlimit(0.0f, 0.49f, base * ratio1 / static_cast<float>(sampleRate));
     const auto increment2 = juce::jlimit(0.0f, 0.49f, base * ratio2 / static_cast<float>(sampleRate));
     const auto increment3 = juce::jlimit(0.0f, 0.49f, base * ratio3 / static_cast<float>(sampleRate));
+    const auto waveSample = [&](Waveform wave, float phase, float increment)
+    {
+        // Web Audio's saw is centred on the positive zero crossing.
+        if (config.browserCompatible && wave == Waveform::saw)
+            phase = wrapPhase(phase + 0.5f);
+        return waveform(wave, phase, increment);
+    };
+    const float p1 = voice.phase1, p2 = voice.phase2, p3 = voice.phase3;
     voice.phase1 = wrapPhase(voice.phase1 + increment1);
     voice.phase2 = wrapPhase(voice.phase2 + increment2);
     voice.phase3 = wrapPhase(voice.phase3 + increment3);
 
     auto sample = 0.0f;
     if (config.oscillator1Enabled)
-        sample += waveform(config.oscillator1Wave, voice.phase1, increment1) * config.oscillator1Level;
+        sample += waveSample(config.oscillator1Wave, config.browserCompatible ? p1 : voice.phase1, increment1) * config.oscillator1Level;
     if (config.oscillator2Enabled)
-        sample += waveform(config.oscillator2Wave, voice.phase2, increment2) * config.oscillator2Level;
+        sample += waveSample(config.oscillator2Wave, config.browserCompatible ? p2 : voice.phase2, increment2) * config.oscillator2Level;
     if (config.oscillator3Enabled)
-        sample += waveform(config.oscillator3Wave, voice.phase3, increment3) * config.oscillator3Level;
+        sample += waveSample(config.oscillator3Wave, config.browserCompatible ? p3 : voice.phase3, increment3) * config.oscillator3Level;
 
     auto noise = nextNoise(voice.noiseState);
     if (config.pinkNoise)
@@ -437,7 +532,8 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
     sample += noise * config.noiseLevel;
 
     const auto mixDrive = 1.0f + juce::jlimit(0.0f, 1.0f, config.mixerDrive) * 3.0f;
-    sample = std::tanh(sample * mixDrive) / mixDrive;
+    if (!config.browserCompatible || config.mixerDrive > 0)
+        sample = std::tanh(sample * mixDrive) / mixDrive;
 
     const auto keyboardOctaves = (static_cast<float>(voice.note) - 60.0f) / 12.0f;
     const auto keyboardTracking = std::pow(2.0f, keyboardOctaves
@@ -447,8 +543,22 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
         (config.cutoff + filterEnvelope * config.filterEnvelopeAmount * 100.0f + modulation) / 100.0f);
     const auto cutoffHz = 25.0f * std::pow(700.0f, normalizedCutoff) * keyboardTracking;
 
-    sample = processLadder(voice, sample, cutoffHz, config.resonance, config.filterDrive);
-    sample *= amp * voice.velocity;
+    if (config.browserCompatible)
+    {
+        const auto browserLfo = static_cast<float>(std::sin(voice.browserLfoPhase * juce::MathConstants<double>::twoPi));
+        voice.browserLfoPhase += config.lfoRateHz / sampleRate;
+        voice.browserLfoPhase -= std::floor(voice.browserLfoPhase);
+        const auto baseCutoff = 25.0f * std::pow(700.0f, config.cutoff / 100.0f);
+        sample = processBrowserFilter(voice, sample,
+            baseCutoff + browserLfo * config.lfoToFilter * 4.2f, config.resonance * 20.0f);
+        sample *= amp * 0.45f; // Browser master; its VCA is velocity insensitive.
+    }
+    else
+    {
+        sample = processLadder(voice, sample, cutoffHz, config.resonance, config.filterDrive);
+        sample *= amp * voice.velocity;
+    }
+    ++voice.age;
     sample = voice.transition.process(sample);
 
     left += sample;
@@ -495,6 +605,7 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
                         voice.amp.releaseStart = voice.amp.value;
                         voice.filter.releaseStart = voice.filter.value;
                         voice.amp.stage = EnvelopeStage::release;
+                        voice.amp.elapsed = 0;
                         voice.filter.stage = EnvelopeStage::release;
                     }
                 }
@@ -565,6 +676,7 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
         const auto cutoffHz = 120.0f + juce::jlimit(0.0f, 100.0f, config.cutoff) * 180.0f;
         const auto alpha = juce::jlimit(0.001f, 0.95f,
             1.0f - std::exp(-twoPi * cutoffHz / static_cast<float>(sampleRate)));
+        if (!config.browserCompatible)
         for (int sampleIndex = 0; sampleIndex < output.getNumSamples(); ++sampleIndex)
             for (int channel = 0; channel < 2; ++channel)
             {

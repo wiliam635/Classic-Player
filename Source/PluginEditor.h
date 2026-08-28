@@ -98,6 +98,7 @@ private:
         void showDrumPadEditor();
         void showLayerEditor();
         void showAnalogSynthEditor();
+        void showHammondEditor();
         void showDx7Editor();
 
         ClassicPlayerAudioProcessor& processor;

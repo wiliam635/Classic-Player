@@ -26,7 +26,12 @@ jobs:
           grep -q "analogSynthEngine.process" Source/PluginProcessor.cpp
           grep -q "applyFactoryPreset" Source/PluginEditor.cpp
           grep -q "Waveform::sine" Source/AnalogSynthEngine.cpp
-          test "$(grep -c 'presetBox.addItem' Source/PluginEditor.cpp)" -ge 36
+          test -f Source/AnalogBrowserPresets.h
+          grep -q 'AnalogBrowserPresets::bank' Source/PluginEditor.cpp
+          grep -q 'std::array<Preset, 32>' Source/AnalogBrowserPresets.h
+          test -f Source/HammondEngine.cpp
+          test -f Source/AnalogEditorPanel.h
+          grep -q 'HammondEngine.cpp' CMakeLists.txt
 
       - name: Set up vcpkg
         uses: lukka/run-vcpkg@v11

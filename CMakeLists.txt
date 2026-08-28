@@ -97,6 +97,8 @@ target_sources(ClassicPlayer PRIVATE
     Source/Dx7Engine.h
     Source/AnalogSynthEngine.cpp
     Source/AnalogSynthEngine.h
+    Source/HammondEngine.cpp
+    Source/HammondEngine.h
     third_party/msfa/dx7note.cc
     third_party/msfa/env.cc
     third_party/msfa/exp2.cc
@@ -176,6 +178,7 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES
     Source/Sf2Engine.cpp Source/Sf2Engine.h
     Source/Dx7Engine.cpp Source/Dx7Engine.h
     Source/AnalogSynthEngine.cpp Source/AnalogSynthEngine.h
+    Source/HammondEngine.cpp Source/HammondEngine.h
     Source/ExternalInstrumentHost.cpp Source/ExternalInstrumentHost.h
     Source/LicenseVerifier.cpp Source/LicenseVerifier.h
     Source/ChordDetector.cpp Source/ChordDetector.h)
@@ -207,6 +210,12 @@ endif()
 
 if(CLASSIC_PLAYER_BUILD_TESTS)
     enable_testing()
+    juce_add_console_app(ClassicPlayerHammondTest PRODUCT_NAME "Classic Player Hammond Test")
+    target_sources(ClassicPlayerHammondTest PRIVATE Source/HammondRegressionTest.cpp)
+    target_include_directories(ClassicPlayerHammondTest PRIVATE third_party/msfa)
+    target_link_libraries(ClassicPlayerHammondTest PRIVATE ClassicPlayer ${CLASSIC_PLAYER_FLUID_TARGET}
+        juce::juce_audio_utils juce::juce_dsp)
+    add_test(NAME hammond COMMAND ClassicPlayerHammondTest)
     juce_add_console_app(ClassicPlayerMasterMidiTest PRODUCT_NAME "Classic Player Master MIDI Test")
     target_sources(ClassicPlayerMasterMidiTest PRIVATE Source/MasterMidiRegressionTest.cpp)
     target_include_directories(ClassicPlayerMasterMidiTest PRIVATE third_party/msfa)
