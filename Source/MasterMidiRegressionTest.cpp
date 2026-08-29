@@ -96,7 +96,17 @@ int main()
         processor->resetMasterMidiLearn();
         cc(*processor, 3, 11, 0);
         check(processor->parameters.getRawParameterValue("master")->load() == 100, "reset mapping still active");
-        std::cout << "Master CC/channel, sustain exclusion, endpoints, persistence and reset passed\n";
+
+        processor->setLayerType(0, ClassicPlayerAudioProcessor::LayerType::drumPads);
+        processor->beginMidiLearn(0, ClassicPlayerAudioProcessor::LearnTarget::volume);
+        cc(*processor, 4, 73, 64);
+        check(processor->midiLearnCC(0, ClassicPlayerAudioProcessor::LearnTarget::volume) == 73,
+              "drum volume CC mapping");
+        check(processor->midiLearnChannel(0, ClassicPlayerAudioProcessor::LearnTarget::volume) == 4,
+              "drum volume CC channel");
+        const auto drumGain = processor->parameters.getRawParameterValue("layer1Gain")->load();
+        check(drumGain >= 50.0f && drumGain <= 51.0f, "drum volume CC response");
+        std::cout << "Master and Drum Pad volume CC/channel mapping passed\n";
         return 0;
     }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }

@@ -1947,14 +1947,20 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     const auto type = processor.layerType(index);
     if (type == ClassicPlayerAudioProcessor::LayerType::drumPads)
     {
-        editButton.setBounds(area.removeFromTop(28).removeFromRight(78).reduced(1, 1));
-        gain.setSliderStyle(juce::Slider::LinearHorizontal);
-        gain.setTextBoxStyle(juce::Slider::TextBoxRight,false,42,18);
+        gain.setSliderStyle(juce::Slider::LinearVertical);
+        gain.setTextBoxStyle(juce::Slider::TextBoxBelow,false,58,18);
         gain.setTooltip("Volume da layer de drum pads");
-        gain.setBounds(area.removeFromBottom(38).reduced(2));
-        sourceSummary.setText("VOLUME",juce::dontSendNotification);
-        sourceSummary.setBounds(area.removeFromBottom(18));
-        drumPadPanel.setBounds(area.reduced(0, 2));
+        auto summaryRow = area.removeFromTop(28);
+        sourceSummary.setBounds(summaryRow.removeFromLeft(summaryRow.getWidth() - 70).reduced(3, 1));
+        editButton.setBounds(summaryRow.reduced(1, 1));
+        area.removeFromTop(4);
+        auto faderArea = area.reduced(8, 4);
+        volumeLearn.setBounds(faderArea.removeFromBottom(24).withWidth(juce::jmin(86, faderArea.getWidth())));
+        faderArea.removeFromBottom(6);
+        meter.setBounds(faderArea.removeFromLeft(18).reduced(1, 2));
+        const auto faderWidth = juce::jmin(82, juce::jmax(54, faderArea.getWidth() / 2));
+        gain.setBounds(faderArea.removeFromLeft(faderWidth).reduced(4, 2));
+        drumPadPanel.setBounds({});
         return;
     }
     gain.setSliderStyle(juce::Slider::LinearVertical);
@@ -2189,7 +2195,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     const auto isAnalog = type == ClassicPlayerAudioProcessor::LayerType::analog;
     const auto isHammond = type == ClassicPlayerAudioProcessor::LayerType::hammond;
     const auto isDrumPads = type == ClassicPlayerAudioProcessor::LayerType::drumPads;
-    drumPadPanel.setVisible(isDrumPads);
+    // Drum samples are edited in their dedicated window. The mixer strip
+    // mirrors the other layers: vertical fader, meter and volume CC Learn.
+    drumPadPanel.setVisible(false);
     drumPadPanel.setControlsVisible(false);
 
     // Restore the shared layer controls on every non-drum refresh. Without
@@ -2244,6 +2252,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
         for (auto* control : controls)
             control->setVisible(false);
         gain.setVisible(true);
+        meter.setVisible(true);
+        volumeLearn.setVisible(true);
         sourceSummary.setVisible(true);
         resized();
         return;
@@ -2723,6 +2733,18 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     recordingStatus.setText("WAV: Area de Trabalho", juce::dontSendNotification);
     addAndMakeVisible(recordingStatus);
 
+    flatButton(keyboardVisibilityButton);
+    keyboardVisibilityButton.setTooltip("Mostrar ou ocultar o teclado virtual para liberar espaço para as layers");
+    keyboardVisibilityButton.onClick = [this]
+    {
+        virtualKeyboardVisible = !virtualKeyboardVisible;
+        keyboardVisibilityButton.setButtonText(virtualKeyboardVisible ? "OCULTAR TECLADO"
+                                                                       : "MOSTRAR TECLADO");
+        keyboard.setVisible(virtualKeyboardVisible && !showingLiveSet);
+        resized();
+    };
+    addAndMakeVisible(keyboardVisibilityButton);
+
     flatButton(liveSetButton);
     liveSetButton.onClick = [this] { showLiveSet(!showingLiveSet); };
     addAndMakeVisible(liveSetButton);
@@ -3136,8 +3158,10 @@ void ClassicPlayerAudioProcessorEditor::resized()
     auto recordingArea = footer.removeFromTop(27);
     recordingButton.setBounds(recordingArea.removeFromLeft(128).reduced(1, 0));
     recordingStatus.setBounds(recordingArea.removeFromLeft(210).reduced(6, 0));
+    keyboardVisibilityButton.setBounds(recordingArea.removeFromLeft(156).reduced(2, 0));
     recordingButton.setVisible(!showingLiveSet);
     recordingStatus.setVisible(!showingLiveSet);
+    keyboardVisibilityButton.setVisible(!showingLiveSet);
 
     if (showingLiveSet)
     {
@@ -3168,9 +3192,16 @@ void ClassicPlayerAudioProcessorEditor::resized()
     }
     else
     {
-        auto keyboardArea = area.removeFromBottom(112);
-        keyboard.setBounds(keyboardArea.reduced(0, 4));
-        area.removeFromBottom(8);
+        if (virtualKeyboardVisible)
+        {
+            auto keyboardArea = area.removeFromBottom(112);
+            keyboard.setBounds(keyboardArea.reduced(0, 4));
+            area.removeFromBottom(8);
+        }
+        else
+        {
+            keyboard.setBounds({});
+        }
         layerViewport.setBounds(area);
         layoutLayerStrips();
     }
@@ -3348,7 +3379,8 @@ void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
     showingLiveSet = show;
     liveSetButton.setButtonText(show ? "VOLTAR" : "LIVE SET");
     layerViewport.setVisible(!show);
-    keyboard.setVisible(!show);
+    keyboard.setVisible(!show && virtualKeyboardVisible);
+    keyboardVisibilityButton.setVisible(!show);
     programBox.setVisible(!show);
     saveProgramButton.setVisible(!show);
     deleteProgramButton.setVisible(!show);
