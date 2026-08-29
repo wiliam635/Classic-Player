@@ -2843,14 +2843,17 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     // setSize() invokes resized() immediately. All layer strips must exist
     // before that callback can lay them out.
     setResizable(true, true);
-    // Keep the editor usable on 1366x768 notebooks while preserving the
-    // existing Full HD layout when a larger display is available.
-    setResizeLimits(960, 540, 1920, 1080);
+    // Fit inside the usable desktop area (menu bar and Dock excluded).  The
+    // standalone window adds its own title bar around this component, so keep
+    // a small vertical allowance as well.
+    setResizeLimits(900, 520, 1920, 1080);
     const auto display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay();
-    const auto available = display != nullptr ? display->userArea
+    const auto available = display != nullptr ? display->userBounds.toNearestInt()
                                                : juce::Rectangle<int>(0, 0, 1366, 768);
-    setSize(juce::jmin(1600, juce::jmax(960, available.getWidth() - 40)),
-            juce::jmin(900, juce::jmax(540, available.getHeight() - 80)));
+    const auto initialWidth = juce::roundToInt(static_cast<float>(available.getWidth()) * 0.96f);
+    const auto initialHeight = juce::roundToInt(static_cast<float>(available.getHeight()) * 0.88f);
+    setSize(juce::jmin(1600, juce::jmax(900, initialWidth)),
+            juce::jmin(900, juce::jmax(520, initialHeight)));
     startTimerHz(20);
 }
 
@@ -3565,8 +3568,9 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
     const auto count = classicProcessor.activeLayerCount();
     if (count <= 0 || layerViewport.getWidth() <= 0) return;
     constexpr int gap = 8;
-    // Keep each layer as a vertical strip.  Use four columns on a normal
-    // desktop window, reducing responsively only when the window is narrow.
+    // Keep each layer as a narrow mixer strip.  Empty space to the right is
+    // intentional when fewer than eight layers are active; do not stretch the
+    // channels merely to fill the viewport.
     const auto availableWidth = juce::jmax(1,
         layerViewport.getWidth() - layerViewport.getScrollBarThickness());
     const int columns = availableWidth >= 1000 ? 8
@@ -3593,7 +3597,6 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
     contentHeight = juce::jmax(contentHeight,
         layerViewport.getHeight() - layerViewport.getScrollBarThickness());
     layerContent.setSize(contentWidth, contentHeight);
-    int y = gap;
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
         if (strips[(size_t) i] == nullptr) continue;
@@ -3687,7 +3690,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showHammondEditor()
             viewport->setScrollBarsShown(true,true);
             setContentOwned(viewport,false);
             const auto* display=juce::Desktop::getInstance().getDisplays().getPrimaryDisplay();
-            const auto area=display!=nullptr?display->userArea:juce::Rectangle<int>(0,0,1280,800);
+            const auto area=display!=nullptr?display->userBounds.toNearestInt():juce::Rectangle<int>(0,0,1280,800);
             centreWithSize(juce::jmin(740,area.getWidth()-40),juce::jmin(724,area.getHeight()-60));
         }
         ~Window() override { clearContentComponent();setLookAndFeel(nullptr); }
