@@ -294,15 +294,39 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
     auto inspectDrumPadMidi = [this](const juce::MidiMessage& message)
     {
+        // Drum pads follow the General MIDI percussion channel. This keeps
+        // melodic notes from the keyboard (normally channel 1) isolated.
+        if (message.getChannel() != 10) return;
+        if (message.isNoteOn())
+        {
+            const auto note = message.getNoteNumber();
+            for (auto& pad : drumPads)
+            {
+                if (pad.learning.exchange(false, std::memory_order_acq_rel))
+                {
+                    pad.midiNote.store(note, std::memory_order_release);
+                    pad.midiCC.store(-1, std::memory_order_release);
+                    pad.trigger.store(1, std::memory_order_release);
+                }
+                else if (pad.midiNote.load(std::memory_order_acquire) == note)
+                    pad.trigger.store(1, std::memory_order_release);
+            }
+            return;
+        }
         if (!message.isController()) return;
+        const auto cc = message.getControllerNumber();
+        // CC64 belongs exclusively to sustain. MIDI channel-mode messages
+        // (120-127) are likewise commands, not assignable pad triggers.
+        if (cc == 64 || cc >= 120) return;
         for (auto& pad : drumPads)
         {
             if (pad.learning.exchange(false, std::memory_order_acq_rel))
             {
-                pad.midiCC.store(message.getControllerNumber(), std::memory_order_release);
+                pad.midiCC.store(cc, std::memory_order_release);
+                pad.midiNote.store(-1, std::memory_order_release);
                 pad.trigger.store(1, std::memory_order_release);
             }
-            else if (pad.midiCC.load(std::memory_order_acquire) == message.getControllerNumber()
+            else if (pad.midiCC.load(std::memory_order_acquire) == cc
                      && message.getControllerValue() >= 64)
             {
                 pad.trigger.store(1, std::memory_order_release);
@@ -619,8 +643,19 @@ juce::String ClassicPlayerAudioProcessor::drumPadPath(int pad) const
 
 int ClassicPlayerAudioProcessor::drumPadMidiCC(int pad) const
 {
-    return juce::isPositiveAndBelow(pad, drumPadCount)
-        ? drumPads[(size_t) pad].midiCC.load(std::memory_order_acquire) : -1;
+    if (!juce::isPositiveAndBelow(pad, drumPadCount)) return -1;
+    const auto cc = drumPads[(size_t) pad].midiCC.load(std::memory_order_acquire);
+    return cc == 64 || cc >= 120 ? -1 : cc;
+}
+
+juce::String ClassicPlayerAudioProcessor::drumPadMidiMapping(int pad) const
+{
+    if (!juce::isPositiveAndBelow(pad, drumPadCount)) return {};
+    const auto note = drumPads[(size_t) pad].midiNote.load(std::memory_order_acquire);
+    if (note >= 0)
+        return "N " + juce::MidiMessage::getMidiNoteName(note, true, true, 3);
+    const auto cc = drumPadMidiCC(pad);
+    return cc >= 0 ? "CC " + juce::String(cc) : juce::String{};
 }
 
 bool ClassicPlayerAudioProcessor::isDrumPadPlaying(int pad) const
@@ -917,6 +952,7 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
         savedPaths[(size_t) layer].clear();
         auto config = engine.getConfig(layer);
         config.enabled = true;
+        config.midiChannel = 10;
         engine.setConfig(layer, config);
         analogLayerConfigs[(size_t) layer] = AnalogSynthEngine::Config{};
     }
@@ -1894,6 +1930,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
     {
         state.setProperty("drumPadPath" + juce::String(pad + 1), drumPads[(size_t) pad].path, nullptr);
         state.setProperty("drumPadCC" + juce::String(pad + 1), drumPads[(size_t) pad].midiCC.load(), nullptr);
+        state.setProperty("drumPadNote" + juce::String(pad + 1), drumPads[(size_t) pad].midiNote.load(), nullptr);
     }
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, destination);
 }
@@ -1971,8 +2008,12 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             for (int pad = 0; pad < drumPadCount; ++pad)
             {
                 auto& drumPad = drumPads[(size_t) pad];
-                drumPad.midiCC.store(static_cast<int>(state.getProperty(
-                    "drumPadCC" + juce::String(pad + 1), -1)), std::memory_order_release);
+                const auto savedCC = static_cast<int>(state.getProperty(
+                    "drumPadCC" + juce::String(pad + 1), -1));
+                drumPad.midiCC.store(savedCC == 64 || savedCC >= 120 ? -1 : savedCC,
+                                     std::memory_order_release);
+                drumPad.midiNote.store(static_cast<int>(state.getProperty(
+                    "drumPadNote" + juce::String(pad + 1), -1)), std::memory_order_release);
                 drumPad.learning.store(false, std::memory_order_release);
                 const auto path = state.getProperty(
                     "drumPadPath" + juce::String(pad + 1)).toString();

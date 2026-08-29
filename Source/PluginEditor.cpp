@@ -1361,10 +1361,10 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
                                  : samplePath.isNotEmpty() ? drumPadColour(pad)
                                                            : juce::Colour(panelLight));
         trigger.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff15191d));
-        const auto cc = processor.drumPadMidiCC(pad);
+        const auto mapping = processor.drumPadMidiMapping(pad);
         learnButtons[(size_t) pad].setButtonText(
-            processor.isDrumPadMidiLearning(pad) ? "MOVE CC"
-            : cc >= 0 ? "CC " + juce::String(cc) : "LEARN");
+            processor.isDrumPadMidiLearning(pad) ? "MOVA PAD"
+            : mapping.isNotEmpty() ? mapping : "LEARN");
     }
 }
 

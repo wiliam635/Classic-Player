@@ -101,7 +101,33 @@ struct DrumPadRegressionAccess
         juce::MemoryBlock state;p->getStateInformation(state);
         p->setStateInformation(state.getData(),(int)state.getSize());
         check(std::abs(p->parameters.getRawParameterValue("layer1Gain")->load()-50)<1e-6,"drum gain persistence");
-        std::cout<<"Drum volume, 20 ms ramp, mute/unmute and persistence passed\n";
+        pad.audio.setSize(2,48000);
+        for(int ch=0;ch<2;++ch)for(int i=0;i<48000;++i)pad.audio.setSample(ch,i,.25f);
+        const auto sendCC=[&](int cc,int value,int channel=10){
+            juce::AudioBuffer<float> audio(2,128);audio.clear();juce::MidiBuffer midi;
+            midi.addEvent(juce::MidiMessage::controllerEvent(channel,cc,value),0);p->processBlock(audio,midi);
+        };
+        pad.midiCC.store(-1);pad.trigger.store(0);p->beginDrumPadMidiLearn(0);
+        sendCC(64,127);
+        check(p->isDrumPadMidiLearning(0)&&p->drumPadMidiCC(0)<0,"sustain captured by drum learn");
+        sendCC(123,0);
+        check(p->isDrumPadMidiLearning(0)&&p->drumPadMidiCC(0)<0,"channel mode captured by drum learn");
+        sendCC(73,127);
+        check(!p->isDrumPadMidiLearning(0)&&p->drumPadMidiCC(0)==73,"valid drum CC not learned");
+        pad.position.store(-1);sendCC(64,127);check(!p->isDrumPadPlaying(0),"sustain triggered drum pad");
+        sendCC(73,127);check(p->isDrumPadPlaying(0),"learned CC did not trigger drum pad");
+        p->beginDrumPadMidiLearn(0);
+        const auto sendNote=[&](int channel,int note){
+            juce::AudioBuffer<float> audio(2,128);audio.clear();juce::MidiBuffer midi;
+            midi.addEvent(juce::MidiMessage::noteOn(channel,note,(juce::uint8)110),0);p->processBlock(audio,midi);
+        };
+        sendNote(1,36);
+        check(p->isDrumPadMidiLearning(0),"melodic channel captured by drum learn");
+        sendNote(10,36);
+        check(!p->isDrumPadMidiLearning(0)&&pad.midiNote.load()==36,"channel 10 note not learned");
+        pad.position.store(-1);sendNote(1,36);check(!p->isDrumPadPlaying(0),"melodic note triggered drum pad");
+        sendNote(10,36);check(p->isDrumPadPlaying(0),"channel 10 note did not trigger drum pad");
+        std::cout<<"Drum volume, channel 10 note and sustain-safe CC Learn passed\n";
     }
 };
 

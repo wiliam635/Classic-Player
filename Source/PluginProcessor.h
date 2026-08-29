@@ -155,6 +155,7 @@ public:
     juce::String drumPadName(int pad) const;
     juce::String drumPadPath(int pad) const;
     int drumPadMidiCC(int pad) const;
+    juce::String drumPadMidiMapping(int pad) const;
     bool isDrumPadPlaying(int pad) const;
     void triggerDrumPad(int pad);
     void beginDrumPadMidiLearn(int pad);
@@ -278,6 +279,7 @@ private:
         std::atomic<int> trigger { 0 };
         std::atomic<int> position { -1 };
         std::atomic<int> midiCC { -1 };
+        std::atomic<int> midiNote { -1 };
         std::atomic<bool> learning { false };
     };
     std::array<DrumPadState, drumPadCount> drumPads;
