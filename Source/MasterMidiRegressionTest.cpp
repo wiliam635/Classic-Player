@@ -63,12 +63,54 @@ static void startupPrograms()
     std::cout << "Last-saved restore, program name, device restart, plugin isolation and missing file passed\n";
 }
 
+struct MidiRecordingRegressionAccess
+{
+    static void run()
+    {
+        ClassicPlayerAudioProcessor processor;
+        processor.prepareToPlay(48000, 256);
+        const auto midiPath = juce::File::getSpecialLocation(juce::File::tempDirectory)
+            .getNonexistentChildFile("Classic-Player-MIDI-regression", ".mid", false);
+        struct Cleanup { juce::File file; ~Cleanup() { file.deleteFile(); } } cleanup { midiPath };
+        processor.midiRecordingFile = midiPath;
+        processor.recordedMidiEventCount = 0;
+        processor.recordedMidiSamples = 96000;
+        processor.midiRecordingOverflowed = false;
+
+        juce::MidiBuffer source;
+        source.addEvent(juce::MidiMessage::noteOn(2, 60, (juce::uint8) 100), 0);
+        source.addEvent(juce::MidiMessage::controllerEvent(2, 1, 96), 120);
+        source.addEvent(juce::MidiMessage::noteOff(2, 60), 240);
+        processor.recordMidiBuffer(source, 48000);
+        check(processor.writeRecordedMidiFile(), "write simultaneous MIDI file");
+
+        juce::FileInputStream input(midiPath);
+        juce::MidiFile midi;
+        check(input.openedOk() && midi.readFrom(input), "read simultaneous MIDI file");
+        check(midi.getTimeFormat() == 960 && midi.getNumTracks() == 1, "MIDI format");
+        const auto* track = midi.getTrack(0);
+        check(track != nullptr, "MIDI track");
+        auto notes = 0;
+        auto controllers = 0;
+        double firstNoteTick = -1.0;
+        for (int i = 0; i < track->getNumEvents(); ++i)
+        {
+            const auto& message = track->getEventPointer(i)->message;
+            if (message.isNoteOn()) { ++notes; firstNoteTick = message.getTimeStamp(); }
+            if (message.isController()) ++controllers;
+        }
+        check(notes == 1 && controllers == 1, "recorded MIDI messages");
+        check(std::abs(firstNoteTick - 1920.0) < 0.01, "sample-accurate MIDI timestamp");
+    }
+};
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI initialise;
     try
     {
         startupPrograms();
+        MidiRecordingRegressionAccess::run();
         // Undefined wrapper deliberately avoids standalone preferences/programs.
         auto processor = std::make_unique<ClassicPlayerAudioProcessor>();
         processor->prepareToPlay(48000, 128);

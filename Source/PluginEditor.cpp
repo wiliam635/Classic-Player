@@ -2704,14 +2704,14 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     addAndMakeVisible(addLayerButton);
 
     flatButton(recordingButton);
-    recordingButton.setTooltip("Gravar a saída completa do Classic Player em WAV");
+    recordingButton.setTooltip("Gravar simultaneamente a saída em WAV e a performance em MIDI");
     recordingButton.onClick = [this]
     {
         if (classicProcessor.isAudioRecording())
         {
             classicProcessor.stopAudioRecording();
-            recordingStatus.setText("WAV salvo na Area de Trabalho", juce::dontSendNotification);
-            recordingButton.setButtonText("GRAVAR WAV");
+            recordingStatus.setText("WAV + MIDI salvos na Area de Trabalho", juce::dontSendNotification);
+            recordingButton.setButtonText("GRAVAR WAV+MIDI");
             return;
         }
 
@@ -2730,7 +2730,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     recordingStatus.setJustificationType(juce::Justification::centredLeft);
     recordingStatus.setColour(juce::Label::textColourId, juce::Colour(mutedText));
     recordingStatus.setFont(juce::FontOptions(11.0f, juce::Font::bold));
-    recordingStatus.setText("WAV: Area de Trabalho", juce::dontSendNotification);
+    recordingStatus.setText("WAV + MIDI: Area de Trabalho", juce::dontSendNotification);
     addAndMakeVisible(recordingStatus);
 
     flatButton(keyboardVisibilityButton);
@@ -3156,8 +3156,8 @@ void ClassicPlayerAudioProcessorEditor::resized()
     area.removeFromTop(12);
     auto footer = area.removeFromBottom(54);
     auto recordingArea = footer.removeFromTop(27);
-    recordingButton.setBounds(recordingArea.removeFromLeft(128).reduced(1, 0));
-    recordingStatus.setBounds(recordingArea.removeFromLeft(210).reduced(6, 0));
+    recordingButton.setBounds(recordingArea.removeFromLeft(156).reduced(1, 0));
+    recordingStatus.setBounds(recordingArea.removeFromLeft(230).reduced(6, 0));
     keyboardVisibilityButton.setBounds(recordingArea.removeFromLeft(156).reduced(2, 0));
     recordingButton.setVisible(!showingLiveSet);
     recordingStatus.setVisible(!showingLiveSet);

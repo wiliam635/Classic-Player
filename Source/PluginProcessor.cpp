@@ -289,6 +289,9 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // activation refresh must never make the MIDI UI appear disconnected.
     keyboardState.processNextMidiBuffer(midi, 0, buffer.getNumSamples(), true);
 
+    if (midiRecordingActive.load(std::memory_order_acquire))
+        recordMidiBuffer(midi, recordedMidiSamples);
+
     auto inspectDrumPadMidi = [this](const juce::MidiMessage& message)
     {
         if (!message.isController()) return;
@@ -326,6 +329,11 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     visualMidiBuffer.clear();
     visualMidiCollector.removeNextBlockOfMessages(visualMidiBuffer, buffer.getNumSamples());
     keyboardState.processNextMidiBuffer(visualMidiBuffer, 0, buffer.getNumSamples(), false);
+    if (midiRecordingActive.load(std::memory_order_acquire))
+    {
+        recordMidiBuffer(visualMidiBuffer, recordedMidiSamples);
+        recordedMidiSamples += buffer.getNumSamples();
+    }
 
     if (!activated.load())
     {
@@ -485,6 +493,7 @@ juce::Result ClassicPlayerAudioProcessor::startAudioRecording()
 
     const auto timestamp = juce::Time::getCurrentTime().formatted("%Y-%m-%d %H-%M-%S");
     recordingFile = folder.getNonexistentChildFile("Classic Player " + timestamp, ".wav", false);
+    midiRecordingFile = recordingFile.withFileExtension(".mid");
     auto stream = recordingFile.createOutputStream();
     if (stream == nullptr)
         return juce::Result::fail("Não foi possível criar o arquivo WAV.");
@@ -502,8 +511,12 @@ juce::Result ClassicPlayerAudioProcessor::startAudioRecording()
     if (!recordingThread.isThreadRunning()) recordingThread.startThread();
     recordingWriter = std::make_unique<juce::AudioFormatWriter::ThreadedWriter>(
         writer.release(), recordingThread, 32768);
+    recordedMidiEventCount = 0;
+    recordedMidiSamples = 0;
+    midiRecordingOverflowed = false;
+    midiRecordingActive.store(true, std::memory_order_release);
     activeRecordingWriter.store(recordingWriter.get(), std::memory_order_release);
-    juce::Logger::writeToLog("Gravação WAV iniciada: " + recordingFile.getFullPathName());
+    juce::Logger::writeToLog("Gravação WAV + MIDI iniciada: " + recordingFile.getFullPathName());
     return juce::Result::ok();
 }
 
@@ -511,8 +524,12 @@ void ClassicPlayerAudioProcessor::stopAudioRecording()
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
     if (activeRecordingWriter.exchange(nullptr, std::memory_order_acq_rel) == nullptr) return;
+    midiRecordingActive.store(false, std::memory_order_release);
     recordingWriter.reset();
+    const auto midiSaved = writeRecordedMidiFile();
     juce::Logger::writeToLog("Gravação WAV finalizada: " + recordingFile.getFullPathName());
+    juce::Logger::writeToLog(midiSaved ? "Gravação MIDI finalizada: " + midiRecordingFile.getFullPathName()
+                                      : "Falha ao salvar gravação MIDI");
 }
 
 bool ClassicPlayerAudioProcessor::isAudioRecording() const noexcept
@@ -523,6 +540,68 @@ bool ClassicPlayerAudioProcessor::isAudioRecording() const noexcept
 juce::String ClassicPlayerAudioProcessor::recordingFilePath() const
 {
     return recordingFile.getFullPathName();
+}
+
+juce::String ClassicPlayerAudioProcessor::midiRecordingFilePath() const
+{
+    return midiRecordingFile.getFullPathName();
+}
+
+void ClassicPlayerAudioProcessor::recordMidiBuffer(const juce::MidiBuffer& source,
+                                                    juce::int64 blockStartSample) noexcept
+{
+    for (const auto metadata : source)
+    {
+        const auto& message = metadata.getMessage();
+        const auto size = message.getRawDataSize();
+        if (size < 1 || size > 3 || message.isMidiClock() || message.isActiveSense()) continue;
+        if (recordedMidiEventCount >= recordedMidiEvents.size())
+        {
+            midiRecordingOverflowed = true;
+            continue;
+        }
+        auto& event = recordedMidiEvents[recordedMidiEventCount++];
+        event.samplePosition = blockStartSample + metadata.samplePosition;
+        event.size = static_cast<juce::uint8>(size);
+        std::copy_n(message.getRawData(), size, event.data.begin());
+    }
+}
+
+bool ClassicPlayerAudioProcessor::writeRecordedMidiFile()
+{
+    if (midiRecordingFile == juce::File{}) return false;
+    juce::MidiMessageSequence track;
+    constexpr int ticksPerQuarter = 960;
+    constexpr double quartersPerSecond = 2.0; // 120 BPM
+    const auto ticksPerSample = ticksPerQuarter * quartersPerSecond
+                              / juce::jmax(1.0, currentSampleRate);
+    auto tempo = juce::MidiMessage::tempoMetaEvent(500000);
+    tempo.setTimeStamp(0.0);
+    track.addEvent(tempo);
+    for (size_t i = 0; i < recordedMidiEventCount; ++i)
+    {
+        const auto& event = recordedMidiEvents[i];
+        juce::MidiMessage message(event.data.data(), static_cast<int>(event.size),
+                                  static_cast<double>(event.samplePosition) * ticksPerSample);
+        track.addEvent(message);
+    }
+    auto end = juce::MidiMessage::endOfTrack();
+    end.setTimeStamp(static_cast<double>(recordedMidiSamples) * ticksPerSample);
+    track.addEvent(end);
+    track.sort();
+    track.updateMatchedPairs();
+
+    juce::MidiFile midiFile;
+    midiFile.setTicksPerQuarterNote(ticksPerQuarter);
+    midiFile.addTrack(track);
+    auto output = midiRecordingFile.createOutputStream();
+    if (output == nullptr) return false;
+    const auto written = midiFile.writeTo(*output);
+    output->flush();
+    if (!written) midiRecordingFile.deleteFile();
+    if (midiRecordingOverflowed)
+        juce::Logger::writeToLog("Aviso: limite de eventos da gravação MIDI atingido");
+    return written;
 }
 
 juce::String ClassicPlayerAudioProcessor::drumPadName(int pad) const

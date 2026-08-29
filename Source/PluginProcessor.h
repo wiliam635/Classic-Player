@@ -101,6 +101,7 @@ public:
     void stopAudioRecording();
     bool isAudioRecording() const noexcept;
     juce::String recordingFilePath() const;
+    juce::String midiRecordingFilePath() const;
 
     // Three-band master EQ: low/high shelves plus a variable mid bell.
     float masterEqValue(const juce::String& parameterId) const;
@@ -166,6 +167,7 @@ public:
     juce::MidiKeyboardState keyboardState;
 
 private:
+    friend struct MidiRecordingRegressionAccess;
     void timerCallback() override;
     void processMasterMidiMessage(const juce::MidiMessage&);
     void saveStartupSettings();
@@ -194,6 +196,8 @@ private:
     void saveLiveSetState() const;
     void updateMasterEq();
     void processDrumPads(juce::AudioBuffer<float>&, const juce::MidiBuffer&);
+    void recordMidiBuffer(const juce::MidiBuffer&, juce::int64 blockStartSample) noexcept;
+    bool writeRecordedMidiFile();
 
     Sf2Engine engine;
     Dx7Engine dx7Engine;
@@ -227,6 +231,19 @@ private:
     std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> recordingWriter;
     std::atomic<juce::AudioFormatWriter::ThreadedWriter*> activeRecordingWriter { nullptr };
     juce::File recordingFile;
+    struct RecordedMidiEvent
+    {
+        juce::int64 samplePosition = 0;
+        std::array<juce::uint8, 3> data {};
+        juce::uint8 size = 0;
+    };
+    static constexpr size_t maximumRecordedMidiEvents = 262144;
+    std::array<RecordedMidiEvent, maximumRecordedMidiEvents> recordedMidiEvents {};
+    std::atomic<bool> midiRecordingActive { false };
+    size_t recordedMidiEventCount = 0;
+    juce::int64 recordedMidiSamples = 0;
+    bool midiRecordingOverflowed = false;
+    juce::File midiRecordingFile;
     std::array<juce::String, Sf2Engine::layerCount> savedPaths;
     static constexpr int learnTargetCount = static_cast<int>(LearnTarget::count);
     // A MIDI controller is identified by CC *and* channel. Some keyboards

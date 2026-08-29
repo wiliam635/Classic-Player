@@ -208,7 +208,7 @@ private:
     juce::TextButton deleteProgramButton { "EXCLUIR" };
     juce::TextButton loadProgramButton { "CARREGAR" };
     juce::TextButton addLayerButton { "+ LAYER" };
-    juce::TextButton recordingButton { "GRAVAR WAV" };
+    juce::TextButton recordingButton { "GRAVAR WAV+MIDI" };
     juce::Label recordingStatus;
     juce::TextButton keyboardVisibilityButton { "OCULTAR TECLADO" };
     juce::TextButton liveSetButton { "LIVE SET" };
