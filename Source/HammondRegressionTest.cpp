@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "PluginEditor.h"
 #include "HammondEditorPanel.h"
 #include "AnalogEditorPanel.h"
 #include "AnalogBrowserPresets.h"
@@ -6,6 +7,73 @@
 #include <stdexcept>
 #include <chrono>
 static void check(bool b,const char* message){if(!b)throw std::runtime_error(message);}
+struct LiveSetLayoutRegressionAccess
+{
+    static void run(const char* screenshot)
+    {
+        juce::TemporaryFile storage;
+        const auto root=storage.getFile();
+        check(root.createDirectory().wasOk(),"Live Set temporary storage");
+        struct Cleanup { juce::File directory; ~Cleanup() { directory.deleteRecursively(); } } cleanup { root };
+        auto processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
+        while (processor->activeLayerCount()>2)
+            check(processor->removeLayer(processor->activeLayerCount()-1),"Live Set fixture layers");
+        processor->setLayerType(0,ClassicPlayerAudioProcessor::LayerType::hammond);
+        processor->setLayerType(1,ClassicPlayerAudioProcessor::LayerType::analog);
+        juce::File program;
+        check(processor->saveProgram("Test instruments",program).wasOk(),"Live Set fixture program");
+        check(processor->assignLiveSetSlot(0,0,program).wasOk(),"Live Set fixture assignment");
+        check(processor->liveSetSlotLayerSummary(0,0)=="2 CAMADAS","built-in instruments missing from layer count");
+        auto editor = std::make_unique<ClassicPlayerAudioProcessorEditor>(*processor);
+        editor->showLiveSet(true);
+        editor->activationPanel.setVisible(false);
+        for (auto size : { juce::Point<int>(1280,700), juce::Point<int>(1000,600) })
+        {
+            editor->setSize(size.x,size.y);
+            for (size_t i=0;i<editor->liveSetSlotButtons.size();++i)
+            {
+                const auto bounds=editor->liveSetSlotButtons[i].getBounds();
+                check(editor->getLocalBounds().contains(bounds),"Live Set card clipped");
+                check(bounds.getWidth()>200 && bounds.getHeight()>150,"Live Set card too small");
+                check(!editor->liveSetSlotLearnButtons[i].isVisible(),"Learn visible outside edit mode");
+                for (size_t j=i+1;j<editor->liveSetSlotButtons.size();++j)
+                    check(!bounds.intersects(editor->liveSetSlotButtons[j].getBounds()),"Live Set cards overlap");
+            }
+        }
+        editor->liveSetSlotButtons[0].onClick();
+        check(processor->activeLayerCount()==2,"Live Set load changed layer count");
+        check(processor->layerType(0)==ClassicPlayerAudioProcessor::LayerType::hammond,
+              "Live Set load changed instrument");
+        check((bool)editor->liveSetSlotButtons[0].getProperties()["liveActive"],"loaded card not highlighted");
+        editor->liveNextButton.onClick();
+        check(!(bool)editor->liveSetSlotButtons[0].getProperties()["liveActive"],"wrong bank highlighted");
+        editor->livePreviousButton.onClick();
+        check((bool)editor->liveSetSlotButtons[0].getProperties()["liveActive"],"loaded card lost on bank return");
+        editor->editLiveSetButton.onClick();
+        check(editor->liveSetSlotLearnButtons[0].isVisible(),"edit MIDI Learn hidden");
+        editor->editLiveSetButton.onClick();
+        editor->showLiveSet(false);
+        check(editor->master.getSliderStyle()==juce::Slider::RotaryHorizontalVerticalDrag,"mixer master style not restored");
+        editor->showLiveSet(true);
+        if (screenshot != nullptr)
+        {
+            editor->setSize(1280,700);
+            const char* names[]={"Piano + Pad","Worship Atmosphere","EP + Strings","Organ Leslie",
+                                 "Piano Solo","Brass Layer","Synth Lead","Guitar + Pad"};
+            for (size_t i=0;i<8;++i)
+            {
+                auto& props=editor->liveSetSlotButtons[i].getProperties();
+                props.set("liveTitle",names[i]);
+                props.set("liveSummary",i==4||i==6?"1 CAMADA":i==1?"3 CAMADAS":"2 CAMADAS");
+            }
+            const auto image=editor->createComponentSnapshot(editor->getLocalBounds());
+            juce::FileOutputStream stream{juce::File(screenshot)};
+            juce::PNGImageFormat png;
+            check(stream.openedOk()&&png.writeImageToStream(image,stream),"Live Set screenshot");
+        }
+        std::cout<<"Live Set layout, bank selection, edit mode and master style passed\n";
+    }
+};
 using Configs=std::array<HammondEngine::Config,HammondEngine::layerCount>;
 static Configs configs(){
     Configs c;for(auto& x:c)x.routing.enabled=false;
@@ -208,6 +276,7 @@ int main(int argc, char** argv)
         hammondPresetAndWheel();
         analogEditorLifecycle();
         nativeWindowStyle();
+        LiveSetLayoutRegressionAccess::run(argc>2 ? argv[2] : nullptr);
         for(double rate:{44100.,48000.}){
             const auto a=render(512,rate,false),b=render(127,rate,false),d=render(127,rate,true);
             float error=0,tail=0,signal=0,jump=0;

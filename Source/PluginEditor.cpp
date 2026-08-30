@@ -83,11 +83,67 @@ public:
         setColour(juce::Slider::textBoxOutlineColourId, juce::Colour(line));
     }
 
+    void drawButtonText(juce::Graphics& g, juce::TextButton& button, bool over, bool down) override
+    {
+        if (!button.getName().startsWith("LIVE_SLOT_"))
+            juce::LookAndFeel_V4::drawButtonText(g, button, over, down);
+    }
+
     void drawButtonBackground(juce::Graphics& g, juce::Button& button,
                               const juce::Colour& backgroundColour,
                               bool shouldDrawButtonAsHighlighted,
                               bool shouldDrawButtonAsDown) override
     {
+        if (button.getName().startsWith("LIVE_SLOT_"))
+        {
+            const auto bounds = button.getLocalBounds().toFloat().reduced(1.5f);
+            const bool active = button.getProperties()["liveActive"];
+            g.setColour(juce::Colour(0xff0b1720).brighter(shouldDrawButtonAsDown ? 0.18f : shouldDrawButtonAsHighlighted ? 0.10f : 0.0f));
+            g.fillRoundedRectangle(bounds, 6.0f);
+            g.setColour(juce::Colour(active ? teal : 0xff485560));
+            g.drawRoundedRectangle(bounds, 6.0f, active ? 2.0f : 1.0f);
+            const float w = (float)button.getWidth(), h = (float)button.getHeight();
+            g.setColour(juce::Colour(teal));
+            g.setFont(juce::FontOptions(juce::jlimit(30.0f, 64.0f, h * 0.27f), juce::Font::bold));
+            g.drawText(button.getProperties()["liveNumber"].toString(),
+                       juce::Rectangle<float>(12, h * 0.06f, w - 24, h * 0.34f), juce::Justification::centred);
+            g.setColour(juce::Colour(active ? yellow : teal).withAlpha(active ? 1.0f : 0.65f));
+            g.fillRect(juce::Rectangle<float>(18, h * 0.43f, w - 36, active ? 3.0f : 1.0f));
+            g.setColour(juce::Colour(text));
+            g.setFont(juce::FontOptions(juce::jlimit(17.0f, 28.0f, w * 0.085f), juce::Font::bold));
+            g.drawFittedText(button.getProperties()["liveTitle"].toString(),
+                            14, (int)(h * 0.49f), (int)w - 28, (int)(h * 0.29f), juce::Justification::centred, 2);
+            const auto summary = button.getProperties()["liveSummary"].toString();
+            auto summaryBounds = juce::Rectangle<float>(14, h * 0.82f, w - 28, h * 0.12f);
+            if (summary.endsWith("CAMADA") || summary.endsWith("CAMADAS"))
+            {
+                const float iconX=w*0.5f-70.0f, iconY=summaryBounds.getCentreY()-7.0f;
+                juce::Path layers;
+                layers.startNewSubPath(iconX,iconY);
+                layers.lineTo(iconX+10,iconY-5);
+                layers.lineTo(iconX+20,iconY);
+                layers.lineTo(iconX+10,iconY+5);
+                layers.closeSubPath();
+                for (float offset : { 5.0f,10.0f })
+                {
+                    layers.startNewSubPath(iconX,iconY+offset);
+                    layers.lineTo(iconX+10,iconY+offset+5);
+                    layers.lineTo(iconX+20,iconY+offset);
+                }
+                g.setColour(juce::Colour(teal));
+                g.strokePath(layers,juce::PathStrokeType(1.3f));
+                summaryBounds=juce::Rectangle<float>(w*0.5f-40.0f,summaryBounds.getY(),110.0f,summaryBounds.getHeight());
+            }
+            g.setColour(juce::Colour(mutedText));
+            g.setFont(juce::FontOptions(juce::jlimit(11.0f, 15.0f, h * 0.065f)));
+            g.drawText(summary, summaryBounds, juce::Justification::centred);
+            if (button.hasKeyboardFocus(true))
+            {
+                g.setColour(juce::Colour(text).withAlpha(0.7f));
+                g.drawRoundedRectangle(bounds.reduced(4),4,1);
+            }
+            return;
+        }
         auto bounds = button.getLocalBounds().toFloat().reduced(0.5f);
         auto colour = backgroundColour;
         if (shouldDrawButtonAsDown) colour = colour.darker(0.12f);
@@ -2746,8 +2802,32 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
         editingLiveSet = !editingLiveSet;
         editLiveSetButton.setButtonText(editingLiveSet ? "CONCLUIR EDICAO" : "EDITAR LIVE SET");
         refreshLiveSet();
+        resized();
     };
     addAndMakeVisible(editLiveSetButton);
+    for (auto* button : { &livePreviousButton, &liveNextButton, &liveSettingsButton })
+    {
+        flatButton(*button);
+        addAndMakeVisible(button);
+    }
+    livePreviousButton.onClick = [this] {
+        activeLiveSetBank = juce::jmax(0, activeLiveSetBank - 1); refreshLiveSet();
+    };
+    liveNextButton.onClick = [this] {
+        activeLiveSetBank = juce::jmin(ClassicPlayerAudioProcessor::liveSetBankCount - 1, activeLiveSetBank + 1); refreshLiveSet();
+    };
+    liveSettingsButton.onClick = [this] {
+        juce::PopupMenu menu;
+        menu.addItem(1, "Equalizador master");
+        menu.addItem(2, classicProcessor.isMasterMidiLearning() ? "Cancelar MIDI Learn do volume master"
+                                                              : "MIDI Learn do volume master");
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(liveSettingsButton),
+            [safe = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this)](int id) {
+                if (safe == nullptr) return;
+                if (id == 1) safe->masterEqButton.triggerClick();
+                if (id == 2) safe->masterLearnButton.triggerClick();
+            });
+    };
 
     for (int bank = 0; bank < ClassicPlayerAudioProcessor::liveSetBankCount; ++bank)
     {
@@ -2757,7 +2837,6 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
         button.onClick = [this, bank]
         {
             activeLiveSetBank = bank;
-            activeLiveSetSlot = -1;
             refreshLiveSet();
         };
         addAndMakeVisible(button);
@@ -2765,6 +2844,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     for (int slot = 0; slot < ClassicPlayerAudioProcessor::liveSetSlotsPerBank; ++slot)
     {
         auto& button = liveSetSlotButtons[(size_t) slot];
+        button.setName("LIVE_SLOT_" + juce::String(slot));
         flatButton(button);
         button.onClick = [this, slot]
         {
@@ -3079,6 +3159,22 @@ void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
 void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour(background));
+    if (showingLiveSet)
+    {
+        g.setColour(juce::Colour(line));
+        g.drawHorizontalLine(81, 14.0f, (float)getWidth()-14.0f);
+        g.drawRoundedRectangle(juce::Rectangle<float>(14, (float)getHeight()-76, (float)getWidth()-28, 62), 5, 1);
+        g.setColour(juce::Colour(text));
+        g.setFont(juce::FontOptions(34.0f, juce::Font::bold));
+        g.drawText("LIVE SET", getWidth()/2-130, 12, 260, 56, juce::Justification::centred);
+        const int start = getWidth()/2-100;
+        for (int i=0; i<ClassicPlayerAudioProcessor::liveSetBankCount; ++i)
+        {
+            g.setColour(juce::Colour(i == activeLiveSetBank ? teal : line));
+            g.fillEllipse((float)(start+i*26), (float)getHeight()-49, 8, 8);
+        }
+        return;
+    }
     g.setGradientFill(juce::ColourGradient(juce::Colour(0xff122633), 0.0f, 0.0f,
                                            juce::Colour(background), (float) getWidth(), 220.0f, false));
     g.fillRect(0, 0, getWidth(), 142);
@@ -3156,16 +3252,29 @@ void ClassicPlayerAudioProcessorEditor::resized()
 
     if (showingLiveSet)
     {
-        auto liveArea = area.reduced(4, 2);
-        auto banks = liveArea.removeFromTop(38);
+        auto liveArea = getLocalBounds().reduced(14);
+        auto liveHeader = liveArea.removeFromTop(68);
+        appIcon.setBounds(18, 14, 54, 54);
+        title.setBounds(82, 20, 260, 28);
+        subtitle.setBounds(82, 47, 260, 20);
+        auto controls = liveHeader.removeFromRight(370);
+        liveSetButton.setBounds(controls.removeFromRight(72).reduced(2,16));
+        auto volumeArea = controls.removeFromRight(140).reduced(8,8);
+        masterLabel.setBounds(volumeArea.removeFromTop(19));
+        master.setBounds(volumeArea);
+        liveSettingsButton.setBounds(controls.reduced(4,16));
+        liveArea.removeFromTop(8);
+        auto banks = liveArea.removeFromTop(46);
         const auto bankWidth = banks.getWidth() / ClassicPlayerAudioProcessor::liveSetBankCount;
         for (int bank = 0; bank < ClassicPlayerAudioProcessor::liveSetBankCount; ++bank)
             liveSetBankButtons[(size_t) bank].setBounds(
                 banks.removeFromLeft(bank == ClassicPlayerAudioProcessor::liveSetBankCount - 1
                                      ? banks.getWidth() : bankWidth).reduced(2, 2));
 
-        auto editArea = liveArea.removeFromBottom(46);
-        editLiveSetButton.setBounds(editArea.removeFromRight(168).reduced(2, 4));
+        auto editArea = liveArea.removeFromBottom(68).reduced(6, 10);
+        editLiveSetButton.setBounds(editArea.removeFromRight(224).reduced(4, 3));
+        livePreviousButton.setBounds(editArea.removeFromLeft(155).reduced(2,3));
+        liveNextButton.setBounds(editArea.removeFromRight(155).reduced(2,3));
         const auto tileHeight = liveArea.getHeight() / 2;
         const auto tileWidth = liveArea.getWidth() / 4;
         for (int slot = 0; slot < ClassicPlayerAudioProcessor::liveSetSlotsPerBank; ++slot)
@@ -3176,7 +3285,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
                 liveArea.getX() + column * tileWidth + 3,
                 liveArea.getY() + row * tileHeight + 3,
                 tileWidth - 6, tileHeight - 6);
-            auto learnArea = tile.removeFromBottom(25);
+            auto learnArea = editingLiveSet ? tile.removeFromBottom(28) : juce::Rectangle<int>{};
             liveSetSlotButtons[(size_t) slot].setBounds(tile);
             liveSetSlotLearnButtons[(size_t) slot].setBounds(learnArea.reduced(0, 2));
         }
@@ -3223,6 +3332,9 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
     const auto masterCC = classicProcessor.masterMidiLearnCC();
     masterLearnButton.setButtonText(classicProcessor.isMasterMidiLearning() ? "MOVE CC"
         : masterCC < 0 ? "LEARN" : "CC " + juce::String(masterCC));
+    if (showingLiveSet)
+        masterLabel.setText(classicProcessor.isMasterMidiLearning() ? "MOVA UM CC"
+            : masterCC < 0 ? "VOLUME" : "VOLUME / CC " + juce::String(masterCC), juce::dontSendNotification);
     classicProcessor.consumeMidiControlUpdates();
     if (classicProcessor.consumeLiveSetSlotMidiLearnChanged())
     {
@@ -3375,6 +3487,9 @@ void ClassicPlayerAudioProcessorEditor::deleteSelectedProgram()
 void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
 {
     showingLiveSet = show;
+    title.setColour(juce::Label::textColourId, juce::Colour(show ? text : teal));
+    subtitle.setText(show ? "SONS QUE INSPIRAM" : "CLASSIC KEYS SF2 WORKSTATION", juce::dontSendNotification);
+    subtitle.setColour(juce::Label::textColourId, juce::Colour(show ? teal : mutedText));
     liveSetButton.setButtonText(show ? "VOLTAR" : "LIVE SET");
     layerViewport.setVisible(!show);
     keyboard.setVisible(!show && virtualKeyboardVisible);
@@ -3384,6 +3499,18 @@ void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
     deleteProgramButton.setVisible(!show);
     loadProgramButton.setVisible(!show);
     addLayerButton.setVisible(!show);
+    for (juce::Component* component : std::initializer_list<juce::Component*>{
+             &chordLabel, &chordCaption, &chordColourButton, &keyColourButton,
+             &accidentalStyleBox, &masterMeter, &masterEqButton, &masterLearnButton })
+        component->setVisible(!show);
+    masterLabel.setText(show ? "VOLUME" : "MASTER", juce::dontSendNotification);
+    masterLabel.setVisible(true);
+    master.setSliderStyle(show ? juce::Slider::LinearHorizontal : juce::Slider::RotaryHorizontalVerticalDrag);
+    master.setTextBoxStyle(show ? juce::Slider::NoTextBox : juce::Slider::TextBoxBelow, false, 64, 18);
+    master.setTooltip(show ? "Volume master — use CONFIGURACOES para MIDI Learn" : "Volume master");
+    livePreviousButton.setVisible(show);
+    liveNextButton.setVisible(show);
+    liveSettingsButton.setVisible(show);
 
     editLiveSetButton.setVisible(show);
     for (auto& button : liveSetBankButtons) button.setVisible(show);
@@ -3391,10 +3518,14 @@ void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
     for (auto& button : liveSetSlotLearnButtons) button.setVisible(show);
     if (show) refreshLiveSet();
     resized();
+    repaint();
 }
 
 void ClassicPlayerAudioProcessorEditor::refreshLiveSet()
 {
+    livePreviousButton.setEnabled(activeLiveSetBank > 0);
+    liveNextButton.setEnabled(activeLiveSetBank + 1 < ClassicPlayerAudioProcessor::liveSetBankCount);
+    repaint();
     for (int bank = 0; bank < ClassicPlayerAudioProcessor::liveSetBankCount; ++bank)
     {
         auto& button = liveSetBankButtons[(size_t) bank];
@@ -3415,7 +3546,12 @@ void ClassicPlayerAudioProcessorEditor::refreshLiveSet()
         button.setButtonText(juce::String(slot + 1).paddedLeft('0', 2)
                              + "\n" + (name.isNotEmpty() ? name : "SEM PERFORMANCE")
                              + (layers.isNotEmpty() ? "\n" + layers : juce::String{}));
-        const auto active = slot == activeLiveSetSlot;
+        const auto active = slot == activeLiveSetSlot && activeLiveSetBank == loadedLiveSetBank;
+        button.getProperties().set("liveNumber", juce::String(slot+1).paddedLeft('0',2));
+        button.getProperties().set("liveTitle", name.isEmpty() ? "SEM PROGRAMACAO" : name);
+        button.getProperties().set("liveSummary", name.isEmpty() ? "ATRIBUA EM EDITAR LIVE SET" : layers);
+        button.getProperties().set("liveActive", active);
+        button.repaint();
         button.setColour(juce::TextButton::buttonColourId,
                          active ? juce::Colour(yellow) : juce::Colour(panel));
         button.setColour(juce::TextButton::buttonOnColourId,
@@ -3426,6 +3562,7 @@ void ClassicPlayerAudioProcessorEditor::refreshLiveSet()
                                          : (name.isEmpty() ? "Posição vazia" : "Carregar " + name));
 
         auto& learnButton = liveSetSlotLearnButtons[(size_t) slot];
+        learnButton.setVisible(showingLiveSet && editingLiveSet);
         const auto cc = classicProcessor.liveSetSlotMidiLearnCC(activeLiveSetBank, slot);
         const auto learning = classicProcessor.isLiveSetSlotMidiLearning(activeLiveSetBank, slot);
         learnButton.setButtonText(learning ? "AGUARDANDO..." : (cc >= 0 ? "CC " + juce::String(cc) : "LEARN CC"));
@@ -3504,6 +3641,7 @@ void ClassicPlayerAudioProcessorEditor::loadLiveSetSlot(int slot)
         return;
     }
     activeLiveSetSlot = slot;
+    loadedLiveSetBank = activeLiveSetBank;
     refreshAfterProgramLoad();
     refreshLiveSet();
 }

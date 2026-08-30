@@ -1672,17 +1672,9 @@ juce::String ClassicPlayerAudioProcessor::liveSetSlotLayerSummary(int bank, int 
         getXmlFromBinary(data.getData(), static_cast<int>(data.getSize())));
     if (xml == nullptr) return {};
 
-    juce::StringArray instruments;
-    for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
-    {
-        const auto number = juce::String(layer + 1);
-        auto path = xml->getStringAttribute("externalInstrument" + number);
-        if (path.isEmpty())
-            path = xml->getStringAttribute("sf2Layer" + number);
-        if (path.isNotEmpty())
-            instruments.add(juce::File(path).getFileNameWithoutExtension());
-    }
-    return instruments.joinIntoString(" + ");
+    const auto count = juce::jlimit(1, Sf2Engine::layerCount,
+        xml->getIntAttribute("activeLayers", Sf2Engine::defaultLayerCount));
+    return juce::String(count) + (count == 1 ? " CAMADA" : " CAMADAS");
 }
 
 juce::Result ClassicPlayerAudioProcessor::assignLiveSetSlot(int bank, int slot,

@@ -19,6 +19,7 @@ public:
     void resized() override;
 
 private:
+    friend struct LiveSetLayoutRegressionAccess;
     class LevelMeter final : public juce::Component
     {
     public:
@@ -213,6 +214,9 @@ private:
     juce::TextButton keyboardVisibilityButton { "OCULTAR TECLADO" };
     juce::TextButton liveSetButton { "LIVE SET" };
     juce::TextButton editLiveSetButton { "EDITAR LIVE SET" };
+    juce::TextButton livePreviousButton { "<  ANTERIOR" };
+    juce::TextButton liveNextButton { "PROXIMO  >" };
+    juce::TextButton liveSettingsButton { "CONFIGURACOES" };
     std::array<juce::TextButton, ClassicPlayerAudioProcessor::liveSetBankCount> liveSetBankButtons;
     std::array<juce::TextButton, ClassicPlayerAudioProcessor::liveSetSlotsPerBank> liveSetSlotButtons;
     std::array<juce::TextButton, ClassicPlayerAudioProcessor::liveSetSlotsPerBank> liveSetSlotLearnButtons;
@@ -244,6 +248,7 @@ private:
     int displayedLayerCount = Sf2Engine::defaultLayerCount;
     int activeLiveSetBank = 0;
     int activeLiveSetSlot = -1;
+    int loadedLiveSetBank = -1;
     bool showingLiveSet = false;
     bool editingLiveSet = false;
     bool virtualKeyboardVisible = true;
