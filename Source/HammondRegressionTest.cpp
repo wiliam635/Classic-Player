@@ -31,6 +31,28 @@ static std::vector<float> render(int block,double rate,bool routed,bool allBars=
     }
     return result;
 }
+static void nativeWindowStyle()
+{
+    auto processor = std::make_unique<ClassicPlayerAudioProcessor>();
+    std::unique_ptr<juce::AudioProcessorEditor> editor(processor->createEditor());
+    const auto flags = editor->getLookAndFeel().getAlertBoxWindowFlags();
+    check((flags & juce::ComponentPeer::windowHasTitleBar) != 0, "missing native dialog title bar");
+    check((flags & juce::ComponentPeer::windowHasCloseButton) != 0, "missing native dialog close button");
+    // AlertWindow's layout dereferences the primary display. Headless CI and
+    // sandboxed macOS tests can have no display; still verify the style flags.
+    if (!juce::Desktop::getInstance().getDisplays().displays.isEmpty())
+    {
+        juce::AlertWindow dialog("Window style test", {}, juce::MessageBoxIconType::NoIcon);
+        dialog.setLookAndFeel(&editor->getLookAndFeel());
+        const auto native = dialog.isUsingNativeTitleBar();
+        dialog.setLookAndFeel(nullptr);
+        check(native, "dialog did not adopt native title bar");
+    }
+    else
+        std::cout << "No display: native dialog instantiation skipped\n";
+    std::cout << "Native dialog title bar and close flags passed\n";
+}
+
 static void analogEditorLifecycle()
 {
     auto processor=std::make_unique<ClassicPlayerAudioProcessor>();
@@ -185,6 +207,7 @@ int main(int argc, char** argv)
         DrumPadRegressionAccess::run();
         hammondPresetAndWheel();
         analogEditorLifecycle();
+        nativeWindowStyle();
         for(double rate:{44100.,48000.}){
             const auto a=render(512,rate,false),b=render(127,rate,false),d=render(127,rate,true);
             float error=0,tail=0,signal=0,jump=0;

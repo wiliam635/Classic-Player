@@ -61,6 +61,13 @@ juce::Image embeddedImage(const char* resourceName)
 class ClassicLookAndFeel final : public juce::LookAndFeel_V4
 {
 public:
+    int getAlertBoxWindowFlags() override
+    {
+        return juce::LookAndFeel_V4::getAlertBoxWindowFlags()
+             | juce::ComponentPeer::windowHasTitleBar
+             | juce::ComponentPeer::windowHasCloseButton;
+    }
+
     ClassicLookAndFeel()
     {
         setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff0b141d));
@@ -183,9 +190,8 @@ struct KnobEditorSpec
     int decimals;
 };
 
-// All layer editors use the same non-overlapping close control.  Keeping the
-// X in the title area leaves the footer entirely available for MIDI Learn and
-// effect controls, even when JUCE lays out a compact dialog on macOS.
+// Let the OS provide the title bar and close control: traffic lights on macOS,
+// standard caption buttons on Windows. Keep modal cleanup unchanged.
 class LayerEditorWindow final : public juce::AlertWindow
 {
 public:
@@ -193,25 +199,10 @@ public:
                       juce::MessageBoxIconType icon)
         : juce::AlertWindow(title, message, icon)
     {
-        // Use plain ASCII so every platform font renders the close control
-        // consistently (some macOS JUCE fonts substitute the multiplication
-        // sign with an unrelated glyph).
-        closeButton.setButtonText("X");
-        closeButton.setTooltip("Fechar");
-        flatButton(closeButton);
-        closeButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffedf4f7));
-        closeButton.onClick = [this] { exitModalState(0); };
-        addAndMakeVisible(closeButton);
+        setUsingNativeTitleBar(true);
     }
 
-    void resized() override
-    {
-        juce::AlertWindow::resized();
-        closeButton.setBounds(getWidth() - 38, 6, 30, 26);
-    }
-
-private:
-    juce::TextButton closeButton;
+    void userTriedToCloseWindow() override { exitModalState(0); }
 };
 
 class KnobEditorPanel final : public juce::Component
@@ -3222,6 +3213,13 @@ void ClassicPlayerAudioProcessorEditor::resized()
 
 void ClassicPlayerAudioProcessorEditor::timerCallback()
 {
+   #if JucePlugin_Build_Standalone
+    // The generated JUCE standalone shell owns the main window. Wait until
+    // the editor is attached, and never change a DAW's plugin window.
+    if (auto* window = findParentComponentOfClass<juce::StandaloneFilterWindow>())
+        if (!window->isUsingNativeTitleBar())
+            window->setUsingNativeTitleBar(true);
+   #endif
     const auto masterCC = classicProcessor.masterMidiLearnCC();
     masterLearnButton.setButtonText(classicProcessor.isMasterMidiLearning() ? "MOVE CC"
         : masterCC < 0 ? "LEARN" : "CC " + juce::String(masterCC));
