@@ -37,8 +37,18 @@ static void startupPrograms()
     juce::File first, last;
     check(p->saveProgram("First", first).wasOk(), "save first");
     p->parameters.getParameter("master")->setValueNotifyingHost(0.75f);
+    while (p->activeLayerCount() > 4)
+        check(p->removeLayer(p->activeLayerCount() - 1), "remove layer for startup test");
+    const int savedChannels[] = {1, 0, 10, 16};
+    for (int layer = 0; layer < 4; ++layer)
+    {
+        auto config = p->layerConfig(layer);
+        config.midiChannel = savedChannels[layer];
+        p->setLayerConfig(layer, config);
+    }
     check(p->saveProgram("Last", last).wasOk(), "save last");
     check(p->loadProgram(first).wasOk(), "load older program");
+    check(p->activeLayerCount() == 6, "older program layer count");
     juce::MemoryBlock unsaved;
     p->getStateInformation(unsaved);
     p.reset();
@@ -47,9 +57,14 @@ static void startupPrograms()
     p->prepareToPlay(48000, 128);
     check(p->parameters.getRawParameterValue("master")->load() == 75, "startup did not restore last SAVED program");
     check(p->currentSavedProgramName() == "Last", "restored program name");
+    check(p->activeLayerCount() == 4, "startup expanded four layers to six");
+    for (int layer = 0; layer < 4; ++layer)
+        check(p->layerConfig(layer).midiChannel == savedChannels[layer], "startup lost layer MIDI channel");
     p->parameters.getParameter("master")->setValueNotifyingHost(0.42f);
     p->prepareToPlay(44100, 128);
     check(p->parameters.getRawParameterValue("master")->load() == 42, "device restart reloaded program");
+    check(p->activeLayerCount() == 4 && p->layerConfig(0).midiChannel == 1,
+          "device restart lost layer routing");
     p.reset();
     p = open(false);
     p->prepareToPlay(48000, 128);

@@ -1863,6 +1863,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("externalInstrumentState" + juce::String(i + 1),
                           externalInstruments[(size_t) i].getState().toBase64Encoding(), nullptr);
         const auto config = engine.getConfig(i);
+        state.setProperty("midiChannel" + juce::String(i), config.midiChannel, nullptr);
         state.setProperty("low" + juce::String(i), config.lowNote, nullptr);
         state.setProperty("high" + juce::String(i), config.highNote, nullptr);
         state.setProperty("octave" + juce::String(i), config.octave, nullptr);
@@ -2155,6 +2156,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 analog.browserCompatible = state.getProperty("analogBrowserCompatible" + analogKey, false);
 
                 auto config = engine.getConfig(i);
+                config.midiChannel = juce::jlimit(0, 16, static_cast<int>(
+                    state.getProperty("midiChannel" + juce::String(i), 0)));
                 config.lowNote = state.getProperty("low" + juce::String(i), 0);
                 config.highNote = state.getProperty("high" + juce::String(i), 127);
                 config.octave = state.getProperty("octave" + juce::String(i), 0);
@@ -2186,7 +2189,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 }
             }
             const auto restoredLayerCount = juce::jlimit(
-                Sf2Engine::defaultLayerCount, Sf2Engine::layerCount,
+                1, Sf2Engine::layerCount,
                 static_cast<int>(state.getProperty("activeLayers", Sf2Engine::defaultLayerCount)));
             activeLayers.store(restoredLayerCount, std::memory_order_relaxed);
             for (int i = 0; i < Sf2Engine::layerCount; ++i)
