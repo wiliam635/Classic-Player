@@ -24,9 +24,14 @@ public:
         std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
         if(!reader || reader->lengthInSamples<4 || reader->sampleRate<=0)
             return juce::Result::fail("Não foi possível ler este áudio");
-        constexpr juce::int64 maxFrames=16*1024*1024;
+        // This is a time limit, not a byte limit: a 44.1 kHz source gets the
+        // same ten minutes as a 48 kHz source. Audio is held as stereo float
+        // internally, so the existing 256 MB bank budget still permits one
+        // full-length 48 kHz pad (about 220 MB).
+        constexpr double maxSeconds = 10.0 * 60.0;
+        const auto maxFrames = static_cast<juce::int64>(std::floor(reader->sampleRate * maxSeconds));
         if(reader->lengthInSamples>maxFrames)
-            return juce::Result::fail("Áudio muito grande. Use um trecho menor para o loop (máximo 128 MB decodificados).");
+            return juce::Result::fail("Áudio muito grande. Cada pad contínuo aceita até 10 minutos.");
         juce::AudioBuffer<float> audio(2,(int)reader->lengthInSamples);
         if(!reader->read(&audio,0,audio.getNumSamples(),0,true,true))
             return juce::Result::fail("Falha ao ler o áudio");

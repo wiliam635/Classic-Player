@@ -8,7 +8,7 @@
 - O ajuste de crossfade (0,02–10 segundos) é usado na emenda do loop, nas trocas e na parada. Em arquivos curtos, a emenda é limitada à metade do arquivo.
 - O fader controla o banco inteiro; seu LEARN fica no editor. Os medidores dos dois tipos de pad mostram o áudio após o fader.
 - Caminhos dos arquivos, CCs e crossfade são salvos na programação. Carregar uma programação não inicia os pads automaticamente. Mantenha os arquivos de áudio em seus caminhos originais.
-- Para limitar o uso de memória, cada arquivo pode ocupar até 128 MB decodificado em estéreo float; o banco aceita até 256 MB. Arquivos maiores precisam ser reduzidos antes da importação.
+- Cada pad contínuo aceita até 10 minutos, independentemente da taxa de amostragem. O banco aceita até 256 MB de áudio decodificado: um arquivo estéreo de 48 kHz com 10 minutos ocupa aproximadamente 220 MB, portanto cabe sozinho; para usar vários pads, prefira trechos menores.
 - CC64 (sustain) e CC120–127 não são aprendidos como disparadores. Pads contínuos não respondem a notas; drum pads mantêm as notas no canal 10.
 
 ## Validação
