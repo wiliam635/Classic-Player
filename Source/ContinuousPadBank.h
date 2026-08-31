@@ -1,7 +1,3 @@
-ginal token count: 50022)
-Total output lines: 4117
-
----Source/ContinuousPadBank.h
 #pragma once
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -44,10 +40,10 @@ public:
         const juce::ScopedLock guard(lock);
         juce::int64 totalFrames=audio.getNumSamples();
         for(int i=0;i<count;++i)if(i!=index)totalFrames+=pads[(size_t)i].audio.getNumSamples();
-        constexpr juce::int64 maximumBankBytes=1024ll*1024ll*1024ll; // 1 GiB decoded stereo PCM
+        constexpr juce::int64 maximumBankBytes=4ll*1024ll*1024ll*1024ll; // 4 GiB decoded stereo PCM
         constexpr juce::int64 bytesPerStereoFrame=(juce::int64)sizeof(float)*2;
         if(totalFrames*bytesPerStereoFrame>maximumBankBytes)
-            return juce::Result::fail("Limite de memória dos pads contínuos atingido (1 GB). Remova um pad ou use arquivos menores.");
+            return juce::Result::fail("Limite de memória dos pads contínuos atingido (4 GB). Remova um pad ou use arquivos menores.");
         auto& p=pads[(size_t)index];std::swap(p.audio,audio);p.rate=reader->sampleRate;
         p.path=file.getFullPathName();p.position=0;p.level=0;
         if(active.load()==index){active=-1;command=-2;}
