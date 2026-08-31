@@ -1,3 +1,7 @@
+ginal token count: 50022)
+Total output lines: 4117
+
+---Source/ContinuousPadBank.h
 #pragma once
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -26,8 +30,9 @@ public:
             return juce::Result::fail("Não foi possível ler este áudio");
         // This is a time limit, not a byte limit: a 44.1 kHz source gets the
         // same ten minutes as a 48 kHz source. Audio is held as stereo float
-        // internally, so the existing 256 MB bank budget still permits one
-        // full-length 48 kHz pad (about 220 MB).
+        // internally. Keep a deliberately generous per-layer working budget:
+        // several ten-minute MP3 pads can coexist without rejecting the second
+        // pad solely because the first one was decoded to PCM.
         constexpr double maxSeconds = 10.0 * 60.0;
         const auto maxFrames = static_cast<juce::int64>(std::floor(reader->sampleRate * maxSeconds));
         if(reader->lengthInSamples>maxFrames)
@@ -37,10 +42,12 @@ public:
             return juce::Result::fail("Falha ao ler o áudio");
         if(reader->numChannels==1)audio.copyFrom(1,0,audio,0,0,audio.getNumSamples());
         const juce::ScopedLock guard(lock);
-        juce::int64 total=audio.getNumSamples();
-        for(int i=0;i<count;++i)if(i!=index)total+=pads[(size_t)i].audio.getNumSamples();
-        if(total>32*1024*1024)
-            return juce::Result::fail("Limite de memória deste banco atingido (256 MB). Use trechos menores.");
+        juce::int64 totalFrames=audio.getNumSamples();
+        for(int i=0;i<count;++i)if(i!=index)totalFrames+=pads[(size_t)i].audio.getNumSamples();
+        constexpr juce::int64 maximumBankBytes=1024ll*1024ll*1024ll; // 1 GiB decoded stereo PCM
+        constexpr juce::int64 bytesPerStereoFrame=(juce::int64)sizeof(float)*2;
+        if(totalFrames*bytesPerStereoFrame>maximumBankBytes)
+            return juce::Result::fail("Limite de memória dos pads contínuos atingido (1 GB). Remova um pad ou use arquivos menores.");
         auto& p=pads[(size_t)index];std::swap(p.audio,audio);p.rate=reader->sampleRate;
         p.path=file.getFullPathName();p.position=0;p.level=0;
         if(active.load()==index){active=-1;command=-2;}
