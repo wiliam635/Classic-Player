@@ -64,6 +64,11 @@ juce_add_plugin(ClassicPlayer
     COPY_PLUGIN_AFTER_BUILD FALSE
     VST3_CATEGORIES Instrument Synth)
 
+if(TARGET ClassicPlayer_Standalone)
+    target_sources(ClassicPlayer_Standalone PRIVATE Source/NativeStandaloneApp.cpp)
+    target_compile_definitions(ClassicPlayer_Standalone PRIVATE JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1)
+endif()
+
 if(APPLE AND TARGET ClassicPlayer_Standalone)
     set_target_properties(ClassicPlayer_Standalone PROPERTIES
         JUCE_BUNDLE_ID "com.classickeys.classicplayer.app")

@@ -3336,13 +3336,6 @@ void ClassicPlayerAudioProcessorEditor::resized()
 
 void ClassicPlayerAudioProcessorEditor::timerCallback()
 {
-   #if JucePlugin_Build_Standalone
-    // The generated JUCE standalone shell owns the main window. Wait until
-    // the editor is attached, and never change a DAW's plugin window.
-    if (auto* window = findParentComponentOfClass<juce::StandaloneFilterWindow>())
-        if (!window->isUsingNativeTitleBar())
-            window->setUsingNativeTitleBar(true);
-   #endif
     const auto masterCC = classicProcessor.masterMidiLearnCC();
     masterLearnButton.setButtonText(classicProcessor.isMasterMidiLearning() ? "MOVE CC"
         : masterCC < 0 ? "LEARN" : "CC " + juce::String(masterCC));
