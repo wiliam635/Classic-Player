@@ -8,6 +8,7 @@
 #include "Dx7Engine.h"
 #include "AnalogSynthEngine.h"
 #include "HammondEngine.h"
+#include "ContinuousPadBank.h"
 #include "ExternalInstrumentHost.h"
 #include <atomic>
 
@@ -25,7 +26,8 @@ public:
     juce::String currentSavedProgramName() const { return currentSavedProgram; }
     // A source is chosen only when a new layer is created. The initial four
     // layers are SF2 by design.
-    enum class LayerType { sf2 = 0, vst, dx7, analog, drumPads, hammond };
+    enum class LayerType { sf2 = 0, vst, dx7, analog, drumPads, hammond, continuousPads };
+    ContinuousPadBank& continuousPads(int layer) { return *continuousBanks[(size_t)layer]; }
     explicit ClassicPlayerAudioProcessor(juce::File programStorageOverride = {});
     ~ClassicPlayerAudioProcessor() override;
 
@@ -287,6 +289,9 @@ private:
     std::array<juce::SmoothedValue<float>, Sf2Engine::layerCount> drumLayerGains;
     std::array<bool, Sf2Engine::layerCount> drumGainReady {};
     juce::AudioBuffer<float> drumGainScratch;
+    juce::AudioBuffer<float> drumMixScratch;
+    std::array<std::unique_ptr<ContinuousPadBank>, Sf2Engine::layerCount> continuousBanks;
+    std::array<std::atomic<float>, Sf2Engine::layerCount> drumPeaks {};
     juce::AudioFormatManager drumPadFormats;
     mutable juce::CriticalSection drumPadLock;
     std::atomic<bool> activated { false };

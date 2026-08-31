@@ -7,6 +7,46 @@
 #include <stdexcept>
 #include <chrono>
 static void check(bool b,const char* message){if(!b)throw std::runtime_error(message);}
+static void continuousPadRegression()
+{
+    juce::TemporaryFile fixture(".wav");
+    {
+        juce::WavAudioFormat format;
+        auto stream=fixture.getFile().createOutputStream();check(stream!=nullptr,"pad WAV stream");
+        std::unique_ptr<juce::AudioFormatWriter> writer(format.createWriterFor(stream.release(),44100,1,24,{},0));
+        check(writer!=nullptr,"pad WAV writer");juce::AudioBuffer<float> source(1,4410);
+        for(int i=0;i<source.getNumSamples();++i)source.setSample(0,i,.25f*(float)i/4410.f);
+        check(writer->writeFromAudioSampleBuffer(source,0,source.getNumSamples()),"pad WAV write");
+    }
+    ContinuousPadBank bank;bank.prepare(48000);bank.setFadeSeconds(.02);
+    check(bank.load(0,fixture.getFile()).wasOk(),"pad load");
+    check(bank.load(1,fixture.getFile()).wasOk(),"second pad load");
+    juce::AudioBuffer<float> audio(2,128);
+    auto block=[&]{audio.clear();bank.render(audio,1.f);};
+    block();check(audio.getMagnitude(0,128)==0,"pad autoplays after load");
+    bank.trigger(0);float previous=0,maxJump=0;
+    for(int b=0;b<400;++b)
+    {
+        if(b==100)bank.trigger(0);
+        block();for(int i=0;i<128;++i){const auto value=audio.getSample(0,i);maxJump=juce::jmax(maxJump,std::abs(value-previous));previous=value;}
+    }
+    check(maxJump<.001f,"loop seam or repeated trigger discontinuity");
+    check(bank.peak()>0,"continuous meter silent");
+    bank.trigger(1);block();check(bank.selected()==1,"pad selection did not switch");
+    bank.stop();for(int i=0;i<12;++i)block();check(audio.getMagnitude(0,128)<1e-6,"STOP did not fade to silence");
+    bank.learn(0);bank.midi(juce::MidiMessage::controllerEvent(10,64,127));check(bank.learningTarget()==0,"pad learned sustain");
+    bank.midi(juce::MidiMessage::controllerEvent(10,21,127));check(bank.mapping(0)==21&&bank.selected()==-1,"learn starts playback");
+    bank.midi(juce::MidiMessage::controllerEvent(10,21,0));block();check(bank.selected()==-1,"CC release triggered pad");
+    bank.midi(juce::MidiMessage::controllerEvent(10,21,127));block();check(bank.selected()==0,"CC press did not trigger pad");
+    const auto saved=bank.save();bank.restore(saved);block();check(bank.selected()==-1&&audio.getMagnitude(0,128)==0,"restore autoplays");
+    check(bank.mapping(0)==21&&bank.path(0)==fixture.getFile().getFullPathName(),"pad settings lost");
+    auto p=std::make_unique<ClassicPlayerAudioProcessor>();
+    p->setLayerType(1,ClassicPlayerAudioProcessor::LayerType::continuousPads);p->continuousPads(1).restore(saved);
+    juce::MemoryBlock state;p->getStateInformation(state);p->setStateInformation(state.getData(),(int)state.getSize());
+    check(p->layerType(1)==ClassicPlayerAudioProcessor::LayerType::continuousPads&&p->continuousPads(1).mapping(0)==21,"program lost continuous pads");
+    p->removeLayer(0);check(p->layerType(0)==ClassicPlayerAudioProcessor::LayerType::continuousPads&&p->continuousPads(0).mapping(0)==21,"removal lost pad bank");
+    std::cout<<"Continuous pads: looping, resampling, crossfade, STOP, MIDI, persistence and layer move passed\n";
+}
 struct LiveSetLayoutRegressionAccess
 {
     static void run(const char* screenshot)
@@ -87,7 +127,32 @@ struct LiveSetLayoutRegressionAccess
             check(mixerStream.openedOk()&&png.writeImageToStream(
                 editor->createComponentSnapshot(editor->getLocalBounds()),mixerStream),"mixer audio settings screenshot");
         }
-        std::cout<<"Live Set layout, bank selection, edit mode and master style passed\n";
+        editor->showLiveSet(false);
+        processor->setLayerType(0,ClassicPlayerAudioProcessor::LayerType::drumPads);
+        processor->setLayerType(1,ClassicPlayerAudioProcessor::LayerType::continuousPads);
+        for(int i=0;i<2;++i)editor->strips[(size_t)i]->refresh();
+        editor->setSize(1280,700);editor->layoutLayerStrips();
+        check(editor->strips[0]->getWidth()>=420&&editor->strips[1]->getWidth()>=420,"pad strips not widened");
+        for(int layer=0;layer<2;++layer)
+        {
+            int visiblePads=0;
+            std::function<void(juce::Component&)> inspect=[&](juce::Component& component)
+            {
+                for(auto* child:component.getChildren())if(child->isVisible())
+                {
+                    check(component.getLocalBounds().contains(child->getBounds()),"pad control outside layer");
+                    if(child->getName().startsWith("DRUM_PAD_")){++visiblePads;check(child->getWidth()>=50&&child->getHeight()>=30,"pad too small");}
+                    if(auto* button=dynamic_cast<juce::TextButton*>(child))
+                        check(button->getButtonText()!="LOAD"&&button->getButtonText()!="LEARN","configuration button visible in mixer pad layer");
+                    inspect(*child);
+                }
+            };
+            inspect(*editor->strips[(size_t)layer]);check(visiblePads==(layer==0?8:12),"wrong visible pad count");
+        }
+        if(screenshot)
+        {juce::FileOutputStream out{juce::File(juce::String(screenshot)+".pads.png")};juce::PNGImageFormat png;
+         check(png.writeImageToStream(editor->createComponentSnapshot(editor->getLocalBounds()),out),"pad screenshot");}
+        std::cout<<"Live Set and 1280x700 pad layout passed\n";
     }
 };
 using Configs=std::array<HammondEngine::Config,HammondEngine::layerCount>;
@@ -196,10 +261,13 @@ struct DrumPadRegressionAccess
             p->processDrumPads(b,m);return b.getSample(0,127);
         };
         gain(100);check(std::abs(block()-.25f)<1e-6,"drum unity gain");
+        check(std::abs(p->layerPeak(0)-.25f)<1e-6,"drum meter unity gain");
         gain(50);const auto transition=block();check(transition>.125f&&transition<.25f,"drum gain not smoothed");
         for(int i=0;i<10;++i)block();
         check(std::abs(block()-.125f)<1e-6,"drum half gain");
+        check(std::abs(p->layerPeak(0)-.125f)<1e-6,"drum meter ignores layer gain");
         gain(0);for(int i=0;i<10;++i)block();check(std::abs(block())<1e-6,"drum mute gain");
+        check(p->layerPeak(0)<1e-6,"muted drum meter not silent");
         gain(50);auto config=p->layerConfig(0);config.enabled=false;p->setLayerConfig(0,config);
         for(int i=0;i<10;++i)block();check(std::abs(block())<1e-6,"drum layer mute ignored");
         config.enabled=true;p->setLayerConfig(0,config);for(int i=0;i<10;++i)block();
@@ -289,6 +357,7 @@ int main(int argc, char** argv)
     juce::ScopedJuceInitialiser_GUI init;
     try{
         DrumPadRegressionAccess::run();
+        continuousPadRegression();
         hammondPresetAndWheel();
         analogEditorLifecycle();
         nativeWindowStyle();

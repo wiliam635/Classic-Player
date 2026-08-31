@@ -42,19 +42,25 @@ private:
         static juce::String noteLabel(int);
     };
 
-    class DrumPadPanel final : public juce::Component
+    class DrumPadPanel final : public juce::Component, private juce::Timer
     {
     public:
-        explicit DrumPadPanel(ClassicPlayerAudioProcessor&);
+        explicit DrumPadPanel(ClassicPlayerAudioProcessor&, int layer);
         void resized() override;
         void refresh();
         void setControlsVisible(bool shouldShow);
     private:
         void chooseSample(int pad);
+        void timerCallback() override { refresh(); }
         ClassicPlayerAudioProcessor& processor;
-        std::array<juce::TextButton, ClassicPlayerAudioProcessor::drumPadCount> pads;
-        std::array<juce::TextButton, ClassicPlayerAudioProcessor::drumPadCount> loadButtons;
-        std::array<juce::TextButton, ClassicPlayerAudioProcessor::drumPadCount> learnButtons;
+        int layerIndex;
+        bool continuous() const {return processor.layerType(layerIndex)==ClassicPlayerAudioProcessor::LayerType::continuousPads;}
+        int padCount() const {return continuous()?12:8;}
+        std::array<juce::TextButton, 12> pads;
+        std::array<juce::TextButton, 12> loadButtons;
+        std::array<juce::TextButton, 12> learnButtons;
+        juce::TextButton stopButton{"STOP"}, stopLearn{"LEARN STOP"}, volumeLearnButton{"LEARN VOLUME"};
+        juce::Slider fadeSlider;
         std::unique_ptr<juce::FileChooser> fileChooser;
         bool controlsVisible = true;
     };

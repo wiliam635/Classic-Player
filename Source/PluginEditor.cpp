@@ -1329,10 +1329,10 @@ void ClassicPlayerAudioProcessorEditor::NamedKeyboard::setActiveColour(juce::Col
     repaint();
 }
 
-ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudioProcessor& p)
-    : processor(p)
+ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudioProcessor& p, int layer)
+    : processor(p), layerIndex(layer)
 {
-    for (int pad = 0; pad < ClassicPlayerAudioProcessor::drumPadCount; ++pad)
+    for (int pad = 0; pad < 12; ++pad)
     {
         auto& trigger = pads[(size_t) pad];
         trigger.setName("DRUM_PAD_" + juce::String(pad + 1));
@@ -1343,7 +1343,7 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
         trigger.setColour(juce::TextButton::buttonOnColourId, juce::Colour(yellow));
         trigger.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff15191d));
         trigger.setColour(juce::TextButton::textColourOnId, juce::Colour(0xff15191d));
-        trigger.onClick = [this, pad] { processor.triggerDrumPad(pad); };
+        trigger.onClick = [this, pad] { if(continuous())processor.continuousPads(layerIndex).trigger(pad);else processor.triggerDrumPad(pad); };
         addAndMakeVisible(trigger);
 
         auto& load = loadButtons[(size_t) pad];
@@ -1357,20 +1357,31 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
         learn.setButtonText("LEARN");
         learn.setTooltip("Aprender um CC MIDI exclusivo para este pad");
         flatButton(learn);
-        learn.onClick = [this, pad] { processor.beginDrumPadMidiLearn(pad); refresh(); };
+        learn.onClick = [this, pad] { if(continuous())processor.continuousPads(layerIndex).learn(pad);else processor.beginDrumPadMidiLearn(pad); refresh(); };
         addAndMakeVisible(learn);
     }
-    refresh();
+    for(auto* button:{&stopButton,&stopLearn,&volumeLearnButton}){flatButton(*button);addAndMakeVisible(*button);}
+    stopButton.onClick=[this]{processor.continuousPads(layerIndex).stop();};
+    stopLearn.onClick=[this]{processor.continuousPads(layerIndex).learn(12);};
+    volumeLearnButton.onClick=[this]{processor.beginMidiLearn(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume);};
+    fadeSlider.setRange(.02,10.0,.01);fadeSlider.setTextValueSuffix(" s crossfade");
+    fadeSlider.setValue(processor.continuousPads(layerIndex).fadeSeconds(),juce::dontSendNotification);
+    fadeSlider.onValueChange=[this]{processor.continuousPads(layerIndex).setFadeSeconds(fadeSlider.getValue());};
+    addAndMakeVisible(fadeSlider);
+    setControlsVisible(true);refresh();startTimerHz(15);
 }
 
 void ClassicPlayerAudioProcessorEditor::DrumPadPanel::setControlsVisible(bool shouldShow)
 {
     controlsVisible = shouldShow;
-    for (int pad = 0; pad < ClassicPlayerAudioProcessor::drumPadCount; ++pad)
+    for (int pad = 0; pad < 12; ++pad)
     {
-        loadButtons[(size_t) pad].setVisible(controlsVisible);
-        learnButtons[(size_t) pad].setVisible(controlsVisible);
+        pads[(size_t)pad].setVisible(pad<padCount());
+        loadButtons[(size_t) pad].setVisible(controlsVisible && pad<padCount());
+        learnButtons[(size_t) pad].setVisible(controlsVisible && pad<padCount());
     }
+    stopButton.setVisible(continuous());stopLearn.setVisible(controlsVisible&&continuous());
+    fadeSlider.setVisible(controlsVisible&&continuous());volumeLearnButton.setVisible(controlsVisible);
     resized();
 }
 
@@ -1385,7 +1396,7 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::chooseSample(int pad)
             const auto file = chooser.getResult();
             if (file.existsAsFile())
             {
-                const auto result = processor.loadDrumPad(pad, file);
+                const auto result = continuous() ? processor.continuousPads(layerIndex).load(pad,file) : processor.loadDrumPad(pad, file);
                 if (result.failed())
                     juce::AlertWindow::showMessageBoxAsync(
                         juce::MessageBoxIconType::WarningIcon, "Drum pad", result.getErrorMessage());
@@ -1396,34 +1407,51 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::chooseSample(int pad)
 
 void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
 {
-    for (int pad = 0; pad < ClassicPlayerAudioProcessor::drumPadCount; ++pad)
+    const auto volumeCC=processor.midiLearnCC(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume);
+    volumeLearnButton.setButtonText(processor.isMidiLearning(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume)
+        ? "VOLUME: MOVA O CC" : volumeCC>=0 ? "VOLUME: CC "+juce::String(volumeCC) : "LEARN VOLUME");
+    if(continuous())
+    {
+        const int cc=processor.continuousPads(layerIndex).mapping(12);
+        stopLearn.setButtonText(processor.continuousPads(layerIndex).learningTarget()==12 ? "STOP: MOVA O CC" : cc>=0 ? "STOP: CC "+juce::String(cc) : "LEARN STOP");
+    }
+    for (int pad = 0; pad < padCount(); ++pad)
     {
         auto& trigger = pads[(size_t) pad];
-        const auto active = processor.isDrumPadPlaying(pad);
-        const auto samplePath = processor.drumPadPath(pad);
-        trigger.setButtonText(samplePath.isNotEmpty() ? processor.drumPadName(pad)
+        const auto active = continuous() ? processor.continuousPads(layerIndex).selected()==pad : processor.isDrumPadPlaying(pad);
+        const auto samplePath = continuous() ? processor.continuousPads(layerIndex).path(pad) : processor.drumPadPath(pad);
+        trigger.setButtonText(samplePath.isNotEmpty() ? juce::File(samplePath).getFileNameWithoutExtension()
                                                       : "PAD " + juce::String(pad + 1));
         trigger.setColour(juce::TextButton::buttonColourId,
                           active ? juce::Colour(yellow)
                                  : samplePath.isNotEmpty() ? drumPadColour(pad)
                                                            : juce::Colour(panelLight));
-        trigger.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff15191d));
-        const auto mapping = processor.drumPadMidiMapping(pad);
+        trigger.setColour(juce::TextButton::textColourOffId, samplePath.isNotEmpty() || active ? juce::Colour(0xff15191d) : juce::Colour(text));
+        const int cc=continuous()?processor.continuousPads(layerIndex).mapping(pad):-1;
+        const auto mapping = continuous() ? (cc>=0?"CC "+juce::String(cc):juce::String{}) : processor.drumPadMidiMapping(pad);
         learnButtons[(size_t) pad].setButtonText(
-            processor.isDrumPadMidiLearning(pad) ? "MOVA PAD"
+            (continuous()?processor.continuousPads(layerIndex).learningTarget()==pad:processor.isDrumPadMidiLearning(pad)) ? "MOVA PAD"
             : mapping.isNotEmpty() ? mapping : "LEARN");
     }
 }
 
 void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
 {
-    constexpr int columns = 2;
+    auto available=getLocalBounds();
+    if(controlsVisible)
+    {
+        volumeLearnButton.setBounds(available.removeFromBottom(28).reduced(3));
+        if(continuous())
+        {fadeSlider.setBounds(available.removeFromBottom(32));stopLearn.setBounds(available.removeFromBottom(28).reduced(3));}
+    }
+    if(continuous())stopButton.setBounds(available.removeFromBottom(30).reduced(3));
+    const int columns = continuous()?3:2;
     const auto cellWidth = juce::jmax(1, getWidth() / columns);
     // Derive the row height from the panel itself.  A fixed row size made the
     // fourth row extend below compact mixer layers and clip the pads.  The
     // pad body is then explicitly constrained to a square inside each cell.
-    const auto rowHeight = juce::jmax(1, getHeight() / 4);
-    for (int pad = 0; pad < ClassicPlayerAudioProcessor::drumPadCount; ++pad)
+    const auto rowHeight = juce::jmax(1, available.getHeight() / 4);
+    for (int pad = 0; pad < padCount(); ++pad)
     {
         const auto column = pad % columns;
         const auto row = pad / columns;
@@ -1458,7 +1486,7 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
 
 ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     ClassicPlayerAudioProcessor& p, int layerIndex, std::function<void()> mixChanged)
-    : processor(p), index(layerIndex), mixStateChanged(std::move(mixChanged)), drumPadPanel(p)
+    : processor(p), index(layerIndex), mixStateChanged(std::move(mixChanged)), drumPadPanel(p,layerIndex)
 {
     layerTitle.setText("LAYER " + juce::String(index + 1), juce::dontSendNotification);
     layerTitle.setFont(juce::FontOptions(14.0f, juce::Font::bold));
@@ -1493,7 +1521,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
             showDx7Editor();
             return;
         }
-        if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::drumPads)
+        if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::drumPads || processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::continuousPads)
         {
             showDrumPadEditor();
             return;
@@ -1902,10 +1930,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
 {
-    if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::drumPads) return;
-    auto* dialog = new LayerEditorWindow("DRUM PADS", {}, juce::MessageBoxIconType::NoIcon);
+    if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::drumPads && processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::continuousPads) return;
+    auto* dialog = new LayerEditorWindow(processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::continuousPads ? "PADS CONTINUOS" : "DRUM PADS", {}, juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
-    auto* pads = new DrumPadPanel(processor);
+    auto* pads = new DrumPadPanel(processor,index);
     pads->setControlsVisible(true);
     // Leave enough room for both complete columns and their LOAD/LEARN rows;
     // the previous width let the right column run underneath the dialog edge.
@@ -1945,7 +1973,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showChorusEditor()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
-    const auto drumLayer = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::drumPads;
+    const auto drumLayer = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::drumPads || processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::continuousPads;
     g.setColour(juce::Colour(panel));
     if (drumLayer)
     {
@@ -1992,7 +2020,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     removeButton.setBounds(layerActions.removeFromRight(24).reduced(1));
     area.removeFromTop(5);
     const auto type = processor.layerType(index);
-    if (type == ClassicPlayerAudioProcessor::LayerType::drumPads)
+    if (type == ClassicPlayerAudioProcessor::LayerType::drumPads || type == ClassicPlayerAudioProcessor::LayerType::continuousPads)
     {
         gain.setSliderStyle(juce::Slider::LinearVertical);
         gain.setTextBoxStyle(juce::Slider::TextBoxBelow,false,58,18);
@@ -2001,13 +2029,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
         sourceSummary.setBounds(summaryRow.removeFromLeft(summaryRow.getWidth() - 70).reduced(3, 1));
         editButton.setBounds(summaryRow.reduced(1, 1));
         area.removeFromTop(4);
-        auto faderArea = area.reduced(8, 4);
+        auto faderArea = area.removeFromRight(100).reduced(8, 4);
         volumeLearn.setBounds(faderArea.removeFromBottom(24).withWidth(juce::jmin(86, faderArea.getWidth())));
         faderArea.removeFromBottom(6);
         meter.setBounds(faderArea.removeFromLeft(18).reduced(1, 2));
         const auto faderWidth = juce::jmin(82, juce::jmax(54, faderArea.getWidth() / 2));
         gain.setBounds(faderArea.removeFromLeft(faderWidth).reduced(4, 2));
-        drumPadPanel.setBounds({});
+        drumPadPanel.setBounds(area);
         return;
     }
     gain.setSliderStyle(juce::Slider::LinearVertical);
@@ -2241,10 +2269,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     const auto isDx7 = type == ClassicPlayerAudioProcessor::LayerType::dx7;
     const auto isAnalog = type == ClassicPlayerAudioProcessor::LayerType::analog;
     const auto isHammond = type == ClassicPlayerAudioProcessor::LayerType::hammond;
-    const auto isDrumPads = type == ClassicPlayerAudioProcessor::LayerType::drumPads;
+    const auto isDrumPads = type == ClassicPlayerAudioProcessor::LayerType::drumPads || type == ClassicPlayerAudioProcessor::LayerType::continuousPads;
     // Drum samples are edited in their dedicated window. The mixer strip
     // mirrors the other layers: vertical fader, meter and volume CC Learn.
-    drumPadPanel.setVisible(false);
+    drumPadPanel.setVisible(isDrumPads);
     drumPadPanel.setControlsVisible(false);
 
     // Restore the shared layer controls on every non-drum refresh. Without
@@ -2285,6 +2313,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
                           juce::dontSendNotification);
     if (isDrumPads)
     {
+        sourceSummary.setText(type==ClassicPlayerAudioProcessor::LayerType::continuousPads ? "PAD CONTINUO" : "DRUM PADS",juce::dontSendNotification);
         const std::initializer_list<juce::Component*> controls {
             &loadButton, &externalInstrumentButton, &dx7Button, &deleteDx7LibraryButton,
             &openExternalEditorButton, &deleteLibraryButton, &categoryBox, &libraryBox,
@@ -2300,7 +2329,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
             control->setVisible(false);
         gain.setVisible(true);
         meter.setVisible(true);
-        volumeLearn.setVisible(true);
+        volumeLearn.setVisible(false);
         sourceSummary.setVisible(true);
         resized();
         return;
@@ -2511,13 +2540,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::deleteSelectedDx7Bank()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
 {
     const auto type = processor.layerType(index);
-    if (type == ClassicPlayerAudioProcessor::LayerType::drumPads)
+    if (type == ClassicPlayerAudioProcessor::LayerType::drumPads || type == ClassicPlayerAudioProcessor::LayerType::continuousPads)
     {
         updateSourceTypeVisibility();
         drumPadPanel.refresh();
         // Drum-pad layers do not use a SoundFont.  Keep the source label
         // explicit so the mixer never presents them as an empty SF2 layer.
-        fileLabel.setText("DRUM PADS", juce::dontSendNotification);
+        fileLabel.setText(type==ClassicPlayerAudioProcessor::LayerType::continuousPads ? "PAD CONTINUO" : "DRUM PADS", juce::dontSendNotification);
         fileLabel.setColour(juce::Label::backgroundColourId, juce::Colour(yellow));
         fileLabel.setColour(juce::Label::textColourId, juce::Colours::black);
         return;
@@ -2606,6 +2635,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::setEngineEnabled(bool enable
 void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMeter()
 {
     meter.setLevel(std::sqrt(juce::jlimit(0.0f, 1.0f, processor.layerPeak(index))));
+    if (processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::drumPads || processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::continuousPads)
+        drumPadPanel.refresh();
     updateMidiLearnState();
 }
 
@@ -2736,6 +2767,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
         menu.addItem(3, "Classic Keys Analog");
         menu.addItem(4, "Layer Drum Pads (8)");
         menu.addItem(5, "Hammond");
+        menu.addItem(6, "Pad Continuo (12)");
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addLayerButton),
             [safeThis = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this)](int choice)
             {
@@ -2744,6 +2776,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
                                 : choice == 2 ? ClassicPlayerAudioProcessor::LayerType::dx7
                                 : choice == 3 ? ClassicPlayerAudioProcessor::LayerType::analog
                                 : choice == 5 ? ClassicPlayerAudioProcessor::LayerType::hammond
+                                : choice == 6 ? ClassicPlayerAudioProcessor::LayerType::continuousPads
                                               : ClassicPlayerAudioProcessor::LayerType::drumPads;
                 safeThis->addLayer(type);
             });
@@ -3770,29 +3803,28 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
     const int compactHeight = juce::jmax(148, viewportHeight - gap * 2);
     const auto stripWidth = juce::jmax(150,
         (layerViewport.getWidth() - gap * (columns - 1)) / columns);
-    const auto contentWidth = juce::jmax(availableWidth,
-        columns * stripWidth + gap * (columns - 1));
-    const auto rows = (count + columns - 1) / columns;
-    std::vector<int> rowHeights((size_t) rows, compactHeight);
-    for (int i = 0; i < count; ++i)
-        if (strips[(size_t) i] != nullptr && strips[(size_t) i]->isExpanded())
-            rowHeights[(size_t) (i / columns)] = expandedHeight;
-    int contentHeight = gap;
-    for (const auto height : rowHeights) contentHeight += height + gap;
-    contentHeight = juce::jmax(contentHeight,
-        layerViewport.getHeight() - layerViewport.getScrollBarThickness());
-    layerContent.setSize(contentWidth, contentHeight);
+    // Pack variable-width pad strips without stretching ordinary instruments.
+    std::vector<juce::Rectangle<int>> bounds;
+    int x=0, y=gap, rowHeight=0, contentWidth=availableWidth;
+    for (int i=0;i<count;++i)
+    {
+        const bool pads=classicProcessor.layerType(i)==ClassicPlayerAudioProcessor::LayerType::drumPads || classicProcessor.layerType(i)==ClassicPlayerAudioProcessor::LayerType::continuousPads;
+        const int width=pads ? juce::jmin(availableWidth,juce::jmax(420,stripWidth*2)) : stripWidth;
+        const int height=strips[(size_t)i] && strips[(size_t)i]->isExpanded()
+            ? expandedHeight : juce::jmax(pads ? 322 : 148,compactHeight);
+        if(x>0 && x+width>availableWidth){x=0;y+=rowHeight+gap;rowHeight=0;}
+        bounds.emplace_back(x,y,width,height);
+        contentWidth=juce::jmax(contentWidth,x+width);
+        x+=width+gap;rowHeight=juce::jmax(rowHeight,height);
+    }
+    layerContent.setSize(contentWidth,juce::jmax(y+rowHeight+gap,
+        layerViewport.getHeight()-layerViewport.getScrollBarThickness()));
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
         if (strips[(size_t) i] == nullptr) continue;
         strips[(size_t) i]->setVisible(i < count);
         if (i >= count) continue;
-        const auto row = i / columns;
-        const auto column = i % columns;
-        int rowY = gap;
-        for (int r = 0; r < row; ++r) rowY += rowHeights[(size_t) r] + gap;
-        strips[(size_t) i]->setBounds(column * (stripWidth + gap), rowY,
-                                      stripWidth, rowHeights[(size_t) row]);
+        strips[(size_t) i]->setBounds(bounds[(size_t)i]);
     }
 }
 

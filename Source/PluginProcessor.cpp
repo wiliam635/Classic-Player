@@ -104,6 +104,7 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
       programStorageRoot(std::move(programStorageOverride))
 {
     drumPadFormats.registerBasicFormats();
+    for(auto& bank:continuousBanks)bank=std::make_unique<ContinuousPadBank>();
     juce::Logger::writeToLog("ClassicPlayer processor criado (instrumento MIDI, saída estéreo)");
     for (auto& layer : learnedCCs)
         for (auto& cc : layer) cc.store(-1);
@@ -227,7 +228,10 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     dx7Engine.prepare(sampleRate, samplesPerBlock);
     analogSynthEngine.prepare(sampleRate, samplesPerBlock);
     hammondEngine.prepare(sampleRate, samplesPerBlock);
-    drumGainScratch.setSize(1,samplesPerBlock);
+    drumGainScratch.setSize(Sf2Engine::layerCount + 1,samplesPerBlock);
+    drumMixScratch.setSize(2,samplesPerBlock);
+    for(auto& bank:continuousBanks)bank->prepare(sampleRate);
+    for (auto& peak : drumPeaks) peak.store(0.f);
     drumGainReady.fill(false);
     for(auto& gain:drumLayerGains){gain.reset(sampleRate,0.02);gain.setCurrentAndTargetValue(0);}
     for (auto& hosted : externalInstruments) hosted.prepare(sampleRate, samplesPerBlock);
@@ -261,6 +265,8 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
 
 void ClassicPlayerAudioProcessor::releaseResources()
 {
+    for(auto& bank:continuousBanks)bank->stopImmediately();
+    for(auto& peak:drumPeaks)peak.store(0.f);
     engine.reset();
     dx7Engine.stopAllSounds();
     analogSynthEngine.stopAllSounds();
@@ -416,6 +422,15 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     analogSynthEngine.process(buffer, midi, analogLayerConfigs, &routedMidiBuffers);
     hammondEngine.process(buffer, midi, hammondLayerConfigs, &routedMidiBuffers);
     processDrumPads(buffer, midi);
+    for(int layer=0;layer<activeLayerCount();++layer)
+    {
+        if(layerType(layer)!=LayerType::continuousPads)continue;
+        auto& bank=continuousPads(layer);const auto config=engine.getConfig(layer);
+        const auto inspect=[&](const juce::MidiBuffer& events){for(const auto event:events)
+        {const auto message=event.getMessage();if(config.midiChannel==0||message.getChannel()==config.midiChannel)bank.midi(message);}};
+        inspect(midi);inspect(routedMidiBuffers[(size_t)layer]);
+        bank.render(buffer,config.enabled ? parameters.getRawParameterValue("layer"+juce::String(layer+1)+"Gain")->load()/100.f:0.f);
+    }
     // The master control is calibrated with +6 dB of nominal output gain.
     // The limiter immediately after it keeps the boosted output clip-safe.
     const auto masterLinear = parameters.getRawParameterValue("master")->load() / 100.0f;
@@ -710,12 +725,15 @@ void ClassicPlayerAudioProcessor::processDrumPads(juce::AudioBuffer<float>& outp
     bool hasDrumPadLayer = false;
     for (int layer = 0; layer < activeLayerCount(); ++layer)
         hasDrumPadLayer = hasDrumPadLayer || layerType(layer) == LayerType::drumPads;
+    for (auto& peak : drumPeaks) peak.store(0.f, std::memory_order_relaxed);
     if (!hasDrumPadLayer) return;
     const juce::ScopedTryLock lock(drumPadLock);
     if (!lock.isLocked()) return;
 
-    drumGainScratch.setSize(1,output.getNumSamples(),false,false,true);
+    drumGainScratch.setSize(Sf2Engine::layerCount + 1,output.getNumSamples(),false,false,true);
     drumGainScratch.clear();
+    drumMixScratch.setSize(2,output.getNumSamples(),false,false,true);
+    drumMixScratch.clear();
     for(int layer=0;layer<activeLayerCount();++layer)
     {
         if(layerType(layer)!=LayerType::drumPads)continue;
@@ -725,7 +743,11 @@ void ClassicPlayerAudioProcessor::processDrumPads(juce::AudioBuffer<float>& outp
         if(!drumGainReady[(size_t)layer]){gain.setCurrentAndTargetValue(target);drumGainReady[(size_t)layer]=true;}
         gain.setTargetValue(target);
         for(int sample=0;sample<output.getNumSamples();++sample)
-            drumGainScratch.addSample(0,sample,gain.getNextValue());
+        {
+            const auto value = gain.getNextValue();
+            drumGainScratch.addSample(0,sample,value);
+            drumGainScratch.setSample(layer+1,sample,value);
+        }
     }
 
     for (auto& state : drumPads)
@@ -739,9 +761,23 @@ void ClassicPlayerAudioProcessor::processDrumPads(juce::AudioBuffer<float>& outp
         const auto channels = juce::jmin(2, state.audio.getNumChannels(), output.getNumChannels());
         for (int sample = 0; sample < output.getNumSamples() && position < state.audio.getNumSamples(); ++sample, ++position)
             for (int channel = 0; channel < channels; ++channel)
-                output.addSample(channel, sample, state.audio.getSample(channel, position)*drumGainScratch.getSample(0,sample));
+            {
+                const auto dry = state.audio.getSample(channel, position);
+                output.addSample(channel, sample, dry*drumGainScratch.getSample(0,sample));
+                drumMixScratch.addSample(channel,sample,dry);
+            }
         state.position.store(position < state.audio.getNumSamples() ? position : -1,
                              std::memory_order_release);
+    }
+    for (int layer=0;layer<activeLayerCount();++layer)
+    {
+        if (layerType(layer)!=LayerType::drumPads) continue;
+        float peak=0.f;
+        for(int sample=0;sample<output.getNumSamples();++sample)
+            for(int channel=0;channel<juce::jmin(2,output.getNumChannels());++channel)
+                peak=juce::jmax(peak,std::abs(drumMixScratch.getSample(channel,sample)
+                    *drumGainScratch.getSample(layer+1,sample)));
+        drumPeaks[(size_t)layer].store(peak,std::memory_order_relaxed);
     }
 }
 
@@ -897,6 +933,9 @@ void ClassicPlayerAudioProcessor::sendLayerController(int layer, int controller,
 float ClassicPlayerAudioProcessor::layerPeak(int layer) const
 {
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return 0.0f;
+    if (layerType(layer)==LayerType::drumPads)
+        return drumPeaks[(size_t)layer].load(std::memory_order_relaxed);
+    if (layerType(layer)==LayerType::continuousPads)return continuousBanks[(size_t)layer]->peak();
     return juce::jmax(engine.getLayerPeak(layer),
                       juce::jmax(dx7Engine.getLayerPeak(layer),
                                  juce::jmax(analogSynthEngine.getLayerPeak(layer),
@@ -907,7 +946,7 @@ ClassicPlayerAudioProcessor::LayerType ClassicPlayerAudioProcessor::layerType(in
 {
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return LayerType::sf2;
     const auto value = layerTypes[(size_t) layer].load(std::memory_order_relaxed);
-    return static_cast<LayerType>(juce::jlimit(0, 5, value));
+    return static_cast<LayerType>(juce::jlimit(0, 6, value));
 }
 
 void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
@@ -917,6 +956,13 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
 
     const juce::ScopedLock callbackLock(getCallbackLock());
     const auto previousType = layerType(layer);
+    if(previousType!=type)continuousPads(layer).stopImmediately();
+    if(type==LayerType::continuousPads && previousType!=type)
+    {
+        externalInstruments[(size_t)layer].unload();engine.unloadSoundFont(layer);
+        dx7Engine.unload(layer);analogSynthEngine.unload(layer);hammondEngine.unload(layer);
+        savedPaths[(size_t)layer].clear();
+    }
     if (previousType == LayerType::hammond && type != LayerType::hammond) hammondEngine.unload(layer);
     if (type == LayerType::hammond && previousType != type)
     {
@@ -1119,6 +1165,7 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     for (int destination = layer; destination < last; ++destination)
     {
         const auto source = destination + 1;
+        std::swap(continuousBanks[(size_t)destination],continuousBanks[(size_t)source]);
         const auto sourceType = layerType(source);
         const auto sourcePath = engine.getSoundFontPath(source);
         const auto sourceDx7Path = dx7Engine.path(source);
@@ -1192,6 +1239,7 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     hammondLayerConfigs[(size_t)last] = HammondEngine::Config{};
     layerMidiDeviceIds[(size_t) last].clear();
     layerTypes[(size_t) last].store(static_cast<int>(LayerType::sf2), std::memory_order_relaxed);
+    continuousPads(last).restore({});
     for (int target = 0; target < learnTargetCount; ++target)
     {
         learnedCCs[(size_t) last][(size_t) target].store(-1, std::memory_order_relaxed);
@@ -1791,6 +1839,7 @@ juce::Result ClassicPlayerAudioProcessor::deleteProgram(const juce::File& progra
 void ClassicPlayerAudioProcessor::stopAllSoundsBeforeProgramChange()
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
+    for(auto& bank:continuousBanks)bank->stopImmediately();
     engine.stopAllSounds();
     dx7Engine.stopAllSounds();
     analogSynthEngine.stopAllSounds();
@@ -1925,6 +1974,10 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("drumPadCC" + juce::String(pad + 1), drumPads[(size_t) pad].midiCC.load(), nullptr);
         state.setProperty("drumPadNote" + juce::String(pad + 1), drumPads[(size_t) pad].midiNote.load(), nullptr);
     }
+    for(int i=state.getNumChildren()-1;i>=0;--i)
+        if(state.getChild(i).hasType("ContinuousPads"))state.removeChild(i,nullptr);
+    for(int i=0;i<Sf2Engine::layerCount;++i)
+    {auto bank=continuousPads(i).save();bank.setProperty("layer",i,nullptr);state.addChild(bank,-1,nullptr);}
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, destination);
 }
 
@@ -1998,6 +2051,12 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             }
             state.setProperty("stateVersion", 165, nullptr);
             parameters.replaceState(state);
+            for(int layer=0;layer<Sf2Engine::layerCount;++layer)
+            {
+                juce::ValueTree saved;
+                for(const auto& child:state)if(child.hasType("ContinuousPads") && (int)child.getProperty("layer",-1)==layer){saved=child;break;}
+                continuousPads(layer).restore(saved);
+            }
             for (int pad = 0; pad < drumPadCount; ++pad)
             {
                 auto& drumPad = drumPads[(size_t) pad];
@@ -2030,7 +2089,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             }
             for (int i = 0; i < Sf2Engine::layerCount; ++i)
             {
-                auto savedType = juce::jlimit(0, 5, static_cast<int>(state.getProperty(
+                auto savedType = juce::jlimit(0, 6, static_cast<int>(state.getProperty(
                     "layerType" + juce::String(i + 1), static_cast<int>(LayerType::sf2))));
                 // Programs created by older releases may contain VST layers.
                 // They are restored as empty SF2 layers rather than loading a
