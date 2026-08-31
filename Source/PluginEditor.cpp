@@ -2792,6 +2792,11 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     };
     addAndMakeVisible(keyboardVisibilityButton);
 
+    flatButton(audioMidiSettingsButton);
+    audioMidiSettingsButton.setTooltip("Configurar dispositivo de audio, taxa de amostragem, buffer e MIDI");
+    audioMidiSettingsButton.onClick = [this] { showAudioMidiSettings(); };
+    addChildComponent(audioMidiSettingsButton);
+
     flatButton(liveSetButton);
     liveSetButton.onClick = [this] { showLiveSet(!showingLiveSet); };
     addAndMakeVisible(liveSetButton);
@@ -2818,6 +2823,11 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     };
     liveSettingsButton.onClick = [this] {
         juce::PopupMenu menu;
+        if (classicProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
+        {
+            menu.addItem(3, "Audio / MIDI");
+            menu.addSeparator();
+        }
         menu.addItem(1, "Equalizador master");
         menu.addItem(2, classicProcessor.isMasterMidiLearning() ? "Cancelar MIDI Learn do volume master"
                                                               : "MIDI Learn do volume master");
@@ -2826,6 +2836,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
                 if (safe == nullptr) return;
                 if (id == 1) safe->masterEqButton.triggerClick();
                 if (id == 2) safe->masterLearnButton.triggerClick();
+                if (id == 3) safe->showAudioMidiSettings();
             });
     };
 
@@ -3246,6 +3257,9 @@ void ClassicPlayerAudioProcessorEditor::resized()
     recordingButton.setBounds(recordingArea.removeFromLeft(156).reduced(1, 0));
     recordingStatus.setBounds(recordingArea.removeFromLeft(230).reduced(6, 0));
     keyboardVisibilityButton.setBounds(recordingArea.removeFromLeft(156).reduced(2, 0));
+    audioMidiSettingsButton.setBounds(recordingArea.removeFromLeft(140).reduced(2, 0));
+    audioMidiSettingsButton.setVisible(!showingLiveSet
+        && classicProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone);
     recordingButton.setVisible(!showingLiveSet);
     recordingStatus.setVisible(!showingLiveSet);
     keyboardVisibilityButton.setVisible(!showingLiveSet);
@@ -3482,6 +3496,16 @@ void ClassicPlayerAudioProcessorEditor::deleteSelectedProgram()
     programBox.clear(juce::dontSendNotification);
     refreshProgramLibrary();
     refreshLiveSet();
+}
+
+void ClassicPlayerAudioProcessorEditor::showAudioMidiSettings()
+{
+   #if JucePlugin_Build_Standalone
+    // Use the running standalone device manager, not a second audio device.
+    if (classicProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
+        if (auto* holder = juce::StandalonePluginHolder::getInstance())
+            holder->showAudioSettingsDialog();
+   #endif
 }
 
 void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)

@@ -15,7 +15,9 @@ struct LiveSetLayoutRegressionAccess
         const auto root=storage.getFile();
         check(root.createDirectory().wasOk(),"Live Set temporary storage");
         struct Cleanup { juce::File directory; ~Cleanup() { directory.deleteRecursively(); } } cleanup { root };
+        juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
         auto processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
+        juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
         while (processor->activeLayerCount()>2)
             check(processor->removeLayer(processor->activeLayerCount()-1),"Live Set fixture layers");
         processor->setLayerType(0,ClassicPlayerAudioProcessor::LayerType::hammond);
@@ -30,6 +32,16 @@ struct LiveSetLayoutRegressionAccess
         for (auto size : { juce::Point<int>(1280,700), juce::Point<int>(1000,600) })
         {
             editor->setSize(size.x,size.y);
+            editor->showLiveSet(false);
+            check(editor->audioMidiSettingsButton.isVisible(),"standalone audio settings button hidden");
+            check(editor->audioMidiSettingsButton.getWidth()>=120
+                &&editor->audioMidiSettingsButton.getHeight()>=24,"audio settings button collapsed");
+            check(editor->getLocalBounds().contains(editor->audioMidiSettingsButton.getBounds()),"audio settings button clipped");
+            check(!editor->audioMidiSettingsButton.getBounds().intersects(editor->keyboardVisibilityButton.getBounds()),
+                  "audio settings overlaps keyboard toggle");
+            editor->showLiveSet(true);
+            check(editor->liveSettingsButton.isVisible(),"Live Set settings entry hidden");
+            check(!editor->audioMidiSettingsButton.isVisible(),"mixer audio button overlaps Live Set");
             for (size_t i=0;i<editor->liveSetSlotButtons.size();++i)
             {
                 const auto bounds=editor->liveSetSlotButtons[i].getBounds();
@@ -70,6 +82,10 @@ struct LiveSetLayoutRegressionAccess
             juce::FileOutputStream stream{juce::File(screenshot)};
             juce::PNGImageFormat png;
             check(stream.openedOk()&&png.writeImageToStream(image,stream),"Live Set screenshot");
+            editor->showLiveSet(false);
+            juce::FileOutputStream mixerStream{juce::File(juce::String(screenshot)+".mixer.png")};
+            check(mixerStream.openedOk()&&png.writeImageToStream(
+                editor->createComponentSnapshot(editor->getLocalBounds()),mixerStream),"mixer audio settings screenshot");
         }
         std::cout<<"Live Set layout, bank selection, edit mode and master style passed\n";
     }

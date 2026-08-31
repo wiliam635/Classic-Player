@@ -185,6 +185,7 @@ private:
     void loadSelectedProgram();
     void refreshAfterProgramLoad();
     void showLiveSet(bool show);
+    void showAudioMidiSettings();
     void refreshLiveSet();
     void chooseLiveSetSlot(int slot);
     void loadLiveSetSlot(int slot);
@@ -212,6 +213,7 @@ private:
     juce::TextButton recordingButton { "GRAVAR WAV+MIDI" };
     juce::Label recordingStatus;
     juce::TextButton keyboardVisibilityButton { "OCULTAR TECLADO" };
+    juce::TextButton audioMidiSettingsButton { "AUDIO / MIDI" };
     juce::TextButton liveSetButton { "LIVE SET" };
     juce::TextButton editLiveSetButton { "EDITAR LIVE SET" };
     juce::TextButton livePreviousButton { "<  ANTERIOR" };
