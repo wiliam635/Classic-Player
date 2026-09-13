@@ -113,7 +113,11 @@ juce::String LicenseVerifier::storedToken()
 
 bool LicenseVerifier::isActivated()
 {
-    return verify(storedToken()) || onlineSessionValidated.load(std::memory_order_acquire);
+    // Desktop releases protected by the online account service must never
+    // bypass the login screen because of a legacy offline activation file.
+    // A persisted online session is only accepted after validateOnlineSession()
+    // confirms it with the licensing server in this process.
+    return onlineSessionValidated.load(std::memory_order_acquire);
 }
 
 bool LicenseVerifier::activateAndStore(const juce::String& token)
