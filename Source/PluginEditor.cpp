@@ -2959,7 +2959,9 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     classicProcessor.keyboardState.addListener(this);
 
     addAndMakeVisible(activationPanel);
-    activationTitle.setText("LICENÇA CLASSIC PLAYER", juce::dontSendNotification);
+    activationBackdrop.setColour(juce::Label::backgroundColourId, juce::Colour(0xff07131c));
+    activationPanel.addAndMakeVisible(activationBackdrop);
+    activationTitle.setText("LICENCA CLASSIC PLAYER", juce::dontSendNotification);
     activationTitle.setFont(juce::FontOptions(24.0f, juce::Font::bold));
     activationTitle.setJustificationType(juce::Justification::centred);
     activationPanel.addAndMakeVisible(activationTitle);
@@ -2981,6 +2983,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     activationStatus.setColour(juce::Label::textColourId, juce::Colours::salmon);
     activationPanel.addAndMakeVisible(activationStatus);
     activationPanel.setVisible(!classicProcessor.isActivated());
+    activationPanel.toFront(false);
     if (LicenseVerifier::hasOnlineSession() && !classicProcessor.isActivated())
         validateStoredOnlineSession();
 
@@ -3361,6 +3364,9 @@ void ClassicPlayerAudioProcessorEditor::resized()
     }
 
     activationPanel.setBounds(getLocalBounds());
+    activationBackdrop.setBounds(activationPanel.getLocalBounds());
+    if (activationPanel.isVisible())
+        activationPanel.toFront(false);
     auto activation = activationPanel.getLocalBounds().withSizeKeepingCentre(
         juce::jmin(650, getWidth() - 60), 360);
     activationTitle.setBounds(activation.removeFromTop(58));

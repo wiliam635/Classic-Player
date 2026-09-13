@@ -247,6 +247,7 @@ private:
     NamedKeyboard keyboard;
 
     juce::Component activationPanel;
+    juce::Label activationBackdrop;
     juce::Label activationTitle;
     juce::Label activationHelp;
     juce::TextEditor activationEmail;
