@@ -2959,16 +2959,21 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     classicProcessor.keyboardState.addListener(this);
 
     addAndMakeVisible(activationPanel);
-    activationTitle.setText("ATIVAÇÃO DO CLASSIC PLAYER", juce::dontSendNotification);
+    activationTitle.setText("LICENÇA CLASSIC PLAYER", juce::dontSendNotification);
     activationTitle.setFont(juce::FontOptions(24.0f, juce::Font::bold));
     activationTitle.setJustificationType(juce::Justification::centred);
     activationPanel.addAndMakeVisible(activationTitle);
-    activationHelp.setText("Digite o código de ativação fornecido com sua licença.", juce::dontSendNotification);
+    activationHelp.setText("Entre com o e-mail e a senha da sua conta para liberar este computador.", juce::dontSendNotification);
     activationHelp.setJustificationType(juce::Justification::centred);
     activationPanel.addAndMakeVisible(activationHelp);
-    activationCode.setMultiLine(false);
-    activationCode.setTextToShowWhenEmpty("CK26-....código assinado", juce::Colours::grey);
-    activationPanel.addAndMakeVisible(activationCode);
+    activationEmail.setMultiLine(false);
+    activationEmail.setTextToShowWhenEmpty("E-mail", juce::Colours::grey);
+    activationEmail.setInputRestrictions(190, {});
+    activationPanel.addAndMakeVisible(activationEmail);
+    activationPassword.setMultiLine(false);
+    activationPassword.setPasswordCharacter('*');
+    activationPassword.setTextToShowWhenEmpty("Senha", juce::Colours::grey);
+    activationPanel.addAndMakeVisible(activationPassword);
     activationButton.onClick = [this] { activate(); };
     flatButton(activationButton);
     activationPanel.addAndMakeVisible(activationButton);
@@ -2976,6 +2981,8 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     activationStatus.setColour(juce::Label::textColourId, juce::Colours::salmon);
     activationPanel.addAndMakeVisible(activationStatus);
     activationPanel.setVisible(!classicProcessor.isActivated());
+    if (LicenseVerifier::hasOnlineSession() && !classicProcessor.isActivated())
+        validateStoredOnlineSession();
 
     // setSize() invokes resized() immediately. All layer strips must exist
     // before that callback can lay them out.
@@ -3355,11 +3362,13 @@ void ClassicPlayerAudioProcessorEditor::resized()
 
     activationPanel.setBounds(getLocalBounds());
     auto activation = activationPanel.getLocalBounds().withSizeKeepingCentre(
-        juce::jmin(650, getWidth() - 60), 300);
+        juce::jmin(650, getWidth() - 60), 360);
     activationTitle.setBounds(activation.removeFromTop(58));
     activationHelp.setBounds(activation.removeFromTop(38));
     activation.removeFromTop(12);
-    activationCode.setBounds(activation.removeFromTop(44));
+    activationEmail.setBounds(activation.removeFromTop(44));
+    activation.removeFromTop(10);
+    activationPassword.setBounds(activation.removeFromTop(44));
     activation.removeFromTop(14);
     activationButton.setBounds(activation.removeFromTop(44).withSizeKeepingCentre(180, 44));
     activationStatus.setBounds(activation.removeFromTop(38));
@@ -3830,13 +3839,50 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
 
 void ClassicPlayerAudioProcessorEditor::activate()
 {
-    if (LicenseVerifier::activateAndStore(activationCode.getText()))
+    const auto email = activationEmail.getText().trim();
+    const auto password = activationPassword.getText();
+    if (email.isEmpty() || password.isEmpty())
+    { activationStatus.setText("Informe e-mail e senha.", juce::dontSendNotification); return; }
+    activationButton.setEnabled(false);
+    activationStatus.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    activationStatus.setText("Conectando ao servidor de licença...", juce::dontSendNotification);
+    const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
+    juce::Thread::launch([safe, email, password]
     {
-        classicProcessor.refreshActivation();
-        activationPanel.setVisible(false);
-    }
-    else
-        activationStatus.setText("Código de ativação inválido.", juce::dontSendNotification);
+        juce::String error;
+        const auto ok = LicenseVerifier::loginOnline(email, password, error);
+        juce::MessageManager::callAsync([safe, ok, error]
+        {
+            if (safe == nullptr) return;
+            safe->activationButton.setEnabled(true);
+            if (ok)
+            { safe->classicProcessor.refreshActivation(); safe->activationPanel.setVisible(false); }
+            else
+            { safe->activationStatus.setColour(juce::Label::textColourId, juce::Colours::salmon); safe->activationStatus.setText(error, juce::dontSendNotification); }
+        });
+    });
+}
+
+void ClassicPlayerAudioProcessorEditor::validateStoredOnlineSession()
+{
+    activationButton.setEnabled(false);
+    activationStatus.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    activationStatus.setText("Validando a licença deste computador...", juce::dontSendNotification);
+    const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
+    juce::Thread::launch([safe]
+    {
+        juce::String error;
+        const auto ok = LicenseVerifier::validateOnlineSession(error);
+        juce::MessageManager::callAsync([safe, ok]
+        {
+            if (safe == nullptr) return;
+            safe->activationButton.setEnabled(true);
+            if (ok)
+            { safe->classicProcessor.refreshActivation(); safe->activationPanel.setVisible(false); }
+            else
+            { LicenseVerifier::clearOnlineSession(); safe->activationStatus.setColour(juce::Label::textColourId, juce::Colours::salmon); safe->activationStatus.setText("Faça login para ativar este computador.", juce::dontSendNotification); }
+        });
+    });
 }
 
 std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioProcessor& processor, int index)

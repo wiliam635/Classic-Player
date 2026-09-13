@@ -3,10 +3,70 @@
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/ecdsa.h>
+#include <atomic>
 
 namespace
 {
 constexpr auto canonicalPrefix = "CLASSIC-PLAYER|1|PRO|PERPETUAL|";
+constexpr auto licenseServiceUrl = "https://licenca.classickeys.com.br";
+std::atomic<bool> onlineSessionValidated { false };
+
+juce::File sessionFile()
+{
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("Classic Keys").getChildFile("Classic Player").getChildFile("session.dat");
+}
+
+juce::String deviceId()
+{
+    auto id = juce::SystemStats::getUniqueDeviceID().trim();
+    if (id.length() < 16)
+        id = "classic-player|" + juce::SystemStats::getComputerName() + "|"
+             + juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getFullPathName();
+    return id;
+}
+
+juce::String platformName()
+{
+   #if JUCE_MAC
+    return "macOS";
+   #elif JUCE_WINDOWS
+    return "Windows";
+   #else
+    return "Desktop";
+   #endif
+}
+
+bool postJson(const juce::String& path, const juce::var& payload,
+              juce::var& response, int& status, juce::String& errorMessage,
+              const juce::String& bearerToken = {})
+{
+    auto json = juce::JSON::toString(payload);
+    auto url = juce::URL(juce::String(licenseServiceUrl) + path).withPOSTData(json);
+    juce::StringPairArray headers;
+    auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inPostData)
+        .withExtraHeaders("Content-Type: application/json\r\nAccept: application/json"
+                          + (bearerToken.isNotEmpty() ? "\r\nAuthorization: Bearer " + bearerToken : juce::String{}))
+        .withConnectionTimeoutMs(10000)
+        .withNumRedirectsToFollow(3)
+        .withStatusCode(&status)
+        .withResponseHeaders(&headers);
+    auto stream = url.createInputStream(options);
+    if (stream == nullptr)
+    {
+        errorMessage = "Não foi possível conectar ao servidor de licença.";
+        return false;
+    }
+    response = juce::JSON::parse(stream->readEntireStreamAsString());
+    if (status < 200 || status >= 300)
+    {
+        auto serverError = response.getProperty("error", {}).toString();
+        errorMessage = serverError.isNotEmpty() ? serverError
+                                                : "O servidor recusou a autenticação.";
+        return false;
+    }
+    return true;
+}
 
 juce::MemoryBlock decodeBase64Url(juce::String input)
 {
@@ -53,7 +113,7 @@ juce::String LicenseVerifier::storedToken()
 
 bool LicenseVerifier::isActivated()
 {
-    return verify(storedToken());
+    return verify(storedToken()) || onlineSessionValidated.load(std::memory_order_acquire);
 }
 
 bool LicenseVerifier::activateAndStore(const juce::String& token)
@@ -63,6 +123,51 @@ bool LicenseVerifier::activateAndStore(const juce::String& token)
     auto file = licenseFile();
     if (!file.getParentDirectory().createDirectory()) return false;
     return file.replaceWithText(clean);
+}
+
+bool LicenseVerifier::hasOnlineSession()
+{
+    return sessionFile().existsAsFile() && sessionFile().loadFileAsString().trim().length() >= 24;
+}
+
+void LicenseVerifier::clearOnlineSession()
+{
+    sessionFile().deleteFile();
+    onlineSessionValidated.store(false, std::memory_order_release);
+}
+
+bool LicenseVerifier::loginOnline(const juce::String& email, const juce::String& password,
+                                  juce::String& errorMessage)
+{
+    auto* object = new juce::DynamicObject();
+    object->setProperty("email", email.trim().toLowerCase());
+    object->setProperty("password", password);
+    object->setProperty("device_id", deviceId());
+    object->setProperty("platform", platformName());
+    object->setProperty("device_name", juce::SystemStats::getComputerName());
+    juce::var response;
+    int status = 0;
+    if (!postJson("/v1/auth/login", juce::var(object), response, status, errorMessage)) return false;
+    const auto token = response.getProperty("access_token", {}).toString().trim();
+    if (token.length() < 24) { errorMessage = "Resposta de licença inválida."; return false; }
+    auto file = sessionFile();
+    if (file.getParentDirectory().createDirectory().failed() || !file.replaceWithText(token))
+    { errorMessage = "Não foi possível salvar a licença neste computador."; return false; }
+    onlineSessionValidated.store(true, std::memory_order_release);
+    return true;
+}
+
+bool LicenseVerifier::validateOnlineSession(juce::String& errorMessage)
+{
+    const auto token = sessionFile().loadFileAsString().trim();
+    if (token.length() < 24) { errorMessage = "Sessão de licença ausente."; return false; }
+    juce::var response; int status = 0;
+    auto* object = new juce::DynamicObject();
+    if (!postJson("/v1/license/validate", juce::var(object), response, status, errorMessage, token))
+    { onlineSessionValidated.store(false, std::memory_order_release); return false; }
+    const auto valid = static_cast<bool>(response.getProperty("valid", false));
+    onlineSessionValidated.store(valid, std::memory_order_release);
+    return valid;
 }
 
 bool LicenseVerifier::verify(const juce::String& token)

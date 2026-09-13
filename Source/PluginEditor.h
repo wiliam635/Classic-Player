@@ -199,6 +199,7 @@ private:
     void removeLayer(int layer);
     void layoutLayerStrips();
     void activate();
+    void validateStoredOnlineSession();
     void showMasterEqEditor();
     juce::String detectedChord() const;
 
@@ -248,8 +249,9 @@ private:
     juce::Component activationPanel;
     juce::Label activationTitle;
     juce::Label activationHelp;
-    juce::TextEditor activationCode;
-    juce::TextButton activationButton { "ATIVAR" };
+    juce::TextEditor activationEmail;
+    juce::TextEditor activationPassword;
+    juce::TextButton activationButton { "ENTRAR E ATIVAR" };
     juce::Label activationStatus;
     std::array<std::atomic<bool>, 128> heldNotes {};
     int timerTicks = 0;
