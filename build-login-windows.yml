@@ -1,0 +1,37 @@
+name: Build Classic Player - Windows (login)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows-login:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Apply desktop login
+        shell: pwsh
+        run: git apply desktop-login.patch
+      - name: Set up CMake
+        uses: lukka/get-cmake@latest
+      - name: Install vcpkg dependencies
+        uses: lukka/run-vcpkg@v11
+      - name: Configure with Visual Studio 2022 x64
+        shell: pwsh
+        run: cmake --preset windows-x64
+      - name: Build native release
+        shell: pwsh
+        run: cmake --build --preset windows-release --parallel 2
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+      - name: Package installer
+        shell: pwsh
+        run: scripts\package-windows.ps1
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Classic-Player-1.6.1-Windows-x64-login
+          if-no-files-found: error
+          path: outputs/installers/Classic-Player-1.6.1-Windows-x64-Setup.exe
