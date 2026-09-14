@@ -187,7 +187,7 @@ juce::String LicenseVerifier::storedUserName(){return sessionUserName();} bool L
 
 bool LicenseVerifier::validateOnlineSession(juce::String& errorMessage)
 {
-    const auto token = sessionFile().loadFileAsString().trim();
+    const auto token = sessionToken();
     if (token.length() < 24) { errorMessage = "Sessão de licença ausente."; return false; }
     juce::var response; int status = 0;
     auto* object = new juce::DynamicObject();
