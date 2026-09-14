@@ -2984,7 +2984,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     activationPanel.addAndMakeVisible(activationStatus);
     activationPanel.setVisible(!classicProcessor.isActivated());
     activationPanel.toFront(false);
-    if (LicenseVerifier::hasOnlineSession() && !classicProcessor.isActivated())
+    
         validateStoredOnlineSession();
 
     // setSize() invokes resized() immediately. All layer strips must exist
@@ -3886,7 +3886,7 @@ void ClassicPlayerAudioProcessorEditor::validateStoredOnlineSession()
             if (ok)
             { safe->classicProcessor.refreshActivation(); safe->activationPanel.setVisible(false); }
             else
-            { LicenseVerifier::clearOnlineSession(); safe->activationStatus.setColour(juce::Label::textColourId, juce::Colours::salmon); safe->activationStatus.setText("Faça login para ativar este computador.", juce::dontSendNotification); }
+            if (!LicenseVerifier::hasOnlineSession()) LicenseVerifier::clearOnlineSession(); {  safe->activationStatus.setColour(juce::Label::textColourId, juce::Colours::salmon); safe->activationStatus.setText("Faça login para ativar este computador.", juce::dontSendNotification); }
         });
     });
 }
