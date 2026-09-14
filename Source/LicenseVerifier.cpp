@@ -29,7 +29,7 @@ juce::String sessionToken()
     return contents;
 }
 
-bool sessionWithinOfflineGrace()
+juce::String sessionUserName(){const auto file=sessionFile();if(!file.existsAsFile())return {};const auto contents=file.loadFileAsString().trim();if(!contents.startsWithChar('{'))return {};return juce::JSON::parse(contents).getProperty("user_name", {}).toString().trim();} bool sessionWithinOfflineGrace()
 {
     const auto file = sessionFile();
     if (!file.existsAsFile()) return false;
@@ -164,7 +164,7 @@ void LicenseVerifier::clearOnlineSession()
     onlineSessionValidated.store(false, std::memory_order_release);
 }
 
-bool LicenseVerifier::loginOnline(const juce::String& email, const juce::String& password,
+juce::String LicenseVerifier::storedUserName(){return sessionUserName();} bool LicenseVerifier::loginOnline(const juce::String& email, const juce::String& password,
                                   juce::String& errorMessage)
 {
     auto* object = new juce::DynamicObject();
@@ -179,7 +179,7 @@ bool LicenseVerifier::loginOnline(const juce::String& email, const juce::String&
     const auto token = response.getProperty("access_token", {}).toString().trim();
     if (token.length() < 24) { errorMessage = "Resposta de licença inválida."; return false; }
     auto file = sessionFile();
-    if (file.getParentDirectory().createDirectory().failed() || !file.replaceWithText(token))
+    if (file.getParentDirectory().createDirectory().failed() || !session->setProperty("user_name", sessionUserName()); file.replaceWithText(token))
     { errorMessage = "Não foi possível salvar a licença neste computador."; return false; }
     onlineSessionValidated.store(true, std::memory_order_release);
     return true;
