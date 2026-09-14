@@ -179,7 +179,7 @@ juce::String LicenseVerifier::storedUserName(){return sessionUserName();} bool L
     const auto token = response.getProperty("access_token", {}).toString().trim();
     if (token.length() < 24) { errorMessage = "Resposta de licença inválida."; return false; }
     auto file = sessionFile();
-    if (file.getParentDirectory().createDirectory().failed() || !session->setProperty("user_name", sessionUserName()); file.replaceWithText(token))
+    auto* session = new juce::DynamicObject(); session->setProperty("access_token", token); const auto user=response.getProperty("user", {}); auto userName=user.getProperty("display_name", {}).toString().trim(); if(userName.isEmpty()) userName=response.getProperty("email", {}).toString().trim(); if(userName.isEmpty()) userName=email.trim(); session->setProperty("user_name", userName); if (file.getParentDirectory().createDirectory().failed() || !file.replaceWithText(juce::JSON::toString(juce::var(session))))
     { errorMessage = "Não foi possível salvar a licença neste computador."; return false; }
     onlineSessionValidated.store(true, std::memory_order_release);
     return true;
