@@ -205,7 +205,7 @@ private:
 
     ClassicPlayerAudioProcessor& classicProcessor;
     juce::Label title;
-    juce::Label subtitle;
+    juce::Label subtitle; juce::Label userLabel;
     juce::Label chordLabel;
     juce::Label chordCaption;
     juce::TextButton chordColourButton { "COR ACORDE" };
