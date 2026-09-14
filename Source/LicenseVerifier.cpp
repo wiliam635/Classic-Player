@@ -9,12 +9,38 @@ namespace
 {
 constexpr auto canonicalPrefix = "CLASSIC-PLAYER|1|PRO|PERPETUAL|";
 constexpr auto licenseServiceUrl = "https://licenca.classickeys.com.br";
+// Cached sessions remain valid offline for 30 days.
+constexpr juce::int64 offlineGraceSeconds = 30LL * 24LL * 60LL * 60LL;
 std::atomic<bool> onlineSessionValidated { false };
 
 juce::File sessionFile()
 {
     return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
         .getChildFile("Classic Keys").getChildFile("Classic Player").getChildFile("session.dat");
+}
+
+juce::String sessionToken()
+{
+    const auto file = sessionFile();
+    if (!file.existsAsFile()) return {};
+    const contents = file.loadFileAsString().trim();
+    if (contents.startsWithChar('{'))
+        return juce::JSON::parse(contents).getProperty("access_token", {}).toString().trim();
+    return contents;
+}
+
+bool sessionWithinOfflineGrace()
+{
+    const auto file = sessionFile();
+    if (!file.existsAsFile()) return false;
+    const contents = file.loadFileAsString().trim();
+    if (contents.startsWithChar('{'))
+    {
+        const auto until = static_cast<juce::int64>(juce::JSON::parse(contents).getProperty("offline_until", 0));
+        return until > juce::Time::getCurrentTime().toMilliseconds() / 1000;
+    }
+    const auto age = juce::Time::getCurrentTime() - file.getLastModificationTime();
+    return age.inSeconds() >= 0 && age.inSeconds() <= offlineGraceSeconds;
 }
 
 juce::String deviceId()
@@ -113,11 +139,9 @@ juce::String LicenseVerifier::storedToken()
 
 bool LicenseVerifier::isActivated()
 {
-    // Desktop releases protected by the online account service must never
-    // bypass the login screen because of a legacy offline activation file.
-    // A persisted online session is only accepted after validateOnlineSession()
-    // confirms it with the licensing server in this process.
-    return onlineSessionValidated.load(std::memory_order_acquire);
+    // A cached online session is valid during the offline grace period.
+    return onlineSessionValidated.load(std::memory_order_acquire)
+        || (sessionToken().length() >= 24 && sessionWithinOfflineGrace());
 }
 
 bool LicenseVerifier::activateAndStore(const juce::String& token)
@@ -131,7 +155,7 @@ bool LicenseVerifier::activateAndStore(const juce::String& token)
 
 bool LicenseVerifier::hasOnlineSession()
 {
-    return sessionFile().existsAsFile() && sessionFile().loadFileAsString().trim().length() >= 24;
+        return sessionToken().length() >= 24 && sessionWithinOfflineGrace();
 }
 
 void LicenseVerifier::clearOnlineSession()
@@ -167,9 +191,13 @@ bool LicenseVerifier::validateOnlineSession(juce::String& errorMessage)
     if (token.length() < 24) { errorMessage = "Sessão de licença ausente."; return false; }
     juce::var response; int status = 0;
     auto* object = new juce::DynamicObject();
-    if (!postJson("/v1/license/validate", juce::var(object), response, status, errorMessage, token))
-    { onlineSessionValidated.store(false, std::memory_order_release); return false; }
-    const auto valid = static_cast<bool>(response.getProperty("valid", false));
+        if (!postJson("/v1/license/validate", juce::var(object), response, status, errorMessage, token))
+    {
+        // Offline transport failure: retain the cached session.
+        if (status == 0) return true;
+        return false;
+    }
+ const auto valid = static_cast<bool>(response.getProperty("valid", false));
     onlineSessionValidated.store(valid, std::memory_order_release);
     return valid;
 }
