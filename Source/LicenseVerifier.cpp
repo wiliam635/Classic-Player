@@ -23,7 +23,7 @@ juce::String sessionToken()
 {
     const auto file = sessionFile();
     if (!file.existsAsFile()) return {};
-    const contents = file.loadFileAsString().trim();
+        const auto contents = file.loadFileAsString().trim();
     if (contents.startsWithChar('{'))
         return juce::JSON::parse(contents).getProperty("access_token", {}).toString().trim();
     return contents;
@@ -33,7 +33,7 @@ bool sessionWithinOfflineGrace()
 {
     const auto file = sessionFile();
     if (!file.existsAsFile()) return false;
-    const contents = file.loadFileAsString().trim();
+        const auto contents = file.loadFileAsString().trim();
     if (contents.startsWithChar('{'))
     {
         const auto until = static_cast<juce::int64>(juce::JSON::parse(contents).getProperty("offline_until", 0));
