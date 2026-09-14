@@ -194,6 +194,7 @@ bool LicenseVerifier::validateOnlineSession(juce::String& errorMessage)
         if (!postJson("/v1/license/validate", juce::var(object), response, status, errorMessage, token))
     {
         // Offline transport failure: retain the cached session.
+                return sessionWithinOfflineGrace();
         
         return false;
     }
