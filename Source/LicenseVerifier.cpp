@@ -194,7 +194,7 @@ bool LicenseVerifier::validateOnlineSession(juce::String& errorMessage)
         if (!postJson("/v1/license/validate", juce::var(object), response, status, errorMessage, token))
     {
         // Offline transport failure: retain the cached session.
-        if (status == 0) return true;
+        if (return sessionWithinOfflineGrace();) return true;
         return false;
     }
  const auto valid = static_cast<bool>(response.getProperty("valid", false));
