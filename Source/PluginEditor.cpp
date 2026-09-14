@@ -3251,7 +3251,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
     auto brand = header.removeFromLeft(brandWidth);
     brand.removeFromTop(16);
     title.setBounds(brand.removeFromTop(38));
-    subtitle.setBounds(brand.removeFromTop(25)); userLabel.setBounds(brand.removeFromTop(18)); userLabel.setVisible(userLabel.getText().isNotEmpty()); userLabel.setBounds(brand.removeFromTop(18)); userLabel.setVisible(userLabel.getText().isNotEmpty());
+    subtitle.setBounds(brand.removeFromTop(25)); userLabel.setBounds(brand.removeFromTop(18)); userLabel.setVisible(userLabel.getText().isNotEmpty());
 
     auto masterArea = header.removeFromRight(116);
     masterMeter.setBounds(masterArea.removeFromRight(13).reduced(0, 6));
@@ -3862,7 +3862,7 @@ void ClassicPlayerAudioProcessorEditor::activate()
             if (safe == nullptr) return;
             safe->activationButton.setEnabled(true);
             if (ok)
-            { safe->classicProcessor.refreshActivation(); safe->activationPanel.setVisible(false); }
+            { safe->classicProcessor.refreshActivation(); safe->userLabel.setText(LicenseVerifier::storedUserName(), juce::dontSendNotification); safe->userLabel.setVisible(safe->userLabel.getText().isNotEmpty()); safe->activationPanel.setVisible(false); }
             else
             { safe->activationStatus.setColour(juce::Label::textColourId, juce::Colours::salmon); safe->activationStatus.setText(error, juce::dontSendNotification); }
         });
@@ -3884,7 +3884,7 @@ void ClassicPlayerAudioProcessorEditor::validateStoredOnlineSession()
             if (safe == nullptr) return;
             safe->activationButton.setEnabled(true);
             if (ok)
-            { safe->classicProcessor.refreshActivation(); safe->activationPanel.setVisible(false); }
+            { safe->classicProcessor.refreshActivation(); safe->userLabel.setText(LicenseVerifier::storedUserName(), juce::dontSendNotification); safe->userLabel.setVisible(safe->userLabel.getText().isNotEmpty()); safe->activationPanel.setVisible(false); }
             else
             if (!LicenseVerifier::hasOnlineSession()) LicenseVerifier::clearOnlineSession(); {  safe->activationStatus.setColour(juce::Label::textColourId, juce::Colours::salmon); safe->activationStatus.setText("Faça login para ativar este computador.", juce::dontSendNotification); }
         });
