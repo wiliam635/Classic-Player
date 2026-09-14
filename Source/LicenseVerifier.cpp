@@ -203,8 +203,10 @@ bool LicenseVerifier::loginOnline(const juce::String& email, const juce::String&
     auto* session = new juce::DynamicObject();
     session->setProperty("access_token", token);
     const auto user = response.getProperty("user", {});
+    const auto userEmail = response.getProperty("email", {}).toString().trim();
     auto userName = user.getProperty("display_name", {}).toString().trim();
-    if (userName.isEmpty()) userName = response.getProperty("email", {}).toString().trim();
+    if (userName.isNotEmpty() && userEmail.isNotEmpty()) userName += " · " + userEmail;
+    else if (userName.isEmpty()) userName = userEmail;
     if (userName.isEmpty()) userName = email.trim();
     session->setProperty("user_name", userName);
     session->setProperty("offline_until",
@@ -254,8 +256,10 @@ bool LicenseVerifier::validateOnlineSession(juce::String& errorMessage)
     // every successful online check so sessions created by older builds also
     // gain the account name without requiring a second login.
     const auto user = response.getProperty("user", {});
+    const auto userEmail = response.getProperty("email", {}).toString().trim();
     auto userName = user.getProperty("display_name", {}).toString().trim();
-    if (userName.isEmpty()) userName = response.getProperty("email", {}).toString().trim();
+    if (userName.isNotEmpty() && userEmail.isNotEmpty()) userName += " · " + userEmail;
+    else if (userName.isEmpty()) userName = userEmail;
     if (userName.isEmpty()) userName = sessionUserName();
     if (userName.isNotEmpty()) session->setProperty("user_name", userName);
     session->setProperty("offline_until",
