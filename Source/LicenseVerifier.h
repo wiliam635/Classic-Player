@@ -13,6 +13,6 @@ public:
                             juce::String& errorMessage);
     static bool hasOnlineSession();
     static bool validateOnlineSession(juce::String& errorMessage);
-    static void clearOnlineSession();
-    static juce::File licenseFile();
+    
+        static void clearOnlineSession(); static juce::String storedUserName(); static juce::File licenseFile();
 };
