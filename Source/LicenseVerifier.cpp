@@ -225,6 +225,13 @@ bool LicenseVerifier::validateOnlineSession(juce::String& errorMessage)
     auto* object = new juce::DynamicObject();
     if (!postJson("/v1/license/validate", juce::var(object), response, status, errorMessage, token))
     {
+        // HTTP rejection means the server explicitly revoked or expired this
+        // device.  It must not be treated like an offline transport failure.
+        if (status == 401 || status == 403)
+        {
+            clearOnlineSession();
+            errorMessage = "Esta licença não está ativa neste computador.";
+        }
         // A transport failure is not a license failure.  Preserve the cached
         // session so the application remains usable without internet.
         return false;
