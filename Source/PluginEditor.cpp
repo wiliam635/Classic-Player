@@ -3886,7 +3886,7 @@ void ClassicPlayerAudioProcessorEditor::validateStoredOnlineSession()
             if (ok)
             { safe->classicProcessor.refreshActivation(); safe->userLabel.setText(LicenseVerifier::storedUserName(), juce::dontSendNotification); safe->userLabel.setVisible(safe->userLabel.getText().isNotEmpty()); safe->activationPanel.setVisible(false); }
             else
-            if (!LicenseVerifier::hasOnlineSession()) LicenseVerifier::clearOnlineSession(); {  safe->activationStatus.setColour(juce::Label::textColourId, juce::Colours::salmon); safe->activationStatus.setText("Faça login para ativar este computador.", juce::dontSendNotification); }
+            if (!LicenseVerifier::hasOnlineSession()) LicenseVerifier::clearOnlineSession(); {  safe->activationStatus.setColour(juce::Label::textColourId, juce::Colours::salmon); safe->activationStatus.setText(juce::String::fromUTF8("Faça login para ativar este computador."), juce::dontSendNotification); }
         });
     });
 }
