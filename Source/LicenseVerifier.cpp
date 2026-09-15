@@ -9,7 +9,9 @@ namespace
 {
 constexpr auto canonicalPrefix = "CLASSIC-PLAYER|1|PRO|PERPETUAL|";
 constexpr auto licenseServiceUrl = "https://licenca.classickeys.com.br";
-// Cached sessions remain valid offline for 30 days.
+// Keep a successful activation available for rehearsals and shows without
+// internet. Whenever connectivity returns, the access token is validated
+// again by the licensing service.
 constexpr juce::int64 offlineGraceSeconds = 30LL * 24LL * 60LL * 60LL;
 std::atomic<bool> onlineSessionValidated { false };
 
@@ -23,22 +25,34 @@ juce::String sessionToken()
 {
     const auto file = sessionFile();
     if (!file.existsAsFile()) return {};
-        const auto contents = file.loadFileAsString().trim();
+    const auto contents = file.loadFileAsString().trim();
     if (contents.startsWithChar('{'))
         return juce::JSON::parse(contents).getProperty("access_token", {}).toString().trim();
-    return contents;
+    return contents; // legacy raw-token format
 }
 
-juce::String sessionUserName(){const auto file=sessionFile();if(!file.existsAsFile())return {};const auto contents=file.loadFileAsString().trim();if(!contents.startsWithChar('{'))return {};return juce::JSON::parse(contents).getProperty("user_name", {}).toString().trim();} bool sessionWithinOfflineGrace()
+juce::String sessionUserName()
+{
+    const auto file = sessionFile();
+    if (!file.existsAsFile()) return {};
+    const auto contents = file.loadFileAsString().trim();
+    if (!contents.startsWithChar('{')) return {};
+    return juce::JSON::parse(contents).getProperty("user_name", {}).toString().trim();
+}
+
+bool sessionWithinOfflineGrace()
 {
     const auto file = sessionFile();
     if (!file.existsAsFile()) return false;
-        const auto contents = file.loadFileAsString().trim();
+    const auto contents = file.loadFileAsString().trim();
     if (contents.startsWithChar('{'))
     {
-        const auto until = static_cast<juce::int64>(juce::JSON::parse(contents).getProperty("offline_until", 0));
+        const auto until = static_cast<juce::int64>(
+            juce::JSON::parse(contents).getProperty("offline_until", 0));
         return until > juce::Time::getCurrentTime().toMilliseconds() / 1000;
     }
+    // Sessions from older builds are accepted for one grace period based on
+    // their last-write time, then rewritten in the new metadata format.
     const auto age = juce::Time::getCurrentTime() - file.getLastModificationTime();
     return age.inSeconds() >= 0 && age.inSeconds() <= offlineGraceSeconds;
 }
@@ -139,7 +153,9 @@ juce::String LicenseVerifier::storedToken()
 
 bool LicenseVerifier::isActivated()
 {
-    // A cached online session is valid during the offline grace period.
+    // Keep the successful login across process restarts. The editor performs
+    // an online validation in the background when possible; a cached session
+    // is enough to start the app while offline.
     return onlineSessionValidated.load(std::memory_order_acquire)
         || (sessionToken().length() >= 24 && sessionWithinOfflineGrace());
 }
@@ -155,7 +171,7 @@ bool LicenseVerifier::activateAndStore(const juce::String& token)
 
 bool LicenseVerifier::hasOnlineSession()
 {
-        return sessionToken().length() >= 24 && sessionWithinOfflineGrace();
+    return sessionToken().length() >= 24 && sessionWithinOfflineGrace();
 }
 
 void LicenseVerifier::clearOnlineSession()
@@ -164,7 +180,12 @@ void LicenseVerifier::clearOnlineSession()
     onlineSessionValidated.store(false, std::memory_order_release);
 }
 
-juce::String LicenseVerifier::storedUserName(){return sessionUserName();} bool LicenseVerifier::loginOnline(const juce::String& email, const juce::String& password,
+juce::String LicenseVerifier::storedUserName()
+{
+    return sessionUserName();
+}
+
+bool LicenseVerifier::loginOnline(const juce::String& email, const juce::String& password,
                                   juce::String& errorMessage)
 {
     auto* object = new juce::DynamicObject();
@@ -179,7 +200,20 @@ juce::String LicenseVerifier::storedUserName(){return sessionUserName();} bool L
     const auto token = response.getProperty("access_token", {}).toString().trim();
     if (token.length() < 24) { errorMessage = "Resposta de licença inválida."; return false; }
     auto file = sessionFile();
-    auto* session = new juce::DynamicObject(); session->setProperty("access_token", token); const auto user=response.getProperty("user", {}); auto userName=user.getProperty("display_name", {}).toString().trim(); if(userName.isEmpty()) userName=response.getProperty("email", {}).toString().trim(); if(userName.isEmpty()) userName=email.trim(); session->setProperty("user_name", userName); if (file.getParentDirectory().createDirectory().failed() || !file.replaceWithText(juce::JSON::toString(juce::var(session))))
+    auto* session = new juce::DynamicObject();
+    session->setProperty("access_token", token);
+    const auto user = response.getProperty("user", {});
+    const auto userEmail = response.getProperty("email", {}).toString().trim();
+    auto userName = user.getProperty("display_name", {}).toString().trim();
+    if (userName.isNotEmpty() && userEmail.isNotEmpty()) userName += " · " + userEmail;
+    else if (userName.isEmpty()) userName = userEmail;
+    if (userName.isEmpty()) userName = email.trim();
+    session->setProperty("user_name", userName);
+    session->setProperty("offline_until",
+                         juce::Time::getCurrentTime().toMilliseconds() / 1000
+                         + offlineGraceSeconds);
+    if (file.getParentDirectory().createDirectory().failed()
+        || !file.replaceWithText(juce::JSON::toString(juce::var(session))))
     { errorMessage = "Não foi possível salvar a licença neste computador."; return false; }
     onlineSessionValidated.store(true, std::memory_order_release);
     return true;
@@ -191,15 +225,47 @@ bool LicenseVerifier::validateOnlineSession(juce::String& errorMessage)
     if (token.length() < 24) { errorMessage = "Sessão de licença ausente."; return false; }
     juce::var response; int status = 0;
     auto* object = new juce::DynamicObject();
-        if (!postJson("/v1/license/validate", juce::var(object), response, status, errorMessage, token))
+    if (!postJson("/v1/license/validate", juce::var(object), response, status, errorMessage, token))
     {
-        // Offline transport failure: retain the cached session.
-                return sessionWithinOfflineGrace();
-        
+        // HTTP rejection means the server explicitly revoked or expired this
+        // device. It must not be treated like an offline transport failure.
+        if (status == 401 || status == 403)
+        {
+            clearOnlineSession();
+            errorMessage = "Esta licença não está ativa neste computador.";
+        }
+        // A transport failure is not a license failure. Preserve the cached
+        // session so the application remains usable without internet.
         return false;
     }
- const auto valid = static_cast<bool>(response.getProperty("valid", false));
+    const auto valid = static_cast<bool>(response.getProperty("valid", false));
     onlineSessionValidated.store(valid, std::memory_order_release);
+    if (!valid)
+    {
+        // Explicit rejection (revoked/expired account or device) is different
+        // from an offline network error and must require a new login.
+        clearOnlineSession();
+        return false;
+    }
+
+    // Refresh the local offline window after a successful online check.
+    auto file = sessionFile();
+    auto* session = new juce::DynamicObject();
+    session->setProperty("access_token", token);
+    // Newer service responses include the authenticated user. Persist it on
+    // every successful online check so sessions created by older builds also
+    // gain the account name without requiring a second login.
+    const auto user = response.getProperty("user", {});
+    const auto userEmail = response.getProperty("email", {}).toString().trim();
+    auto userName = user.getProperty("display_name", {}).toString().trim();
+    if (userName.isNotEmpty() && userEmail.isNotEmpty()) userName += " · " + userEmail;
+    else if (userName.isEmpty()) userName = userEmail;
+    if (userName.isEmpty()) userName = sessionUserName();
+    if (userName.isNotEmpty()) session->setProperty("user_name", userName);
+    session->setProperty("offline_until",
+                         juce::Time::getCurrentTime().toMilliseconds() / 1000
+                         + offlineGraceSeconds);
+    file.replaceWithText(juce::JSON::toString(juce::var(session)));
     return valid;
 }
 
