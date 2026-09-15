@@ -177,6 +177,7 @@ private:
     void restoreStartupSettings();
     juce::File startupSettingsFile() const;
     juce::File programStorageDirectory() const;
+    void installBundledDx7Banks();
     const juce::File programStorageRoot;
     juce::String lastSavedProgram;
     juce::String currentSavedProgram;

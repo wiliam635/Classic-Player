@@ -58,6 +58,15 @@ juce::Image embeddedImage(const char* resourceName)
     return {};
 }
 
+juce::String accountIdentityText()
+{
+    const auto name = LicenseVerifier::storedUserName().trim();
+    const auto email = LicenseVerifier::storedUserEmail().trim();
+    if (name.isEmpty()) return email;
+    if (email.isEmpty() || name == email) return name;
+    return name + "\n" + email;
+}
+
 class ClassicLookAndFeel final : public juce::LookAndFeel_V4
 {
 public:
@@ -2688,7 +2697,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     addAndMakeVisible(title);
     subtitle.setText("CLASSIC KEYS SF2 WORKSTATION", juce::dontSendNotification);
     subtitle.setColour(juce::Label::textColourId, juce::Colour(mutedText));
-    addAndMakeVisible(subtitle); userLabel.setColour(juce::Label::textColourId, juce::Colour(teal)); userLabel.setFont(juce::FontOptions(11.0f, juce::Font::bold)); userLabel.setText(LicenseVerifier::storedUserName(), juce::dontSendNotification); addAndMakeVisible(userLabel);
+    addAndMakeVisible(subtitle); userLabel.setColour(juce::Label::textColourId, juce::Colour(teal)); userLabel.setFont(juce::FontOptions(11.0f, juce::Font::bold)); userLabel.setJustificationType(juce::Justification::topLeft); userLabel.setText(accountIdentityText(), juce::dontSendNotification); addAndMakeVisible(userLabel);
     chordLabel.setText("-", juce::dontSendNotification);
     chordLabel.setFont(juce::FontOptions(36.0f, juce::Font::bold));
     chordLabel.setJustificationType(juce::Justification::centred);
@@ -3251,7 +3260,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
     auto brand = header.removeFromLeft(brandWidth);
     brand.removeFromTop(16);
     title.setBounds(brand.removeFromTop(38));
-    subtitle.setBounds(brand.removeFromTop(25)); userLabel.setBounds(brand.removeFromTop(18)); userLabel.setVisible(userLabel.getText().isNotEmpty());
+    subtitle.setBounds(brand.removeFromTop(25)); userLabel.setBounds(brand.removeFromTop(34)); userLabel.setVisible(userLabel.getText().isNotEmpty());
 
     auto masterArea = header.removeFromRight(116);
     masterMeter.setBounds(masterArea.removeFromRight(13).reduced(0, 6));
@@ -3310,10 +3319,10 @@ void ClassicPlayerAudioProcessorEditor::resized()
     if (showingLiveSet)
     {
         auto liveArea = getLocalBounds().reduced(14);
-        auto liveHeader = liveArea.removeFromTop(68);
+        auto liveHeader = liveArea.removeFromTop(84);
         appIcon.setBounds(18, 14, 54, 54);
         title.setBounds(82, 20, 260, 28);
-        subtitle.setBounds(82, 47, 260, 20); userLabel.setBounds(82, 66, 260, 18); userLabel.setVisible(userLabel.getText().isNotEmpty());
+        subtitle.setBounds(82, 47, 260, 20); userLabel.setBounds(82, 66, 260, 32); userLabel.setVisible(userLabel.getText().isNotEmpty());
         auto controls = liveHeader.removeFromRight(370);
         liveSetButton.setBounds(controls.removeFromRight(72).reduced(2,16));
         auto volumeArea = controls.removeFromRight(140).reduced(8,8);
@@ -3862,7 +3871,7 @@ void ClassicPlayerAudioProcessorEditor::activate()
             if (safe == nullptr) return;
             safe->activationButton.setEnabled(true);
             if (ok)
-            { safe->classicProcessor.refreshActivation(); safe->userLabel.setText(LicenseVerifier::storedUserName(), juce::dontSendNotification); safe->userLabel.setVisible(safe->userLabel.getText().isNotEmpty()); safe->activationPanel.setVisible(false); }
+            { safe->classicProcessor.refreshActivation(); safe->userLabel.setText(accountIdentityText(), juce::dontSendNotification); safe->userLabel.setVisible(safe->userLabel.getText().isNotEmpty()); safe->activationPanel.setVisible(false); }
             else
             { safe->activationStatus.setColour(juce::Label::textColourId, juce::Colours::salmon); safe->activationStatus.setText(error, juce::dontSendNotification); }
         });
@@ -3884,9 +3893,9 @@ void ClassicPlayerAudioProcessorEditor::validateStoredOnlineSession()
             if (safe == nullptr) return;
             safe->activationButton.setEnabled(true);
             if (ok)
-            { safe->classicProcessor.refreshActivation(); safe->userLabel.setText(LicenseVerifier::storedUserName(), juce::dontSendNotification); safe->userLabel.setVisible(safe->userLabel.getText().isNotEmpty()); safe->activationPanel.setVisible(false); }
+            { safe->classicProcessor.refreshActivation(); safe->userLabel.setText(accountIdentityText(), juce::dontSendNotification); safe->userLabel.setVisible(safe->userLabel.getText().isNotEmpty()); safe->activationPanel.setVisible(false); }
             else
-            if (!LicenseVerifier::hasOnlineSession()) LicenseVerifier::clearOnlineSession(); {  safe->activationStatus.setColour(juce::Label::textColourId, juce::Colours::salmon); safe->activationStatus.setText("Faça login para ativar este computador.", juce::dontSendNotification); }
+            if (!LicenseVerifier::hasOnlineSession()) LicenseVerifier::clearOnlineSession(); {  safe->activationStatus.setColour(juce::Label::textColourId, juce::Colours::salmon); safe->activationStatus.setText(juce::String::fromUTF8("Faça login para ativar este computador."), juce::dontSendNotification); }
         });
     });
 }

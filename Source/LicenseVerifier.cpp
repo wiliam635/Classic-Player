@@ -37,7 +37,28 @@ juce::String sessionUserName()
     if (!file.existsAsFile()) return {};
     const auto contents = file.loadFileAsString().trim();
     if (!contents.startsWithChar('{')) return {};
-    return juce::JSON::parse(contents).getProperty("user_name", {}).toString().trim();
+    auto name = juce::JSON::parse(contents).getProperty("user_name", {}).toString().trim();
+    // Older builds stored "name · email" in this field.  Keep those sessions
+    // readable while the newer format stores the two values independently.
+    const auto separator = name.indexOf(" · ");
+    return separator >= 0 ? name.substring(0, separator).trim() : name;
+}
+
+juce::String sessionUserEmail()
+{
+    const auto file = sessionFile();
+    if (!file.existsAsFile()) return {};
+    const auto contents = file.loadFileAsString().trim();
+    if (!contents.startsWithChar('{')) return {};
+    const auto parsed = juce::JSON::parse(contents);
+    auto email = parsed.getProperty("user_email", {}).toString().trim();
+    if (email.isEmpty())
+    {
+        const auto legacy = parsed.getProperty("user_name", {}).toString().trim();
+        const auto separator = legacy.indexOf(" · ");
+        if (separator >= 0) email = legacy.substring(separator + 3).trim();
+    }
+    return email;
 }
 
 bool sessionWithinOfflineGrace()
@@ -185,6 +206,11 @@ juce::String LicenseVerifier::storedUserName()
     return sessionUserName();
 }
 
+juce::String LicenseVerifier::storedUserEmail()
+{
+    return sessionUserEmail();
+}
+
 bool LicenseVerifier::loginOnline(const juce::String& email, const juce::String& password,
                                   juce::String& errorMessage)
 {
@@ -203,12 +229,16 @@ bool LicenseVerifier::loginOnline(const juce::String& email, const juce::String&
     auto* session = new juce::DynamicObject();
     session->setProperty("access_token", token);
     const auto user = response.getProperty("user", {});
-    const auto userEmail = response.getProperty("email", {}).toString().trim();
+    // The service returns the account in both the top-level fields and the
+    // nested user object.  Prefer the nested value so this also works with
+    // responses that omit the legacy top-level email.
+    auto userEmail = user.getProperty("email", response.getProperty("email", {})).toString().trim();
     auto userName = user.getProperty("display_name", {}).toString().trim();
-    if (userName.isNotEmpty() && userEmail.isNotEmpty()) userName += " · " + userEmail;
-    else if (userName.isEmpty()) userName = userEmail;
-    if (userName.isEmpty()) userName = email.trim();
+    if (userName.isEmpty()) userName = user.getProperty("name", {}).toString().trim();
+    if (userName.isEmpty()) userName = user.getProperty("full_name", {}).toString().trim();
+    if (userEmail.isEmpty()) userEmail = email.trim();
     session->setProperty("user_name", userName);
+    session->setProperty("user_email", userEmail);
     session->setProperty("offline_until",
                          juce::Time::getCurrentTime().toMilliseconds() / 1000
                          + offlineGraceSeconds);
@@ -256,12 +286,14 @@ bool LicenseVerifier::validateOnlineSession(juce::String& errorMessage)
     // every successful online check so sessions created by older builds also
     // gain the account name without requiring a second login.
     const auto user = response.getProperty("user", {});
-    const auto userEmail = response.getProperty("email", {}).toString().trim();
+    auto userEmail = user.getProperty("email", response.getProperty("email", {})).toString().trim();
     auto userName = user.getProperty("display_name", {}).toString().trim();
-    if (userName.isNotEmpty() && userEmail.isNotEmpty()) userName += " · " + userEmail;
-    else if (userName.isEmpty()) userName = userEmail;
+    if (userName.isEmpty()) userName = user.getProperty("name", {}).toString().trim();
+    if (userName.isEmpty()) userName = user.getProperty("full_name", {}).toString().trim();
     if (userName.isEmpty()) userName = sessionUserName();
+    if (userEmail.isEmpty()) userEmail = sessionUserEmail();
     if (userName.isNotEmpty()) session->setProperty("user_name", userName);
+    if (userEmail.isNotEmpty()) session->setProperty("user_email", userEmail);
     session->setProperty("offline_until",
                          juce::Time::getCurrentTime().toMilliseconds() / 1000
                          + offlineGraceSeconds);

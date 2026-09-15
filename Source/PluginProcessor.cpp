@@ -2,6 +2,7 @@
 #include "AnalogBrowserPresets.h"
 #include "PluginEditor.h"
 #include "LicenseVerifier.h"
+#include "ClassicPlayerAssets.h"
 #include <algorithm>
 #include <array>
 
@@ -16,6 +17,38 @@ juce::File ClassicPlayerAudioProcessor::programStorageDirectory() const
     return programStorageRoot != juce::File{} ? programStorageRoot
         : juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
             .getChildFile("Classic Player");
+}
+
+void ClassicPlayerAudioProcessor::installBundledDx7Banks()
+{
+    // Install the two supplied 32-voice banks once into the normal DX7
+    // library. Keeping real files in the library lets the existing editor
+    // select patches and preserves the user's ability to remove them later.
+    const auto folder = programStorageDirectory().getChildFile("DX7 Banks");
+    const auto marker = folder.getChildFile(".bundled-divine-masquerade-v1");
+    if (marker.existsAsFile() || folder.createDirectory().failed()) return;
+
+    struct BundledBank { const char* resource; const char* fileName; };
+    constexpr BundledBank banks[] {
+        { "Classic_Keys_DX7__Divine_Masquerade_1_syx",
+          "Classic Keys DX7 - Divine Masquerade 1.syx" },
+        { "Classic_Keys_DX7__Divine_Masquerade_2_syx",
+          "Classic Keys DX7 - Divine Masquerade 2.syx" }
+    };
+
+    bool installed = true;
+    for (const auto& bank : banks)
+    {
+        int size = 0;
+        const auto* data = ClassicPlayerAssets::getNamedResource(bank.resource, size);
+        const auto destination = folder.getChildFile(bank.fileName);
+        if (data == nullptr || size <= 0
+            || (!destination.existsAsFile() && !destination.replaceWithData(data, (size_t) size)))
+            installed = false;
+    }
+
+    if (installed)
+        marker.replaceWithText("Bundled DX7 banks installed\n");
 }
 
 void ClassicPlayerAudioProcessor::saveStartupSettings()
@@ -122,6 +155,7 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
         config.enabled = false;
         engine.setConfig(layer, config);
     }
+    installBundledDx7Banks();
     loadLiveSetState();
     refreshActivation();
     startTimerHz(30);
@@ -376,11 +410,11 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         auto config = engine.getConfig(i);
         const auto prefix = "layer" + juce::String(i + 1);
         auto layerGain = parameters.getRawParameterValue(prefix + "Gain")->load() / 100.0f;
-        // DX7 needs an additional 6 dB trim relative to the approved build.
+        // Keep the DX7 6 dB lower than the previous approved trim.
         // Keep Analog and all other sources at their approved levels.
         const auto type = layerType(i);
         if (type == LayerType::dx7)
-            layerGain *= juce::Decibels::decibelsToGain(-12.0f);
+            layerGain *= juce::Decibels::decibelsToGain(-18.0f);
         else if (type == LayerType::analog)
             layerGain *= juce::Decibels::decibelsToGain(-6.0f);
         config.gain = layerGain;
@@ -1080,8 +1114,7 @@ juce::Result ClassicPlayerAudioProcessor::importDx7Bank(const juce::File& source
     if (!source.existsAsFile() || source.getFileExtension().toLowerCase() != ".syx")
         return juce::Result::fail("Selecione um banco DX7 SysEx valido.");
 
-    auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                    .getChildFile("Classic Player").getChildFile("DX7 Banks");
+    auto folder = programStorageDirectory().getChildFile("DX7 Banks");
     if (const auto result = folder.createDirectory(); result.failed()) return result;
 
     auto destination = folder.getChildFile(source.getFileName());
@@ -1103,8 +1136,7 @@ juce::Result ClassicPlayerAudioProcessor::importDx7Bank(const juce::File& source
 juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryDx7Banks() const
 {
     juce::Array<juce::File> result;
-    const auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                            .getChildFile("Classic Player").getChildFile("DX7 Banks");
+    const auto folder = programStorageDirectory().getChildFile("DX7 Banks");
     folder.findChildFiles(result, juce::File::findFiles, false, "*.syx;*.SYX");
     std::sort(result.begin(), result.end(), [](const auto& a, const auto& b)
     {
@@ -1115,8 +1147,7 @@ juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryDx7Banks() const
 
 juce::Result ClassicPlayerAudioProcessor::deleteLibraryDx7Bank(const juce::File& file)
 {
-    const auto root = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                        .getChildFile("Classic Player").getChildFile("DX7 Banks");
+    const auto root = programStorageDirectory().getChildFile("DX7 Banks");
     if (!file.existsAsFile() || file.getFileExtension().toLowerCase() != ".syx" || !file.isAChildOf(root))
         return juce::Result::fail("Selecione um banco DX7 valido da biblioteca.");
 

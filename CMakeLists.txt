@@ -6,6 +6,12 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# Keep Portuguese UI literals encoded as UTF-8 when compiling with MSVC.
+# Without this flag, the Windows code page can turn "ç/ã/é" into mojibake.
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 option(CLASSIC_PLAYER_FETCH_JUCE "Download JUCE when JUCE_DIR is not supplied" ON)
 option(CLASSIC_PLAYER_STANDALONE_ONLY "Build only the standalone application" OFF)
 option(CLASSIC_PLAYER_BUILD_TESTS "Build the native SF2 smoke test" OFF)
@@ -89,7 +95,9 @@ juce_add_binary_data(ClassicPlayerAssets
         Resources/classic-player-license-public.pem
         Resources/classic-player-app-icon.png
         Resources/WebUI/classic-keys-logo.jpeg
-        Resources/WebUI/willam-silva-logo.png)
+        Resources/WebUI/willam-silva-logo.png
+        "Resources/DX7/Classic Keys DX7 - Divine Masquerade 1.syx"
+        "Resources/DX7/Classic Keys DX7 - Divine Masquerade 2.syx")
 
 target_sources(ClassicPlayer PRIVATE
     Source/PluginProcessor.cpp
