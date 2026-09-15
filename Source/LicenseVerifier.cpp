@@ -4,6 +4,7 @@
 #include <openssl/pem.h>
 #include <openssl/ecdsa.h>
 #include <atomic>
+#include <initializer_list>
 
 namespace
 {
@@ -14,6 +15,66 @@ constexpr auto licenseServiceUrl = "https://licenca.classickeys.com.br";
 // again by the licensing service.
 constexpr juce::int64 offlineGraceSeconds = 30LL * 24LL * 60LL * 60LL;
 std::atomic<bool> onlineSessionValidated { false };
+
+juce::String firstPropertyString(const juce::var& object,
+                                 std::initializer_list<const char*> keys)
+{
+    if (object.getDynamicObject() == nullptr)
+        return {};
+
+    for (const auto* key : keys)
+    {
+        const auto value = object.getProperty(key, {}).toString().trim();
+        if (value.isNotEmpty())
+            return value;
+    }
+    return {};
+}
+
+// The licensing service has used a couple of response shapes while the
+// members area evolved.  Read all supported account containers so a session
+// created by an older/newer server still displays both name and e-mail.
+juce::String responseAccountField(const juce::var& response, bool name)
+{
+    const auto keys = name
+        ? std::initializer_list<const char*> { "display_name", "displayName", "full_name",
+            "fullName", "name", "nome", "nome_completo", "nomeCompleto", "username",
+            "user_name", "userName" }
+        : std::initializer_list<const char*> { "email", "user_email", "userEmail", "mail",
+            "e_mail" };
+
+    const auto data = response.getProperty("data", {});
+    const juce::var candidates[] {
+        response,
+        response.getProperty("user", {}),
+        response.getProperty("profile", {}),
+        response.getProperty("account", {}),
+        response.getProperty("usuario", {}),
+        data,
+        data.getProperty("user", {}),
+        data.getProperty("profile", {}),
+        data.getProperty("account", {}),
+        data.getProperty("usuario", {})
+    };
+
+    for (const auto& candidate : candidates)
+    {
+        const auto value = firstPropertyString(candidate, keys);
+        if (value.isNotEmpty())
+            return value;
+
+        if (name)
+        {
+            const auto firstName = firstPropertyString(candidate,
+                { "first_name", "firstName", "primeiro_nome", "primeiroNome" });
+            const auto lastName = firstPropertyString(candidate,
+                { "last_name", "lastName", "sobrenome" });
+            if (firstName.isNotEmpty() || lastName.isNotEmpty())
+                return (firstName + " " + lastName).trim();
+        }
+    }
+    return {};
+}
 
 juce::File sessionFile()
 {
@@ -228,14 +289,8 @@ bool LicenseVerifier::loginOnline(const juce::String& email, const juce::String&
     auto file = sessionFile();
     auto* session = new juce::DynamicObject();
     session->setProperty("access_token", token);
-    const auto user = response.getProperty("user", {});
-    // The service returns the account in both the top-level fields and the
-    // nested user object.  Prefer the nested value so this also works with
-    // responses that omit the legacy top-level email.
-    auto userEmail = user.getProperty("email", response.getProperty("email", {})).toString().trim();
-    auto userName = user.getProperty("display_name", {}).toString().trim();
-    if (userName.isEmpty()) userName = user.getProperty("name", {}).toString().trim();
-    if (userName.isEmpty()) userName = user.getProperty("full_name", {}).toString().trim();
+    auto userEmail = responseAccountField(response, false);
+    auto userName = responseAccountField(response, true);
     if (userEmail.isEmpty()) userEmail = email.trim();
     session->setProperty("user_name", userName);
     session->setProperty("user_email", userEmail);
@@ -285,11 +340,8 @@ bool LicenseVerifier::validateOnlineSession(juce::String& errorMessage)
     // Newer service responses include the authenticated user.  Persist it on
     // every successful online check so sessions created by older builds also
     // gain the account name without requiring a second login.
-    const auto user = response.getProperty("user", {});
-    auto userEmail = user.getProperty("email", response.getProperty("email", {})).toString().trim();
-    auto userName = user.getProperty("display_name", {}).toString().trim();
-    if (userName.isEmpty()) userName = user.getProperty("name", {}).toString().trim();
-    if (userName.isEmpty()) userName = user.getProperty("full_name", {}).toString().trim();
+    auto userEmail = responseAccountField(response, false);
+    auto userName = responseAccountField(response, true);
     if (userName.isEmpty()) userName = sessionUserName();
     if (userEmail.isEmpty()) userEmail = sessionUserEmail();
     if (userName.isNotEmpty()) session->setProperty("user_name", userName);
