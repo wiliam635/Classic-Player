@@ -310,6 +310,12 @@ bool LicenseVerifier::validateOnlineSession(juce::String& errorMessage)
     if (token.length() < 24) { errorMessage = "Sessão de licença ausente."; return false; }
     juce::var response; int status = 0;
     auto* object = new juce::DynamicObject();
+    // Include the same device identity used during login.  The service can
+    // then distinguish this installation when a token is revoked or moved to
+    // another computer, while token authentication remains the authority.
+    object->setProperty("device_id", deviceId());
+    object->setProperty("platform", platformName());
+    object->setProperty("device_name", juce::SystemStats::getComputerName());
     if (!postJson("/v1/license/validate", juce::var(object), response, status, errorMessage, token))
     {
         // HTTP rejection means the server explicitly revoked or expired this

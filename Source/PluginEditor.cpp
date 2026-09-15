@@ -3888,14 +3888,36 @@ void ClassicPlayerAudioProcessorEditor::validateStoredOnlineSession()
     {
         juce::String error;
         const auto ok = LicenseVerifier::validateOnlineSession(error);
-        juce::MessageManager::callAsync([safe, ok]
+        juce::MessageManager::callAsync([safe, ok, error]
         {
             if (safe == nullptr) return;
             safe->activationButton.setEnabled(true);
             if (ok)
             { safe->classicProcessor.refreshActivation(); safe->userLabel.setText(accountIdentityText(), juce::dontSendNotification); safe->userLabel.setVisible(safe->userLabel.getText().isNotEmpty()); safe->activationPanel.setVisible(false); }
             else
-            if (!LicenseVerifier::hasOnlineSession()) LicenseVerifier::clearOnlineSession(); {  safe->activationStatus.setColour(juce::Label::textColourId, juce::Colours::salmon); safe->activationStatus.setText(juce::String::fromUTF8("Faça login para ativar este computador."), juce::dontSendNotification); }
+            {
+                // A timeout/DNS failure must not turn a valid cached session
+                // into a login prompt.  validateOnlineSession() only removes
+                // the session after an explicit server rejection, so this
+                // branch cleanly separates offline use from revocation.
+                if (LicenseVerifier::hasOnlineSession())
+                {
+                    safe->classicProcessor.refreshActivation();
+                    safe->userLabel.setText(accountIdentityText(), juce::dontSendNotification);
+                    safe->userLabel.setVisible(safe->userLabel.getText().isNotEmpty());
+                    safe->activationPanel.setVisible(false);
+                }
+                else
+                {
+                    safe->classicProcessor.refreshActivation();
+                    safe->activationPanel.setVisible(true);
+                    safe->activationPanel.toFront(false);
+                    safe->activationStatus.setColour(juce::Label::textColourId, juce::Colours::salmon);
+                    safe->activationStatus.setText(error.isNotEmpty() ? error
+                        : juce::String::fromUTF8("Faça login para ativar este computador."),
+                        juce::dontSendNotification);
+                }
+            }
         });
     });
 }
