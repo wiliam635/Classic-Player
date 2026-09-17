@@ -28,7 +28,12 @@ final class PolySynthEngine {
     private static native int nativeAnalogPresetCount();
     private static native String nativeAnalogPresetName(int preset);
     private static native boolean nativeSetAnalogPreset(int layer, int preset);
+    private static native void nativeActivateHammond(int layer);
+    private static native int nativeHammondPresetCount();
+    private static native String nativeHammondPresetName(int preset);
+    private static native boolean nativeSetHammondPreset(int layer, int preset);
     private static native void nativeUnloadAll();
+    private static native void nativeClearLayer(int layer);
     private static native void nativeSetMaster(float value);
     private static native void nativeSetLayerGain(int layer, float value);
     private static native int nativePresetCount(int layer);
@@ -80,7 +85,12 @@ final class PolySynthEngine {
     int analogPresetCount() { return nativeAnalogPresetCount(); }
     String analogPresetName(int preset) { return nativeAnalogPresetName(preset); }
     boolean setAnalogPreset(int layer, int preset) { return nativeSetAnalogPreset(layer, preset); }
+    void activateHammond(int layer) { nativeActivateHammond(layer); }
+    int hammondPresetCount() { return nativeHammondPresetCount(); }
+    String hammondPresetName(int preset) { return nativeHammondPresetName(preset); }
+    boolean setHammondPreset(int layer, int preset) { return nativeSetHammondPreset(layer, preset); }
     void setMaster(float value) { nativeSetMaster(value); }
+    void clearLayer(int layer) { nativeClearLayer(layer); }
     void setLayerGain(int layer, float value) { nativeSetLayerGain(layer, value); }
     int presetCount(int layer) { return nativePresetCount(layer); }
     String presetName(int layer, int preset) { return nativePresetName(layer, preset); }

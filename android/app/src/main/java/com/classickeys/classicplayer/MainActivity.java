@@ -55,6 +55,12 @@ public final class MainActivity extends Activity {
     private SoundFontLayer[] soundFontLayers;
     private LicenseManager licenseManager;
     private AudioOutputManager audioOutputManager;
+    private PadEngine padEngine;
+    private int pendingPad = -1;
+    private boolean pendingContinuous;
+    private boolean padLayerActive;
+    private boolean continuousPadActive;
+    private int pendingLearnTarget = -1;
     private int midiIndex;
     private int midiRunningStatus;
     private int midiFirstData = -1;
@@ -87,13 +93,20 @@ public final class MainActivity extends Activity {
     private void processMidiMessage(int type, int first, int second) {
         if (audioEngine == null) return;
         if (type == 0xb0) {
+            if(first!=64&&first!=120&&first!=123){
+                if(pendingLearnTarget>=0){getSharedPreferences("midi_learn",MODE_PRIVATE).edit().putInt("cc_"+pendingLearnTarget,first).apply();screen.setMidiStatus("MIDI: CC "+first+" aprendido");pendingLearnTarget=-1;return;}
+                SharedPreferences learn=getSharedPreferences("midi_learn",MODE_PRIVATE);for(int target=0;target<7;target++)if(learn.getInt("cc_"+target,-1)==first){screen.setLearnedVolume(target,second/127f);return;}
+            }
             if (first == 64) audioEngine.setSustain(second >= 64);
             else if (first == 120 || first == 123) audioEngine.allNotesOff();
             return;
         }
         if (type != 0x80 && type != 0x90) return;
         screen.setMidiSignal();
-        if (type == 0x90 && second > 0) audioEngine.noteOn(first, second);
+        if (type == 0x90 && second > 0) {
+            if(padLayerActive&&first>=36&&first<48){padEngine.setContinuous(continuousPadActive);padEngine.trigger(first-36);}
+            audioEngine.noteOn(first, second);
+        }
         else audioEngine.noteOff(first);
     }
     private final MidiManager.DeviceCallback midiCallback = new MidiManager.DeviceCallback() {
@@ -113,6 +126,9 @@ public final class MainActivity extends Activity {
         audioEngine = new PolySynthEngine();
         licenseManager = new LicenseManager(this);
         audioOutputManager = new AudioOutputManager(this);
+        padEngine = new PadEngine(this);
+        SharedPreferences padPrefs=getSharedPreferences("pads",MODE_PRIVATE);
+        for(int p=0;p<12;p++){String path=padPrefs.getString("pad_"+p,null);if(path!=null)padEngine.load(p,path);}
         soundFontLayers = new SoundFontLayer[6];
         for (int i = 0; i < soundFontLayers.length; i++) soundFontLayers[i] = new SoundFontLayer(this);
         android.content.SharedPreferences prefs = getSharedPreferences("layers", MODE_PRIVATE);
@@ -131,6 +147,14 @@ public final class MainActivity extends Activity {
                 int preset=prefs.getInt("analog_preset_"+i,0); audioEngine.activateAnalog(i); audioEngine.setAnalogPreset(i,preset);
                 screen.setLayerName(i,"Classic Keys Analog"); screen.setEngineName(i,"ANALOG"); screen.setPresetName(i,audioEngine.analogPresetName(preset));
                 continue;
+            }
+            if(engine==4){
+                int preset=prefs.getInt("hammond_preset_"+i,0); audioEngine.activateHammond(i); audioEngine.setHammondPreset(i,preset);
+                screen.setLayerName(i,"Classic Keys Hammond"); screen.setEngineName(i,"HAMMOND"); screen.setPresetName(i,audioEngine.hammondPresetName(preset));
+                continue;
+            }
+            if(engine==5||engine==6){
+                padLayerActive=true;continuousPadActive=engine==6;audioEngine.clearLayer(i);screen.setLayerName(i,engine==6?"Pads contínuos":"Drum Pads");screen.setEngineName(i,engine==6?"CONT. PADS":"DRUM PADS");screen.setPresetName(i,"12 pads · notas MIDI 36–47");continue;
             }
             sf2Uris[i] = prefs.getString("sf2_" + i, null);
             String name = prefs.getString("name_" + i, null);
@@ -174,6 +198,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        if (padEngine != null) padEngine.stopAll();
         if (audioEngine != null) audioEngine.close();
         super.onDestroy();
     }
@@ -224,6 +249,10 @@ public final class MainActivity extends Activity {
                     }
                 }).setNegativeButton("CANCELAR", null).show();
     }
+    private void showMidiLearnChooser(){
+        String[] targets={"VOLUME LAYER 1","VOLUME LAYER 2","VOLUME LAYER 3","VOLUME LAYER 4","VOLUME LAYER 5","VOLUME LAYER 6","VOLUME MASTER"};
+        new AlertDialog.Builder(this).setTitle("MIDI LEARN · VOLUME").setItems(targets,(d,which)->{pendingLearnTarget=which;screen.setMidiStatus("MIDI: mova agora o controle CC");}).setNegativeButton("CANCELAR",null).show();
+    }
 
     private void openMidi(MidiDeviceInfo info) {
         if (midiManager == null) return;
@@ -239,6 +268,12 @@ public final class MainActivity extends Activity {
                 }
             }
         }, mainHandler);
+    }
+    private void showMidiDeviceChooser(){
+        if(midiManager==null)return;MidiDeviceInfo[] devices=midiManager.getDevices();
+        if(devices.length==0){new AlertDialog.Builder(this).setTitle("CONTROLADOR MIDI").setMessage("Nenhum controlador MIDI USB foi encontrado.").setPositiveButton("OK",null).show();return;}
+        String[] names=new String[devices.length];for(int i=0;i<devices.length;i++){String name=devices[i].getProperties().getString(MidiDeviceInfo.PROPERTY_NAME);names[i]=(name==null?"Dispositivo MIDI":name)+" (ID "+devices[i].getId()+")";}
+        new AlertDialog.Builder(this).setTitle("ESCOLHER CONTROLADOR MIDI").setItems(names,(d,which)->{midiIndex=which;openMidi(devices[which]);screen.setMidiStatus("MIDI USB: "+names[which]);}).setNegativeButton("CANCELAR",null).show();
     }
 
     private void closeMidi() {
@@ -305,8 +340,8 @@ public final class MainActivity extends Activity {
 
     private void chooseLayerSource(int layer) {
         new AlertDialog.Builder(this).setTitle("TIPO DA LAYER " + (layer + 1))
-                .setItems(new String[]{"SOUNDFONT 2 (.sf2)", "DX7 SYSEX (.syx)", "CLASSIC KEYS ANALOG"}, (dialog, which) -> {
-                    if (which == 0) openSf2Picker(layer); else if(which==1) openDx7Picker(layer); else activateAnalog(layer);
+                .setItems(new String[]{"SOUNDFONT 2 (.sf2)", "DX7 SYSEX (.syx)", "CLASSIC KEYS ANALOG", "HAMMOND / LESLIE", "DRUM PADS", "PADS CONTÍNUOS"}, (dialog, which) -> {
+                    if (which == 0) openSf2Picker(layer); else if(which==1) openDx7Picker(layer); else if(which==2) activateAnalog(layer); else if(which==3) activateHammond(layer); else openPadEditor(layer,which==5);
                 }).setNegativeButton("CANCELAR", null).show();
     }
 
@@ -325,6 +360,53 @@ public final class MainActivity extends Activity {
                     if(audioEngine.setAnalogPreset(layer,which)){screen.setPresetName(layer,audioEngine.analogPresetName(which));getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("analog_preset_"+layer,which).apply();}
                     dialog.dismiss();
                 }).setNegativeButton("FECHAR",null).show();
+    }
+
+    private void activateHammond(int layer) {
+        audioEngine.activateHammond(layer); audioEngine.setHammondPreset(layer,0);
+        screen.setLayerName(layer,"Classic Keys Hammond"); screen.setEngineName(layer,"HAMMOND"); screen.setPresetName(layer,audioEngine.hammondPresetName(0));
+        getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("engine_"+layer,4).putInt("hammond_preset_"+layer,0).putString("name_"+layer,"Classic Keys Hammond").apply();
+    }
+    private void openHammondEditor(final int layer) {
+        int count=audioEngine.hammondPresetCount(); String[] presets=new String[count];
+        for(int i=0;i<count;++i)presets[i]=audioEngine.hammondPresetName(i);
+        int selected=getSharedPreferences("layers",MODE_PRIVATE).getInt("hammond_preset_"+layer,0);
+        new AlertDialog.Builder(this).setTitle("LAYER "+(layer+1)+" · HAMMOND / LESLIE")
+                .setSingleChoiceItems(presets,selected,(dialog,which)->{audioEngine.setHammondPreset(layer,which);screen.setPresetName(layer,audioEngine.hammondPresetName(which));getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("hammond_preset_"+layer,which).apply();dialog.dismiss();})
+                .setNegativeButton("FECHAR",null).show();
+    }
+
+    private void openPadEditor(final int layer, final boolean continuous) {
+        audioEngine.clearLayer(layer);padLayerActive=true;continuousPadActive=continuous;padEngine.setContinuous(continuous);
+        screen.setLayerName(layer,continuous?"Pads contínuos":"Drum Pads");
+        screen.setEngineName(layer,continuous?"CONT. PADS":"DRUM PADS"); screen.setPresetName(layer,"12 pads · notas MIDI 36–47");
+        getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("engine_"+layer,continuous?6:5).putString("name_"+layer,continuous?"Pads contínuos":"Drum Pads").apply();
+        String[] items=new String[12];for(int i=0;i<12;i++)items[i]="PAD "+(i+1)+" · "+padEngine.name(i);
+        new AlertDialog.Builder(this).setTitle(continuous?"PADS CONTÍNUOS":"DRUM PADS")
+                .setItems(items,(dialog,which)->{if(padEngine.loaded(which))padEngine.trigger(which);else openPadPicker(which,continuous);})
+                .setPositiveButton("CARREGAR PAD",(dialog,which)->choosePadToLoad(continuous))
+                .setNeutralButton("PARAR",(dialog,which)->padEngine.stopAll()).setNegativeButton("FECHAR",null).show();
+    }
+    private void choosePadToLoad(boolean continuous){
+        String[] pads=new String[12];for(int i=0;i<12;i++)pads[i]="PAD "+(i+1);
+        new AlertDialog.Builder(this).setTitle("ESCOLHA O PAD").setItems(pads,(d,p)->openPadPicker(p,continuous)).show();
+    }
+    private void openPadPicker(int pad,boolean continuous){
+        pendingPad=pad;pendingContinuous=continuous;Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("audio/*");startActivityForResult(i,710);
+    }
+    private void saveLiveSlot(final int bank,final int slot){
+        EditText input=new EditText(this);input.setHint("Nome da programação");input.setSingleLine(true);
+        new AlertDialog.Builder(this).setTitle("SALVAR NO LIVE SET "+(slot+1)).setView(input)
+                .setPositiveButton("SALVAR",(d,w)->{
+                    SharedPreferences layers=getSharedPreferences("layers",MODE_PRIVATE),live=getSharedPreferences("live_set",MODE_PRIVATE);SharedPreferences.Editor e=live.edit();
+                    String root="bank_"+bank+"_slot_"+slot;for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";e.putInt(p+"engine",layers.getInt("engine_"+layer,0));e.putString(p+"sf2",layers.getString("sf2_"+layer,null));e.putString(p+"dx7",layers.getString("dx7_"+layer,null));e.putString(p+"name",layers.getString("name_"+layer,null));e.putInt(p+"preset",layers.getInt("preset_"+layer,0));e.putInt(p+"dx7_patch",layers.getInt("dx7_patch_"+layer,0));e.putInt(p+"analog",layers.getInt("analog_preset_"+layer,0));e.putInt(p+"hammond",layers.getInt("hammond_preset_"+layer,0));}
+                    String name=input.getText().toString().trim();if(name.isEmpty())name="PROGRAMA "+(slot+1);e.putBoolean(root+"_valid",true).putString(root+"_name",name).apply();screen.setLiveName(slot,name);
+                }).setNegativeButton("CANCELAR",null).show();
+    }
+    private void loadLiveSlot(int bank,int slot){
+        SharedPreferences live=getSharedPreferences("live_set",MODE_PRIVATE);String root="bank_"+bank+"_slot_"+slot;if(!live.getBoolean(root+"_valid",false)){new AlertDialog.Builder(this).setMessage("Este slot está vazio. Ative SALVAR SLOT e toque nele para guardar o programa atual.").setPositiveButton("OK",null).show();return;}
+        SharedPreferences.Editor e=getSharedPreferences("layers",MODE_PRIVATE).edit();
+        for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";e.putInt("engine_"+layer,live.getInt(p+"engine",0));e.putString("sf2_"+layer,live.getString(p+"sf2",null));e.putString("dx7_"+layer,live.getString(p+"dx7",null));e.putString("name_"+layer,live.getString(p+"name",null));e.putInt("preset_"+layer,live.getInt(p+"preset",0));e.putInt("dx7_patch_"+layer,live.getInt(p+"dx7_patch",0));e.putInt("analog_preset_"+layer,live.getInt(p+"analog",0));e.putInt("hammond_preset_"+layer,live.getInt(p+"hammond",0));}e.apply();recreate();
     }
 
     private void showLoginScreen() {
@@ -381,6 +463,9 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if(requestCode==710&&resultCode==RESULT_OK&&data!=null&&data.getData()!=null&&pendingPad>=0){
+            String path=cachePad(data.getData(),pendingPad);if(path!=null){padEngine.setContinuous(pendingContinuous);padEngine.load(pendingPad,path);getSharedPreferences("pads",MODE_PRIVATE).edit().putString("pad_"+pendingPad,path).apply();screen.setAudioStatus("ÁUDIO: PAD "+(pendingPad+1)+" carregado");}pendingPad=-1;return;
+        }
         if (requestCode == 701 && resultCode == RESULT_OK && data != null && data.getData() != null && pendingLayer >= 0) {
             Uri uri=data.getData(); final int layer=pendingLayer;
             String cachedPath=cacheDocument(uri,layer,"syx");
@@ -434,6 +519,12 @@ public final class MainActivity extends Activity {
 
     private String cacheSoundFont(Uri source, int layer) {
         return cacheDocument(source, layer, "sf2");
+    }
+
+    private String cachePad(Uri source,int pad){
+        File directory=new File(getFilesDir(),"pads");if(!directory.exists()&&!directory.mkdirs())return null;
+        File target=new File(directory,"pad-"+pad+".audio");
+        try(InputStream input=getContentResolver().openInputStream(source);FileOutputStream output=new FileOutputStream(target,false)){if(input==null)return null;byte[] buffer=new byte[65536];int read;while((read=input.read(buffer))>=0)output.write(buffer,0,read);return target.getAbsolutePath();}catch(Exception ignored){return null;}
     }
 
     private String cacheDocument(Uri source, int layer, String extension) {
@@ -499,8 +590,7 @@ public final class MainActivity extends Activity {
 
     private final class ClassicPlayerView extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final String[] names = { "Piano + Pad", "Worship Atmosphere", "EP + Strings", "Organ Leslie",
-                "Piano Solo", "Brass Layer", "Synth Lead", "Guitar + Pad" };
+        private final String[] names = new String[8];
         private String midiStatus = "MIDI USB: procurando...";
         private String audioStatus = "ÁUDIO: procurando...";
         private String account = "";
@@ -510,6 +600,8 @@ public final class MainActivity extends Activity {
         private boolean settings = false;
         private int outputIndex = 0;
         private int selected = 0;
+        private boolean savingLiveSlot;
+        private int liveBank;
         private final float[] layerVolumes = {0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f};
         private final boolean[] muted = new boolean[6];
         private final boolean[] solo = new boolean[6];
@@ -518,7 +610,8 @@ public final class MainActivity extends Activity {
         private final String[] presetNames = {"", "", "", "", "", ""};
         private final String[] engineNames = {"VAZIA", "VAZIA", "VAZIA", "VAZIA", "VAZIA", "VAZIA"};
 
-        ClassicPlayerView(Context context) { super(context); paint.setTypeface(android.graphics.Typeface.create("sans", 1)); }
+        ClassicPlayerView(Context context) { super(context); paint.setTypeface(android.graphics.Typeface.create("sans", 1)); loadLiveNames(); }
+        private void loadLiveNames(){SharedPreferences live=getSharedPreferences("live_set",MODE_PRIVATE);for(int i=0;i<8;i++)names[i]=live.getString("bank_"+liveBank+"_slot_"+i+"_name","VAZIO");postInvalidate();}
         void setMidiStatus(String value) { midiStatus = value; postInvalidate(); }
         void setAudioStatus(String value) { audioStatus = value; postInvalidate(); }
         void setAccount(String value) { account = value == null ? "" : value; postInvalidate(); }
@@ -526,6 +619,8 @@ public final class MainActivity extends Activity {
         void setLayerName(int layer, String name) { if (layer >= 0 && layer < layerNames.length) { layerNames[layer] = name; postInvalidate(); } }
         void setPresetName(int layer, String name) { if (layer >= 0 && layer < presetNames.length) { presetNames[layer] = name == null ? "" : name; postInvalidate(); } }
         void setEngineName(int layer, String name) { if (layer >= 0 && layer < engineNames.length) { engineNames[layer] = name == null ? "VAZIA" : name; postInvalidate(); } }
+        void setLiveName(int slot,String name){if(slot>=0&&slot<names.length){names[slot]=name;postInvalidate();}}
+        void setLearnedVolume(int target,float value){if(target<6){layerVolumes[target]=value;applyLayerGains();}else{masterVolume=value;if(audioEngine!=null)audioEngine.setMaster(faderGain(value));}postInvalidate();}
 
         private void text(Canvas canvas, String value, float x, float y, float size, int colour) {
             paint.setStyle(Paint.Style.FILL); paint.setColor(colour); paint.setTextSize(size);
@@ -629,8 +724,9 @@ public final class MainActivity extends Activity {
                 text(canvas, midiStatus, 52, h * .42f, h * .026f, Color.rgb(180,195,200));
                 text(canvas, "Toque nas linhas acima para alternar a saída e o controlador.", 52, h * .54f, h * .022f, Color.rgb(180,195,200));
                 float actionRight = Math.min(w - 52, 430);
-                button(canvas, "PARAR TODAS AS NOTAS", 52, h*.61f, actionRight, h*.69f, false);
-                button(canvas, "VOLTAR AO MIXER", 52, h*.73f, actionRight, h*.81f, false);
+                button(canvas, "MIDI LEARN · VOLUME", 52, h*.59f, actionRight, h*.66f, pendingLearnTarget>=0);
+                button(canvas, "PARAR TODAS AS NOTAS", 52, h*.69f, actionRight, h*.76f, false);
+                button(canvas, "VOLTAR AO MIXER", 52, h*.79f, actionRight, h*.86f, false);
                 return;
             }
 
@@ -640,8 +736,8 @@ public final class MainActivity extends Activity {
             }
             final float tabTop = h * .14f, tabs = w / 8f;
             for (int i = 0; i < 8; i++) {
-                if (i == 0) box(canvas, i * tabs + 4, tabTop, (i + 1) * tabs - 4, tabTop + h * .065f, teal, false);
-                text(canvas, "BANCO " + (i + 1), i * tabs + tabs * .18f, tabTop + h * .043f, h * .025f, i == 0 ? Color.rgb(7,16,25) : text);
+                if (i == liveBank) box(canvas, i * tabs + 4, tabTop, (i + 1) * tabs - 4, tabTop + h * .065f, teal, false);
+                text(canvas, "BANCO " + (i + 1), i * tabs + tabs * .18f, tabTop + h * .043f, h * .025f, i == liveBank ? Color.rgb(7,16,25) : text);
             }
             final float margin = 22, top = h * .235f, gap = 14;
             final float cardW = (w - margin * 2 - gap * 3) / 4f, cardH = (h * .69f - top - gap) / 2f;
@@ -652,10 +748,9 @@ public final class MainActivity extends Activity {
                 text(canvas, String.format("%02d", i + 1), x + cardW * .40f, y + cardH * .29f, cardH * .28f, teal);
                 paint.setColor(teal); canvas.drawRect(x + 18, y + cardH * .40f, x + cardW - 18, y + cardH * .407f, paint);
                 text(canvas, names[i], x + 20, y + cardH * .67f, cardH * .15f, text);
-                text(canvas, (i == 1 ? "3" : i == 4 || i == 6 ? "1" : "2") + " CAMADAS", x + 20, y + cardH * .84f, cardH * .09f, Color.rgb(180,195,200));
+                text(canvas, names[i].equals("VAZIO") ? "TOQUE PARA CONFIGURAR" : "PROGRAMA SALVO", x + 20, y + cardH * .84f, cardH * .09f, Color.rgb(180,195,200));
             }
-            text(canvas, "ANTERIOR", margin + 28, h * .955f, h * .027f, text);
-            text(canvas, "PRÓXIMO", w - 125, h * .955f, h * .027f, text);
+            button(canvas, savingLiveSlot?"CANCELAR SALVAMENTO":"SALVAR SLOT", margin, h*.915f, margin+260, h*.975f, savingLiveSlot);
         }
 
         private void drawMixer(Canvas canvas, float w, float h, int textColour, int teal, int panel) {
@@ -712,26 +807,24 @@ public final class MainActivity extends Activity {
                     return true;
                 }
                 if (event.getY() > h * .40f && event.getY() < h * .52f && midiManager != null) {
-                    MidiDeviceInfo[] devices = midiManager.getDevices();
-                    if (devices.length > 0) {
-                        midiIndex = (midiIndex + 1) % devices.length;
-                        openMidi(devices[midiIndex]);
-                        setMidiStatus("MIDI USB: " + devices[midiIndex].getProperties().getString(MidiDeviceInfo.PROPERTY_NAME));
-                    }
+                    showMidiDeviceChooser();return true;
                 }
-                if (event.getY() > h*.59f && event.getY() < h*.71f) {
+                if(event.getY()>h*.57f&&event.getY()<h*.67f){showMidiLearnChooser();return true;}
+                if (event.getY() > h*.67f && event.getY() < h*.77f) {
                     if (audioEngine != null) audioEngine.allNotesOff();
                     invalidate(); return true;
                 }
-                if (event.getY() > h*.71f && event.getY() < h*.84f) { settings=false; invalidate(); }
+                if (event.getY() > h*.77f && event.getY() < h*.88f) { settings=false; invalidate(); }
                 return true;
             }
             if (liveSet && event.getY() > h * .235f && event.getY() < h * .90f) {
                 float cardW = (w - 44 - 42) / 4f;
                 int col = (int) ((event.getX() - 22) / (cardW + 14));
                 int row = event.getY() > h * .55f ? 1 : 0;
-                if (col >= 0 && col < 4) { selected = row * 4 + col; invalidate(); }
+                if (col >= 0 && col < 4) { selected = row * 4 + col; if(savingLiveSlot){savingLiveSlot=false;saveLiveSlot(liveBank,selected);}else loadLiveSlot(liveBank,selected);invalidate(); }
             }
+            if(liveSet&&event.getY()>h*.14f&&event.getY()<h*.22f){liveBank=Math.max(0,Math.min(7,(int)(event.getX()/(w/8f))));selected=0;loadLiveNames();return true;}
+            if(liveSet&&event.getY()>h*.90f&&event.getX()<300){savingLiveSlot=!savingLiveSlot;invalidate();return true;}
             if (!liveSet && event.getY() > h * .17f && event.getY() < h * .87f) {
                 float cardW = (w - 36 - 60 - 105) / 6f;
                 float masterX = 18 + 6*(cardW+10);
@@ -753,6 +846,8 @@ public final class MainActivity extends Activity {
                         if (engineNames[layer].equals("VAZIA")) chooseLayerSource(layer);
                         else if(engineNames[layer].equals("DX7")) openDx7Editor(layer);
                         else if(engineNames[layer].equals("ANALOG")) openAnalogEditor(layer);
+                        else if(engineNames[layer].equals("HAMMOND")) openHammondEditor(layer);
+                        else if(engineNames[layer].contains("PADS")) openPadEditor(layer,engineNames[layer].startsWith("CONT"));
                         else openSoundFontEditor(layer);
                         return true;
                     }

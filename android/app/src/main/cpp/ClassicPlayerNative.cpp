@@ -26,7 +26,7 @@ constexpr int kSampleRate = 48000;
 constexpr int kMaxFrames = 2048;
 
 std::array<tsf*, kLayerCount> fonts {};
-enum class EngineType : int { empty = 0, sf2 = 1, dx7 = 2, analog = 3 };
+enum class EngineType : int { empty = 0, sf2 = 1, dx7 = 2, analog = 3, hammond = 4 };
 std::array<EngineType, kLayerCount> engineTypes {};
 std::array<float, kLayerCount> layerGains { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
 std::array<float, kLayerCount> layerPeaks {};
@@ -61,6 +61,17 @@ struct AnalogVoice { bool active=false,releasing=false; int note=-1; double phas
 struct AnalogLayer { int preset=0; std::array<AnalogVoice,32> voices {}; };
 std::array<AnalogLayer,kLayerCount> analogLayers {};
 constexpr std::array<const char*,8> analogNames { "Warm Pad", "Analog Brass", "Synth Lead", "Sub Bass", "Soft Poly", "Pulse Keys", "Air Pad", "Vintage Strings" };
+struct HammondVoice { bool active=false; int note=-1; float envelope=0.0f; std::array<double,9> phase{}; };
+struct HammondLayer { int preset=0; std::array<HammondVoice,32> voices{}; };
+std::array<HammondLayer,kLayerCount> hammondLayers{};
+constexpr std::array<const char*,8> hammondNames { "Jimmy Gospel", "Jazz Ballad", "Rock Organ", "Percussive B3", "Full Drawbar", "Gospel Fullness", "Slow Leslie", "Fast Leslie" };
+constexpr std::array<std::array<float,9>,8> hammondBars {{
+    {{.8f,.5f,1.f,.8f,.3f,.5f,.2f,.3f,.2f}}, {{.5f,.3f,1.f,.6f,.2f,.3f,.1f,.1f,0.f}},
+    {{1.f,.8f,1.f,.9f,.7f,.8f,.6f,.7f,.6f}}, {{.3f,.2f,1.f,.7f,.1f,.2f,0.f,0.f,0.f}},
+    {{1.f,1.f,1.f,1.f,1.f,1.f,1.f,1.f,1.f}}, {{1.f,.7f,1.f,.9f,.5f,.7f,.3f,.5f,.4f}},
+    {{.5f,.4f,1.f,.7f,.3f,.4f,.2f,.2f,.1f}}, {{.8f,.6f,1.f,.9f,.5f,.7f,.4f,.5f,.3f}}
+}};
+constexpr std::array<double,9> hammondRatios {.5,1.5,1.,2.,3.,4.,5.,6.,8.};
 
 void initialiseDx()
 {
@@ -110,6 +121,7 @@ void releaseLayer(const int layer)
     }
     clearDxLayer(layer);
     analogLayers[(size_t)layer]={};
+    hammondLayers[(size_t)layer]={};
     engineTypes[(size_t)layer] = EngineType::empty;
 }
 
@@ -121,6 +133,7 @@ void sendAllNotesOff()
         // Panic must be immediate; a lost MIDI note-off must never leave an
         // oscillator running while changing screens/devices.
         for(auto& voice:analogLayers[(size_t)layer].voices)voice={};
+        for(auto& voice:hammondLayers[(size_t)layer].voices)voice={};
     }
 }
 }
@@ -225,12 +238,33 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetAnalogPreset(JNIEnv*
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeActivateHammond(JNIEnv*,jclass,jint layer)
+{
+    if(layer<0||layer>=kLayerCount)return; std::lock_guard<std::mutex> lock(synthMutex); releaseLayer(layer); engineTypes[(size_t)layer]=EngineType::hammond;
+}
+extern "C" JNIEXPORT jint JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeHammondPresetCount(JNIEnv*,jclass){return (jint)hammondNames.size();}
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeHammondPresetName(JNIEnv* env,jclass,jint preset){return env->NewStringUTF(preset>=0&&preset<(int)hammondNames.size()?hammondNames[(size_t)preset]:"");}
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetHammondPreset(JNIEnv*,jclass,jint layer,jint preset)
+{
+    if(layer<0||layer>=kLayerCount||preset<0||preset>=(int)hammondNames.size())return JNI_FALSE;
+    std::lock_guard<std::mutex> lock(synthMutex); hammondLayers[(size_t)layer].preset=preset; hammondLayers[(size_t)layer].voices={}; return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeUnloadAll(JNIEnv*, jclass)
 {
     std::lock_guard<std::mutex> lock(synthMutex);
     for (int layer = 0; layer < kLayerCount; ++layer) releaseLayer(layer);
     layerPeaks.fill(0.0f);
     masterPeak = 0.0f;
+}
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeClearLayer(JNIEnv*,jclass,jint layer)
+{
+    if(layer<0||layer>=kLayerCount)return;std::lock_guard<std::mutex> lock(synthMutex);releaseLayer(layer);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -299,6 +333,11 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOn(JNIEnv*, jclass,
             for(auto& voice:analog.voices)if(!voice.active){target=&voice;break;} if(target==nullptr)target=&analog.voices.front();
             *target={}; target->active=true; target->note=note;
         }
+        else if(engineTypes[(size_t)layer]==EngineType::hammond) {
+            auto& organ=hammondLayers[(size_t)layer]; HammondVoice* target=nullptr;
+            for(auto& voice:organ.voices)if(!voice.active){target=&voice;break;} if(target==nullptr)target=&organ.voices.front();
+            *target={}; target->active=true; target->note=note;
+        }
     }
 }
 
@@ -313,6 +352,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOff(JNIEnv*, jclass
         // Stop analog voices immediately. This is intentionally stricter than
         // the release tail until device-specific note-off behaviour is proven.
         else if(engineTypes[(size_t)layer]==EngineType::analog)for(auto& voice:analogLayers[(size_t)layer].voices)if(voice.active&&voice.note==note)voice={};
+        else if(engineTypes[(size_t)layer]==EngineType::hammond)for(auto& voice:hammondLayers[(size_t)layer].voices)if(voice.active&&voice.note==note)voice={};
     }
 }
 
@@ -365,6 +405,17 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
                 }
                 const int s=std::clamp((int)(value*32767.0f),-32768,32767);
                 scratch[(size_t)sample*2]=(short)s; scratch[(size_t)sample*2+1]=(short)s;
+            }
+        }
+        else if(engineTypes[(size_t)layer]==EngineType::hammond) {
+            auto& organ=hammondLayers[(size_t)layer]; const auto& bars=hammondBars[(size_t)organ.preset];
+            const float leslieRate=organ.preset==7?6.2f:organ.preset==6?.8f:1.1f;
+            for(int sample=0;sample<frames;++sample){float value=0.f;
+                for(auto& voice:organ.voices){if(!voice.active)continue;voice.envelope=std::min(1.f,voice.envelope+.008f);
+                    const double base=440.0*std::pow(2.0,((double)voice.note-69.0)/12.0);float tone=0.f,total=0.f;
+                    for(int d=0;d<9;++d){voice.phase[(size_t)d]+=base*hammondRatios[(size_t)d]/kSampleRate;voice.phase[(size_t)d]-=std::floor(voice.phase[(size_t)d]);tone+=(float)std::sin(voice.phase[(size_t)d]*6.28318530718)*bars[(size_t)d];total+=bars[(size_t)d];}
+                    const float rotary=.82f+.18f*(float)std::sin(voice.phase[2]*leslieRate);value+=(tone/std::max(total,.1f))*voice.envelope*rotary*.30f;
+                }int s=std::clamp((int)(value*32767.f),-32768,32767);scratch[(size_t)sample*2]=(short)s;scratch[(size_t)sample*2+1]=(short)s;
             }
         }
         else if(engineTypes[(size_t)layer]==EngineType::analog) {
