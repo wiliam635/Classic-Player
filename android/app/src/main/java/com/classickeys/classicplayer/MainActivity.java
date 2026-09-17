@@ -150,11 +150,10 @@ public final class MainActivity extends Activity {
             MidiDeviceInfo.PortInfo[] ports = info.getPorts();
             for (MidiDeviceInfo.PortInfo port : ports) {
                 if (port.getType() == MidiDeviceInfo.PortInfo.TYPE_OUTPUT) {
-                    midiInput = device.openOutputPort(port.getPortNumber());
-                    if (midiInput != null) {
-                        try { midiInput.connect(midiReceiver); }
-                        catch (IOException ignored) { midiInput.close(); midiInput = null; }
-                    }
+                    try {
+                        midiInput = device.openOutputPort(port.getPortNumber());
+                        if (midiInput != null) midiInput.connect(midiReceiver);
+                    } catch (IOException ignored) { closeMidiInput(); }
                     break;
                 }
             }
@@ -162,8 +161,12 @@ public final class MainActivity extends Activity {
     }
 
     private void closeMidi() {
-        if (midiInput != null) { midiInput.close(); midiInput = null; }
-        if (midiDevice != null) { midiDevice.close(); midiDevice = null; }
+        closeMidiInput();
+        if (midiDevice != null) { try { midiDevice.close(); } catch (IOException ignored) {} midiDevice = null; }
+    }
+
+    private void closeMidiInput() {
+        if (midiInput != null) { try { midiInput.close(); } catch (IOException ignored) {} midiInput = null; }
     }
 
     private void revalidateLicenseAsync() {
