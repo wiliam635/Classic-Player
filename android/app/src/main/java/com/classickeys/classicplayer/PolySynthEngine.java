@@ -11,6 +11,7 @@ final class PolySynthEngine {
     // Matches the SoundFont engine used by the Windows/macOS builds.
     private static final int VOICES = 512;
     private final Voice[] voices = new Voice[VOICES];
+    private final float[] layerGain = {1f, 1f, 1f, 1f, 1f, 1f};
     private AudioTrack track;
     private Thread renderThread;
     private volatile boolean running;
@@ -42,6 +43,9 @@ final class PolySynthEngine {
     }
 
     void setMaster(float value) { master = Math.max(0f, Math.min(1f, value)); }
+    synchronized void setLayerGain(int layer, float value) {
+        if (layer >= 0 && layer < layerGain.length) layerGain[layer] = Math.max(0f, Math.min(1f, value));
+    }
     boolean setPreferredDevice(AudioDeviceInfo device) {
         return track != null && device != null && track.setPreferredDevice(device);
     }
@@ -75,7 +79,7 @@ final class PolySynthEngine {
             for (int i = 0; i < 1024; i++) {
                 float sample = 0;
                 for (Voice v : voices) if (v.active) {
-                    sample += (float)Math.sin(v.phase) * v.level * 0.08f;
+                    sample += (float)Math.sin(v.phase) * v.level * 0.08f * layerGain[0];
                     v.phase += 2 * Math.PI * Math.pow(2, (v.note - 69) / 12.0) / RATE;
                     if (v.phase > 2 * Math.PI) v.phase -= 2 * Math.PI;
                 }

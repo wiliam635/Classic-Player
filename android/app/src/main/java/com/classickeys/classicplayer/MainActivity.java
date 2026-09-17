@@ -264,6 +264,7 @@ public final class MainActivity extends Activity {
         private boolean settings = false;
         private int outputIndex = 0;
         private int selected = 0;
+        private final float[] layerVolumes = {0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f};
         private final String[] layerNames = {"SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT"};
 
         ClassicPlayerView(Context context) { super(context); paint.setTypeface(android.graphics.Typeface.create("sans", 1)); }
@@ -341,9 +342,9 @@ public final class MainActivity extends Activity {
                 float railTop = top + h * .14f, railBottom = top + cardH - h * .10f;
                 paint.setColor(Color.rgb(5, 13, 19)); paint.setStyle(Paint.Style.FILL);
                 canvas.drawRoundRect(railX - 7, railTop, railX + 7, railBottom, 5, 5, paint);
-                float knobY = railBottom - (railBottom - railTop) * .72f;
+                float knobY = railBottom - (railBottom - railTop) * layerVolumes[i];
                 paint.setColor(teal); canvas.drawRoundRect(railX - cardW * .22f, knobY - 10, railX + cardW * .22f, knobY + 10, 8, 8, paint);
-                text(canvas, "0 dB", x + cardW * .36f, top + cardH - h * .04f, h * .018f, textColour);
+                text(canvas, Math.round((layerVolumes[i] * 2f - 1f) * 60f) + " dB", x + cardW * .30f, top + cardH - h * .04f, h * .018f, textColour);
             }
             text(canvas, "MASTER", w - 120, h * .16f, h * .022f, textColour);
         }
@@ -380,7 +381,14 @@ public final class MainActivity extends Activity {
             if (!liveSet && event.getY() > h * .17f && event.getY() < h * .87f) {
                 float cardW = (w - 36 - 50) / 6f;
                 int layer = (int) ((event.getX() - 18) / (cardW + 10));
-                if (layer >= 0 && layer < 6) openSf2Picker(layer);
+                if (layer >= 0 && layer < 6) {
+                    float railTop = h * .17f + h * .14f, railBottom = h * .17f + h * .70f - h * .10f;
+                    if (event.getY() >= railTop && event.getY() <= railBottom) {
+                        layerVolumes[layer] = Math.max(0f, Math.min(1f, (railBottom - event.getY()) / (railBottom - railTop)));
+                        if (audioEngine != null) audioEngine.setLayerGain(layer, layerVolumes[layer]);
+                        invalidate();
+                    } else openSf2Picker(layer);
+                }
             }
             return true;
         }
