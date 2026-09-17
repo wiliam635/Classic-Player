@@ -346,6 +346,36 @@ public final class MainActivity extends Activity {
                 }).setNegativeButton("CANCELAR", null).show();
     }
 
+    private void showLayerActions(final int layer) {
+        final String engine = screen.engineName(layer);
+        new AlertDialog.Builder(this).setTitle("LAYER " + (layer + 1) + " · " + engine)
+                .setItems(new String[]{"EDITAR MOTOR ATUAL", "TROCAR MOTOR", "LIMPAR LAYER"}, (dialog, which) -> {
+                    if (which == 1) { panicAndChooseLayerSource(layer); return; }
+                    if (which == 2) { clearLayer(layer); return; }
+                    if (engine.equals("DX7")) openDx7Editor(layer);
+                    else if (engine.equals("ANALOG")) openAnalogEditor(layer);
+                    else if (engine.equals("HAMMOND")) openHammondEditor(layer);
+                    else if (engine.contains("PADS")) openPadEditor(layer, engine.startsWith("CONT"));
+                    else openSoundFontEditor(layer);
+                }).setNegativeButton("CANCELAR", null).show();
+    }
+
+    private void panicAndChooseLayerSource(int layer) {
+        if (audioEngine != null) audioEngine.allNotesOff();
+        if (padEngine != null) padEngine.stopAll();
+        chooseLayerSource(layer);
+    }
+
+    private void clearLayer(int layer) {
+        if (audioEngine != null) { audioEngine.allNotesOff(); audioEngine.clearLayer(layer); }
+        if (padEngine != null) padEngine.stopAll();
+        getSharedPreferences("layers", MODE_PRIVATE).edit()
+                .remove("engine_"+layer).remove("sf2_"+layer).remove("dx7_"+layer)
+                .remove("name_"+layer).remove("preset_"+layer).remove("dx7_patch_"+layer)
+                .remove("analog_preset_"+layer).remove("hammond_preset_"+layer).apply();
+        screen.setLayerName(layer,"Sem SoundFont"); screen.setEngineName(layer,"VAZIA"); screen.setPresetName(layer,"");
+    }
+
     private void activateAnalog(int layer) {
         audioEngine.activateAnalog(layer); audioEngine.setAnalogPreset(layer,0);
         screen.setLayerName(layer,"Classic Keys Analog"); screen.setEngineName(layer,"ANALOG"); screen.setPresetName(layer,audioEngine.analogPresetName(0));
@@ -620,6 +650,7 @@ public final class MainActivity extends Activity {
         void setLayerName(int layer, String name) { if (layer >= 0 && layer < layerNames.length) { layerNames[layer] = name; postInvalidate(); } }
         void setPresetName(int layer, String name) { if (layer >= 0 && layer < presetNames.length) { presetNames[layer] = name == null ? "" : name; postInvalidate(); } }
         void setEngineName(int layer, String name) { if (layer >= 0 && layer < engineNames.length) { engineNames[layer] = name == null ? "VAZIA" : name; postInvalidate(); } }
+        String engineName(int layer) { return layer >= 0 && layer < engineNames.length ? engineNames[layer] : "VAZIA"; }
         void setLiveName(int slot,String name){if(slot>=0&&slot<names.length){names[slot]=name;postInvalidate();}}
         void setLearnedVolume(int target,float value){if(target<6){layerVolumes[target]=value;applyLayerGains();}else{masterVolume=value;if(audioEngine!=null)audioEngine.setMaster(faderGain(value));}postInvalidate();}
 
@@ -845,11 +876,7 @@ public final class MainActivity extends Activity {
                     }
                     if (event.getY() >= h*.17f+h*.098f && event.getY() <= h*.17f+h*.16f) {
                         if (engineNames[layer].equals("VAZIA")) chooseLayerSource(layer);
-                        else if(engineNames[layer].equals("DX7")) openDx7Editor(layer);
-                        else if(engineNames[layer].equals("ANALOG")) openAnalogEditor(layer);
-                        else if(engineNames[layer].equals("HAMMOND")) openHammondEditor(layer);
-                        else if(engineNames[layer].contains("PADS")) openPadEditor(layer,engineNames[layer].startsWith("CONT"));
-                        else openSoundFontEditor(layer);
+                        else showLayerActions(layer);
                         return true;
                     }
                     float railTop = h*.17f+h*.205f, railBottom = h*.17f+h*.72f-h*.09f;

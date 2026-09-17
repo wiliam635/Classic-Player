@@ -153,9 +153,9 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadLayer(
     if (loaded == nullptr) return JNI_FALSE;
 
     tsf_set_output(loaded, TSF_STEREO_INTERLEAVED, kSampleRate, 0.0f);
-    // A layered SF2 often needs several voices for a single key. Reserve a
-    // generous voice pool so chords and sustain behave like the desktop build.
-    tsf_set_max_voices(loaded, 256);
+    // Keep enough polyphony for layered patches while staying inside a mobile
+    // CPU budget. 256 voices caused sustained notes to underrun on tablets.
+    tsf_set_max_voices(loaded, 96);
     tsf_channel_set_presetnumber(loaded, 0, 0, TSF_FALSE);
     fonts[(size_t) layer] = loaded;
     engineTypes[(size_t) layer] = EngineType::sf2;
@@ -385,6 +385,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
     std::lock_guard<std::mutex> lock(synthMutex);
     std::memset(output, 0, (size_t) samples * sizeof(short));
     std::array<float, kLayerCount> renderedPeaks {};
+    std::array<float, kMaxFrames * 2> mix {};
     for (int layer = 0; layer < kLayerCount; ++layer)
     {
         auto* font = fonts[(size_t) layer];
@@ -438,15 +439,19 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
         const float gain = layerGains[(size_t) layer] * masterGain;
         for (int sample = 0; sample < samples; ++sample)
         {
-            const int mixed = output[sample] + (int) (scratch[(size_t) sample] * gain);
-            output[sample] = (short) std::clamp(mixed, -32768, 32767);
+            mix[(size_t)sample] += ((float)scratch[(size_t)sample] / 32768.0f) * gain;
             renderedPeaks[(size_t) layer] = std::max(renderedPeaks[(size_t) layer],
                     std::abs((float) scratch[(size_t) sample] * gain) / 32768.0f);
         }
     }
     float renderedMasterPeak = 0.0f;
-    for (int sample = 0; sample < samples; ++sample)
+    for (int sample = 0; sample < samples; ++sample) {
+        // Soft limiting prevents the harsh integer clipping heard when several
+        // SF2 regions or layers peak at the same time.
+        const float limited = std::tanh(mix[(size_t)sample] * 0.82f);
+        output[sample] = (short)std::clamp((int)(limited * 32767.0f), -32768, 32767);
         renderedMasterPeak = std::max(renderedMasterPeak, std::abs((float) output[sample]) / 32768.0f);
+    }
     for (int layer = 0; layer < kLayerCount; ++layer)
         layerPeaks[(size_t) layer] = std::max(renderedPeaks[(size_t) layer], layerPeaks[(size_t) layer] * 0.88f);
     masterPeak = std::max(renderedMasterPeak, masterPeak * 0.88f);

@@ -5,13 +5,16 @@ import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
 import android.media.AudioTrack;
 import android.os.Build;
+import android.os.Process;
 
 /** Native SoundFont renderer used by all six Android mixer layers. */
 final class PolySynthEngine {
     private static final int RATE = 48000;
     // 128 frames at 48 kHz is 2.67 ms. The previous 512-frame render block,
     // combined with a doubled platform buffer, was noticeably slow on tablets.
-    private static final int FRAMES = 128;
+    // 256 frames is still low latency (5.3 ms at 48 kHz), but gives slower
+    // Android tablets enough time to render layered SoundFonts without gaps.
+    private static final int FRAMES = 256;
     private AudioTrack track;
     private Thread renderThread;
     private volatile boolean running;
@@ -105,6 +108,7 @@ final class PolySynthEngine {
     void close() { stop(); nativeUnloadAll(); }
 
     private void render() {
+        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
         short[] output = new short[FRAMES * 2];
         while (running) {
             nativeRender(output, FRAMES);
