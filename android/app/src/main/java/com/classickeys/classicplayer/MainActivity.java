@@ -67,6 +67,7 @@ public final class MainActivity extends Activity {
                 int note = data[i + 1] & 0x7f;
                 int velocity = data[i + 2] & 0x7f;
                 if (audioEngine == null) continue;
+                screen.setMidiSignal();
                 if (type == 0x90 && velocity > 0) audioEngine.noteOn(note, velocity);
                 else audioEngine.noteOff(note);
                 i += 2;
@@ -277,6 +278,7 @@ public final class MainActivity extends Activity {
         private String midiStatus = "MIDI USB: procurando...";
         private String audioStatus = "ÁUDIO: procurando...";
         private String account = "";
+        private boolean midiSignal;
         // Desktop builds open directly on the mixer; keep the same workflow on Android.
         private boolean liveSet = false;
         private boolean settings = false;
@@ -290,6 +292,7 @@ public final class MainActivity extends Activity {
         void setMidiStatus(String value) { midiStatus = value; postInvalidate(); }
         void setAudioStatus(String value) { audioStatus = value; postInvalidate(); }
         void setAccount(String value) { account = value == null ? "" : value; postInvalidate(); }
+        void setMidiSignal() { midiSignal = true; postInvalidateDelayed(180); }
         void setLayerName(int layer, String name) { if (layer >= 0 && layer < layerNames.length) { layerNames[layer] = name; postInvalidate(); } }
 
         private void text(Canvas canvas, String value, float x, float y, float size, int colour) {
@@ -312,6 +315,9 @@ public final class MainActivity extends Activity {
             text(canvas, liveSet ? "LIVE SET" : "MIXER", w * .44f, h * .078f, h * .06f, text);
             text(canvas, midiStatus, w * .76f, h * .055f, h * .022f, Color.rgb(180, 195, 200));
             text(canvas, audioStatus, w * .76f, h * .085f, h * .018f, Color.rgb(180, 195, 200));
+            paint.setColor(midiSignal ? Color.rgb(40, 220, 110) : Color.rgb(70, 90, 95));
+            canvas.drawCircle(w * .735f, h * .055f, h * .012f, paint);
+            midiSignal = false;
             text(canvas, "MIXER", w * .88f, h * .097f, h * .025f, teal);
 
             if (settings) {
