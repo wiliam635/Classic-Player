@@ -50,9 +50,6 @@ public final class MainActivity extends Activity {
     private PolySynthEngine audioEngine;
     private MidiDevice midiDevice;
     private MidiOutputPort midiInput;
-    // Keep this connection alive for the whole session. Some Android MIDI
-    // implementations disconnect a receiver when the returned object is GC'd.
-    private MidiDevice.MidiConnection midiConnection;
     private int pendingLayer = -1;
     private int pendingEngine = 1;
     private final String[] sf2Uris = new String[6];
@@ -272,7 +269,7 @@ public final class MainActivity extends Activity {
             for (MidiDeviceInfo.PortInfo port : ports) {
                 if (port.getType() == MidiDeviceInfo.PortInfo.TYPE_OUTPUT) {
                     midiInput = device.openOutputPort(port.getPortNumber());
-                    if (midiInput != null) midiConnection = midiInput.connect(midiReceiver);
+                    if (midiInput != null) midiInput.connect(midiReceiver);
                     break;
                 }
             }
@@ -294,7 +291,6 @@ public final class MainActivity extends Activity {
         if (audioEngine != null) audioEngine.allNotesOff();
         midiRunningStatus = 0;
         midiFirstData = -1;
-        if (midiConnection != null) { midiConnection.close(); midiConnection = null; }
         if (midiInput != null) { try { midiInput.close(); } catch (IOException ignored) {} midiInput = null; }
     }
 
