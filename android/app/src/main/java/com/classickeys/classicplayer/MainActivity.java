@@ -511,31 +511,56 @@ public final class MainActivity extends Activity {
             paint.setColor(Color.rgb(95,107,113));
             for (int line = -6; line <= 6; line += 4) canvas.drawRect(x-cardW*.20f, knobY+line, x+cardW*.20f, knobY+line+1.5f, paint);
         }
+        // The physical position follows the desktop mixer: unity is at 80%,
+        // with extra travel for +3/+6 dB and finer control below 0 dB.
+        private float faderDb(float value) {
+            final float[] positions = {0f, .05f, .25f, .50f, .67f, .80f, .90f, 1f};
+            final float[] decibels = {-60f, -40f, -20f, -10f, -5f, 0f, 3f, 6f};
+            float v = Math.max(0f, Math.min(1f, value));
+            for (int i = 1; i < positions.length; i++) {
+                if (v <= positions[i]) {
+                    float amount = (v - positions[i - 1]) / (positions[i] - positions[i - 1]);
+                    return decibels[i - 1] + amount * (decibels[i] - decibels[i - 1]);
+                }
+            }
+            return 6f;
+        }
+        private float faderGain(float value) {
+            if (value <= 0f) return 0f;
+            return (float) Math.pow(10.0, faderDb(value) / 20.0);
+        }
+        private String faderLabel(float value) {
+            if (value <= 0f) return "−∞ dB";
+            int db = Math.round(faderDb(value));
+            return (db > 0 ? "+" : "") + db + " dB";
+        }
         private boolean hasSolo() { for (boolean value : solo) if (value) return true; return false; }
         private void applyLayerGains() {
             if (audioEngine == null) return;
             boolean anySolo = hasSolo();
-            for (int i = 0; i < 6; i++) audioEngine.setLayerGain(i, (!muted[i] && (!anySolo || solo[i])) ? layerVolumes[i] : 0f);
+            for (int i = 0; i < 6; i++) audioEngine.setLayerGain(i,
+                    (!muted[i] && (!anySolo || solo[i])) ? faderGain(layerVolumes[i]) : 0f);
         }
 
         @Override protected void onDraw(Canvas canvas) {
             final float w = getWidth(), h = getHeight();
             canvas.drawColor(Color.rgb(7, 16, 25));
             final int teal = Color.rgb(19, 184, 173), text = Color.rgb(233, 239, 240), panel = Color.rgb(19, 31, 42);
-            box(canvas, 0, 0, w, h * .12f, Color.rgb(9, 20, 30), false);
+            box(canvas, 0, 0, w, h * .145f, Color.rgb(9, 20, 30), false);
             drawLogo(canvas, 52, h*.065f, h*.045f);
             text(canvas, "CLASSIC KEYS", 94, h * .05f, h * .023f, teal);
             text(canvas, "CLASSIC PLAYER", 94, h * .095f, h * .047f, text);
-            if (!account.isEmpty()) text(canvas, account, 94, h * .13f, h * .017f, Color.rgb(19,184,173));
+            if (!account.isEmpty()) text(canvas, account, 94, h * .125f, h * .015f, Color.rgb(19,184,173));
             text(canvas, liveSet ? "LIVE SET" : settings ? "ÁUDIO / MIDI" : "MIXER", w * .43f, h * .078f, h * .052f, text);
             text(canvas, midiStatus, w * .76f, h * .055f, h * .022f, Color.rgb(180, 195, 200));
             text(canvas, audioStatus, w * .76f, h * .085f, h * .018f, Color.rgb(180, 195, 200));
             paint.setColor(midiSignal ? Color.rgb(40, 220, 110) : Color.rgb(70, 90, 95));
             canvas.drawCircle(w * .735f, h * .055f, h * .012f, paint);
             midiSignal = false;
-            button(canvas, "MIXER", w*.79f, h*.092f, w*.86f, h*.135f, !liveSet && !settings);
-            button(canvas, "LIVE SET", w*.865f, h*.092f, w*.94f, h*.135f, liveSet);
-            button(canvas, "ÁUDIO/MIDI", w*.79f, h*.145f, w*.94f, h*.19f, settings);
+            // Keep all navigation inside the header so it never covers Layer 6.
+            button(canvas, "MIXER", w*.755f, h*.096f, w*.83f, h*.137f, !liveSet && !settings);
+            button(canvas, "LIVE SET", w*.835f, h*.096f, w*.91f, h*.137f, liveSet);
+            button(canvas, "ÁUDIO/MIDI", w*.915f, h*.096f, w*.995f, h*.137f, settings);
 
             if (settings) {
                 box(canvas, 28, h * .17f, w - 28, h * .86f, panel, true);
@@ -575,7 +600,7 @@ public final class MainActivity extends Activity {
             final float left = 18, top = h * .17f, gap = 10;
             final float cardW = (w - left * 2 - gap * 6 - 105) / 6f;
             final float cardH = h * .72f;
-            text(canvas, "6 LAYERS · IMPORTE UM SF2 EM CADA SLOT", left, h * .16f, h * .024f, Color.rgb(180,195,200));
+            text(canvas, "6 LAYERS · ADICIONE UM MOTOR EM CADA SLOT", left, h * .16f, h * .024f, Color.rgb(180,195,200));
             for (int i = 0; i < 6; i++) {
                 float x = left + i * (cardW + gap);
                 box(canvas, x, top, x + cardW, top + cardH, Color.rgb(49, 69, 82), true);
@@ -597,7 +622,7 @@ public final class MainActivity extends Activity {
                     text(canvas, ticks[tick], x+cardW*.70f, y+4, h*.012f, Color.rgb(131,151,165));
                 }
                 paint.setTextAlign(Paint.Align.CENTER);
-                text(canvas, Math.round((layerVolumes[i] * 2f - 1f) * 60f) + " dB", x + cardW*.55f, top + cardH - h*.027f, h*.016f, textColour);
+                text(canvas, faderLabel(layerVolumes[i]), x + cardW*.55f, top + cardH - h*.027f, h*.016f, textColour);
                 paint.setTextAlign(Paint.Align.LEFT);
             }
             float masterX = left + 6*(cardW+gap);
@@ -606,16 +631,16 @@ public final class MainActivity extends Activity {
             float masterTop = top+h*.12f, masterBottom = top+cardH-h*.09f;
             drawMeter(canvas, masterX+15, masterTop, 13, masterBottom, audioEngine == null ? 0f : audioEngine.masterPeak());
             drawFader(canvas, masterX+60, masterTop, masterBottom, 105, masterVolume);
-            paint.setTextAlign(Paint.Align.CENTER); text(canvas, Math.round((masterVolume*2f-1f)*60f)+" dB", masterX+55, top+cardH-h*.027f, h*.016f, textColour); paint.setTextAlign(Paint.Align.LEFT);
+            paint.setTextAlign(Paint.Align.CENTER); text(canvas, faderLabel(masterVolume), masterX+55, top+cardH-h*.027f, h*.016f, textColour); paint.setTextAlign(Paint.Align.LEFT);
             postInvalidateDelayed(70);
         }
 
         @Override public boolean onTouchEvent(MotionEvent event) {
             if (event.getAction() != MotionEvent.ACTION_UP) return true;
             final float w = getWidth(), h = getHeight();
-            if (event.getY() > h*.09f && event.getY() < h*.20f && event.getX() > w*.78f) {
-                if (event.getY() < h*.14f && event.getX() < w*.865f) { liveSet = false; settings = false; }
-                else if (event.getY() < h*.14f) { liveSet = true; settings = false; }
+            if (event.getY() > h*.09f && event.getY() < h*.145f && event.getX() > w*.75f) {
+                if (event.getX() < w*.832f) { liveSet = false; settings = false; }
+                else if (event.getX() < w*.912f) { liveSet = true; settings = false; }
                 else { settings = true; liveSet = false; }
                 invalidate(); return true;
             }
@@ -651,7 +676,7 @@ public final class MainActivity extends Activity {
                 if (event.getX() >= masterX) {
                     float railTop = h*.17f+h*.12f, railBottom = h*.17f+h*.72f-h*.09f;
                     masterVolume = Math.max(0f, Math.min(1f, (railBottom - event.getY()) / (railBottom - railTop)));
-                    if (audioEngine != null) audioEngine.setMaster(masterVolume);
+                    if (audioEngine != null) audioEngine.setMaster(faderGain(masterVolume));
                     invalidate(); return true;
                 }
                 int layer = (int) ((event.getX() - 18) / (cardW + 10));
