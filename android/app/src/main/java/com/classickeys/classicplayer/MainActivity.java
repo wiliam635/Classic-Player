@@ -50,6 +50,9 @@ public final class MainActivity extends Activity {
     private PolySynthEngine audioEngine;
     private MidiDevice midiDevice;
     private MidiOutputPort midiInput;
+    // Keep this connection alive for the whole session. Some Android MIDI
+    // implementations disconnect a receiver when the returned object is GC'd.
+    private MidiDevice.MidiConnection midiConnection;
     private int pendingLayer = -1;
     private int pendingEngine = 1;
     private final String[] sf2Uris = new String[6];
@@ -108,7 +111,12 @@ public final class MainActivity extends Activity {
             if(padLayerActive&&first>=36&&first<48){padEngine.setContinuous(continuousPadActive);padEngine.trigger(first-36);}
             audioEngine.noteOn(first, second);
         }
-        else audioEngine.noteOff(first);
+        else {
+            // Note On with velocity zero is the MIDI-standard equivalent of
+            // Note Off. Both paths must reach every internal engine.
+            audioEngine.noteOff(first);
+            screen.setLastNoteOff(first);
+        }
     }
     private final MidiManager.DeviceCallback midiCallback = new MidiManager.DeviceCallback() {
         @Override public void onDeviceAdded(MidiDeviceInfo device) { refreshMidiDevices(); }
@@ -264,7 +272,7 @@ public final class MainActivity extends Activity {
             for (MidiDeviceInfo.PortInfo port : ports) {
                 if (port.getType() == MidiDeviceInfo.PortInfo.TYPE_OUTPUT) {
                     midiInput = device.openOutputPort(port.getPortNumber());
-                    if (midiInput != null) midiInput.connect(midiReceiver);
+                    if (midiInput != null) midiConnection = midiInput.connect(midiReceiver);
                     break;
                 }
             }
@@ -286,6 +294,7 @@ public final class MainActivity extends Activity {
         if (audioEngine != null) audioEngine.allNotesOff();
         midiRunningStatus = 0;
         midiFirstData = -1;
+        if (midiConnection != null) { midiConnection.close(); midiConnection = null; }
         if (midiInput != null) { try { midiInput.close(); } catch (IOException ignored) {} midiInput = null; }
     }
 
@@ -626,6 +635,7 @@ public final class MainActivity extends Activity {
         private String audioStatus = "ÁUDIO: procurando...";
         private String account = "";
         private boolean midiSignal;
+        private int lastNoteOff = -1;
         // Desktop builds open directly on the mixer; keep the same workflow on Android.
         private boolean liveSet = false;
         private boolean settings = false;
@@ -647,6 +657,7 @@ public final class MainActivity extends Activity {
         void setAudioStatus(String value) { audioStatus = value; postInvalidate(); }
         void setAccount(String value) { account = value == null ? "" : value; postInvalidate(); }
         void setMidiSignal() { midiSignal = true; postInvalidateDelayed(180); }
+        void setLastNoteOff(int note) { lastNoteOff = note; postInvalidate(); }
         void setLayerName(int layer, String name) { if (layer >= 0 && layer < layerNames.length) { layerNames[layer] = name; postInvalidate(); } }
         void setPresetName(int layer, String name) { if (layer >= 0 && layer < presetNames.length) { presetNames[layer] = name == null ? "" : name; postInvalidate(); } }
         void setEngineName(int layer, String name) { if (layer >= 0 && layer < engineNames.length) { engineNames[layer] = name == null ? "VAZIA" : name; postInvalidate(); } }
@@ -740,6 +751,7 @@ public final class MainActivity extends Activity {
             if (!account.isEmpty()) text(canvas, account, 94, h * .125f, h * .015f, Color.rgb(19,184,173));
             text(canvas, liveSet ? "LIVE SET" : settings ? "ÁUDIO / MIDI" : "MIXER", w * .43f, h * .078f, h * .052f, text);
             text(canvas, midiStatus, w * .76f, h * .055f, h * .022f, Color.rgb(180, 195, 200));
+            if (lastNoteOff >= 0) text(canvas, "NOTE OFF " + lastNoteOff, w * .76f, h * .078f, h * .014f, Color.rgb(80, 190, 174));
             text(canvas, audioStatus, w * .76f, h * .085f, h * .018f, Color.rgb(180, 195, 200));
             paint.setColor(midiSignal ? Color.rgb(40, 220, 110) : Color.rgb(70, 90, 95));
             canvas.drawCircle(w * .735f, h * .055f, h * .012f, paint);
