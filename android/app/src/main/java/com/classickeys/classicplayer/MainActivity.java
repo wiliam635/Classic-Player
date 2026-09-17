@@ -1,7 +1,9 @@
 package com.classickeys.classicplayer;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -34,6 +36,7 @@ import java.io.FileOutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 
 /**
  * First Android surface for Classic Player. The audio monitor runs alongside
@@ -46,6 +49,7 @@ public final class MainActivity extends Activity {
     private MidiDevice midiDevice;
     private MidiOutputPort midiInput;
     private int pendingLayer = -1;
+    private int pendingEngine = 1;
     private final String[] sf2Uris = new String[6];
     private SoundFontLayer[] soundFontLayers;
     private LicenseManager licenseManager;
@@ -98,6 +102,21 @@ public final class MainActivity extends Activity {
         for (int i = 0; i < soundFontLayers.length; i++) soundFontLayers[i] = new SoundFontLayer(this);
         android.content.SharedPreferences prefs = getSharedPreferences("layers", MODE_PRIVATE);
         for (int i = 0; i < sf2Uris.length; i++) {
+            int engine = prefs.getInt("engine_" + i, 1);
+            if (engine == 2) {
+                String dx7Path=prefs.getString("dx7_"+i,null);
+                String dx7Name=prefs.getString("name_"+i,"Banco DX7");
+                if(dx7Path!=null&&audioEngine.loadDx7(i,dx7Path)){
+                    int patch=prefs.getInt("dx7_patch_"+i,0); audioEngine.setDx7Patch(i,patch);
+                    screen.setLayerName(i,dx7Name); screen.setEngineName(i,"DX7"); screen.setPresetName(i,audioEngine.dx7PatchName(i,patch));
+                }
+                continue;
+            }
+            if(engine==3){
+                int preset=prefs.getInt("analog_preset_"+i,0); audioEngine.activateAnalog(i); audioEngine.setAnalogPreset(i,preset);
+                screen.setLayerName(i,"Classic Keys Analog"); screen.setEngineName(i,"ANALOG"); screen.setPresetName(i,audioEngine.analogPresetName(preset));
+                continue;
+            }
             sf2Uris[i] = prefs.getString("sf2_" + i, null);
             String name = prefs.getString("name_" + i, null);
             if (sf2Uris[i] != null) {
@@ -106,6 +125,12 @@ public final class MainActivity extends Activity {
                     Uri saved = Uri.parse(sf2Uris[i]);
                     soundFontLayers[i].load(saved, name);
                     screen.setLayerName(i, soundFontLayers[i].displayName());
+                    screen.setEngineName(i, "SF2");
+                    int preset = prefs.getInt("preset_" + i, 0);
+                    if (audioEngine.setPreset(i, preset)) {
+                        soundFontLayers[i].setPreset(preset);
+                        screen.setPresetName(i, audioEngine.presetName(i, preset));
+                    }
                 }
             } else if (name != null) screen.setLayerName(i, name);
         }
@@ -208,10 +233,42 @@ public final class MainActivity extends Activity {
 
     private void openSf2Picker(int layer) {
         pendingLayer = layer;
+        pendingEngine = 1;
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         i.addCategory(Intent.CATEGORY_OPENABLE);
         i.setType("audio/x-soundfont");
         startActivityForResult(i, 700);
+    }
+
+    private void openDx7Picker(int layer) {
+        pendingLayer = layer; pendingEngine = 2;
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("application/octet-stream");
+        startActivityForResult(i, 701);
+    }
+
+    private void chooseLayerSource(int layer) {
+        new AlertDialog.Builder(this).setTitle("TIPO DA LAYER " + (layer + 1))
+                .setItems(new String[]{"SOUNDFONT 2 (.sf2)", "DX7 SYSEX (.syx)", "CLASSIC KEYS ANALOG"}, (dialog, which) -> {
+                    if (which == 0) openSf2Picker(layer); else if(which==1) openDx7Picker(layer); else activateAnalog(layer);
+                }).setNegativeButton("CANCELAR", null).show();
+    }
+
+    private void activateAnalog(int layer) {
+        audioEngine.activateAnalog(layer); audioEngine.setAnalogPreset(layer,0);
+        screen.setLayerName(layer,"Classic Keys Analog"); screen.setEngineName(layer,"ANALOG"); screen.setPresetName(layer,audioEngine.analogPresetName(0));
+        getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("engine_"+layer,3).putInt("analog_preset_"+layer,0).putString("name_"+layer,"Classic Keys Analog").apply();
+    }
+
+    private void openAnalogEditor(final int layer) {
+        int count=audioEngine.analogPresetCount(); String[] presets=new String[count];
+        for(int i=0;i<count;++i)presets[i]=audioEngine.analogPresetName(i);
+        int selectedPreset=getSharedPreferences("layers",MODE_PRIVATE).getInt("analog_preset_"+layer,0);
+        new AlertDialog.Builder(this).setTitle("LAYER "+(layer+1)+" · CLASSIC KEYS ANALOG")
+                .setSingleChoiceItems(presets,selectedPreset,(dialog,which)->{
+                    if(audioEngine.setAnalogPreset(layer,which)){screen.setPresetName(layer,audioEngine.analogPresetName(which));getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("analog_preset_"+layer,which).apply();}
+                    dialog.dismiss();
+                }).setNegativeButton("FECHAR",null).show();
     }
 
     private void showLoginScreen() {
@@ -268,6 +325,19 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 701 && resultCode == RESULT_OK && data != null && data.getData() != null && pendingLayer >= 0) {
+            Uri uri=data.getData(); final int layer=pendingLayer;
+            String cachedPath=cacheDocument(uri,layer,"syx");
+            if(cachedPath==null||audioEngine==null||!audioEngine.loadDx7(layer,cachedPath)){
+                screen.setAudioStatus("ÁUDIO: banco DX7 inválido"); pendingLayer=-1; return;
+            }
+            String name=uri.getLastPathSegment()==null?"Banco DX7":uri.getLastPathSegment();
+            screen.setLayerName(layer,name); screen.setEngineName(layer,"DX7");
+            screen.setPresetName(layer,audioEngine.dx7PatchName(layer,0));
+            getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("engine_"+layer,2)
+                    .putString("dx7_"+layer,cachedPath).putString("name_"+layer,name).putInt("dx7_patch_"+layer,0).apply();
+            screen.setAudioStatus("ÁUDIO: banco DX7 carregado"); pendingLayer=-1; return;
+        }
         if (requestCode == 700 && resultCode == RESULT_OK && data != null && data.getData() != null && pendingLayer >= 0) {
             Uri uri = data.getData();
             try { getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION); }
@@ -281,10 +351,16 @@ public final class MainActivity extends Activity {
             }
             String name = uri.getLastPathSegment() == null ? "SF2 carregado" : uri.getLastPathSegment();
             screen.setLayerName(layer, name);
+            screen.setEngineName(layer, "SF2");
+            String firstPreset = audioEngine.presetCount(layer) > 0 ? audioEngine.presetName(layer, 0) : "Preset 1";
+            screen.setPresetName(layer, firstPreset);
             soundFontLayers[layer].load(uri, name);
+            soundFontLayers[layer].setPreset(0);
             getSharedPreferences("layers", MODE_PRIVATE).edit()
                     .putString("sf2_" + layer, cachedPath)
                     .putString("name_" + layer, name)
+                    .putInt("preset_" + layer, 0)
+                    .putInt("engine_" + layer, 1)
                     .apply();
             sf2Uris[layer] = cachedPath;
             screen.setAudioStatus("ÁUDIO: SF2 carregado");
@@ -301,10 +377,14 @@ public final class MainActivity extends Activity {
     }
 
     private String cacheSoundFont(Uri source, int layer) {
+        return cacheDocument(source, layer, "sf2");
+    }
+
+    private String cacheDocument(Uri source, int layer, String extension) {
         if (source == null || layer < 0 || layer >= 6) return null;
         File directory = new File(getFilesDir(), "soundfonts");
         if (!directory.exists() && !directory.mkdirs()) return null;
-        File target = new File(directory, "layer-" + layer + ".sf2");
+        File target = new File(directory, "layer-" + layer + "." + extension);
         try (InputStream input = getContentResolver().openInputStream(source);
              FileOutputStream output = new FileOutputStream(target, false)) {
             if (input == null) return null;
@@ -317,6 +397,48 @@ public final class MainActivity extends Activity {
             if (target.exists()) target.delete();
             return null;
         }
+    }
+
+    private void openSoundFontEditor(final int layer) {
+        if (layer < 0 || layer >= 6 || audioEngine == null) return;
+        final int count = audioEngine.presetCount(layer);
+        if (count <= 0) { openSf2Picker(layer); return; }
+        final ArrayList<String> presets = new ArrayList<>();
+        for (int preset = 0; preset < count; ++preset) {
+            String name = audioEngine.presetName(layer, preset);
+            presets.add(String.format("%03d  %s", preset + 1, name == null || name.isEmpty() ? "Preset" : name));
+        }
+        int selectedPreset = soundFontLayers[layer].preset();
+        new AlertDialog.Builder(this)
+                .setTitle("LAYER " + (layer + 1) + " · TIMBRE SF2")
+                .setSingleChoiceItems(presets.toArray(new String[0]), selectedPreset, (dialog, which) -> {
+                    if (audioEngine.setPreset(layer, which)) {
+                        soundFontLayers[layer].setPreset(which);
+                        screen.setPresetName(layer, audioEngine.presetName(layer, which));
+                        getSharedPreferences("layers", MODE_PRIVATE).edit().putInt("preset_" + layer, which).apply();
+                    }
+                    dialog.dismiss();
+                })
+                .setPositiveButton("TROCAR SF2", (dialog, which) -> openSf2Picker(layer))
+                .setNegativeButton("FECHAR", null)
+                .show();
+    }
+
+    private void openDx7Editor(final int layer) {
+        if (audioEngine == null) return;
+        final int count = audioEngine.dx7PatchCount(layer);
+        if (count <= 0) { openDx7Picker(layer); return; }
+        final String[] patches = new String[count];
+        for (int patch=0;patch<count;++patch) patches[patch]=String.format("%02d  %s",patch+1,audioEngine.dx7PatchName(layer,patch));
+        int selectedPatch=getSharedPreferences("layers",MODE_PRIVATE).getInt("dx7_patch_"+layer,0);
+        new AlertDialog.Builder(this).setTitle("LAYER "+(layer+1)+" · TIMBRE DX7")
+                .setSingleChoiceItems(patches,selectedPatch,(dialog,which)->{
+                    if(audioEngine.setDx7Patch(layer,which)){
+                        screen.setPresetName(layer,audioEngine.dx7PatchName(layer,which));
+                        getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("dx7_patch_"+layer,which).apply();
+                    } dialog.dismiss();
+                }).setPositiveButton("TROCAR BANCO",(dialog,which)->openDx7Picker(layer))
+                .setNegativeButton("FECHAR",null).show();
     }
 
     private final class ClassicPlayerView extends View {
@@ -337,6 +459,8 @@ public final class MainActivity extends Activity {
         private final boolean[] solo = new boolean[6];
         private float masterVolume = 0.8f;
         private final String[] layerNames = {"SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT"};
+        private final String[] presetNames = {"", "", "", "", "", ""};
+        private final String[] engineNames = {"VAZIA", "VAZIA", "VAZIA", "VAZIA", "VAZIA", "VAZIA"};
 
         ClassicPlayerView(Context context) { super(context); paint.setTypeface(android.graphics.Typeface.create("sans", 1)); }
         void setMidiStatus(String value) { midiStatus = value; postInvalidate(); }
@@ -344,6 +468,8 @@ public final class MainActivity extends Activity {
         void setAccount(String value) { account = value == null ? "" : value; postInvalidate(); }
         void setMidiSignal() { midiSignal = true; postInvalidateDelayed(180); }
         void setLayerName(int layer, String name) { if (layer >= 0 && layer < layerNames.length) { layerNames[layer] = name; postInvalidate(); } }
+        void setPresetName(int layer, String name) { if (layer >= 0 && layer < presetNames.length) { presetNames[layer] = name == null ? "" : name; postInvalidate(); } }
+        void setEngineName(int layer, String name) { if (layer >= 0 && layer < engineNames.length) { engineNames[layer] = name == null ? "VAZIA" : name; postInvalidate(); } }
 
         private void text(Canvas canvas, String value, float x, float y, float size, int colour) {
             paint.setStyle(Paint.Style.FILL); paint.setColor(colour); paint.setTextSize(size);
@@ -454,10 +580,12 @@ public final class MainActivity extends Activity {
                 float x = left + i * (cardW + gap);
                 box(canvas, x, top, x + cardW, top + cardH, Color.rgb(49, 69, 82), true);
                 text(canvas, "LAYER " + (i + 1), x + 12, top + h * .045f, h * .022f, textColour);
+                text(canvas, engineNames[i], x+12, top+h*.065f, h*.012f, teal);
                 button(canvas, "M", x + cardW*.54f, top+h*.016f, x+cardW*.70f, top+h*.063f, muted[i]);
                 button(canvas, "S", x + cardW*.74f, top+h*.016f, x+cardW*.90f, top+h*.063f, solo[i]);
-                text(canvas, layerNames[i], x + 12, top + h * .086f, h * .015f, Color.rgb(180,195,200));
-                button(canvas, layerNames[i].equals("SEM SOUNDFONT") ? "IMPORTAR SF2" : "EDITAR SF2", x+12, top+h*.098f, x+cardW-12, top+h*.15f, false);
+                String source = presetNames[i].isEmpty() ? layerNames[i] : presetNames[i];
+                text(canvas, source, x + 12, top + h * .086f, h * .015f, Color.rgb(180,195,200));
+                button(canvas, engineNames[i].equals("VAZIA") ? "ADICIONAR MOTOR" : "EDITAR " + engineNames[i], x+12, top+h*.098f, x+cardW-12, top+h*.15f, false);
                 float railTop = top + h * .205f, railBottom = top + cardH - h * .09f;
                 drawMeter(canvas, x+cardW*.12f, railTop, cardW*.105f, railBottom,
                         audioEngine == null ? 0f : audioEngine.layerPeak(i));
@@ -534,7 +662,13 @@ public final class MainActivity extends Activity {
                         else if (event.getX() >= cardX+cardW*.74f && event.getX() <= cardX+cardW*.90f) solo[layer] = !solo[layer];
                         applyLayerGains(); invalidate(); return true;
                     }
-                    if (event.getY() >= h*.17f+h*.098f && event.getY() <= h*.17f+h*.16f) { openSf2Picker(layer); return true; }
+                    if (event.getY() >= h*.17f+h*.098f && event.getY() <= h*.17f+h*.16f) {
+                        if (engineNames[layer].equals("VAZIA")) chooseLayerSource(layer);
+                        else if(engineNames[layer].equals("DX7")) openDx7Editor(layer);
+                        else if(engineNames[layer].equals("ANALOG")) openAnalogEditor(layer);
+                        else openSoundFontEditor(layer);
+                        return true;
+                    }
                     float railTop = h*.17f+h*.205f, railBottom = h*.17f+h*.72f-h*.09f;
                     if (event.getY() >= railTop && event.getY() <= railBottom) {
                         layerVolumes[layer] = Math.max(0f, Math.min(1f, (railBottom - event.getY()) / (railBottom - railTop)));

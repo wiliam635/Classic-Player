@@ -16,9 +16,21 @@ final class PolySynthEngine {
     static { System.loadLibrary("classic_player_native"); }
 
     private static native boolean nativeLoadLayer(int layer, String absolutePath);
+    private static native boolean nativeLoadDx7(int layer, String absolutePath);
+    private static native int nativeEngineType(int layer);
+    private static native int nativeDx7PatchCount(int layer);
+    private static native String nativeDx7PatchName(int layer, int patch);
+    private static native boolean nativeSetDx7Patch(int layer, int patch);
+    private static native void nativeActivateAnalog(int layer);
+    private static native int nativeAnalogPresetCount();
+    private static native String nativeAnalogPresetName(int preset);
+    private static native boolean nativeSetAnalogPreset(int layer, int preset);
     private static native void nativeUnloadAll();
     private static native void nativeSetMaster(float value);
     private static native void nativeSetLayerGain(int layer, float value);
+    private static native int nativePresetCount(int layer);
+    private static native String nativePresetName(int layer, int preset);
+    private static native boolean nativeSetPreset(int layer, int preset);
     private static native void nativeNoteOn(int note, int velocity);
     private static native void nativeNoteOff(int note);
     private static native void nativeControl(int controller, int value);
@@ -50,8 +62,20 @@ final class PolySynthEngine {
     }
 
     boolean loadLayer(int layer, String absolutePath) { return absolutePath != null && nativeLoadLayer(layer, absolutePath); }
+    boolean loadDx7(int layer, String absolutePath) { return absolutePath != null && nativeLoadDx7(layer, absolutePath); }
+    int engineType(int layer) { return nativeEngineType(layer); }
+    int dx7PatchCount(int layer) { return nativeDx7PatchCount(layer); }
+    String dx7PatchName(int layer, int patch) { return nativeDx7PatchName(layer, patch); }
+    boolean setDx7Patch(int layer, int patch) { return nativeSetDx7Patch(layer, patch); }
+    void activateAnalog(int layer) { nativeActivateAnalog(layer); }
+    int analogPresetCount() { return nativeAnalogPresetCount(); }
+    String analogPresetName(int preset) { return nativeAnalogPresetName(preset); }
+    boolean setAnalogPreset(int layer, int preset) { return nativeSetAnalogPreset(layer, preset); }
     void setMaster(float value) { nativeSetMaster(value); }
     void setLayerGain(int layer, float value) { nativeSetLayerGain(layer, value); }
+    int presetCount(int layer) { return nativePresetCount(layer); }
+    String presetName(int layer, int preset) { return nativePresetName(layer, preset); }
+    boolean setPreset(int layer, int preset) { return nativeSetPreset(layer, preset); }
     boolean setPreferredDevice(AudioDeviceInfo device) { return track != null && device != null && track.setPreferredDevice(device); }
     void noteOn(int note, int velocity) { nativeNoteOn(note, velocity); }
     void noteOff(int note) { nativeNoteOff(note); }
