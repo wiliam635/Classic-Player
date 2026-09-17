@@ -46,6 +46,7 @@ public final class MainActivity extends Activity {
     private SoundFontLayer[] soundFontLayers;
     private LicenseManager licenseManager;
     private AudioOutputManager audioOutputManager;
+    private int midiIndex;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final MidiReceiver midiReceiver = new MidiReceiver() {
         @Override public void onSend(byte[] data, int offset, int count, long timestamp) {
@@ -132,11 +133,12 @@ public final class MainActivity extends Activity {
                 "MIDI USB: " + count + (count == 1 ? " dispositivo" : " dispositivos"));
         if (audioOutputManager != null) screen.setAudioStatus(audioOutputManager.outputs().isEmpty()
                 ? "ÁUDIO: saída do sistema" : "ÁUDIO: " + audioOutputManager.outputs().get(0));
-        if (count > 0 && midiDevice == null) openMidi(midiManager.getDevices()[0]);
+        if (count > 0 && midiDevice == null) openMidi(midiManager.getDevices()[Math.min(midiIndex, count - 1)]);
     }
 
     private void openMidi(MidiDeviceInfo info) {
         if (midiManager == null) return;
+        closeMidi();
         midiManager.openDevice(info, device -> {
             midiDevice = device;
             MidiDeviceInfo.PortInfo[] ports = info.getPorts();
@@ -357,6 +359,14 @@ public final class MainActivity extends Activity {
                         outputIndex = (outputIndex + 1) % outputs.size();
                         if (audioEngine != null) audioEngine.setPreferredDevice(audioOutputManager.deviceAt(outputIndex));
                         setAudioStatus("ÁUDIO: " + outputs.get(outputIndex));
+                    }
+                }
+                if (event.getY() > h * .40f && event.getY() < h * .52f && midiManager != null) {
+                    MidiDeviceInfo[] devices = midiManager.getDevices();
+                    if (devices.length > 0) {
+                        midiIndex = (midiIndex + 1) % devices.length;
+                        openMidi(devices[midiIndex]);
+                        setMidiStatus("MIDI USB: " + devices[midiIndex].getProperties().getString(MidiDeviceInfo.PROPERTY_NAME));
                     }
                 }
                 return true;
