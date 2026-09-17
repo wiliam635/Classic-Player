@@ -9,6 +9,7 @@ import android.graphics.Paint;
 import android.media.midi.MidiDeviceInfo;
 import android.media.midi.MidiDevice;
 import android.media.midi.MidiInputPort;
+import android.media.midi.MidiOutputPort;
 import android.media.midi.MidiManager;
 import android.media.midi.MidiReceiver;
 import android.os.Bundle;
@@ -41,7 +42,7 @@ public final class MainActivity extends Activity {
     private MidiManager midiManager;
     private PolySynthEngine audioEngine;
     private MidiDevice midiDevice;
-    private MidiInputPort midiInput;
+    private MidiOutputPort midiInput;
     private int pendingLayer = -1;
     private final String[] sf2Uris = new String[6];
     private SoundFontLayer[] soundFontLayers;
@@ -149,7 +150,7 @@ public final class MainActivity extends Activity {
             MidiDeviceInfo.PortInfo[] ports = info.getPorts();
             for (MidiDeviceInfo.PortInfo port : ports) {
                 if (port.getType() == MidiDeviceInfo.PortInfo.TYPE_OUTPUT) {
-                    midiInput = device.openInputPort(port.getPortNumber());
+                    midiInput = device.openOutputPort(port.getPortNumber());
                     if (midiInput != null) {
                         try { midiInput.connect(midiReceiver); }
                         catch (IOException ignored) { midiInput.close(); midiInput = null; }
@@ -187,8 +188,8 @@ public final class MainActivity extends Activity {
             if (code == 401 || code == 403) { licenseManager.clear(); return false; }
             if (code < 200 || code >= 300) return null;
             InputStream in = c.getInputStream(); byte[] bytes = new byte[4096]; int n = in.read(bytes);
-            String body = n < 0 ? "" : new String(bytes, 0, n, StandardCharsets.UTF_8);
-            if (body.contains("\"valid\":false")) { licenseManager.clear(); return false; }
+            String responseBody = n < 0 ? "" : new String(bytes, 0, n, StandardCharsets.UTF_8);
+            if (responseBody.contains("\"valid\":false")) { licenseManager.clear(); return false; }
             licenseManager.refreshOfflineWindow();
             return true;
         } catch (Exception ignored) { return null; }
