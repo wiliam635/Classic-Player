@@ -55,32 +55,46 @@ public final class MainActivity extends Activity {
     private LicenseManager licenseManager;
     private AudioOutputManager audioOutputManager;
     private int midiIndex;
+    private int midiRunningStatus;
+    private int midiFirstData = -1;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final MidiReceiver midiReceiver = new MidiReceiver() {
-        @Override public void onSend(byte[] data, int offset, int count, long timestamp) {
-            for (int i = offset; i + 2 < offset + count; i++) {
-                int status = data[i] & 0xff;
-                if ((status & 0x80) == 0) continue;
-                int type = status & 0xf0;
-                if (type == 0xb0) {
-                    int cc = data[i + 1] & 0x7f, value = data[i + 2] & 0x7f;
-                    if (audioEngine != null) {
-                        if (cc == 64) audioEngine.setSustain(value >= 64);
-                        else if (cc == 120 || cc == 123) audioEngine.allNotesOff();
-                    }
-                    i += 2; continue;
+        @Override public synchronized void onSend(byte[] data, int offset, int count, long timestamp) {
+            final int end = offset + count;
+            for (int i = offset; i < end; i++) {
+                int value = data[i] & 0xff;
+                if (value >= 0xf8) continue; // MIDI realtime may appear between data bytes.
+                if ((value & 0x80) != 0) {
+                    if (value < 0xf0) midiRunningStatus = value;
+                    else midiRunningStatus = 0;
+                    midiFirstData = -1;
+                    continue;
                 }
-                if (type != 0x80 && type != 0x90) continue;
-                int note = data[i + 1] & 0x7f;
-                int velocity = data[i + 2] & 0x7f;
-                if (audioEngine == null) continue;
-                screen.setMidiSignal();
-                if (type == 0x90 && velocity > 0) audioEngine.noteOn(note, velocity);
-                else audioEngine.noteOff(note);
-                i += 2;
+                if (midiRunningStatus == 0) continue;
+                int type = midiRunningStatus & 0xf0;
+                int required = (type == 0xc0 || type == 0xd0) ? 1 : 2;
+                if (required == 1) continue; // Program/pressure do not drive a note here.
+                if (midiFirstData < 0) { midiFirstData = value & 0x7f; continue; }
+                int first = midiFirstData;
+                midiFirstData = -1;
+                processMidiMessage(type, first, value & 0x7f);
             }
         }
+        @Override public void onFlush() { if (audioEngine != null) audioEngine.allNotesOff(); }
     };
+
+    private void processMidiMessage(int type, int first, int second) {
+        if (audioEngine == null) return;
+        if (type == 0xb0) {
+            if (first == 64) audioEngine.setSustain(second >= 64);
+            else if (first == 120 || first == 123) audioEngine.allNotesOff();
+            return;
+        }
+        if (type != 0x80 && type != 0x90) return;
+        screen.setMidiSignal();
+        if (type == 0x90 && second > 0) audioEngine.noteOn(first, second);
+        else audioEngine.noteOff(first);
+    }
     private final MidiManager.DeviceCallback midiCallback = new MidiManager.DeviceCallback() {
         @Override public void onDeviceAdded(MidiDeviceInfo device) { refreshMidiDevices(); }
         @Override public void onDeviceRemoved(MidiDeviceInfo device) { refreshMidiDevices(); }
@@ -151,6 +165,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onPause() {
         if (midiManager != null) midiManager.unregisterDeviceCallback(midiCallback);
+        if (audioEngine != null) audioEngine.allNotesOff();
         if (audioEngine != null) audioEngine.stop();
         closeMidi();
         super.onPause();
@@ -199,6 +214,9 @@ public final class MainActivity extends Activity {
     }
 
     private void closeMidiInput() {
+        if (audioEngine != null) audioEngine.allNotesOff();
+        midiRunningStatus = 0;
+        midiFirstData = -1;
         if (midiInput != null) { try { midiInput.close(); } catch (IOException ignored) {} midiInput = null; }
     }
 
@@ -236,7 +254,12 @@ public final class MainActivity extends Activity {
         pendingEngine = 1;
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.setType("audio/x-soundfont");
+        // Many Android file managers report .sf2 as octet-stream (or no known
+        // MIME type). Showing all files makes SoundFonts on Downloads/USB visible.
+        i.setType("*/*");
+        i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
+                "audio/x-soundfont", "audio/sf2", "application/octet-stream"
+        });
         startActivityForResult(i, 700);
     }
 
@@ -568,7 +591,8 @@ public final class MainActivity extends Activity {
                 text(canvas, audioStatus, 52, h * .34f, h * .026f, Color.rgb(180,195,200));
                 text(canvas, midiStatus, 52, h * .42f, h * .026f, Color.rgb(180,195,200));
                 text(canvas, "Toque nas linhas acima para alternar a saída e o controlador.", 52, h * .54f, h * .022f, Color.rgb(180,195,200));
-                button(canvas, "VOLTAR AO MIXER", 52, h*.67f, 270, h*.75f, false);
+                button(canvas, "PARAR TODAS AS NOTAS", 52, h*.61f, 350, h*.69f, false);
+                button(canvas, "VOLTAR AO MIXER", 52, h*.73f, 350, h*.81f, false);
                 return;
             }
 
@@ -661,7 +685,11 @@ public final class MainActivity extends Activity {
                         setMidiStatus("MIDI USB: " + devices[midiIndex].getProperties().getString(MidiDeviceInfo.PROPERTY_NAME));
                     }
                 }
-                if (event.getY() > h*.64f && event.getY() < h*.78f) { settings=false; invalidate(); }
+                if (event.getY() > h*.59f && event.getY() < h*.71f) {
+                    if (audioEngine != null) audioEngine.allNotesOff();
+                    invalidate(); return true;
+                }
+                if (event.getY() > h*.71f && event.getY() < h*.84f) { settings=false; invalidate(); }
                 return true;
             }
             if (liveSet && event.getY() > h * .235f && event.getY() < h * .90f) {
