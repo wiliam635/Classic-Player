@@ -16,6 +16,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.content.Intent;
 import android.net.Uri;
+import android.provider.Settings;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
@@ -176,7 +177,11 @@ public final class MainActivity extends Activity {
             HttpURLConnection c = (HttpURLConnection) new URL("https://licenca.classickeys.com.br/v1/license/validate").openConnection();
             c.setRequestMethod("POST"); c.setConnectTimeout(8000); c.setReadTimeout(8000); c.setDoOutput(true);
             c.setRequestProperty("Content-Type", "application/json"); c.setRequestProperty("Authorization", "Bearer " + licenseManager.accessToken());
-            c.getOutputStream().write("{\"platform\":\"Android\"}".getBytes(StandardCharsets.UTF_8));
+            String deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+            if (deviceId == null || deviceId.isEmpty()) deviceId = "android-" + android.os.Build.MODEL;
+            String body = "{\"device_id\":\"" + jsonEscape(deviceId) + "\",\"device_name\":\""
+                    + jsonEscape(android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL) + "\",\"platform\":\"Android\"}";
+            c.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8));
             int code = c.getResponseCode();
             if (code == 401 || code == 403) { licenseManager.clear(); return false; }
             if (code < 200 || code >= 300) return null;
@@ -227,7 +232,11 @@ public final class MainActivity extends Activity {
         try {
             HttpURLConnection c = (HttpURLConnection) new URL("https://licenca.classickeys.com.br/v1/auth/login").openConnection();
             c.setRequestMethod("POST"); c.setConnectTimeout(10000); c.setReadTimeout(10000); c.setDoOutput(true); c.setRequestProperty("Content-Type", "application/json");
-            String body = "{\"email\":\"" + jsonEscape(email) + "\",\"password\":\"" + jsonEscape(password) + "\",\"platform\":\"Android\"}";
+            String deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+            if (deviceId == null || deviceId.isEmpty()) deviceId = "android-" + android.os.Build.MODEL;
+            String body = "{\"email\":\"" + jsonEscape(email) + "\",\"password\":\"" + jsonEscape(password)
+                    + "\",\"device_id\":\"" + jsonEscape(deviceId) + "\",\"device_name\":\""
+                    + jsonEscape(android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL) + "\",\"platform\":\"Android\"}";
             c.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8));
             InputStream in = c.getResponseCode() >= 400 ? c.getErrorStream() : c.getInputStream(); if (in == null || c.getResponseCode() >= 400) return null;
             byte[] bytes = new byte[8192]; int n = in.read(bytes); String json = n < 0 ? "" : new String(bytes, 0, n, StandardCharsets.UTF_8);
