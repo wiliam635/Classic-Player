@@ -150,10 +150,9 @@ public final class MainActivity extends Activity {
             MidiDeviceInfo.PortInfo[] ports = info.getPorts();
             for (MidiDeviceInfo.PortInfo port : ports) {
                 if (port.getType() == MidiDeviceInfo.PortInfo.TYPE_OUTPUT) {
-                    try {
-                        midiInput = device.openOutputPort(port.getPortNumber());
-                        if (midiInput != null) midiInput.connect(midiReceiver);
-                    } catch (IOException ignored) { closeMidiInput(); }
+                    try { midiInput = device.openOutputPort(port.getPortNumber()); }
+                    catch (IOException ignored) { closeMidiInput(); }
+                    if (midiInput != null) midiInput.connect(midiReceiver);
                     break;
                 }
             }
