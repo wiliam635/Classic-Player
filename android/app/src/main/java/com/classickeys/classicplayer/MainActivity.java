@@ -265,6 +265,7 @@ public final class MainActivity extends Activity {
         private int outputIndex = 0;
         private int selected = 0;
         private final float[] layerVolumes = {0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f};
+        private float masterVolume = 0.8f;
         private final String[] layerNames = {"SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT"};
 
         ClassicPlayerView(Context context) { super(context); paint.setTypeface(android.graphics.Typeface.create("sans", 1)); }
@@ -347,6 +348,11 @@ public final class MainActivity extends Activity {
                 text(canvas, Math.round((layerVolumes[i] * 2f - 1f) * 60f) + " dB", x + cardW * .30f, top + cardH - h * .04f, h * .018f, textColour);
             }
             text(canvas, "MASTER", w - 120, h * .16f, h * .022f, textColour);
+            paint.setColor(Color.rgb(5, 13, 19)); paint.setStyle(Paint.Style.FILL);
+            canvas.drawRoundRect(w - 92, h * .31f, w - 78, h * .77f, 5, 5, paint);
+            float masterY = h * .77f - h * .46f * masterVolume;
+            paint.setColor(teal); canvas.drawRoundRect(w - 112, masterY - 10, w - 58, masterY + 10, 8, 8, paint);
+            text(canvas, Math.round((masterVolume * 2f - 1f) * 60f) + " dB", w - 112, h * .78f, h * .018f, textColour);
         }
 
         @Override public boolean onTouchEvent(MotionEvent event) {
@@ -379,6 +385,12 @@ public final class MainActivity extends Activity {
                 if (col >= 0 && col < 4) { selected = row * 4 + col; invalidate(); }
             }
             if (!liveSet && event.getY() > h * .17f && event.getY() < h * .87f) {
+                if (event.getX() > w - 145) {
+                    float railTop = h * .31f, railBottom = h * .77f;
+                    masterVolume = Math.max(0f, Math.min(1f, (railBottom - event.getY()) / (railBottom - railTop)));
+                    if (audioEngine != null) audioEngine.setMaster(masterVolume);
+                    invalidate(); return true;
+                }
                 float cardW = (w - 36 - 50) / 6f;
                 int layer = (int) ((event.getX() - 18) / (cardW + 10));
                 if (layer >= 0 && layer < 6) {
