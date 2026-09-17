@@ -8,6 +8,7 @@ import android.content.pm.ActivityInfo;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.drawable.Drawable;
 import android.media.midi.MidiDeviceInfo;
 import android.media.midi.MidiDevice;
 import android.media.midi.MidiInputPort;
@@ -158,6 +159,7 @@ public final class MainActivity extends Activity {
         super.onResume();
         hideSystemBars();
         if (audioEngine != null) audioEngine.start();
+        restorePreferredAudioDevice();
         if (midiManager != null) midiManager.registerDeviceCallback(midiCallback, null);
         refreshMidiDevices();
         if (licenseManager != null && licenseManager.isActivated()) revalidateLicenseAsync();
@@ -190,6 +192,37 @@ public final class MainActivity extends Activity {
         if (audioOutputManager != null) screen.setAudioStatus(audioOutputManager.outputs().isEmpty()
                 ? "ÁUDIO: saída do sistema" : "ÁUDIO: " + audioOutputManager.outputs().get(0));
         if (count > 0 && midiDevice == null) openMidi(midiManager.getDevices()[Math.min(midiIndex, count - 1)]);
+    }
+
+    private void restorePreferredAudioDevice() {
+        if (audioOutputManager == null || audioEngine == null) return;
+        int id = getSharedPreferences("audio", MODE_PRIVATE).getInt("output_id", -1);
+        AudioDeviceInfo device = audioOutputManager.deviceById(id);
+        if (device != null && audioEngine.setPreferredDevice(device))
+            screen.setAudioStatus("ÁUDIO: " + device.getProductName() + " (ID " + device.getId() + ")");
+    }
+
+    private void showAudioOutputChooser() {
+        if (audioOutputManager == null) return;
+        java.util.List<String> names = audioOutputManager.outputs();
+        if (names.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("SAÍDA DE ÁUDIO")
+                    .setMessage("Nenhuma saída de áudio foi encontrada. Reconecte a interface USB e tente novamente.")
+                    .setPositiveButton("OK", null).show();
+            return;
+        }
+        new AlertDialog.Builder(this).setTitle("ESCOLHER SAÍDA DE ÁUDIO")
+                .setItems(names.toArray(new String[0]), (dialog, which) -> {
+                    AudioDeviceInfo device = audioOutputManager.deviceAt(which);
+                    if (device != null && audioEngine != null && audioEngine.setPreferredDevice(device)) {
+                        getSharedPreferences("audio", MODE_PRIVATE).edit().putInt("output_id", device.getId()).apply();
+                        screen.setAudioStatus("ÁUDIO: " + names.get(which));
+                    } else {
+                        new AlertDialog.Builder(this).setTitle("SAÍDA DE ÁUDIO")
+                                .setMessage("O Android não permitiu selecionar esta saída. Desconecte e reconecte a interface USB.")
+                                .setPositiveButton("OK", null).show();
+                    }
+                }).setNegativeButton("CANCELAR", null).show();
     }
 
     private void openMidi(MidiDeviceInfo info) {
@@ -506,16 +539,20 @@ public final class MainActivity extends Activity {
             final int teal = Color.rgb(19, 184, 173);
             box(canvas, left, top, right, bottom, active ? teal : Color.rgb(31, 48, 62), false);
             paint.setTextAlign(Paint.Align.CENTER);
-            text(canvas, label, (left + right) * .5f, top + (bottom - top) * .66f, (bottom - top) * .40f,
+            float fontSize = (bottom - top) * .40f;
+            paint.setTextSize(fontSize);
+            float available = Math.max(1f, right - left - 18f);
+            float measured = paint.measureText(label);
+            if (measured > available) fontSize *= available / measured;
+            text(canvas, label, (left + right) * .5f, top + (bottom - top) * .66f, fontSize,
                     active ? Color.rgb(7,16,25) : Color.rgb(233,239,240));
             paint.setTextAlign(Paint.Align.LEFT);
         }
         private void drawLogo(Canvas canvas, float cx, float cy, float radius) {
-            paint.setColor(Color.rgb(5, 13, 19)); canvas.drawCircle(cx, cy, radius, paint);
-            paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(2f); paint.setColor(Color.rgb(19,184,173)); canvas.drawCircle(cx, cy, radius, paint);
-            paint.setStyle(Paint.Style.FILL); paint.setColor(Color.rgb(233,239,240));
-            for (int i = 0; i < 4; i++) canvas.drawRoundRect(cx - radius*.52f + i*radius*.27f, cy-radius*.42f, cx-radius*.34f+i*radius*.27f, cy+radius*.10f, 2, 2, paint);
-            text(canvas, "CK", cx - radius*.36f, cy + radius*.56f, radius*.36f, Color.rgb(19,184,173));
+            Drawable logo = getDrawable(R.drawable.ic_launcher);
+            int r = Math.round(radius);
+            logo.setBounds(Math.round(cx) - r, Math.round(cy) - r, Math.round(cx) + r, Math.round(cy) + r);
+            logo.draw(canvas);
         }
         private void drawMeter(Canvas canvas, float x, float top, float width, float bottom, float peak) {
             paint.setColor(Color.rgb(5,13,19)); canvas.drawRoundRect(x, top, x + width, bottom, 4, 4, paint);
@@ -591,8 +628,9 @@ public final class MainActivity extends Activity {
                 text(canvas, audioStatus, 52, h * .34f, h * .026f, Color.rgb(180,195,200));
                 text(canvas, midiStatus, 52, h * .42f, h * .026f, Color.rgb(180,195,200));
                 text(canvas, "Toque nas linhas acima para alternar a saída e o controlador.", 52, h * .54f, h * .022f, Color.rgb(180,195,200));
-                button(canvas, "PARAR TODAS AS NOTAS", 52, h*.61f, 350, h*.69f, false);
-                button(canvas, "VOLTAR AO MIXER", 52, h*.73f, 350, h*.81f, false);
+                float actionRight = Math.min(w - 52, 430);
+                button(canvas, "PARAR TODAS AS NOTAS", 52, h*.61f, actionRight, h*.69f, false);
+                button(canvas, "VOLTAR AO MIXER", 52, h*.73f, actionRight, h*.81f, false);
                 return;
             }
 
@@ -670,12 +708,8 @@ public final class MainActivity extends Activity {
             }
             if (settings) {
                 if (event.getY() > h * .28f && event.getY() < h * .40f && audioOutputManager != null) {
-                    java.util.List<String> outputs = audioOutputManager.outputs();
-                    if (!outputs.isEmpty()) {
-                        outputIndex = (outputIndex + 1) % outputs.size();
-                        if (audioEngine != null) audioEngine.setPreferredDevice(audioOutputManager.deviceAt(outputIndex));
-                        setAudioStatus("ÁUDIO: " + outputs.get(outputIndex));
-                    }
+                    showAudioOutputChooser();
+                    return true;
                 }
                 if (event.getY() > h * .40f && event.getY() < h * .52f && midiManager != null) {
                     MidiDeviceInfo[] devices = midiManager.getDevices();

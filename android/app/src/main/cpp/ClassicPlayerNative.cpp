@@ -118,7 +118,9 @@ void sendAllNotesOff()
     for (int layer=0;layer<kLayerCount;++layer) {
         if(fonts[(size_t)layer]!=nullptr)tsf_channel_note_off_all(fonts[(size_t)layer],0);
         for(auto& voice:dxLayers[(size_t)layer].voices)if(voice.active&&voice.synth)voice.synth->keyup();
-        for(auto& voice:analogLayers[(size_t)layer].voices)if(voice.active)voice.releasing=true;
+        // Panic must be immediate; a lost MIDI note-off must never leave an
+        // oscillator running while changing screens/devices.
+        for(auto& voice:analogLayers[(size_t)layer].voices)voice={};
     }
 }
 }
@@ -308,7 +310,9 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOff(JNIEnv*, jclass
     for (int layer=0;layer<kLayerCount;++layer) {
         if(engineTypes[(size_t)layer]==EngineType::sf2&&fonts[(size_t)layer]!=nullptr)tsf_channel_note_off(fonts[(size_t)layer],0,note);
         else if(engineTypes[(size_t)layer]==EngineType::dx7)for(auto& voice:dxLayers[(size_t)layer].voices)if(voice.active&&voice.note==note&&voice.synth)voice.synth->keyup();
-        else if(engineTypes[(size_t)layer]==EngineType::analog)for(auto& voice:analogLayers[(size_t)layer].voices)if(voice.active&&voice.note==note)voice.releasing=true;
+        // Stop analog voices immediately. This is intentionally stricter than
+        // the release tail until device-specific note-off behaviour is proven.
+        else if(engineTypes[(size_t)layer]==EngineType::analog)for(auto& voice:analogLayers[(size_t)layer].voices)if(voice.active&&voice.note==note)voice={};
     }
 }
 

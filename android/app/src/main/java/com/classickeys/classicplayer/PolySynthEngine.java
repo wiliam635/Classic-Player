@@ -4,11 +4,14 @@ import android.media.AudioAttributes;
 import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
 import android.media.AudioTrack;
+import android.os.Build;
 
 /** Native SoundFont renderer used by all six Android mixer layers. */
 final class PolySynthEngine {
     private static final int RATE = 48000;
-    private static final int FRAMES = 512;
+    // 128 frames at 48 kHz is 2.67 ms. The previous 512-frame render block,
+    // combined with a doubled platform buffer, was noticeably slow on tablets.
+    private static final int FRAMES = 128;
     private AudioTrack track;
     private Thread renderThread;
     private volatile boolean running;
@@ -42,11 +45,17 @@ final class PolySynthEngine {
     void start() {
         if (running) return;
         int min = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT);
-        track = new AudioTrack(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build(),
-                new AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build(), Math.max(min * 2, FRAMES * 4),
-                AudioTrack.MODE_STREAM, AudioTrack.WRITE_BLOCKING);
+        AudioTrack.Builder builder = new AudioTrack.Builder()
+                .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                .setAudioFormat(new AudioFormat.Builder().setSampleRate(RATE)
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
+                .setBufferSizeInBytes(Math.max(min, FRAMES * 4))
+                .setTransferMode(AudioTrack.MODE_STREAM);
+        if (Build.VERSION.SDK_INT >= 26)
+            builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY);
+        track = builder.build();
         running = true;
         track.play();
         renderThread = new Thread(this::render, "classic-sf2-audio");
