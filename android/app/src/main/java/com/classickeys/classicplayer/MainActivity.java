@@ -9,6 +9,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
+import android.media.AudioDeviceInfo;
 import android.media.midi.MidiDeviceInfo;
 import android.media.midi.MidiDevice;
 import android.media.midi.MidiInputPort;
