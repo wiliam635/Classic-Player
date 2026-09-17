@@ -13,6 +13,11 @@ android {
         targetSdk 35
         versionCode 100
         versionName '1.0.0'
+        ndk {
+            // Most Android 6+ tablets in use today are 64-bit ARM. Keeping this
+            // ABI explicit ensures the real native SoundFont renderer is shipped.
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        }
     }
 
     buildTypes {

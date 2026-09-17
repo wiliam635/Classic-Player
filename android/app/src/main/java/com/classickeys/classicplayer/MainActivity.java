@@ -29,6 +29,8 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -99,9 +101,12 @@ public final class MainActivity extends Activity {
             sf2Uris[i] = prefs.getString("sf2_" + i, null);
             String name = prefs.getString("name_" + i, null);
             if (sf2Uris[i] != null) {
-                Uri saved = Uri.parse(sf2Uris[i]);
-                soundFontLayers[i].load(saved, name);
-                screen.setLayerName(i, soundFontLayers[i].displayName());
+                String cachedPath = restoreSoundFont(sf2Uris[i], i);
+                if (cachedPath != null && audioEngine.loadLayer(i, cachedPath)) {
+                    Uri saved = Uri.parse(sf2Uris[i]);
+                    soundFontLayers[i].load(saved, name);
+                    screen.setLayerName(i, soundFontLayers[i].displayName());
+                }
             } else if (name != null) screen.setLayerName(i, name);
         }
         String account = licenseManager.userName();
@@ -124,6 +129,11 @@ public final class MainActivity extends Activity {
         if (audioEngine != null) audioEngine.stop();
         closeMidi();
         super.onPause();
+    }
+
+    @Override protected void onDestroy() {
+        if (audioEngine != null) audioEngine.close();
+        super.onDestroy();
     }
 
     private void hideSystemBars() {
@@ -262,14 +272,50 @@ public final class MainActivity extends Activity {
             Uri uri = data.getData();
             try { getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION); }
             catch (SecurityException ignored) { }
-            screen.setLayerName(pendingLayer, uri.getLastPathSegment() == null ? "SF2 carregado" : uri.getLastPathSegment());
-            soundFontLayers[pendingLayer].load(uri, uri.getLastPathSegment());
+            final int layer = pendingLayer;
+            String cachedPath = cacheSoundFont(uri, layer);
+            if (cachedPath == null || audioEngine == null || !audioEngine.loadLayer(layer, cachedPath)) {
+                screen.setAudioStatus("ÁUDIO: falha ao abrir o arquivo SF2");
+                pendingLayer = -1;
+                return;
+            }
+            String name = uri.getLastPathSegment() == null ? "SF2 carregado" : uri.getLastPathSegment();
+            screen.setLayerName(layer, name);
+            soundFontLayers[layer].load(uri, name);
             getSharedPreferences("layers", MODE_PRIVATE).edit()
-                    .putString("sf2_" + pendingLayer, uri.toString())
-                    .putString("name_" + pendingLayer, uri.getLastPathSegment() == null ? "SF2 carregado" : uri.getLastPathSegment())
+                    .putString("sf2_" + layer, cachedPath)
+                    .putString("name_" + layer, name)
                     .apply();
-            sf2Uris[pendingLayer] = uri.toString();
+            sf2Uris[layer] = cachedPath;
+            screen.setAudioStatus("ÁUDIO: SF2 carregado");
             pendingLayer = -1;
+        }
+    }
+
+    /** Android document URIs are not file paths; make a private copy for the native SF2 renderer. */
+    private String restoreSoundFont(String stored, int layer) {
+        File existing = new File(stored);
+        if (existing.isFile()) return existing.getAbsolutePath();
+        try { return cacheSoundFont(Uri.parse(stored), layer); }
+        catch (Exception ignored) { return null; }
+    }
+
+    private String cacheSoundFont(Uri source, int layer) {
+        if (source == null || layer < 0 || layer >= 6) return null;
+        File directory = new File(getFilesDir(), "soundfonts");
+        if (!directory.exists() && !directory.mkdirs()) return null;
+        File target = new File(directory, "layer-" + layer + ".sf2");
+        try (InputStream input = getContentResolver().openInputStream(source);
+             FileOutputStream output = new FileOutputStream(target, false)) {
+            if (input == null) return null;
+            byte[] block = new byte[64 * 1024];
+            int count;
+            while ((count = input.read(block)) >= 0) output.write(block, 0, count);
+            output.flush();
+            return target.getAbsolutePath();
+        } catch (Exception ignored) {
+            if (target.exists()) target.delete();
+            return null;
         }
     }
 
@@ -287,6 +333,8 @@ public final class MainActivity extends Activity {
         private int outputIndex = 0;
         private int selected = 0;
         private final float[] layerVolumes = {0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f};
+        private final boolean[] muted = new boolean[6];
+        private final boolean[] solo = new boolean[6];
         private float masterVolume = 0.8f;
         private final String[] layerNames = {"SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT"};
 
@@ -305,30 +353,71 @@ public final class MainActivity extends Activity {
             paint.setColor(colour); paint.setStyle(outline ? Paint.Style.STROKE : Paint.Style.FILL); paint.setStrokeWidth(2f);
             canvas.drawRoundRect(left, top, right, bottom, 10f, 10f, paint);
         }
+        private void button(Canvas canvas, String label, float left, float top, float right, float bottom, boolean active) {
+            final int teal = Color.rgb(19, 184, 173);
+            box(canvas, left, top, right, bottom, active ? teal : Color.rgb(31, 48, 62), false);
+            paint.setTextAlign(Paint.Align.CENTER);
+            text(canvas, label, (left + right) * .5f, top + (bottom - top) * .66f, (bottom - top) * .40f,
+                    active ? Color.rgb(7,16,25) : Color.rgb(233,239,240));
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+        private void drawLogo(Canvas canvas, float cx, float cy, float radius) {
+            paint.setColor(Color.rgb(5, 13, 19)); canvas.drawCircle(cx, cy, radius, paint);
+            paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(2f); paint.setColor(Color.rgb(19,184,173)); canvas.drawCircle(cx, cy, radius, paint);
+            paint.setStyle(Paint.Style.FILL); paint.setColor(Color.rgb(233,239,240));
+            for (int i = 0; i < 4; i++) canvas.drawRoundRect(cx - radius*.52f + i*radius*.27f, cy-radius*.42f, cx-radius*.34f+i*radius*.27f, cy+radius*.10f, 2, 2, paint);
+            text(canvas, "CK", cx - radius*.36f, cy + radius*.56f, radius*.36f, Color.rgb(19,184,173));
+        }
+        private void drawMeter(Canvas canvas, float x, float top, float width, float bottom, float peak) {
+            paint.setColor(Color.rgb(5,13,19)); canvas.drawRoundRect(x, top, x + width, bottom, 4, 4, paint);
+            float clamped = Math.max(0f, Math.min(1f, peak));
+            float meterTop = bottom - (bottom - top) * clamped;
+            if (clamped > .001f) {
+                paint.setColor(clamped > .85f ? Color.rgb(245,92,72) : clamped > .66f ? Color.rgb(230,196,55) : Color.rgb(50,210,148));
+                canvas.drawRoundRect(x + 3, meterTop, x + width - 3, bottom - 3, 3, 3, paint);
+            }
+        }
+        private void drawFader(Canvas canvas, float x, float top, float bottom, float cardW, float value) {
+            paint.setColor(Color.rgb(5,13,19)); canvas.drawRoundRect(x - 7, top, x + 7, bottom, 5, 5, paint);
+            paint.setColor(Color.rgb(46, 66, 79)); canvas.drawRoundRect(x - 2, top + 4, x + 2, bottom - 4, 2, 2, paint);
+            float knobY = bottom - (bottom - top) * value;
+            paint.setColor(Color.rgb(210,219,223)); canvas.drawRoundRect(x-cardW*.24f, knobY-12, x+cardW*.24f, knobY+12, 4, 4, paint);
+            paint.setColor(Color.rgb(95,107,113));
+            for (int line = -6; line <= 6; line += 4) canvas.drawRect(x-cardW*.20f, knobY+line, x+cardW*.20f, knobY+line+1.5f, paint);
+        }
+        private boolean hasSolo() { for (boolean value : solo) if (value) return true; return false; }
+        private void applyLayerGains() {
+            if (audioEngine == null) return;
+            boolean anySolo = hasSolo();
+            for (int i = 0; i < 6; i++) audioEngine.setLayerGain(i, (!muted[i] && (!anySolo || solo[i])) ? layerVolumes[i] : 0f);
+        }
 
         @Override protected void onDraw(Canvas canvas) {
             final float w = getWidth(), h = getHeight();
             canvas.drawColor(Color.rgb(7, 16, 25));
             final int teal = Color.rgb(19, 184, 173), text = Color.rgb(233, 239, 240), panel = Color.rgb(19, 31, 42);
             box(canvas, 0, 0, w, h * .12f, Color.rgb(9, 20, 30), false);
-            text(canvas, "CLASSIC KEYS", 28, h * .05f, h * .023f, teal);
-            text(canvas, "CLASSIC PLAYER", 28, h * .095f, h * .047f, text);
-            if (!account.isEmpty()) text(canvas, account, 28, h * .13f, h * .017f, Color.rgb(19,184,173));
-            text(canvas, liveSet ? "LIVE SET" : "MIXER", w * .44f, h * .078f, h * .06f, text);
+            drawLogo(canvas, 52, h*.065f, h*.045f);
+            text(canvas, "CLASSIC KEYS", 94, h * .05f, h * .023f, teal);
+            text(canvas, "CLASSIC PLAYER", 94, h * .095f, h * .047f, text);
+            if (!account.isEmpty()) text(canvas, account, 94, h * .13f, h * .017f, Color.rgb(19,184,173));
+            text(canvas, liveSet ? "LIVE SET" : settings ? "ÁUDIO / MIDI" : "MIXER", w * .43f, h * .078f, h * .052f, text);
             text(canvas, midiStatus, w * .76f, h * .055f, h * .022f, Color.rgb(180, 195, 200));
             text(canvas, audioStatus, w * .76f, h * .085f, h * .018f, Color.rgb(180, 195, 200));
             paint.setColor(midiSignal ? Color.rgb(40, 220, 110) : Color.rgb(70, 90, 95));
             canvas.drawCircle(w * .735f, h * .055f, h * .012f, paint);
             midiSignal = false;
-            text(canvas, "MIXER", w * .88f, h * .097f, h * .025f, teal);
+            button(canvas, "MIXER", w*.79f, h*.092f, w*.86f, h*.135f, !liveSet && !settings);
+            button(canvas, "LIVE SET", w*.865f, h*.092f, w*.94f, h*.135f, liveSet);
+            button(canvas, "ÁUDIO/MIDI", w*.79f, h*.145f, w*.94f, h*.19f, settings);
 
             if (settings) {
                 box(canvas, 28, h * .17f, w - 28, h * .86f, panel, true);
                 text(canvas, "ÁUDIO / MIDI", 52, h * .25f, h * .04f, text);
                 text(canvas, audioStatus, 52, h * .34f, h * .026f, Color.rgb(180,195,200));
                 text(canvas, midiStatus, 52, h * .42f, h * .026f, Color.rgb(180,195,200));
-                text(canvas, "A saída e o controlador serão selecionáveis nesta tela.", 52, h * .54f, h * .022f, Color.rgb(180,195,200));
-                text(canvas, "VOLTAR AO MIXER", 52, h * .76f, h * .026f, teal);
+                text(canvas, "Toque nas linhas acima para alternar a saída e o controlador.", 52, h * .54f, h * .022f, Color.rgb(180,195,200));
+                button(canvas, "VOLTAR AO MIXER", 52, h*.67f, 270, h*.75f, false);
                 return;
             }
 
@@ -358,35 +447,50 @@ public final class MainActivity extends Activity {
 
         private void drawMixer(Canvas canvas, float w, float h, int textColour, int teal, int panel) {
             final float left = 18, top = h * .17f, gap = 10;
-            final float cardW = (w - left * 2 - gap * 5) / 6f;
-            final float cardH = h * .70f;
-            text(canvas, "MIXER", left, h * .16f, h * .03f, textColour);
-            text(canvas, "6 LAYERS", w * .46f, h * .16f, h * .022f, Color.rgb(180,195,200));
+            final float cardW = (w - left * 2 - gap * 6 - 105) / 6f;
+            final float cardH = h * .72f;
+            text(canvas, "6 LAYERS · IMPORTE UM SF2 EM CADA SLOT", left, h * .16f, h * .024f, Color.rgb(180,195,200));
             for (int i = 0; i < 6; i++) {
                 float x = left + i * (cardW + gap);
                 box(canvas, x, top, x + cardW, top + cardH, Color.rgb(49, 69, 82), true);
                 text(canvas, "LAYER " + (i + 1), x + 12, top + h * .045f, h * .022f, textColour);
-                text(canvas, layerNames[i], x + 12, top + h * .082f, h * .016f, Color.rgb(180,195,200));
-                float railX = x + cardW * .48f;
-                float railTop = top + h * .14f, railBottom = top + cardH - h * .10f;
-                paint.setColor(Color.rgb(5, 13, 19)); paint.setStyle(Paint.Style.FILL);
-                canvas.drawRoundRect(railX - 7, railTop, railX + 7, railBottom, 5, 5, paint);
-                float knobY = railBottom - (railBottom - railTop) * layerVolumes[i];
-                paint.setColor(teal); canvas.drawRoundRect(railX - cardW * .22f, knobY - 10, railX + cardW * .22f, knobY + 10, 8, 8, paint);
-                text(canvas, Math.round((layerVolumes[i] * 2f - 1f) * 60f) + " dB", x + cardW * .30f, top + cardH - h * .04f, h * .018f, textColour);
+                button(canvas, "M", x + cardW*.54f, top+h*.016f, x+cardW*.70f, top+h*.063f, muted[i]);
+                button(canvas, "S", x + cardW*.74f, top+h*.016f, x+cardW*.90f, top+h*.063f, solo[i]);
+                text(canvas, layerNames[i], x + 12, top + h * .086f, h * .015f, Color.rgb(180,195,200));
+                button(canvas, layerNames[i].equals("SEM SOUNDFONT") ? "IMPORTAR SF2" : "EDITAR SF2", x+12, top+h*.098f, x+cardW-12, top+h*.15f, false);
+                float railTop = top + h * .205f, railBottom = top + cardH - h * .09f;
+                drawMeter(canvas, x+cardW*.12f, railTop, cardW*.105f, railBottom,
+                        audioEngine == null ? 0f : audioEngine.layerPeak(i));
+                float railX = x + cardW * .57f;
+                drawFader(canvas, railX, railTop, railBottom, cardW, layerVolumes[i]);
+                final String[] ticks = {"+6", "+3", "0", "−5", "−10", "−20", "−40"};
+                for (int tick = 0; tick < ticks.length; tick++) {
+                    float y = railTop + (railBottom-railTop)*tick/(ticks.length-1);
+                    text(canvas, ticks[tick], x+cardW*.70f, y+4, h*.012f, Color.rgb(131,151,165));
+                }
+                paint.setTextAlign(Paint.Align.CENTER);
+                text(canvas, Math.round((layerVolumes[i] * 2f - 1f) * 60f) + " dB", x + cardW*.55f, top + cardH - h*.027f, h*.016f, textColour);
+                paint.setTextAlign(Paint.Align.LEFT);
             }
-            text(canvas, "MASTER", w - 120, h * .16f, h * .022f, textColour);
-            paint.setColor(Color.rgb(5, 13, 19)); paint.setStyle(Paint.Style.FILL);
-            canvas.drawRoundRect(w - 92, h * .31f, w - 78, h * .77f, 5, 5, paint);
-            float masterY = h * .77f - h * .46f * masterVolume;
-            paint.setColor(teal); canvas.drawRoundRect(w - 112, masterY - 10, w - 58, masterY + 10, 8, 8, paint);
-            text(canvas, Math.round((masterVolume * 2f - 1f) * 60f) + " dB", w - 112, h * .78f, h * .018f, textColour);
+            float masterX = left + 6*(cardW+gap);
+            box(canvas, masterX, top, masterX+105, top+cardH, Color.rgb(49,69,82), true);
+            paint.setTextAlign(Paint.Align.CENTER); text(canvas, "MASTER", masterX+52, top+h*.05f, h*.019f, textColour); paint.setTextAlign(Paint.Align.LEFT);
+            float masterTop = top+h*.12f, masterBottom = top+cardH-h*.09f;
+            drawMeter(canvas, masterX+15, masterTop, 13, masterBottom, audioEngine == null ? 0f : audioEngine.masterPeak());
+            drawFader(canvas, masterX+60, masterTop, masterBottom, 105, masterVolume);
+            paint.setTextAlign(Paint.Align.CENTER); text(canvas, Math.round((masterVolume*2f-1f)*60f)+" dB", masterX+55, top+cardH-h*.027f, h*.016f, textColour); paint.setTextAlign(Paint.Align.LEFT);
+            postInvalidateDelayed(70);
         }
 
         @Override public boolean onTouchEvent(MotionEvent event) {
             if (event.getAction() != MotionEvent.ACTION_UP) return true;
             final float w = getWidth(), h = getHeight();
-            if (event.getY() < h * .12f && event.getX() > w * .74f) { settings = !settings; invalidate(); return true; }
+            if (event.getY() > h*.09f && event.getY() < h*.20f && event.getX() > w*.78f) {
+                if (event.getY() < h*.14f && event.getX() < w*.865f) { liveSet = false; settings = false; }
+                else if (event.getY() < h*.14f) { liveSet = true; settings = false; }
+                else { settings = true; liveSet = false; }
+                invalidate(); return true;
+            }
             if (settings) {
                 if (event.getY() > h * .28f && event.getY() < h * .40f && audioOutputManager != null) {
                     java.util.List<String> outputs = audioOutputManager.outputs();
@@ -404,6 +508,7 @@ public final class MainActivity extends Activity {
                         setMidiStatus("MIDI USB: " + devices[midiIndex].getProperties().getString(MidiDeviceInfo.PROPERTY_NAME));
                     }
                 }
+                if (event.getY() > h*.64f && event.getY() < h*.78f) { settings=false; invalidate(); }
                 return true;
             }
             if (liveSet && event.getY() > h * .235f && event.getY() < h * .90f) {
@@ -413,21 +518,29 @@ public final class MainActivity extends Activity {
                 if (col >= 0 && col < 4) { selected = row * 4 + col; invalidate(); }
             }
             if (!liveSet && event.getY() > h * .17f && event.getY() < h * .87f) {
-                if (event.getX() > w - 145) {
-                    float railTop = h * .31f, railBottom = h * .77f;
+                float cardW = (w - 36 - 60 - 105) / 6f;
+                float masterX = 18 + 6*(cardW+10);
+                if (event.getX() >= masterX) {
+                    float railTop = h*.17f+h*.12f, railBottom = h*.17f+h*.72f-h*.09f;
                     masterVolume = Math.max(0f, Math.min(1f, (railBottom - event.getY()) / (railBottom - railTop)));
                     if (audioEngine != null) audioEngine.setMaster(masterVolume);
                     invalidate(); return true;
                 }
-                float cardW = (w - 36 - 50) / 6f;
                 int layer = (int) ((event.getX() - 18) / (cardW + 10));
                 if (layer >= 0 && layer < 6) {
-                    float railTop = h * .17f + h * .14f, railBottom = h * .17f + h * .70f - h * .10f;
+                    float cardX = 18 + layer*(cardW+10);
+                    if (event.getY() >= h*.17f+h*.016f && event.getY() <= h*.17f+h*.063f) {
+                        if (event.getX() >= cardX+cardW*.54f && event.getX() <= cardX+cardW*.70f) muted[layer] = !muted[layer];
+                        else if (event.getX() >= cardX+cardW*.74f && event.getX() <= cardX+cardW*.90f) solo[layer] = !solo[layer];
+                        applyLayerGains(); invalidate(); return true;
+                    }
+                    if (event.getY() >= h*.17f+h*.098f && event.getY() <= h*.17f+h*.16f) { openSf2Picker(layer); return true; }
+                    float railTop = h*.17f+h*.205f, railBottom = h*.17f+h*.72f-h*.09f;
                     if (event.getY() >= railTop && event.getY() <= railBottom) {
                         layerVolumes[layer] = Math.max(0f, Math.min(1f, (railBottom - event.getY()) / (railBottom - railTop)));
-                        if (audioEngine != null) audioEngine.setLayerGain(layer, layerVolumes[layer]);
+                        applyLayerGains();
                         invalidate();
-                    } else openSf2Picker(layer);
+                    }
                 }
             }
             return true;

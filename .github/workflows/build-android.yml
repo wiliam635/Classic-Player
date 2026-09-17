@@ -25,7 +25,7 @@ jobs:
             SDKMANAGER="${ANDROID_HOME}/cmdline-tools/16.0/bin/sdkmanager"
           fi
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;26.3.11579264"
+          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;26.3.11579264" "cmake;3.22.1"
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
