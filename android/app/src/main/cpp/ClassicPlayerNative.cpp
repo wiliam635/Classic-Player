@@ -57,11 +57,14 @@ Controllers controllers;
 std::shared_ptr<TuningState> tuning;
 bool dxReady = false;
 
-struct AnalogVoice { bool active=false,releasing=false; int note=-1; double phase=0.0; float envelope=0.0f; };
+// A hard safety limit prevents a malformed/missing MIDI Note Off from leaving
+// an oscillator active forever. Normal Note Off still stops it immediately.
+constexpr int kInternalVoiceSafetySamples = kSampleRate * 8;
+struct AnalogVoice { bool active=false,releasing=false; int note=-1; int age=0; double phase=0.0; float envelope=0.0f; };
 struct AnalogLayer { int preset=0; std::array<AnalogVoice,32> voices {}; };
 std::array<AnalogLayer,kLayerCount> analogLayers {};
 constexpr std::array<const char*,8> analogNames { "Warm Pad", "Analog Brass", "Synth Lead", "Sub Bass", "Soft Poly", "Pulse Keys", "Air Pad", "Vintage Strings" };
-struct HammondVoice { bool active=false; int note=-1; float envelope=0.0f; std::array<double,9> phase{}; };
+struct HammondVoice { bool active=false; int note=-1; int age=0; float envelope=0.0f; std::array<double,9> phase{}; };
 struct HammondLayer { int preset=0; std::array<HammondVoice,32> voices{}; };
 std::array<HammondLayer,kLayerCount> hammondLayers{};
 constexpr std::array<const char*,8> hammondNames { "Jimmy Gospel", "Jazz Ballad", "Rock Organ", "Percussive B3", "Full Drawbar", "Gospel Fullness", "Slow Leslie", "Fast Leslie" };
@@ -152,10 +155,12 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadLayer(
     env->ReleaseStringUTFChars(path, utf8Path);
     if (loaded == nullptr) return JNI_FALSE;
 
-    tsf_set_output(loaded, TSF_STEREO_INTERLEAVED, kSampleRate, 0.0f);
-    // Keep enough polyphony for layered patches while staying inside a mobile
-    // CPU budget. 256 voices caused sustained notes to underrun on tablets.
-    tsf_set_max_voices(loaded, 96);
+    // Most SoundFonts are authored close to full scale. Leave headroom here,
+    // before the renderer converts to 16-bit, so piano chords cannot clip.
+    tsf_set_output(loaded, TSF_STEREO_INTERLEAVED, kSampleRate, -10.0f);
+    // Mobile devices cannot sustain desktop-sized voice pools. 64 voices keeps
+    // normal piano chords responsive and avoids CPU underruns/distortion.
+    tsf_set_max_voices(loaded, 64);
     tsf_channel_set_presetnumber(loaded, 0, 0, TSF_FALSE);
     fonts[(size_t) layer] = loaded;
     engineTypes[(size_t) layer] = EngineType::sf2;
@@ -412,7 +417,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
             auto& organ=hammondLayers[(size_t)layer]; const auto& bars=hammondBars[(size_t)organ.preset];
             const float leslieRate=organ.preset==7?6.2f:organ.preset==6?.8f:1.1f;
             for(int sample=0;sample<frames;++sample){float value=0.f;
-                for(auto& voice:organ.voices){if(!voice.active)continue;voice.envelope=std::min(1.f,voice.envelope+.008f);
+                for(auto& voice:organ.voices){if(!voice.active)continue;if(++voice.age>kInternalVoiceSafetySamples){voice={};continue;}voice.envelope=std::min(1.f,voice.envelope+.008f);
                     const double base=440.0*std::pow(2.0,((double)voice.note-69.0)/12.0);float tone=0.f,total=0.f;
                     for(int d=0;d<9;++d){voice.phase[(size_t)d]+=base*hammondRatios[(size_t)d]/kSampleRate;voice.phase[(size_t)d]-=std::floor(voice.phase[(size_t)d]);tone+=(float)std::sin(voice.phase[(size_t)d]*6.28318530718)*bars[(size_t)d];total+=bars[(size_t)d];}
                     const float rotary=.82f+.18f*(float)std::sin(voice.phase[2]*leslieRate);value+=(tone/std::max(total,.1f))*voice.envelope*rotary*.30f;
@@ -424,7 +429,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
             const float attack=preset==0||preset==6||preset==7?0.0018f:0.012f;
             const float release=preset==0||preset==6||preset==7?0.9992f:0.996f;
             for(int sample=0;sample<frames;++sample){float value=0.0f;
-                for(auto& voice:analog.voices){if(!voice.active)continue;
+                for(auto& voice:analog.voices){if(!voice.active)continue;if(++voice.age>kInternalVoiceSafetySamples){voice={};continue;}
                     voice.envelope=voice.releasing?voice.envelope*release:std::min(1.0f,voice.envelope+attack);
                     if(voice.envelope<0.0002f){voice={};continue;}
                     const double frequency=440.0*std::pow(2.0,((double)voice.note-69.0)/12.0);
