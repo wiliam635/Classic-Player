@@ -101,6 +101,9 @@ public final class MainActivity extends Activity {
                 screen.setLayerName(i, soundFontLayers[i].displayName());
             } else if (name != null) screen.setLayerName(i, name);
         }
+        String account = licenseManager.userName();
+        if (account == null || account.isEmpty()) account = licenseManager.userEmail();
+        if (account != null && !account.isEmpty()) screen.setAccount(account + (licenseManager.userEmail().isEmpty() || account.equals(licenseManager.userEmail()) ? "" : " · " + licenseManager.userEmail()));
         if (!licenseManager.isUsableOffline()) showLoginScreen();
     }
 
@@ -234,7 +237,12 @@ public final class MainActivity extends Activity {
     }
     private static String jsonEscape(String s) { return s.replace("\\", "\\\\").replace("\"", "\\\""); }
     private static String jsonValue(String json, String key) { java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\\"" + key + "\\\"\\s*:\\s*\\\"([^\\\"]*)").matcher(json); return m.find() ? m.group(1) : null; }
-    private void showMixerAfterLogin(String ignored) { setContentView(screen); }
+    private void showMixerAfterLogin(String ignored) {
+        String name = licenseManager.userName();
+        if (name == null || name.isEmpty()) name = licenseManager.userEmail();
+        screen.setAccount(name + (licenseManager.userEmail().isEmpty() || name.equals(licenseManager.userEmail()) ? "" : " · " + licenseManager.userEmail()));
+        setContentView(screen);
+    }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -259,6 +267,7 @@ public final class MainActivity extends Activity {
                 "Piano Solo", "Brass Layer", "Synth Lead", "Guitar + Pad" };
         private String midiStatus = "MIDI USB: procurando...";
         private String audioStatus = "ÁUDIO: procurando...";
+        private String account = "";
         // Desktop builds open directly on the mixer; keep the same workflow on Android.
         private boolean liveSet = false;
         private boolean settings = false;
@@ -271,6 +280,7 @@ public final class MainActivity extends Activity {
         ClassicPlayerView(Context context) { super(context); paint.setTypeface(android.graphics.Typeface.create("sans", 1)); }
         void setMidiStatus(String value) { midiStatus = value; postInvalidate(); }
         void setAudioStatus(String value) { audioStatus = value; postInvalidate(); }
+        void setAccount(String value) { account = value == null ? "" : value; postInvalidate(); }
         void setLayerName(int layer, String name) { if (layer >= 0 && layer < layerNames.length) { layerNames[layer] = name; postInvalidate(); } }
 
         private void text(Canvas canvas, String value, float x, float y, float size, int colour) {
@@ -289,6 +299,7 @@ public final class MainActivity extends Activity {
             box(canvas, 0, 0, w, h * .12f, Color.rgb(9, 20, 30), false);
             text(canvas, "CLASSIC KEYS", 28, h * .05f, h * .023f, teal);
             text(canvas, "CLASSIC PLAYER", 28, h * .095f, h * .047f, text);
+            if (!account.isEmpty()) text(canvas, account, 28, h * .13f, h * .017f, Color.rgb(19,184,173));
             text(canvas, liveSet ? "LIVE SET" : "MIXER", w * .44f, h * .078f, h * .06f, text);
             text(canvas, midiStatus, w * .76f, h * .055f, h * .022f, Color.rgb(180, 195, 200));
             text(canvas, audioStatus, w * .76f, h * .085f, h * .018f, Color.rgb(180, 195, 200));
