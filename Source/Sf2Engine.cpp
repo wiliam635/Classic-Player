@@ -47,6 +47,9 @@ void Sf2Engine::createSynth(Layer& layer)
     layer.lastPortamento = -1;
     layer.lastMono = -1;
     layer.filterState = { 0.0f, 0.0f };
+    layer.highPassInput = { 0.0f, 0.0f };
+    layer.highPassOutput = { 0.0f, 0.0f };
+    layer.lowPassState = { 0.0f, 0.0f };
     layer.compressorEnvelope = { 0.0f, 0.0f };
     layer.nativeReverb.reset();
     layer.lastReverbParameters.fill(-1.0f);
@@ -122,6 +125,9 @@ void Sf2Engine::reset()
         {
             fluid_synth_system_reset(layer.synth.get());
             layer.filterState = { 0.0f, 0.0f };
+            layer.highPassInput = { 0.0f, 0.0f };
+            layer.highPassOutput = { 0.0f, 0.0f };
+            layer.lowPassState = { 0.0f, 0.0f };
         }
 }
 
@@ -164,6 +170,9 @@ juce::Result Sf2Engine::loadSoundFont(int index, const juce::File& file)
     layer.selectedBank = 0;
     layer.selectedProgram = 0;
     layer.filterState = { 0.0f, 0.0f };
+    layer.highPassInput = { 0.0f, 0.0f };
+    layer.highPassOutput = { 0.0f, 0.0f };
+    layer.lowPassState = { 0.0f, 0.0f };
     layer.modulationAmount = 0.0f;
     layer.modulationPhase = 0.0;
     return juce::Result::ok();
@@ -472,6 +481,49 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
                     samples[sample] = state;
                 }
                 layer.filterState[(size_t) channel] = state;
+            }
+        }
+
+        // These filters are independent from the synthesizer CUTOFF control:
+        // they are useful for carving space around a SoundFont or a continuous
+        // pad without changing its preset. First-order filters are cheap and
+        // stable enough to run once per layer in the audio callback.
+        const auto highPassHz = juce::jlimit(20.0f, 1000.0f, layer.config.highPassHz);
+        const auto lowPassHz = juce::jlimit(1000.0f, 20000.0f, layer.config.lowPassHz);
+        const auto highPassEnabled = highPassHz > 20.5f;
+        const auto lowPassEnabled = lowPassHz < 19950.0f;
+        const auto highPassCoefficient = std::exp(-juce::MathConstants<float>::twoPi * highPassHz
+                                                  / static_cast<float>(currentSampleRate));
+        const auto lowPassCoefficient = std::exp(-juce::MathConstants<float>::twoPi * lowPassHz
+                                                 / static_cast<float>(currentSampleRate));
+        if (highPassEnabled || lowPassEnabled)
+        {
+            for (int channel = 0; channel < scratch.getNumChannels(); ++channel)
+            {
+                auto previousInput = layer.highPassInput[(size_t) channel];
+                auto previousOutput = layer.highPassOutput[(size_t) channel];
+                auto previousLowPass = layer.lowPassState[(size_t) channel];
+                auto* samples = scratch.getWritePointer(channel);
+                for (int sample = 0; sample < output.getNumSamples(); ++sample)
+                {
+                    auto value = samples[sample];
+                    if (highPassEnabled)
+                    {
+                        const auto filtered = highPassCoefficient * (previousOutput + value - previousInput);
+                        previousInput = value;
+                        previousOutput = filtered;
+                        value = filtered;
+                    }
+                    if (lowPassEnabled)
+                    {
+                        previousLowPass = (1.0f - lowPassCoefficient) * value + lowPassCoefficient * previousLowPass;
+                        value = previousLowPass;
+                    }
+                    samples[sample] = value;
+                }
+                layer.highPassInput[(size_t) channel] = previousInput;
+                layer.highPassOutput[(size_t) channel] = previousOutput;
+                layer.lowPassState[(size_t) channel] = previousLowPass;
             }
         }
 

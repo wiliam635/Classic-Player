@@ -15,7 +15,7 @@ public:
     {
         const juce::ScopedLock guard(lock);
         sampleRate=juce::jmax(1.0,rate); volume.reset(sampleRate,0.02);
-        volume.setCurrentAndTargetValue(0.f); stopImmediately();
+        volume.setCurrentAndTargetValue(0.f); highPassInput={};highPassOutput={};lowPassState={};stopImmediately();
     }
     juce::Result load(int index,const juce::File& file)
     {
@@ -63,7 +63,7 @@ public:
     {
         const juce::ScopedLock g(lock);
         command=-2;active=-1;meter=0;learning=-1;
-        for(auto& p:pads){p.level=0;p.position=0;}
+        for(auto& p:pads){p.level=0;p.position=0;}highPassInput={};highPassOutput={};lowPassState={};
         for(auto& c:ccDown)c.fill(false);
     }
     void midi(const juce::MidiMessage& message)
@@ -87,7 +87,7 @@ public:
         if(stopCC==cc){stop();return;}
         for(int i=0;i<count;++i)if(pads[(size_t)i].cc==cc){trigger(i);break;}
     }
-    void render(juce::AudioBuffer<float>& output,float gain)
+    void render(juce::AudioBuffer<float>& output,float gain,float highPassHz=20.f,float lowPassHz=20000.f)
     {
         const juce::ScopedTryLock g(lock);if(!g.isLocked()){meter=0;return;}
         const int next=command.exchange(-2);
@@ -101,6 +101,10 @@ public:
         const float step=(float)(1.0/(sampleRate*seconds));
         volume.setTargetValue(gain);
         float blockPeak=0;
+        highPassHz=juce::jlimit(20.f,1000.f,highPassHz);lowPassHz=juce::jlimit(1000.f,20000.f,lowPassHz);
+        const bool highPassEnabled=highPassHz>20.5f,lowPassEnabled=lowPassHz<19950.f;
+        const float highPassCoefficient=std::exp(-juce::MathConstants<float>::twoPi*highPassHz/(float)sampleRate);
+        const float lowPassCoefficient=std::exp(-juce::MathConstants<float>::twoPi*lowPassHz/(float)sampleRate);
         for(int sample=0;sample<output.getNumSamples();++sample)
         {
             float sum[2]{};
@@ -127,7 +131,10 @@ public:
             }
             const float v=volume.getNextValue();
             for(int ch=0;ch<juce::jmin(2,output.getNumChannels());++ch)
-            {const float value=sum[ch]*v;output.addSample(ch,sample,value);blockPeak=juce::jmax(blockPeak,std::abs(value));}
+            {float value=sum[ch]*v;
+             if(highPassEnabled){const float filtered=highPassCoefficient*(highPassOutput[(size_t)ch]+value-highPassInput[(size_t)ch]);highPassInput[(size_t)ch]=value;highPassOutput[(size_t)ch]=filtered;value=filtered;}
+             if(lowPassEnabled){lowPassState[(size_t)ch]=(1.f-lowPassCoefficient)*value+lowPassCoefficient*lowPassState[(size_t)ch];value=lowPassState[(size_t)ch];}
+             output.addSample(ch,sample,value);blockPeak=juce::jmax(blockPeak,std::abs(value));}
         }
         meter=blockPeak;
     }
@@ -168,5 +175,6 @@ private:
     std::atomic<int> command{-2},active{-1},learning{-1};
     std::atomic<float> meter{0};std::atomic<double> fade{1.0};
     int stopCC=-1;double sampleRate=48000;
+    std::array<float,2> highPassInput{},highPassOutput{},lowPassState{};
     juce::SmoothedValue<float> volume;
 };

@@ -189,6 +189,7 @@ private:
     void saveProgram();
     void deleteSelectedProgram();
     void loadSelectedProgram();
+    void chooseProgramFile();
     void refreshAfterProgramLoad();
     void showLiveSet(bool show);
     void showAudioMidiSettings();
@@ -216,6 +217,7 @@ private:
     juce::TextButton saveProgramButton { "SALVAR" };
     juce::TextButton deleteProgramButton { "EXCLUIR" };
     juce::TextButton loadProgramButton { "CARREGAR" };
+    juce::TextButton importProgramButton { "ABRIR ARQ." };
     juce::TextButton addLayerButton { "+ LAYER" };
     juce::TextButton recordingButton { "GRAVAR WAV+MIDI" };
     juce::Label recordingStatus;
@@ -228,6 +230,7 @@ private:
     juce::TextButton liveSettingsButton { "CONFIGURACOES" };
     std::array<juce::TextButton, ClassicPlayerAudioProcessor::liveSetBankCount> liveSetBankButtons;
     std::array<juce::TextButton, ClassicPlayerAudioProcessor::liveSetSlotsPerBank> liveSetSlotButtons;
+    std::unique_ptr<juce::FileChooser> programFileChooser;
     std::array<juce::TextButton, ClassicPlayerAudioProcessor::liveSetSlotsPerBank> liveSetSlotLearnButtons;
     juce::Array<juce::File> programFiles;
     juce::Slider master;

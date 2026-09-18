@@ -757,6 +757,78 @@ private:
     bool presetOnly = false;
 };
 
+class FilterButtonsPanel final : public juce::Component
+{
+public:
+    FilterButtonsPanel(ClassicPlayerAudioProcessor& p, int layer) : processor(p), index(layer)
+    {
+        flatButton(highPassButton); flatButton(lowPassButton);
+        highPassButton.onClick = [this] { chooseHighPass(); };
+        lowPassButton.onClick = [this] { chooseLowPass(); };
+        highPassButton.setTooltip("Filtro passa-altas da fonte. Clique para escolher a frequência.");
+        lowPassButton.setTooltip("Filtro passa-baixas da fonte. Clique para escolher a frequência.");
+        addAndMakeVisible(highPassButton); addAndMakeVisible(lowPassButton);
+        refresh(); setSize(440, 34);
+    }
+    void resized() override
+    {
+        auto row=getLocalBounds().reduced(2);
+        highPassButton.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(2,0));
+        lowPassButton.setBounds(row.reduced(2,0));
+    }
+private:
+    void refresh()
+    {
+        const auto config=processor.layerConfig(index);
+        highPassButton.setButtonText(config.highPassHz<=20.5f ? "HIGH PASS: OFF" : "HIGH PASS: "+juce::String((int)config.highPassHz)+" Hz");
+        lowPassButton.setButtonText(config.lowPassHz>=19950.f ? "LOW PASS: OFF" : "LOW PASS: "+juce::String((int)(config.lowPassHz/1000.f))+" kHz");
+    }
+    void chooseHighPass()
+    {
+        juce::PopupMenu menu; const std::array<int,7> values{{20,60,100,160,250,400,800}};
+        for(int i=0;i<(int)values.size();++i) menu.addItem(i+1,values[(size_t)i]==20 ? "OFF" : juce::String(values[(size_t)i])+" Hz");
+        const juce::Component::SafePointer<FilterButtonsPanel> safe(this);
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(highPassButton),[safe,values](int chosen)
+        { if(safe==nullptr || chosen<=0)return;auto config=safe->processor.layerConfig(safe->index);config.highPassHz=(float)values[(size_t)(chosen-1)];safe->processor.setLayerConfig(safe->index,config);safe->refresh(); });
+    }
+    void chooseLowPass()
+    {
+        juce::PopupMenu menu; const std::array<int,7> values{{20000,16000,12000,8000,6000,4000,2000}};
+        for(int i=0;i<(int)values.size();++i) menu.addItem(i+1,values[(size_t)i]==20000 ? "OFF" : juce::String(values[(size_t)i]/1000)+" kHz");
+        const juce::Component::SafePointer<FilterButtonsPanel> safe(this);
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(lowPassButton),[safe,values](int chosen)
+        { if(safe==nullptr || chosen<=0)return;auto config=safe->processor.layerConfig(safe->index);config.lowPassHz=(float)values[(size_t)(chosen-1)];safe->processor.setLayerConfig(safe->index,config);safe->refresh(); });
+    }
+    ClassicPlayerAudioProcessor& processor; int index;
+    juce::TextButton highPassButton,lowPassButton;
+};
+
+class EngineProgramSavePanel final : public juce::Component
+{
+public:
+    EngineProgramSavePanel(ClassicPlayerAudioProcessor& p, int layer, juce::String engine)
+        : processor(p), index(layer), engineName(std::move(engine))
+    {
+        flatButton(saveButton);
+        saveButton.setButtonText("SALVAR PROGRAMAÇÃO");
+        saveButton.setTooltip("Salva a programação completa, incluindo esta layer, na biblioteca de programas.");
+        saveButton.onClick = [this]
+        {
+            juce::File saved;
+            const auto result=processor.saveProgram(engineName+" - Layer "+juce::String(index+1),saved);
+            if(result.failed()) juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,"Falha ao salvar",result.getErrorMessage());
+            else status.setText("SALVO: "+saved.getFileName(),juce::dontSendNotification);
+        };
+        status.setJustificationType(juce::Justification::centredLeft);
+        status.setColour(juce::Label::textColourId,juce::Colour(mutedText));
+        status.setText("Salva um arquivo .ckprogram que pode ser carregado em outro Classic Player.",juce::dontSendNotification);
+        addAndMakeVisible(saveButton);addAndMakeVisible(status);setSize(600,36);
+    }
+    void resized() override {auto row=getLocalBounds().reduced(2);saveButton.setBounds(row.removeFromLeft(210));status.setBounds(row.reduced(8,0));}
+private:
+    ClassicPlayerAudioProcessor& processor;int index;juce::String engineName;juce::TextButton saveButton;juce::Label status;
+};
+
 class Sf2EditorPanel final : public juce::Component
 {
 public:
@@ -1838,6 +1910,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     // empty gap before the effect knobs and made the dialog unnecessarily
     // tall.  Reserve only the space the controls actually occupy.
     dialog->addCustomComponent(new CenteredPanel(sf2Panel, 620, 275));
+    dialog->addCustomComponent(new CenteredPanel(new FilterButtonsPanel(processor, index), 440, 36));
     // Four SF2 controls share one compact row in the reference editor.
     dialog->addCustomComponent(new CenteredPanel(knobs, 520, 124));
     dialog->addCustomComponent(new CenteredPanel(effectButtons, 360, 38));
@@ -1855,7 +1928,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     });
     // Keep the footer below the Learn controls.  The old height left the
     // custom close button on top of the final Learn row in the SF2 editor.
-    dialog->setSize(760, 680);
+    dialog->setSize(760, 724);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, dialog, knobs, prefix](int)
         {
@@ -1950,7 +2023,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
     // dialog shown by the reference layout.
     pads->setSize(560, 560);
     dialog->addCustomComponent(pads);
-    dialog->setSize(678, 630);
+    if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::continuousPads)
+        dialog->addCustomComponent(new FilterButtonsPanel(processor, index));
+    dialog->setSize(678, processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::continuousPads ? 682 : 630);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->drumPadPanel.refresh(); }), true);
@@ -2759,12 +2834,15 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     flatButton(saveProgramButton);
     flatButton(deleteProgramButton);
     flatButton(loadProgramButton);
+    flatButton(importProgramButton);
     saveProgramButton.onClick = [this] { saveProgram(); };
     deleteProgramButton.onClick = [this] { deleteSelectedProgram(); };
     loadProgramButton.onClick = [this] { loadSelectedProgram(); };
+    importProgramButton.onClick = [this] { chooseProgramFile(); };
     addAndMakeVisible(saveProgramButton);
     addAndMakeVisible(deleteProgramButton);
     addAndMakeVisible(loadProgramButton);
+    addAndMakeVisible(importProgramButton);
     refreshProgramLibrary();
 
     flatButton(addLayerButton);
@@ -3146,6 +3224,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     };
 
     dialog->addCustomComponent(new CenteredPanel(dx7Panel, 600, 104));
+    dialog->addCustomComponent(new CenteredPanel(new EngineProgramSavePanel(processor, index, "DX7"), 600, 38));
     dialog->addCustomComponent(new CenteredPanel(routingPanel, 600, 122));
     // DX7 has five controls on one row, matching the supplied reference.
     dialog->addCustomComponent(new CenteredPanel(common, 600, 100));
@@ -3165,7 +3244,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     dialog->addCustomComponent(new CenteredPanel(midiPanel, 600, 44));
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.
-    dialog->setSize(758, 599);
+    dialog->setSize(758, 641);
     // Use AlertWindow's footer button so JUCE reserves a dedicated row below
     // the MIDI Learn panel instead of treating FECHAR as another component.
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
@@ -3295,9 +3374,10 @@ void ClassicPlayerAudioProcessorEditor::resized()
     auto programArea = chordArea.removeFromBottom(54);
     programBox.setBounds(programArea.removeFromTop(28).reduced(1, 0));
     auto programButtons = programArea.removeFromTop(24);
-    loadProgramButton.setBounds(programButtons.removeFromRight(76).reduced(1, 0));
-    deleteProgramButton.setBounds(programButtons.removeFromRight(70).reduced(1, 0));
-    saveProgramButton.setBounds(programButtons.removeFromRight(62).reduced(1, 0));
+    importProgramButton.setBounds(programButtons.removeFromRight(82).reduced(1, 0));
+    loadProgramButton.setBounds(programButtons.removeFromRight(70).reduced(1, 0));
+    deleteProgramButton.setBounds(programButtons.removeFromRight(64).reduced(1, 0));
+    saveProgramButton.setBounds(programButtons.removeFromRight(58).reduced(1, 0));
 
     auto chordBox = chordArea.reduced(2, 0);
     chordCaption.setBounds({});
@@ -3524,6 +3604,26 @@ void ClassicPlayerAudioProcessorEditor::saveProgram()
     refreshProgramLibrary();
 }
 
+void ClassicPlayerAudioProcessorEditor::chooseProgramFile()
+{
+    programFileChooser = std::make_unique<juce::FileChooser>("Abrir programação Classic Player", juce::File{}, "*.ckprogram");
+    programFileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+        [this](const juce::FileChooser& chooser)
+        {
+            const auto file = chooser.getResult();
+            if (!file.existsAsFile()) return;
+            const auto result = classicProcessor.loadProgram(file);
+            if (result.failed())
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                       "Falha ao abrir programação", result.getErrorMessage());
+            else
+            {
+                programBox.setText(file.getFileNameWithoutExtension(), juce::dontSendNotification);
+                refreshAfterProgramLoad();
+            }
+        });
+}
+
 void ClassicPlayerAudioProcessorEditor::deleteSelectedProgram()
 {
     const auto selected = programBox.getSelectedItemIndex();
@@ -3572,6 +3672,7 @@ void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
     saveProgramButton.setVisible(!show);
     deleteProgramButton.setVisible(!show);
     loadProgramButton.setVisible(!show);
+    importProgramButton.setVisible(!show);
     addLayerButton.setVisible(!show);
     for (juce::Component* component : std::initializer_list<juce::Component*>{
              &chordLabel, &chordCaption, &chordColourButton, &keyColourButton,
@@ -3955,6 +4056,7 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
     };
     auto content=std::make_unique<Content>();
     content->add(new HammondEditorPanel(processor,index),344);
+    content->add(new EngineProgramSavePanel(processor,index,"Hammond"),38);
     content->add(new LayerRoutingEditorPanel(processor,index),108);
     const auto prefix="layer"+juce::String(index+1);
     const auto value=[&processor,prefix](const char* name){return processor.parameters.getRawParameterValue(prefix+name)->load();};
@@ -3970,7 +4072,7 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
             p->setValueNotifyingHost(p->convertTo0to1(common->value(i)));
     });
     content->add(new LayerMidiLearnPanel(processor,index),44);
-    content->setSize(704,668);
+    content->setSize(704,714);
     return content;
 }
 
@@ -3999,7 +4101,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showHammondEditor()
             DocumentWindow::resized();
             if(auto* viewport=dynamic_cast<juce::Viewport*>(getContentComponent()))
                 if(auto* content=viewport->getViewedComponent())
-                    content->setSize(juce::jmax(620,viewport->getWidth()-viewport->getScrollBarThickness()),668);
+                    content->setSize(juce::jmax(620,viewport->getWidth()-viewport->getScrollBarThickness()),714);
         }
         void closeButtonPressed() override { exitModalState(0); }
     };

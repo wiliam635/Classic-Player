@@ -463,7 +463,8 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         const auto inspect=[&](const juce::MidiBuffer& events){for(const auto event:events)
         {const auto message=event.getMessage();if(config.midiChannel==0||message.getChannel()==config.midiChannel)bank.midi(message);}};
         inspect(midi);inspect(routedMidiBuffers[(size_t)layer]);
-        bank.render(buffer,config.enabled ? parameters.getRawParameterValue("layer"+juce::String(layer+1)+"Gain")->load()/100.f:0.f);
+        bank.render(buffer,config.enabled ? parameters.getRawParameterValue("layer"+juce::String(layer+1)+"Gain")->load()/100.f:0.f,
+                    config.highPassHz,config.lowPassHz);
     }
     // The master control is calibrated with +6 dB of nominal output gain.
     // The limiter immediately after it keeps the boosted output clip-safe.
@@ -1917,7 +1918,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
     auto state = parameters.copyState();
     state.setProperty("masterLearnCC", masterCC.load(), nullptr);
     state.setProperty("masterLearnChannel", masterCCChannel.load(), nullptr);
-    state.setProperty("stateVersion", 165, nullptr);
+    state.setProperty("stateVersion", 166, nullptr);
     state.setProperty("activeLayers", activeLayerCount(), nullptr);
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
@@ -1945,6 +1946,8 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("mono" + juce::String(i), config.mono, nullptr);
         state.setProperty("portamento" + juce::String(i), config.portamento, nullptr);
         state.setProperty("sustain" + juce::String(i), config.sustainEnabled, nullptr);
+        state.setProperty("highPassHz" + juce::String(i), config.highPassHz, nullptr);
+        state.setProperty("lowPassHz" + juce::String(i), config.lowPassHz, nullptr);
         state.setProperty("midiDevice" + juce::String(i), layerMidiDevice(i), nullptr);
         for(int child = state.getNumChildren(); --child >= 0;)
             if(state.getChild(child).hasType("Hammond") && (int)state.getChild(child).getProperty("layer",-1)==i)
@@ -2250,6 +2253,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.mono = state.getProperty("mono" + juce::String(i), false);
                 config.portamento = state.getProperty("portamento" + juce::String(i), false);
                 config.sustainEnabled = state.getProperty("sustain" + juce::String(i), true);
+                config.highPassHz = juce::jlimit(20.0f, 1000.0f, static_cast<float>(state.getProperty("highPassHz" + juce::String(i), 20.0f)));
+                config.lowPassHz = juce::jlimit(1000.0f, 20000.0f, static_cast<float>(state.getProperty("lowPassHz" + juce::String(i), 20000.0f)));
                 engine.setConfig(i, config);
                 analog.routing = config;
                 analogLayerConfigs[(size_t) i] = analog;

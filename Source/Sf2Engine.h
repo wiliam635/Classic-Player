@@ -31,6 +31,10 @@ public:
         float pan = 0.0f;
         float release = 50.0f;
         float cutoff = 100.0f;
+        // Dedicated source filters.  Their bypass values deliberately sit at
+        // the useful ends of the range, so old programs remain unchanged.
+        float highPassHz = 20.0f;
+        float lowPassHz = 20000.0f;
         // The front-panel REVERB and COMP knobs are the effect mix amounts.
         // Their detailed parameters are kept independently so SF2 and DX7
         // routing remains source-specific and predictable.
@@ -102,6 +106,9 @@ private:
         float modulationAmount = 0.0f;
         double modulationPhase = 0.0;
         std::array<float, 2> filterState { 0.0f, 0.0f };
+        std::array<float, 2> highPassInput { 0.0f, 0.0f };
+        std::array<float, 2> highPassOutput { 0.0f, 0.0f };
+        std::array<float, 2> lowPassState { 0.0f, 0.0f };
         std::array<float, 2> compressorEnvelope { 0.0f, 0.0f };
         juce::Reverb nativeReverb;
         std::array<float, 4> lastReverbParameters { -1.0f, -1.0f, -1.0f, -1.0f };
