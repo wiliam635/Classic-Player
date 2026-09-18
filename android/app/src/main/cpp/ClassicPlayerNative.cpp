@@ -362,28 +362,24 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOff(JNIEnv*, jclass
     if (note < 0 || note > 127) return;
     std::lock_guard<std::mutex> lock(synthMutex);
     physicalKeys[(size_t)note] = false;
-    // Sustain applies to every built-in engine. TSF also receives the event
-    // below and maintains its own envelope state.
-    if (sustainDown) {
-        // SoundFont and DX7 honor the pedal. The lightweight analog and
-        // Hammond voices must always obey the physical key release; otherwise
-        // one lost CC64-up message leaves those engines droning forever.
-        for (auto* font : fonts) if (font != nullptr) tsf_channel_note_off(font, 0, note);
-        for (int layer=0; layer<kLayerCount; ++layer) {
-            if (engineTypes[(size_t)layer] == EngineType::analog)
-                for (auto& voice: analogLayers[(size_t)layer].voices) if (voice.active && voice.note == note) voice = {};
-            else if (engineTypes[(size_t)layer] == EngineType::hammond)
-                for (auto& voice: hammondLayers[(size_t)layer].voices) if (voice.active && voice.note == note) voice = {};
-        }
-        return;
-    }
     for (int layer=0;layer<kLayerCount;++layer) {
-        if(engineTypes[(size_t)layer]==EngineType::sf2&&fonts[(size_t)layer]!=nullptr)tsf_channel_note_off(fonts[(size_t)layer],0,note);
-        else if(engineTypes[(size_t)layer]==EngineType::dx7)for(auto& voice:dxLayers[(size_t)layer].voices)if(voice.active&&voice.note==note&&voice.synth)voice.synth->keyup();
-        // Stop analog voices immediately. This is intentionally stricter than
-        // the release tail until device-specific note-off behaviour is proven.
-        else if(engineTypes[(size_t)layer]==EngineType::analog)for(auto& voice:analogLayers[(size_t)layer].voices)if(voice.active&&voice.note==note)voice={};
-        else if(engineTypes[(size_t)layer]==EngineType::hammond)for(auto& voice:hammondLayers[(size_t)layer].voices)if(voice.active&&voice.note==note)voice={};
+        const auto type = engineTypes[(size_t)layer];
+        // Each engine gets its own dispatch path. Do not let a loaded font or
+        // another engine's state suppress the custom-engine Note Off.
+        if (type == EngineType::sf2 && fonts[(size_t)layer] != nullptr)
+            tsf_channel_note_off(fonts[(size_t)layer], 0, note);
+        if (type == EngineType::dx7 && !sustainDown)
+            for (auto& voice: dxLayers[(size_t)layer].voices)
+                if (voice.active && voice.note == note && voice.synth) voice.synth->keyup();
+        // Hammond and Moog are key-gated engines: physical release always
+        // closes their voice. Sustain is handled independently by engines
+        // that support it, never by leaving these voices latched.
+        if (type == EngineType::analog)
+            for (auto& voice: analogLayers[(size_t)layer].voices)
+                if (voice.active && voice.note == note) voice = {};
+        if (type == EngineType::hammond)
+            for (auto& voice: hammondLayers[(size_t)layer].voices)
+                if (voice.active && voice.note == note) voice = {};
     }
 }
 
