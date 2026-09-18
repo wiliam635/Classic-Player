@@ -365,10 +365,39 @@ public final class MainActivity extends Activity {
     }
 
     private void openDx7Picker(int layer) {
+        final String[] choices = {"BANCO DX7 1 · DIVINE MASQUERADE", "BANCO DX7 2 · DIVINE MASQUERADE", "IMPORTAR BANCO .SYX"};
+        new AlertDialog.Builder(this).setTitle("BANCO DE TIMBRES DX7").setItems(choices, (dialog, which) -> {
+            if (which == 0) activateBundledDx7(layer, R.raw.dx7_bank_1, "Divine Masquerade 1");
+            else if (which == 1) activateBundledDx7(layer, R.raw.dx7_bank_2, "Divine Masquerade 2");
+            else openExternalDx7Picker(layer);
+        }).setNegativeButton("CANCELAR", null).show();
+    }
+
+    private void openExternalDx7Picker(int layer) {
         pendingLayer = layer; pendingEngine = 2;
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("application/octet-stream");
         startActivityForResult(i, 701);
+    }
+
+    private void activateBundledDx7(int layer, int resourceId, String displayName) {
+        File target = new File(getFilesDir(), "dx7_" + layer + "_" + resourceId + ".syx");
+        try (InputStream in = getResources().openRawResource(resourceId);
+             FileOutputStream out = new FileOutputStream(target)) {
+            byte[] buffer = new byte[4096]; int n;
+            while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+        } catch (Exception e) {
+            screen.setAudioStatus("ÁUDIO: falha ao abrir banco DX7 interno"); return;
+        }
+        if (audioEngine == null || !audioEngine.loadDx7(layer, target.getAbsolutePath())) {
+            screen.setAudioStatus("ÁUDIO: banco DX7 interno inválido"); return;
+        }
+        screen.setLayerName(layer, displayName); screen.setEngineName(layer, "DX7");
+        screen.setPresetName(layer, audioEngine.dx7PatchName(layer, 0));
+        getSharedPreferences("layers", MODE_PRIVATE).edit().putInt("engine_" + layer, 2)
+                .putString("dx7_" + layer, target.getAbsolutePath()).putString("name_" + layer, displayName)
+                .putInt("dx7_patch_" + layer, 0).apply();
+        screen.setAudioStatus("ÁUDIO: " + displayName + " carregado");
     }
 
     private void chooseLayerSource(int layer) {
