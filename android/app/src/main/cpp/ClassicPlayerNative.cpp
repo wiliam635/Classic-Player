@@ -163,9 +163,9 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadLayer(
     env->ReleaseStringUTFChars(path, utf8Path);
     if (loaded == nullptr) return JNI_FALSE;
 
-    // Most SoundFonts are authored close to full scale. Leave headroom here,
-    // before the renderer converts to 16-bit, so piano chords cannot clip.
-    tsf_set_output(loaded, TSF_STEREO_INTERLEAVED, kSampleRate, -10.0f);
+    // Keep the SF2 engine close to the desktop reference level while leaving
+    // a little headroom for layered chords and the final safety limiter.
+    tsf_set_output(loaded, TSF_STEREO_INTERLEAVED, kSampleRate, -2.0f);
     // Mobile devices cannot sustain desktop-sized voice pools. 64 voices keeps
     // normal piano chords responsive and avoids CPU underruns/distortion.
     tsf_set_max_voices(loaded, 64);
@@ -364,7 +364,16 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOff(JNIEnv*, jclass
     // Sustain applies to every built-in engine. TSF also receives the event
     // below and maintains its own envelope state.
     if (sustainDown) {
+        // SoundFont and DX7 honor the pedal. The lightweight analog and
+        // Hammond voices must always obey the physical key release; otherwise
+        // one lost CC64-up message leaves those engines droning forever.
         for (auto* font : fonts) if (font != nullptr) tsf_channel_note_off(font, 0, note);
+        for (int layer=0; layer<kLayerCount; ++layer) {
+            if (engineTypes[(size_t)layer] == EngineType::analog)
+                for (auto& voice: analogLayers[(size_t)layer].voices) if (voice.active && voice.note == note) voice = {};
+            else if (engineTypes[(size_t)layer] == EngineType::hammond)
+                for (auto& voice: hammondLayers[(size_t)layer].voices) if (voice.active && voice.note == note) voice = {};
+        }
         return;
     }
     for (int layer=0;layer<kLayerCount;++layer) {
@@ -439,7 +448,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
                         if(!voice.synth->isPlaying()){voice={};continue;}
                         voice.samples.fill(0); voice.synth->compute(voice.samples.data(),1<<23,1<<24,&controllers); voice.read=0;
                     }
-                    value+=(float)voice.samples[(size_t)voice.read++]/(float)(1<<24)*0.12f;
+                    value+=(float)voice.samples[(size_t)voice.read++]/(float)(1<<24)*0.024f;
                 }
                 const int s=std::clamp((int)(value*32767.0f),-32768,32767);
                 scratch[(size_t)sample*2]=(short)s; scratch[(size_t)sample*2+1]=(short)s;
