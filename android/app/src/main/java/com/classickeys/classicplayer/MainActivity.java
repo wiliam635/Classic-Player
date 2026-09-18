@@ -10,6 +10,8 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
 import android.media.AudioDeviceInfo;
+import android.media.AudioDeviceCallback;
+import android.media.AudioManager;
 import android.media.midi.MidiDeviceInfo;
 import android.media.midi.MidiDevice;
 import android.media.midi.MidiInputPort;
@@ -56,6 +58,10 @@ public final class MainActivity extends Activity {
     private SoundFontLayer[] soundFontLayers;
     private LicenseManager licenseManager;
     private AudioOutputManager audioOutputManager;
+    private final AudioDeviceCallback audioDeviceCallback = new AudioDeviceCallback() {
+        @Override public void onAudioDevicesAdded(AudioDeviceInfo[] added) { refreshMidiDevices(); restorePreferredAudioDevice(); }
+        @Override public void onAudioDevicesRemoved(AudioDeviceInfo[] removed) { refreshMidiDevices(); }
+    };
     private PadEngine padEngine;
     private int pendingPad = -1;
     private boolean pendingContinuous;
@@ -217,12 +223,16 @@ public final class MainActivity extends Activity {
         hideSystemBars();
         if (audioEngine != null) audioEngine.start();
         restorePreferredAudioDevice();
+        AudioManager audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
+        if (audioManager != null) audioManager.registerAudioDeviceCallback(audioDeviceCallback, null);
         if (midiManager != null) midiManager.registerDeviceCallback(midiCallback, null);
         refreshMidiDevices();
         if (licenseManager != null && licenseManager.isActivated()) revalidateLicenseAsync();
     }
 
     @Override public void onPause() {
+        AudioManager audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
+        if (audioManager != null) audioManager.unregisterAudioDeviceCallback(audioDeviceCallback);
         if (midiManager != null) midiManager.unregisterDeviceCallback(midiCallback);
         if (audioEngine != null) audioEngine.allNotesOff();
         if (audioEngine != null) audioEngine.stop();

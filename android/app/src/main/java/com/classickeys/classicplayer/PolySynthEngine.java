@@ -54,7 +54,10 @@ final class PolySynthEngine {
         if (running) return;
         int min = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT);
         AudioTrack.Builder builder = new AudioTrack.Builder()
-                .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME)
+                // MEDIA is routed to USB Audio Class interfaces by Android's
+                // normal media policy; GAME can remain pinned to the speaker
+                // on several devices even when setPreferredDevice succeeds.
+                .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
                         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
                 .setAudioFormat(new AudioFormat.Builder().setSampleRate(RATE)
                         .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
