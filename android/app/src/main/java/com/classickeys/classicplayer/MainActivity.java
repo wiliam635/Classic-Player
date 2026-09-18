@@ -65,6 +65,10 @@ public final class MainActivity extends Activity {
     private int midiIndex;
     private int midiRunningStatus;
     private int midiFirstData = -1;
+    // Keep the same per-channel key state used by the desktop engines. It is
+    // essential for distinguishing a real release from a sustain-pedal change.
+    private final boolean[][] midiHeld = new boolean[16][128];
+    private final boolean[] midiSustain = new boolean[16];
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final MidiReceiver midiReceiver = new MidiReceiver() {
         @Override public synchronized void onSend(byte[] data, int offset, int count, long timestamp) {
@@ -85,35 +89,58 @@ public final class MainActivity extends Activity {
                 if (midiFirstData < 0) { midiFirstData = value & 0x7f; continue; }
                 int first = midiFirstData;
                 midiFirstData = -1;
-                processMidiMessage(type, first, value & 0x7f);
+                processMidiMessage(type, midiRunningStatus & 0x0f, first, value & 0x7f);
             }
         }
-        @Override public void onFlush() { if (audioEngine != null) audioEngine.allNotesOff(); }
+        @Override public void onFlush() { panicMidiState(); }
     };
 
-    private void processMidiMessage(int type, int first, int second) {
+    private void processMidiMessage(int type, int channel, int first, int second) {
         if (audioEngine == null) return;
         if (type == 0xb0) {
             if(first!=64&&first!=120&&first!=123){
                 if(pendingLearnTarget>=0){getSharedPreferences("midi_learn",MODE_PRIVATE).edit().putInt("cc_"+pendingLearnTarget,first).apply();screen.setMidiStatus("MIDI: CC "+first+" aprendido");pendingLearnTarget=-1;return;}
                 SharedPreferences learn=getSharedPreferences("midi_learn",MODE_PRIVATE);for(int target=0;target<7;target++)if(learn.getInt("cc_"+target,-1)==first){screen.setLearnedVolume(target,second/127f);return;}
             }
-            if (first == 64) audioEngine.setSustain(second >= 64);
-            else if (first == 120 || first == 123) audioEngine.allNotesOff();
+            if (first == 64) {
+                boolean wasDown = midiSustain[channel];
+                midiSustain[channel] = second >= 64;
+                audioEngine.setSustain(midiSustain[channel]);
+                // Releasing the pedal must release every key that is no
+                // longer physically held. The native engines are channel
+                // agnostic, so send the complete pending note set.
+                if (wasDown && !midiSustain[channel])
+                    for (int note = 0; note < 128; note++)
+                        if (!midiHeld[channel][note]) audioEngine.noteOff(note);
+            } else if (first == 120 || first == 123) {
+                panicMidiState();
+            }
             return;
         }
         if (type != 0x80 && type != 0x90) return;
         screen.setMidiSignal();
         if (type == 0x90 && second > 0) {
+            // Some controllers resend Note On before a missing release. Kill
+            // the previous instance first so the voice can never accumulate.
+            if (midiHeld[channel][first]) audioEngine.noteOff(first);
+            midiHeld[channel][first] = true;
             if(padLayerActive&&first>=36&&first<48){padEngine.setContinuous(continuousPadActive);padEngine.trigger(first-36);}
             audioEngine.noteOn(first, second);
         }
         else {
             // Note On with velocity zero is the MIDI-standard equivalent of
             // Note Off. Both paths must reach every internal engine.
+            midiHeld[channel][first] = false;
             audioEngine.noteOff(first);
             screen.setLastNoteOff(first);
         }
+    }
+
+    private void panicMidiState() {
+        for (int channel = 0; channel < 16; channel++)
+            java.util.Arrays.fill(midiHeld[channel], false);
+        java.util.Arrays.fill(midiSustain, false);
+        if (audioEngine != null) audioEngine.allNotesOff();
     }
     private final MidiManager.DeviceCallback midiCallback = new MidiManager.DeviceCallback() {
         @Override public void onDeviceAdded(MidiDeviceInfo device) { refreshMidiDevices(); }
@@ -288,7 +315,7 @@ public final class MainActivity extends Activity {
     }
 
     private void closeMidiInput() {
-        if (audioEngine != null) audioEngine.allNotesOff();
+        panicMidiState();
         midiRunningStatus = 0;
         midiFirstData = -1;
         if (midiInput != null) { try { midiInput.close(); } catch (IOException ignored) {} midiInput = null; }
