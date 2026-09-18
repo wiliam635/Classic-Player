@@ -165,7 +165,8 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadLayer(
 
     // Keep the SF2 engine close to the desktop reference level while leaving
     // a little headroom for layered chords and the final safety limiter.
-    tsf_set_output(loaded, TSF_STEREO_INTERLEAVED, kSampleRate, -2.0f);
+    // Four more dB of headroom keeps dense layered chords clean.
+    tsf_set_output(loaded, TSF_STEREO_INTERLEAVED, kSampleRate, -6.0f);
     // Mobile devices cannot sustain desktop-sized voice pools. 64 voices keeps
     // normal piano chords responsive and avoids CPU underruns/distortion.
     tsf_set_max_voices(loaded, 64);
@@ -504,7 +505,9 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
     for (int sample = 0; sample < samples; ++sample) {
         // Soft limiting prevents the harsh integer clipping heard when several
         // SF2 regions or layers peak at the same time.
-        const float limited = std::tanh(mix[(size_t)sample] * 0.82f);
+        // Leave extra headroom before the soft limiter so several active
+        // layers do not hit the limiter hard and sound distorted.
+        const float limited = std::tanh(mix[(size_t)sample] * 0.62f);
         output[sample] = (short)std::clamp((int)(limited * 32767.0f), -32768, 32767);
         renderedMasterPeak = std::max(renderedMasterPeak, std::abs((float) output[sample]) / 32768.0f);
     }
