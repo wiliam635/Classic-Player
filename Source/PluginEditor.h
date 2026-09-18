@@ -217,7 +217,7 @@ private:
     juce::TextButton saveProgramButton { "SALVAR" };
     juce::TextButton deleteProgramButton { "EXCLUIR" };
     juce::TextButton loadProgramButton { "CARREGAR" };
-    juce::TextButton importProgramButton { "ABRIR ARQ." };
+    juce::TextButton importProgramButton { "Abrir" };
     juce::TextButton addLayerButton { "+ LAYER" };
     juce::TextButton recordingButton { "GRAVAR WAV+MIDI" };
     juce::Label recordingStatus;
