@@ -810,7 +810,7 @@ public:
         : processor(p), index(layer), engineName(std::move(engine))
     {
         flatButton(saveButton);
-        saveButton.setButtonText("SALVAR PROGRAMAÇÃO");
+        saveButton.setButtonText("Salvar Preset");
         saveButton.setTooltip("Salva a programação completa, incluindo esta layer, na biblioteca de programas.");
         saveButton.onClick = [this]
         {
@@ -3596,7 +3596,7 @@ void ClassicPlayerAudioProcessorEditor::saveProgram()
     if (result.failed())
     {
         juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                               "Falha ao salvar programação", result.getErrorMessage());
+                                               "Falha ao Salvar Preset", result.getErrorMessage());
         return;
     }
 
