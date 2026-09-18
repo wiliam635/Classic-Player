@@ -29,11 +29,17 @@ std::array<tsf*, kLayerCount> fonts {};
 enum class EngineType : int { empty = 0, sf2 = 1, dx7 = 2, analog = 3, hammond = 4 };
 std::array<EngineType, kLayerCount> engineTypes {};
 std::array<float, kLayerCount> layerGains { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
+std::array<float, kLayerCount> smoothedLayerGains { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
 std::array<float, kLayerCount> layerPeaks {};
 std::array<short, kMaxFrames * 2> scratch {};
 float masterGain = 0.8f;
+float smoothedMasterGain = 0.8f;
 float masterPeak = 0.0f;
 std::mutex synthMutex;
+// The small built-in synths do not have a MIDI channel object like TSF does.
+// Keep their physical key state here so sustain can defer Note Off correctly.
+std::array<bool, 128> physicalKeys {};
+bool sustainDown = false;
 
 struct DxVoice
 {
@@ -130,6 +136,8 @@ void releaseLayer(const int layer)
 
 void sendAllNotesOff()
 {
+    physicalKeys.fill(false);
+    sustainDown = false;
     for (int layer=0;layer<kLayerCount;++layer) {
         if(fonts[(size_t)layer]!=nullptr)tsf_channel_note_off_all(fonts[(size_t)layer],0);
         for(auto& voice:dxLayers[(size_t)layer].voices)if(voice.active&&voice.synth)voice.synth->keyup();
@@ -322,6 +330,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOn(JNIEnv*, jclass,
 {
     if (note < 0 || note > 127 || velocity <= 0) return;
     std::lock_guard<std::mutex> lock(synthMutex);
+    physicalKeys[(size_t)note] = true;
     for (int layer=0;layer<kLayerCount;++layer) {
         if (engineTypes[(size_t)layer]==EngineType::sf2 && fonts[(size_t)layer]!=nullptr)
             tsf_channel_note_on(fonts[(size_t)layer],0,note,std::min(velocity,127)/127.0f);
@@ -351,6 +360,13 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOff(JNIEnv*, jclass
 {
     if (note < 0 || note > 127) return;
     std::lock_guard<std::mutex> lock(synthMutex);
+    physicalKeys[(size_t)note] = false;
+    // Sustain applies to every built-in engine. TSF also receives the event
+    // below and maintains its own envelope state.
+    if (sustainDown) {
+        for (auto* font : fonts) if (font != nullptr) tsf_channel_note_off(font, 0, note);
+        return;
+    }
     for (int layer=0;layer<kLayerCount;++layer) {
         if(engineTypes[(size_t)layer]==EngineType::sf2&&fonts[(size_t)layer]!=nullptr)tsf_channel_note_off(fonts[(size_t)layer],0,note);
         else if(engineTypes[(size_t)layer]==EngineType::dx7)for(auto& voice:dxLayers[(size_t)layer].voices)if(voice.active&&voice.note==note&&voice.synth)voice.synth->keyup();
@@ -365,6 +381,22 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeControl(JNIEnv*, jclass, jint controller, jint value)
 {
     std::lock_guard<std::mutex> lock(synthMutex);
+    if ((controller & 0x7f) == 64) {
+        const bool wasDown = sustainDown;
+        sustainDown = (value & 0x7f) >= 64;
+        if (wasDown && !sustainDown) {
+            for (int note = 0; note < 128; ++note) if (!physicalKeys[(size_t)note]) {
+                for (int layer=0; layer<kLayerCount; ++layer) {
+                    if (engineTypes[(size_t)layer] == EngineType::analog)
+                        for (auto& voice: analogLayers[(size_t)layer].voices) if (voice.active && voice.note == note) voice = {};
+                    else if (engineTypes[(size_t)layer] == EngineType::hammond)
+                        for (auto& voice: hammondLayers[(size_t)layer].voices) if (voice.active && voice.note == note) voice = {};
+                    else if (engineTypes[(size_t)layer] == EngineType::dx7)
+                        for (auto& voice: dxLayers[(size_t)layer].voices) if (voice.active && voice.note == note && voice.synth) voice.synth->keyup();
+                }
+            }
+        }
+    }
     for (auto* font : fonts)
         if (font != nullptr) tsf_channel_midi_control(font, 0, controller & 0x7f, value & 0x7f);
 }
@@ -441,14 +473,24 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
                 int s=std::clamp((int)(value*32767.0f),-32768,32767); scratch[(size_t)sample*2]=(short)s; scratch[(size_t)sample*2+1]=(short)s;
             }
         }
-        const float gain = layerGains[(size_t) layer] * masterGain;
+        const float targetLayer = layerGains[(size_t) layer];
+        const float targetMaster = masterGain;
+        // Gain changes are smoothed per block to avoid clicks when a fader is
+        // moved while notes are sounding.
+        const float layerStep = (targetLayer - smoothedLayerGains[(size_t)layer]) / (float)std::max(frames, 1);
+        const float masterStep = (targetMaster - smoothedMasterGain) / (float)std::max(frames, 1);
         for (int sample = 0; sample < samples; ++sample)
         {
+            const int frame = sample / 2;
+            const float gain = (smoothedLayerGains[(size_t)layer] + layerStep * frame) *
+                    (smoothedMasterGain + masterStep * frame);
             mix[(size_t)sample] += ((float)scratch[(size_t)sample] / 32768.0f) * gain;
             renderedPeaks[(size_t) layer] = std::max(renderedPeaks[(size_t) layer],
                     std::abs((float) scratch[(size_t) sample] * gain) / 32768.0f);
         }
+        smoothedLayerGains[(size_t)layer] = targetLayer;
     }
+    smoothedMasterGain = masterGain;
     float renderedMasterPeak = 0.0f;
     for (int sample = 0; sample < samples; ++sample) {
         // Soft limiting prevents the harsh integer clipping heard when several
