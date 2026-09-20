@@ -7,6 +7,7 @@
 #include <atomic>
 #include <memory>
 #include <vector>
+#include "LayerEffects.h"
 
 class Sf2Engine
 {
@@ -29,8 +30,12 @@ public:
         int velocityCurve = 0; // 0 linear, 1 soft, 2 hard
         float gain = 0.8f;
         float pan = 0.0f;
+        float attack = 5.0f;
         float release = 50.0f;
         float cutoff = 100.0f;
+        float eqLow = 0.0f;
+        float eqMid = 0.0f;
+        float eqHigh = 0.0f;
         // Dedicated source filters.  Their bypass values deliberately sit at
         // the useful ends of the range, so old programs remain unchanged.
         float highPassHz = 20.0f;
@@ -100,6 +105,7 @@ private:
         std::array<float, 128> heldVelocities {};
         int lastCutoff = -1;
         int lastReverb = -1;
+        int lastAttack = -1;
         int lastRelease = -1;
         int lastPortamento = -1;
         int lastMono = -1;
@@ -110,6 +116,7 @@ private:
         std::array<float, 2> highPassOutput { 0.0f, 0.0f };
         std::array<float, 2> lowPassState { 0.0f, 0.0f };
         std::array<float, 2> compressorEnvelope { 0.0f, 0.0f };
+        LayerEqState eq;
         juce::Reverb nativeReverb;
         std::array<float, 4> lastReverbParameters { -1.0f, -1.0f, -1.0f, -1.0f };
         std::atomic<float> peak { 0.0f };

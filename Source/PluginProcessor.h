@@ -24,6 +24,8 @@ public:
     int masterMidiLearnCC() const { return masterCC.load(); }
     int masterMidiLearnChannel() const { return masterCCChannel.load(); }
     juce::String currentSavedProgramName() const { return currentSavedProgram; }
+    // Immediate MIDI/audio safety reset exposed to the standalone UI.
+    void panic();
     // A source is chosen only when a new layer is created. The initial four
     // layers are SF2 by design.
     enum class LayerType { sf2 = 0, vst, dx7, analog, drumPads, hammond, continuousPads };

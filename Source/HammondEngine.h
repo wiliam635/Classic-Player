@@ -1,6 +1,7 @@
 #pragma once
 #include "Sf2Engine.h"
 #include "AudioTransition.h"
+#include "LayerEffects.h"
 #include <juce_data_structures/juce_data_structures.h>
 
 // Native port of Hammond Lab revision 4: no browser, keyboard or chorus.
@@ -56,6 +57,7 @@ private:
         int delayPosition = 0;
         float crossover = 0;
         std::array<float,2> lowpass {}, compressor {};
+        LayerEqState eq;
         juce::Reverb reverb;
         uint64_t clock = 0;
         uint32_t noise = 0x1341257u;
@@ -63,7 +65,7 @@ private:
     };
     void message(int layer, const juce::MidiMessage&, Config&);
     void release(Voice&);
-    float renderVoice(Voice&, Layer&, const std::array<float,9>&, float leak);
+    float renderVoice(Voice&, Layer&, const Config&, const std::array<float,9>&, float leak);
     float sine(double phase) const;
     std::array<Layer,layerCount> layers;
     std::array<std::atomic<float>,layerCount> peaks {};

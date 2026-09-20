@@ -210,11 +210,23 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
             juce::ParameterID{"layer" + n + "Gain", 1}, "Layer " + n + " Volume",
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 80.0f));
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "Attack", 1}, "Layer " + n + " Attack",
+            juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f), 5.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"layer" + n + "Release", 1}, "Layer " + n + " Release",
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 50.0f));
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"layer" + n + "Cutoff", 1}, "Layer " + n + " Cutoff",
             juce::NormalisableRange<float>(0.0f, 100.0f), 100.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "EqLow", 1}, "Layer " + n + " EQ Low",
+            juce::NormalisableRange<float>(-18.0f, 18.0f, 0.1f), 0.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "EqMid", 1}, "Layer " + n + " EQ Mid",
+            juce::NormalisableRange<float>(-18.0f, 18.0f, 0.1f), 0.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "EqHigh", 1}, "Layer " + n + " EQ High",
+            juce::NormalisableRange<float>(-18.0f, 18.0f, 0.1f), 0.0f));
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"layer" + n + "Reverb", 1}, "Layer " + n + " Reverb",
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 0.0f));
@@ -418,8 +430,12 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         else if (type == LayerType::analog)
             layerGain *= juce::Decibels::decibelsToGain(-6.0f);
         config.gain = layerGain;
+        config.attack = parameters.getRawParameterValue(prefix + "Attack")->load();
         config.release = parameters.getRawParameterValue(prefix + "Release")->load();
         config.cutoff = parameters.getRawParameterValue(prefix + "Cutoff")->load();
+        config.eqLow = parameters.getRawParameterValue(prefix + "EqLow")->load();
+        config.eqMid = parameters.getRawParameterValue(prefix + "EqMid")->load();
+        config.eqHigh = parameters.getRawParameterValue(prefix + "EqHigh")->load();
         config.reverb = parameters.getRawParameterValue(prefix + "Reverb")->load();
         config.reverbSize = parameters.getRawParameterValue(prefix + "ReverbSize")->load();
         config.reverbDamping = parameters.getRawParameterValue(prefix + "ReverbDamping")->load();
@@ -441,6 +457,8 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         // that parameter into the Analog config every audio block so the
         // mixer cutoff knob has an audible effect on Analog layers too.
         analogConfig.cutoff = config.cutoff;
+        analogConfig.ampAttackMs = juce::jmax(0.0f, config.attack);
+        analogConfig.ampReleaseMs = juce::jmax(15.0f, config.release * 10.0f);
         // Analog Mono/Legato intentionally has no portamento mode.  Older
         // saved programs may still carry the shared layer flag; do not let it
         // turn every lead preset into a continuous theremin glide.
@@ -1185,8 +1203,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     if (layer >= count || count <= 1) return false;
 
     const auto last = count - 1;
-    static constexpr std::array<const char*, 14> parameterSuffixes {
-        "Gain", "Release", "Cutoff", "Reverb", "ReverbSize", "ReverbDamping",
+    static constexpr std::array<const char*, 18> parameterSuffixes {
+        "Gain", "Attack", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh", "Reverb", "ReverbSize", "ReverbDamping",
         "ReverbWidth", "Comp", "CompThreshold", "CompRatio", "CompAttack",
         "CompRelease", "CompMakeup", "Dx7Chorus"
     };
@@ -1646,6 +1664,12 @@ void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* sou
     const auto sourceId = source != nullptr ? source->getIdentifier() : juce::String{};
     processMasterMidiMessage(message);
     processLiveSetSlotMidiMessage(message);
+    // Capture the controller used for Learn before applying the per-layer
+    // device filter.  A selected layer may be listening to a different input
+    // than the one the musician is moving during setup; Learn must still see
+    // the physical CC and only the subsequent value updates stay routed.
+    if (activeMidiLearn.load(std::memory_order_relaxed) >= 0)
+        processMidiControlMessage(message);
     const juce::ScopedLock guard(midiRoutingLock);
     auto routed = false;
     for (int layer = 0; layer < activeLayerCount(); ++layer)
@@ -1889,6 +1913,12 @@ void ClassicPlayerAudioProcessor::stopAllSoundsBeforeProgramChange()
     for (auto& buffer : routedMidiBuffers) buffer.clear();
     visualMidiCollector.reset(currentSampleRate);
     visualMidiBuffer.clear();
+}
+
+void ClassicPlayerAudioProcessor::panic()
+{
+    stopAllSoundsBeforeProgramChange();
+    keyboardState.reset();
 }
 
 juce::Result ClassicPlayerAudioProcessor::loadProgram(const juce::File& programFile)

@@ -43,6 +43,7 @@ void Sf2Engine::createSynth(Layer& layer)
     layer.modulationPhase = 0.0;
     layer.lastCutoff = -1;
     layer.lastReverb = -1;
+    layer.lastAttack = -1;
     layer.lastRelease = -1;
     layer.lastPortamento = -1;
     layer.lastMono = -1;
@@ -51,6 +52,7 @@ void Sf2Engine::createSynth(Layer& layer)
     layer.highPassOutput = { 0.0f, 0.0f };
     layer.lowPassState = { 0.0f, 0.0f };
     layer.compressorEnvelope = { 0.0f, 0.0f };
+    layer.eq.reset();
     layer.nativeReverb.reset();
     layer.lastReverbParameters.fill(-1.0f);
 }
@@ -380,18 +382,20 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         const auto reverb = 0;
         // CC72 is the General MIDI release-time controller. It gives SF2
         // note-offs a small envelope tail instead of an abrupt click.
+        const auto attack = juce::jlimit(0, 127, static_cast<int>(std::round(layer.config.attack * 1.27f)));
         const auto release = juce::jlimit(0, 127, static_cast<int>(std::round(layer.config.release * 1.27f)));
         const auto portamento = layer.config.portamento ? 127 : 0;
         // Portamento is always monophonic. Mono Legato uses the same single
         // voice policy but retains the instantaneous pitch transition.
         const auto mono = (layer.config.mono || layer.config.portamento) ? 1 : 0;
-        if (cutoff != layer.lastCutoff || reverb != layer.lastReverb || release != layer.lastRelease
+        if (cutoff != layer.lastCutoff || reverb != layer.lastReverb || attack != layer.lastAttack || release != layer.lastRelease
             || portamento != layer.lastPortamento || mono != layer.lastMono)
         {
             for (int channel = 0; channel < 16; ++channel)
             {
                 if (cutoff != layer.lastCutoff) fluid_synth_cc(layer.synth.get(), channel, 74, cutoff);
                 if (reverb != layer.lastReverb) fluid_synth_cc(layer.synth.get(), channel, 91, reverb);
+                if (attack != layer.lastAttack) fluid_synth_cc(layer.synth.get(), channel, 73, attack);
                 if (release != layer.lastRelease) fluid_synth_cc(layer.synth.get(), channel, 72, release);
                 if (portamento != layer.lastPortamento)
                 {
@@ -415,6 +419,7 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
             }
             layer.lastCutoff = cutoff;
             layer.lastReverb = reverb;
+            layer.lastAttack = attack;
             layer.lastRelease = release;
             layer.lastPortamento = portamento;
             layer.lastMono = mono;
@@ -525,6 +530,15 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
                 layer.highPassOutput[(size_t) channel] = previousOutput;
                 layer.lowPassState[(size_t) channel] = previousLowPass;
             }
+        }
+
+        for (int channel = 0; channel < scratch.getNumChannels(); ++channel)
+        {
+            auto* samples = scratch.getWritePointer(channel);
+            for (int sample = 0; sample < output.getNumSamples(); ++sample)
+                samples[sample] = layer.eq.process(samples[sample], channel,
+                                                   layer.config.eqLow, layer.config.eqMid,
+                                                   layer.config.eqHigh, currentSampleRate);
         }
 
         // The native reverb is a consistent stereo room for every SF2, rather

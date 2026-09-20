@@ -68,6 +68,7 @@ void AnalogSynthEngine::reset()
         layer.reverb.reset();
         layer.compressorEnvelope = {};
         layer.filterState = {};
+        layer.eq.reset();
         layer.lfoPhase = 0.0f;
         layer.gainReady = false;
     }
@@ -98,6 +99,7 @@ void AnalogSynthEngine::unload(int layerIndex)
     layer.reverb.reset();
     layer.compressorEnvelope = {};
     layer.filterState = {};
+    layer.eq.reset();
     layer.lfoPhase = 0.0f;
     peaks[static_cast<size_t>(layerIndex)].store(0.0f, std::memory_order_relaxed);
 }
@@ -721,6 +723,13 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
                         dry * (1.0f + mix * (reduction * makeup - 1.0f)));
                 }
         }
+
+        for (int sampleIndex = 0; sampleIndex < output.getNumSamples(); ++sampleIndex)
+            for (int channel = 0; channel < 2; ++channel)
+                renderScratch.setSample(channel, sampleIndex,
+                    layer.eq.process(renderScratch.getSample(channel, sampleIndex), channel,
+                                     config.routing.eqLow, config.routing.eqMid,
+                                     config.routing.eqHigh, sampleRate));
 
         for (int sampleIndex = 0; sampleIndex < output.getNumSamples(); ++sampleIndex)
         {

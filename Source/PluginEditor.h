@@ -141,9 +141,13 @@ private:
         juce::ComboBox libraryBox;
         juce::ComboBox presetBox;
         juce::Slider gain;
+        juce::Slider attack;
+        juce::Slider release;
         juce::Slider cutoff;
         juce::Slider reverb;
         juce::Slider compressor;
+        juce::Label attackLabel;
+        juce::Label releaseLabel;
         juce::Label cutoffLabel;
         juce::Label reverbLabel;
         juce::Label compressorLabel;
@@ -168,6 +172,8 @@ private:
         juce::ComboBox velocityCurve;
         LevelMeter meter;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> gainAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attackAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> releaseAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> cutoffAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> reverbAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> compressorAttachment;
@@ -220,6 +226,7 @@ private:
     juce::TextButton importProgramButton { "Abrir" };
     juce::TextButton addLayerButton { "+ LAYER" };
     juce::TextButton recordingButton { "GRAVAR WAV+MIDI" };
+    juce::TextButton panicButton { "PANIC" };
     juce::Label recordingStatus;
     juce::TextButton keyboardVisibilityButton { "OCULTAR TECLADO" };
     juce::TextButton audioMidiSettingsButton { "AUDIO / MIDI" };

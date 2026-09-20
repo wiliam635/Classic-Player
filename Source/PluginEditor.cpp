@@ -1706,8 +1706,22 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     gain.setColour(juce::Slider::trackColourId, juce::Colour(teal));
     gain.setColour(juce::Slider::thumbColourId, juce::Colour(0xffd8dde0));
     addAndMakeVisible(gain);
+    const auto parameterPrefix = "layer" + juce::String(index + 1);
     gainAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor.parameters, "layer" + juce::String(index + 1) + "Gain", gain);
+
+    for (auto* envelopeSlider : { &attack, &release })
+    {
+        envelopeSlider->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        envelopeSlider->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 54, 16);
+        addAndMakeVisible(*envelopeSlider);
+    }
+    attack.setRange(0.0, 100.0, 0.1);
+    release.setRange(0.0, 100.0, 1.0);
+    attackAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processor.parameters, parameterPrefix + "Attack", attack);
+    releaseAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processor.parameters, parameterPrefix + "Release", release);
 
     cutoff.setRange(0.0, 100.0, 1.0);
     cutoff.setValue(100.0);
@@ -1723,7 +1737,6 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     compressor.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     compressor.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 54, 16);
     addAndMakeVisible(compressor);
-    const auto parameterPrefix = "layer" + juce::String(index + 1);
     cutoffAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor.parameters, parameterPrefix + "Cutoff", cutoff);
     reverbAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
@@ -1739,13 +1752,15 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
         processor.parameters, parameterPrefix + "Dx7Chorus", chorus);
     addAndMakeVisible(meter);
 
-    for (auto* label : { &cutoffLabel, &reverbLabel, &compressorLabel, &chorusLabel, &routingLabel })
+    for (auto* label : { &attackLabel, &releaseLabel, &cutoffLabel, &reverbLabel, &compressorLabel, &chorusLabel, &routingLabel })
     {
         label->setJustificationType(juce::Justification::centred);
         label->setColour(juce::Label::textColourId, juce::Colour(mutedText));
         label->setFont(juce::FontOptions(9.5f, juce::Font::bold));
         addAndMakeVisible(*label);
     }
+    attackLabel.setText("ATTACK", juce::dontSendNotification);
+    releaseLabel.setText("RELEASE", juce::dontSendNotification);
     cutoffLabel.setText("CUTOFF", juce::dontSendNotification);
     reverbLabel.setText("REVERB", juce::dontSendNotification);
     compressorLabel.setText("COMP", juce::dontSendNotification);
@@ -1867,10 +1882,15 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     };
     auto* knobs = new KnobEditorPanel({
         { "VOLUME", valueOf(prefix + "Gain", 80.0f), 0.0f, 100.0f, 1.0f, 0 },
+        { "ATTACK ms", valueOf(prefix + "Attack", 5.0f), 0.0f, 100.0f, 0.1f, 1 },
+        { "RELEASE", valueOf(prefix + "Release", 50.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "CUTOFF", valueOf(prefix + "Cutoff", 100.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "REVERB", valueOf(prefix + "Reverb", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
-        { "COMP", valueOf(prefix + "Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 }
-    }, 4);
+        { "COMP", valueOf(prefix + "Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
+        { "EQ LOW dB", valueOf(prefix + "EqLow", 0.0f), -18.0f, 18.0f, 0.1f, 1 },
+        { "EQ MID dB", valueOf(prefix + "EqMid", 0.0f), -18.0f, 18.0f, 0.1f, 1 },
+        { "EQ HIGH dB", valueOf(prefix + "EqHigh", 0.0f), -18.0f, 18.0f, 0.1f, 1 }
+    }, 5);
     auto* sf2Panel = new Sf2EditorPanel(processor, index);
     // Match the compact editor slot so the SF2 controls are not followed by
     // an oversized empty region when the dialog is displayed at full size.
@@ -1911,8 +1931,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     // tall.  Reserve only the space the controls actually occupy.
     dialog->addCustomComponent(new CenteredPanel(sf2Panel, 620, 275));
     dialog->addCustomComponent(new CenteredPanel(new FilterButtonsPanel(processor, index), 440, 36));
-    // Four SF2 controls share one compact row in the reference editor.
-    dialog->addCustomComponent(new CenteredPanel(knobs, 520, 124));
+    // Layer controls share a two-row grid so envelopes and EQ remain readable.
+    dialog->addCustomComponent(new CenteredPanel(knobs, 620, 248));
     dialog->addCustomComponent(new CenteredPanel(effectButtons, 360, 38));
     dialog->addCustomComponent(new CenteredPanel(midiPanel, 520, 52));
     knobs->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), knobs, prefix]
@@ -1923,12 +1943,14 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
             if (auto* parameter = safe->processor.parameters.getParameter(prefix + id))
                 parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
         };
-        set("Gain", knobs->value(0)); set("Cutoff", knobs->value(1));
-        set("Reverb", knobs->value(2)); set("Comp", knobs->value(3));
+        set("Gain", knobs->value(0)); set("Attack", knobs->value(1));
+        set("Release", knobs->value(2)); set("Cutoff", knobs->value(3));
+        set("Reverb", knobs->value(4)); set("Comp", knobs->value(5));
+        set("EqLow", knobs->value(6)); set("EqMid", knobs->value(7)); set("EqHigh", knobs->value(8));
     });
     // Keep the footer below the Learn controls.  The old height left the
     // custom close button on top of the final Learn row in the SF2 editor.
-    dialog->setSize(760, 724);
+    dialog->setSize(760, 854);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, dialog, knobs, prefix](int)
         {
@@ -1939,9 +1961,14 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
                     parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
             };
             set("Gain", knobs->value(0));
-            set("Cutoff", knobs->value(1));
-            set("Reverb", knobs->value(2));
-            set("Comp", knobs->value(3));
+            set("Attack", knobs->value(1));
+            set("Release", knobs->value(2));
+            set("Cutoff", knobs->value(3));
+            set("Reverb", knobs->value(4));
+            set("Comp", knobs->value(5));
+            set("EqLow", knobs->value(6));
+            set("EqMid", knobs->value(7));
+            set("EqHigh", knobs->value(8));
             safe->refresh();
         }), true);
 }
@@ -2192,7 +2219,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     controls.removeFromLeft(4);
 
     auto knobs = controls.removeFromTop(126);
-    const auto knobWidth = knobs.getWidth() / 4;
+    const auto knobCount = type == ClassicPlayerAudioProcessor::LayerType::dx7 ? 7 : 6;
+    const auto knobWidth = knobs.getWidth() / knobCount;
     auto placeKnob = [knobWidth](juce::Rectangle<int>& row, juce::Label& label,
                                  juce::Slider& slider, juce::TextButton* learn,
                                  juce::TextButton* edit)
@@ -2211,6 +2239,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
         if (learn != nullptr) learn->setBounds(cell.removeFromBottom(20).reduced(1));
         slider.setBounds(cell);
     };
+    placeKnob(knobs, attackLabel, attack, nullptr, nullptr);
+    placeKnob(knobs, releaseLabel, release, nullptr, nullptr);
     placeKnob(knobs, cutoffLabel, cutoff, &cutoffLearn, nullptr);
     placeKnob(knobs, reverbLabel, reverb, &reverbLearn, &reverbEditButton);
     placeKnob(knobs, compressorLabel, compressor, &compressorLearn, &compressorEditButton);
@@ -2900,6 +2930,12 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     recordingStatus.setText("WAV + MIDI: Area de Trabalho", juce::dontSendNotification);
     addAndMakeVisible(recordingStatus);
 
+    flatButton(panicButton);
+    panicButton.setTooltip("Envia All Notes Off/All Sound Off e solta qualquer nota presa");
+    panicButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff7d3540));
+    panicButton.onClick = [this] { classicProcessor.panic(); };
+    addAndMakeVisible(panicButton);
+
     flatButton(keyboardVisibilityButton);
     keyboardVisibilityButton.setTooltip("Mostrar ou ocultar o teclado virtual para liberar espaço para as layers");
     keyboardVisibilityButton.onClick = [this]
@@ -3385,6 +3421,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
 
     area.removeFromTop(12);
     auto footer = area.removeFromBottom(54);
+    panicButton.setBounds(footer.removeFromRight(86).removeFromBottom(28).reduced(1, 0));
     auto recordingArea = footer.removeFromTop(27);
     recordingButton.setBounds(recordingArea.removeFromLeft(156).reduced(1, 0));
     recordingStatus.setBounds(recordingArea.removeFromLeft(230).reduced(6, 0));

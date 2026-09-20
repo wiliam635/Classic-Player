@@ -78,7 +78,7 @@ void HammondEngine::unload(int index)
     for(int r=0;r<2;++r){l.speed[(size_t)r].reset(sampleRate,r==0?2.5:1.0);
         l.speed[(size_t)r].setCurrentAndTargetValue(0);
         std::fill(l.delay[(size_t)r].begin(),l.delay[(size_t)r].end(),0.f);}
-    l.rotorPhase={};l.delayPosition=0;l.crossover=0;l.lowpass={};l.compressor={};
+    l.rotorPhase={};l.delayPosition=0;l.crossover=0;l.lowpass={};l.compressor={};l.eq.reset();
     l.reverb.reset();l.enabled=false;l.clock=0;peaks[(size_t)index].store(0);
 }
 void HammondEngine::stopAllSounds(){for(int i=0;i<layerCount;++i)unload(i);}
@@ -165,10 +165,11 @@ void HammondEngine::message(int index,const juce::MidiMessage& m,Config& c)
     v.perStep=std::min(base*c.percussion,sampleRate*.45)/sampleRate;
     v.click=c.click*.06f;
 }
-float HammondEngine::renderVoice(Voice& v,Layer& l,const std::array<float,9>& bars,float leak)
+float HammondEngine::renderVoice(Voice& v,Layer& l,const Config& c,const std::array<float,9>& bars,float leak)
 {
     if(!v.active)return 0;
-    const int attack=std::max(1,(int)(sampleRate*.005)), releaseSamples=std::max(1,(int)(sampleRate*.02));
+    const int attack=std::max(1,(int)(sampleRate*juce::jmax(0.0f,c.routing.attack)*.001f));
+    const int releaseSamples=std::max(1,(int)(sampleRate*juce::jmax(15.0f,c.routing.release)*.001f));
     if(v.releasing){
         if(v.releaseAge>=releaseSamples){v.active=false;v.envelope=0;return 0;}
         v.envelope=v.releaseStart*.5f*(1.f+(float)std::cos(pi*(double)++v.releaseAge/releaseSamples));
@@ -232,7 +233,7 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
             std::array<float,9> bars;for(size_t i=0;i<9;++i)bars[i]=l.bars[i].getNextValue();
             std::array<float,16> channel;for(size_t i=0;i<16;++i)channel[i]=l.channelGain[i].getNextValue();
             const float leak=l.leakage.getNextValue();float sample=0;
-            for(auto& v:l.voices)sample+=renderVoice(v,l,bars,leak)*channel[(size_t)v.channel];
+            for(auto& v:l.voices)sample+=renderVoice(v,l,c,bars,leak)*channel[(size_t)v.channel];
             const float drive=l.drive.getNextValue();
             sample=sample*(1-drive)+std::tanh(2*sample*(1+drive*8))/std::tanh(2.f)*drive/(1+drive*2);
             l.crossover+=cross*(sample-l.crossover);
@@ -267,8 +268,10 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
                 env=coefficient*env+(1-coefficient)*std::abs(value);
                 const float threshold=juce::Decibels::decibelsToGain(c.routing.compressorThreshold);
                 if(env>threshold&&c.routing.compressor>0)
-                    value*=1-c.routing.compressor/100.f+c.routing.compressor/100.f*
+                        value*=1-c.routing.compressor/100.f+c.routing.compressor/100.f*
                         std::pow(threshold/env,1-1/std::max(1.f,c.routing.compressorRatio));
+                value = l.eq.process(value, ch, c.routing.eqLow, c.routing.eqMid,
+                                     c.routing.eqHigh, sampleRate);
                 value*=gain*(ch==0?std::sqrt(1-pan):std::sqrt(1+pan));
             }
             if(out.getNumChannels()>1){out.addSample(0,s,left);out.addSample(1,s,right);}

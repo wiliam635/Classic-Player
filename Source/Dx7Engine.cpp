@@ -40,6 +40,7 @@ void Dx7Engine::prepare(double newSampleRate, int newMaximumBlockSize)
         layer.lfoDelayProgress = 0.0;
         layer.dcInput = {};
         layer.dcOutput = {};
+        layer.eq.reset();
     }
     // MSFA/Dexed lookup tables are sample-rate dependent. Initialising them
     // here prevents silent/invalid oscillator output on the first DX7 note.
@@ -525,7 +526,7 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
     target->targetFrequency = noteFrequency(note);
     target->currentFrequency = target->targetFrequency;
     target->phase.fill(0.0);
-    target->envelope = 1.0f;
+    target->envelope = 0.0f;
     const auto patchIndex = juce::jlimit(0, juce::jmax(0, layer.patchesLoaded - 1),
                                          layer.selectedPatch);
     beginCoreVoice(*target, layer.patches[(size_t) patchIndex], note, velocity, false);
@@ -625,7 +626,17 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
             // Preserve every MSFA sample across arbitrary host block sizes.
             const auto raw = static_cast<float>(voice.fmSamples[(size_t) voice.fmRead++])
                            * fixedToFloat * voice.velocity * 0.24f;
-            const auto value = voice.transition.process(raw) * layerGain;
+            if (!voice.releasing)
+            {
+                const auto attackSamples = juce::jmax(1.0, sampleRate * juce::jmax(0.0f, config.attack) * 0.001);
+                voice.envelope = juce::jmin(1.0f, voice.envelope + static_cast<float>(1.0 / attackSamples));
+            }
+            else
+            {
+                const auto releaseSeconds = juce::jmax(0.015, config.release * 0.01);
+                voice.envelope *= static_cast<float>(std::exp(-1.0 / (releaseSeconds * sampleRate)));
+            }
+            const auto value = voice.transition.process(raw) * layerGain * voice.envelope;
             scratch.addSample(0, offset, value);
             scratch.addSample(1, offset, value);
         }
@@ -687,6 +698,15 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
             }
             layer.filterState[(size_t) channel] = state;
         }
+    }
+
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        auto* samples = scratch.getWritePointer(channel);
+        for (int sample = 0; sample < scratch.getNumSamples(); ++sample)
+            samples[sample] = layer.eq.process(samples[sample], channel,
+                                               config.eqLow, config.eqMid, config.eqHigh,
+                                               sampleRate);
     }
     const auto reverbMix = juce::jlimit(0.0f, 100.0f, config.reverb) / 100.0f;
     juce::Reverb::Parameters reverbParameters;

@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdint>
 #include <atomic>
+#include "LayerEffects.h"
 
 // Native three-oscillator analog synthesizer used by Classic Keys Analog.
 // It is intentionally independent from SF2, DX7 and hosted instruments.
@@ -136,6 +137,7 @@ private:
         juce::Reverb reverb;
         std::array<float, 2> compressorEnvelope {};
         std::array<float, 2> filterState {};
+        LayerEqState eq;
     };
 
     static float waveform(Waveform waveform, float phase, float phaseIncrement);

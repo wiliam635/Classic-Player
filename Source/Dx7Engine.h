@@ -12,6 +12,7 @@
 #include "controllers.h"
 #include "tuning.h"
 #include "AudioTransition.h"
+#include "LayerEffects.h"
 
 // Native DX7-compatible SysEx reader and six-operator FM player.
 // A Yamaha bulk dump exposes all 32 voices; the selected voice is rendered
@@ -109,6 +110,7 @@ private:
         juce::Reverb reverb;
         std::array<float, 2> compressorEnvelope {};
         std::array<float, 2> filterState {};
+        LayerEqState eq;
         std::array<Voice, 32> voices {};
     };
 
