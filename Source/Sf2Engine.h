@@ -36,6 +36,9 @@ public:
         float eqLow = 0.0f;
         float eqMid = 0.0f;
         float eqHigh = 0.0f;
+        float eqLowFrequency = 220.0f;
+        float eqMidFrequency = 1200.0f;
+        float eqHighFrequency = 4200.0f;
         // Dedicated source filters.  Their bypass values deliberately sit at
         // the useful ends of the range, so old programs remain unchanged.
         float highPassHz = 20.0f;

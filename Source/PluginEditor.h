@@ -101,6 +101,7 @@ private:
         void updateMidiLearnState();
         void showReverbEditor();
         void showCompressorEditor();
+        void showEqEditor();
         void showChorusEditor();
         void showDrumPadEditor();
         void showLayerEditor();

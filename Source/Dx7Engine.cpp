@@ -706,7 +706,8 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
         for (int sample = 0; sample < scratch.getNumSamples(); ++sample)
             samples[sample] = layer.eq.process(samples[sample], channel,
                                                config.eqLow, config.eqMid, config.eqHigh,
-                                               sampleRate);
+                                               sampleRate, config.eqLowFrequency,
+                                               config.eqMidFrequency, config.eqHighFrequency);
     }
     const auto reverbMix = juce::jlimit(0.0f, 100.0f, config.reverb) / 100.0f;
     juce::Reverb::Parameters reverbParameters;

@@ -228,6 +228,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
             juce::ParameterID{"layer" + n + "EqHigh", 1}, "Layer " + n + " EQ High",
             juce::NormalisableRange<float>(-18.0f, 18.0f, 0.1f), 0.0f));
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "EqLowFrequency", 1}, "Layer " + n + " EQ Low Frequency",
+            juce::NormalisableRange<float>(40.0f, 2000.0f, 1.0f, 0.45f), 220.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "EqMidFrequency", 1}, "Layer " + n + " EQ Mid Frequency",
+            juce::NormalisableRange<float>(60.0f, 12000.0f, 1.0f, 0.40f), 1200.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "EqHighFrequency", 1}, "Layer " + n + " EQ High Frequency",
+            juce::NormalisableRange<float>(1000.0f, 20000.0f, 1.0f, 0.40f), 4200.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"layer" + n + "Reverb", 1}, "Layer " + n + " Reverb",
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 0.0f));
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -436,6 +445,9 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         config.eqLow = parameters.getRawParameterValue(prefix + "EqLow")->load();
         config.eqMid = parameters.getRawParameterValue(prefix + "EqMid")->load();
         config.eqHigh = parameters.getRawParameterValue(prefix + "EqHigh")->load();
+        config.eqLowFrequency = parameters.getRawParameterValue(prefix + "EqLowFrequency")->load();
+        config.eqMidFrequency = parameters.getRawParameterValue(prefix + "EqMidFrequency")->load();
+        config.eqHighFrequency = parameters.getRawParameterValue(prefix + "EqHighFrequency")->load();
         config.reverb = parameters.getRawParameterValue(prefix + "Reverb")->load();
         config.reverbSize = parameters.getRawParameterValue(prefix + "ReverbSize")->load();
         config.reverbDamping = parameters.getRawParameterValue(prefix + "ReverbDamping")->load();
@@ -1203,8 +1215,9 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     if (layer >= count || count <= 1) return false;
 
     const auto last = count - 1;
-    static constexpr std::array<const char*, 18> parameterSuffixes {
-        "Gain", "Attack", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh", "Reverb", "ReverbSize", "ReverbDamping",
+    static constexpr std::array<const char*, 21> parameterSuffixes {
+        "Gain", "Attack", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh",
+        "EqLowFrequency", "EqMidFrequency", "EqHighFrequency", "Reverb", "ReverbSize", "ReverbDamping",
         "ReverbWidth", "Comp", "CompThreshold", "CompRatio", "CompAttack",
         "CompRelease", "CompMakeup", "Dx7Chorus"
     };
@@ -1404,8 +1417,10 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
     {
         const auto layer = active / learnTargetCount;
         const auto target = active % learnTargetCount;
-        if ((layerFilter < 0 || layerFilter == layer) &&
-            juce::isPositiveAndBelow(layer, Sf2Engine::layerCount) &&
+        // Learn is a setup action, so it must capture the physical CC even
+        // when the layer is currently routed to another MIDI device/channel.
+        // The device/channel restrictions remain active for playback below.
+        if (juce::isPositiveAndBelow(layer, Sf2Engine::layerCount) &&
             juce::isPositiveAndBelow(target, learnTargetCount))
         {
             learnedCCs[(size_t) layer][(size_t) target].store(cc, std::memory_order_relaxed);

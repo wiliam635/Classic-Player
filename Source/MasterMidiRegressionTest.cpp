@@ -164,6 +164,26 @@ int main()
         const auto drumGain = processor->parameters.getRawParameterValue("layer1Gain")->load();
         check(drumGain >= 50.0f && drumGain <= 51.0f, "drum volume CC response");
         std::cout << "Master and Drum Pad volume CC/channel mapping passed\n";
+
+        // Regression for the physical knobs used with the SMK37 and Launchkey:
+        // CC 48 on channel 6 must be learnable for each layer effect, even
+        // when the layer is currently routed to another MIDI input.
+        processor->setLayerType(0, ClassicPlayerAudioProcessor::LayerType::sf2);
+        const std::array<std::pair<ClassicPlayerAudioProcessor::LearnTarget, const char*>, 3> effectTargets {{
+            { ClassicPlayerAudioProcessor::LearnTarget::cutoff, "layer1Cutoff" },
+            { ClassicPlayerAudioProcessor::LearnTarget::reverb, "layer1Reverb" },
+            { ClassicPlayerAudioProcessor::LearnTarget::compressor, "layer1Comp" }
+        }};
+        for (const auto& [target, parameterId] : effectTargets)
+        {
+            processor->beginMidiLearn(0, target);
+            cc(*processor, 6, 48, 96);
+            check(processor->midiLearnCC(0, target) == 48, "effect CC number not learned");
+            check(processor->midiLearnChannel(0, target) == 6, "effect CC channel not learned");
+            const auto value = processor->parameters.getRawParameterValue(parameterId)->load();
+            check(value >= 75.0f && value <= 76.0f, "effect CC response");
+        }
+        std::cout << "Layer effect MIDI Learn CC/channel mapping passed\n";
         return 0;
     }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
