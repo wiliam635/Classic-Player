@@ -513,6 +513,28 @@ public:
                        juce::Justification::centred);
         }
 
+        // Live post-master FFT, drawn behind the EQ response so the user can
+        // see both the source energy and the filter shape at once. The
+        // analyser floor is lifted into the graph's +/-18 dB display range.
+        juce::Path spectrum;
+        for (int i = 0; i <= 240; ++i)
+        {
+            const auto normalized = (float) i / 240.0f;
+            const auto frequency = 20.0f * std::pow(1000.0f, normalized);
+            const auto level = juce::jlimit(-18.0f, 18.0f,
+                processor.spectrumDbAt(frequency) + 24.0f);
+            const auto point = juce::Point<float>(toX(frequency), toY(level));
+            if (i == 0) spectrum.startNewSubPath(point); else spectrum.lineTo(point);
+        }
+        auto spectrumArea = spectrum;
+        spectrumArea.lineTo(graph.getRight(), toY(-18.0f));
+        spectrumArea.lineTo(graph.getX(), toY(-18.0f));
+        spectrumArea.closeSubPath();
+        g.setColour(juce::Colour(0xff42a8d8).withAlpha(0.18f));
+        g.fillPath(spectrumArea);
+        g.setColour(juce::Colour(0xff4ba9d0).withAlpha(0.72f));
+        g.strokePath(spectrum, juce::PathStrokeType(1.1f));
+
         const auto lowFrequency = parameter("EqLowFrequency", 220.0f);
         const auto midFrequency = parameter("EqMidFrequency", 1200.0f);
         const auto highFrequency = parameter("EqHighFrequency", 4200.0f);
@@ -555,6 +577,8 @@ public:
         g.setColour(juce::Colour(mutedText));
         g.drawText("Arraste os pontos para ajustar frequencia e ganho", 42, getHeight() - 18,
                    getWidth() - 84, 14, juce::Justification::centred);
+        g.setColour(juce::Colour(0xff74c8e6).withAlpha(0.9f));
+        g.drawText("ANALISADOR", 10, 4, 70, 14, juce::Justification::left);
     }
 
     void mouseDown(const juce::MouseEvent& event) override

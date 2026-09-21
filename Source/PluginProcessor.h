@@ -74,6 +74,9 @@ public:
     void selectLayerPreset(int layer, int bank, int program);
     void sendLayerController(int layer, int controller, int value);
     float layerPeak(int layer) const;
+    // Smoothed post-master spectrum used by the EQ editor's visual analyser.
+    // The audio callback only publishes atomics; the editor reads this safely.
+    float spectrumDbAt(float frequency) const;
     int activeLayerCount() const { return activeLayers.load(std::memory_order_relaxed); }
     bool addLayer(LayerType type = LayerType::sf2);
     bool removeLayer(int layer);
@@ -203,6 +206,7 @@ private:
     void loadLiveSetState();
     void saveLiveSetState() const;
     void updateMasterEq();
+    void captureSpectrum(const juce::AudioBuffer<float>&) noexcept;
     void processDrumPads(juce::AudioBuffer<float>&, const juce::MidiBuffer&);
     void recordMidiBuffer(const juce::MidiBuffer&, juce::int64 blockStartSample) noexcept;
     bool writeRecordedMidiFile();
@@ -235,6 +239,13 @@ private:
         -999.0f, -999.0f, -999.0f, -999.0f,
         -999.0f, -999.0f, -999.0f, -999.0f
     };
+    static constexpr int spectrumOrder = 11;
+    static constexpr int spectrumSize = 1 << spectrumOrder;
+    juce::dsp::FFT spectrumFft { spectrumOrder };
+    std::array<float, spectrumSize> spectrumFifo {};
+    std::array<float, spectrumSize * 2> spectrumWork {};
+    std::array<std::atomic<float>, spectrumSize / 2 + 1> spectrumBins {};
+    int spectrumFifoIndex = 0;
     juce::TimeSliceThread recordingThread { "Classic Player WAV Writer" };
     std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> recordingWriter;
     std::atomic<juce::AudioFormatWriter::ThreadedWriter*> activeRecordingWriter { nullptr };

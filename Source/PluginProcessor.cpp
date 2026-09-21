@@ -150,6 +150,7 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
     for (auto& cc : learnedLiveSetSlotCCs) cc.store(-1, std::memory_order_relaxed);
     for (auto& channel : learnedLiveSetSlotChannels) channel.store(-1, std::memory_order_relaxed);
     for (auto& peak : externalPeaks) peak.store(0.0f);
+    for (auto& bin : spectrumBins) bin.store(-100.0f, std::memory_order_relaxed);
     for (auto& type : layerTypes) type.store(static_cast<int>(LayerType::sf2));
     for (int layer = Sf2Engine::defaultLayerCount; layer < Sf2Engine::layerCount; ++layer)
     {
@@ -290,6 +291,9 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
                              + " buffer=" + juce::String(samplesPerBlock));
     currentSampleRate = sampleRate;
     currentBlockSize = samplesPerBlock;
+    spectrumFifoIndex = 0;
+    spectrumFifo.fill(0.0f);
+    spectrumWork.fill(0.0f);
     engine.prepare(sampleRate, samplesPerBlock);
     dx7Engine.prepare(sampleRate, samplesPerBlock);
     analogSynthEngine.prepare(sampleRate, samplesPerBlock);
@@ -549,10 +553,52 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     juce::dsp::ProcessContextReplacing<float> context(block);
     outputLimiter.process(context);
 
+    // Feed the visual analyser from the final stereo mix. This is deliberately
+    // a small, allocation-free FIFO and never blocks the real-time callback.
+    captureSpectrum(buffer);
+
     // The threaded writer queues this final post-limiter mix. It never performs
     // disk I/O directly in the real-time audio callback.
     if (auto* writer = activeRecordingWriter.load(std::memory_order_acquire))
         writer->write(buffer.getArrayOfReadPointers(), buffer.getNumSamples());
+}
+
+void ClassicPlayerAudioProcessor::captureSpectrum(const juce::AudioBuffer<float>& buffer) noexcept
+{
+    if (buffer.getNumSamples() <= 0 || buffer.getNumChannels() <= 0) return;
+    const auto* left = buffer.getReadPointer(0);
+    const auto* right = buffer.getNumChannels() > 1 ? buffer.getReadPointer(1) : left;
+    for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+    {
+        spectrumFifo[(size_t) spectrumFifoIndex++] = 0.5f * (left[sample] + right[sample]);
+        if (spectrumFifoIndex < spectrumSize) continue;
+
+        std::copy(spectrumFifo.begin(), spectrumFifo.end(), spectrumWork.begin());
+        std::fill(spectrumWork.begin() + spectrumSize, spectrumWork.end(), 0.0f);
+        spectrumFft.performFrequencyOnlyForwardTransform(spectrumWork.data());
+        const auto scale = 1.0f / static_cast<float>(spectrumSize);
+        for (int bin = 0; bin <= spectrumSize / 2; ++bin)
+        {
+            const auto magnitude = juce::jmax(1.0e-7f, spectrumWork[(size_t) bin] * scale);
+            const auto db = juce::jlimit(-100.0f, 6.0f,
+                                         juce::Decibels::gainToDecibels(magnitude));
+            spectrumBins[(size_t) bin].store(db, std::memory_order_release);
+        }
+        spectrumFifoIndex = 0;
+    }
+}
+
+float ClassicPlayerAudioProcessor::spectrumDbAt(float frequency) const
+{
+    const auto safeFrequency = juce::jlimit(20.0, juce::jmax(20.0, currentSampleRate * 0.49),
+                                            static_cast<double>(frequency));
+    const auto bin = safeFrequency / currentSampleRate * spectrumSize;
+    const auto lower = juce::jlimit(0, spectrumSize / 2, static_cast<int>(std::floor(bin)));
+    const auto upper = juce::jmin(spectrumSize / 2, lower + 1);
+    const auto fraction = static_cast<float>(bin - lower);
+    const auto low = spectrumBins[(size_t) lower].load(std::memory_order_acquire);
+    const auto high = spectrumBins[(size_t) upper].load(std::memory_order_acquire);
+    return juce::jmap(fraction, low, high);
 }
 
 float ClassicPlayerAudioProcessor::masterEqValue(const juce::String& parameterId) const
