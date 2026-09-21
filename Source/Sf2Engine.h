@@ -123,6 +123,7 @@ private:
         std::array<float, 2> highPassInput { 0.0f, 0.0f };
         std::array<float, 2> highPassOutput { 0.0f, 0.0f };
         std::array<float, 2> lowPassState { 0.0f, 0.0f };
+        juce::SmoothedValue<float> gain;
         std::array<float, 2> compressorEnvelope { 0.0f, 0.0f };
         LayerEqState eq;
         juce::Reverb nativeReverb;

@@ -51,6 +51,8 @@ void Sf2Engine::createSynth(Layer& layer)
     layer.highPassInput = { 0.0f, 0.0f };
     layer.highPassOutput = { 0.0f, 0.0f };
     layer.lowPassState = { 0.0f, 0.0f };
+    layer.gain.reset(currentSampleRate, 0.02);
+    layer.gain.setCurrentAndTargetValue(layer.config.gain);
     layer.compressorEnvelope = { 0.0f, 0.0f };
     layer.eq.reset();
     layer.nativeReverb.reset();
@@ -69,6 +71,8 @@ void Sf2Engine::prepare(double sampleRate, int maximumBlockSize)
         layer.nativeReverb.setSampleRate(currentSampleRate);
         layer.nativeReverb.reset();
         layer.compressorEnvelope = { 0.0f, 0.0f };
+        layer.gain.reset(currentSampleRate, 0.02);
+        layer.gain.setCurrentAndTargetValue(layer.config.gain);
 #if JUCE_WINDOWS
         // The internal immediate-rate helper is not exported by the Windows
         // FluidSynth library. Rebuild the synth at the requested device rate
@@ -610,11 +614,16 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         const auto previousPeak = layer.peak.load(std::memory_order_relaxed) * 0.82f;
         layer.peak.store(juce::jmax(renderedPeak, previousPeak), std::memory_order_relaxed);
 
-        const auto leftGain = layer.config.gain * (layer.config.pan <= 0.0f ? 1.0f : 1.0f - layer.config.pan);
-        const auto rightGain = layer.config.gain * (layer.config.pan >= 0.0f ? 1.0f : 1.0f + layer.config.pan);
-        output.addFrom(0, 0, scratch, 0, 0, output.getNumSamples(), leftGain);
-        if (output.getNumChannels() > 1)
-            output.addFrom(1, 0, scratch, 1, 0, output.getNumSamples(), rightGain);
+        layer.gain.setTargetValue(juce::jmax(0.0f, layer.config.gain));
+        const auto leftPan = layer.config.pan <= 0.0f ? 1.0f : 1.0f - layer.config.pan;
+        const auto rightPan = layer.config.pan >= 0.0f ? 1.0f : 1.0f + layer.config.pan;
+        for (int sample = 0; sample < output.getNumSamples(); ++sample)
+        {
+            const auto gain = layer.gain.getNextValue();
+            output.addSample(0, sample, scratch.getSample(0, sample) * gain * leftPan);
+            if (output.getNumChannels() > 1)
+                output.addSample(1, sample, scratch.getSample(1, sample) * gain * rightPan);
+        }
     }
 }
 
