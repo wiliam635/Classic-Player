@@ -150,7 +150,7 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
     for (auto& cc : learnedLiveSetSlotCCs) cc.store(-1, std::memory_order_relaxed);
     for (auto& channel : learnedLiveSetSlotChannels) channel.store(-1, std::memory_order_relaxed);
     for (auto& peak : externalPeaks) peak.store(0.0f);
-    for (auto& bin : spectrumBins) bin.store(-100.0f, std::memory_order_relaxed);
+    for (auto& sample : spectrumSamples) sample.store(0.0f, std::memory_order_relaxed);
     for (auto& type : layerTypes) type.store(static_cast<int>(LayerType::sf2));
     for (int layer = Sf2Engine::defaultLayerCount; layer < Sf2Engine::layerCount; ++layer)
     {
@@ -293,10 +293,10 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     juce::Logger::writeToLog("prepareToPlay: sampleRate=" + juce::String(sampleRate)
                              + " buffer=" + juce::String(samplesPerBlock));
     currentSampleRate = sampleRate;
+    analyserSampleRate.store(sampleRate, std::memory_order_relaxed);
     currentBlockSize = samplesPerBlock;
-    spectrumFifoIndex = 0;
-    spectrumFifo.fill(0.0f);
-    spectrumWork.fill(0.0f);
+    spectrumWritePosition.store(0, std::memory_order_relaxed);
+    for (auto& sample : spectrumSamples) sample.store(0.0f, std::memory_order_relaxed);
     engine.prepare(sampleRate, samplesPerBlock);
     dx7Engine.prepare(sampleRate, samplesPerBlock);
     analogSynthEngine.prepare(sampleRate, samplesPerBlock);
@@ -557,8 +557,8 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     juce::dsp::ProcessContextReplacing<float> context(block);
     outputLimiter.process(context);
 
-    // Feed the visual analyser from the final stereo mix. This is deliberately
-    // a small, allocation-free FIFO and never blocks the real-time callback.
+    // Publish the final stereo mix for the visual analyser. The audio callback
+    // only performs atomic stores; FFT/windowing runs on the editor thread.
     captureSpectrum(buffer);
 
     // The threaded writer queues this final post-limiter mix. It never performs
@@ -572,37 +572,28 @@ void ClassicPlayerAudioProcessor::captureSpectrum(const juce::AudioBuffer<float>
     if (buffer.getNumSamples() <= 0 || buffer.getNumChannels() <= 0) return;
     const auto* left = buffer.getReadPointer(0);
     const auto* right = buffer.getNumChannels() > 1 ? buffer.getReadPointer(1) : left;
+    auto write = spectrumWritePosition.load(std::memory_order_relaxed);
     for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
-    {
-        spectrumFifo[(size_t) spectrumFifoIndex++] = 0.5f * (left[sample] + right[sample]);
-        if (spectrumFifoIndex < spectrumSize) continue;
-
-        std::copy(spectrumFifo.begin(), spectrumFifo.end(), spectrumWork.begin());
-        std::fill(spectrumWork.begin() + spectrumSize, spectrumWork.end(), 0.0f);
-        spectrumFft.performFrequencyOnlyForwardTransform(spectrumWork.data());
-        const auto scale = 1.0f / static_cast<float>(spectrumSize);
-        for (int bin = 0; bin <= spectrumSize / 2; ++bin)
-        {
-            const auto magnitude = juce::jmax(1.0e-7f, spectrumWork[(size_t) bin] * scale);
-            const auto db = juce::jlimit(-100.0f, 6.0f,
-                                         juce::Decibels::gainToDecibels(magnitude));
-            spectrumBins[(size_t) bin].store(db, std::memory_order_release);
-        }
-        spectrumFifoIndex = 0;
-    }
+        spectrumSamples[(size_t) (write++ % spectrumSampleCount)].store(
+            0.5f * (left[sample] + right[sample]), std::memory_order_relaxed);
+    spectrumWritePosition.store(write, std::memory_order_release);
 }
 
-float ClassicPlayerAudioProcessor::spectrumDbAt(float frequency) const
+void ClassicPlayerAudioProcessor::copySpectrumSamples(float* destination, int sampleCount) const noexcept
 {
-    const auto safeFrequency = juce::jlimit(20.0, juce::jmax(20.0, currentSampleRate * 0.49),
-                                            static_cast<double>(frequency));
-    const auto bin = safeFrequency / currentSampleRate * spectrumSize;
-    const auto lower = juce::jlimit(0, spectrumSize / 2, static_cast<int>(std::floor(bin)));
-    const auto upper = juce::jmin(spectrumSize / 2, lower + 1);
-    const auto fraction = static_cast<float>(bin - lower);
-    const auto low = spectrumBins[(size_t) lower].load(std::memory_order_acquire);
-    const auto high = spectrumBins[(size_t) upper].load(std::memory_order_acquire);
-    return juce::jmap(fraction, low, high);
+    if (destination == nullptr || sampleCount <= 0) return;
+    const auto count = juce::jmin(sampleCount, spectrumSampleCount);
+    const auto write = spectrumWritePosition.load(std::memory_order_acquire);
+    const auto available = static_cast<int>(juce::jmin(
+        static_cast<unsigned int>(count), write));
+    const auto missing = count - available;
+    const auto oldest = write - static_cast<unsigned int>(available);
+    std::fill(destination, destination + missing, 0.0f);
+    for (int i = 0; i < available; ++i)
+        destination[missing + i] = spectrumSamples[(size_t) ((oldest + static_cast<unsigned int>(i))
+                                                             % spectrumSampleCount)].load(std::memory_order_relaxed);
+    if (sampleCount > count)
+        std::fill(destination + count, destination + sampleCount, 0.0f);
 }
 
 float ClassicPlayerAudioProcessor::masterEqValue(const juce::String& parameterId) const
@@ -1305,6 +1296,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         std::swap(continuousBanks[(size_t)destination],continuousBanks[(size_t)source]);
         const auto sourceType = layerType(source);
         const auto sourcePath = engine.getSoundFontPath(source);
+        const auto sourceBank = engine.getSelectedBank(source);
+        const auto sourceProgram = engine.getSelectedProgram(source);
         const auto sourceDx7Path = dx7Engine.path(source);
         const auto sourceDx7Patch = dx7Engine.selectedPatch(source);
         const auto sourceConfig = engine.getConfig(source);
@@ -1317,10 +1310,13 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         engine.unloadSoundFont(destination);
         dx7Engine.unload(destination);
         analogSynthEngine.unload(destination);
-    hammondEngine.unload(destination);
+        hammondEngine.unload(destination);
 
         if (sourceType == LayerType::sf2 && sourcePath.isNotEmpty())
-            engine.loadSoundFont(destination, juce::File(sourcePath));
+        {
+            if (engine.loadSoundFont(destination, juce::File(sourcePath)).wasOk())
+                engine.selectPreset(destination, sourceBank, sourceProgram);
+        }
         else if (sourceType == LayerType::dx7 && sourceDx7Path.isNotEmpty())
         {
             if (dx7Engine.loadSysEx(destination, juce::File(sourceDx7Path)).wasOk())
@@ -1340,6 +1336,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         hammondLayerConfigs[(size_t)destination].learning = -1;
         savedPaths[(size_t) destination] = restoredType == LayerType::sf2
             ? sourceSavedPath : juce::String{};
+        savedSf2Banks[(size_t) destination] = sourceBank;
+        savedSf2Programs[(size_t) destination] = sourceProgram;
         layerMidiDeviceIds[(size_t) destination] = sourceMidiDevice;
         layerTypes[(size_t) destination].store(static_cast<int>(restoredType), std::memory_order_relaxed);
 
@@ -1374,6 +1372,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     disabled.enabled = false;
     engine.setConfig(last, disabled);
     savedPaths[(size_t) last].clear();
+    savedSf2Banks[(size_t) last] = 0;
+    savedSf2Programs[(size_t) last] = 0;
     analogLayerConfigs[(size_t) last] = AnalogSynthEngine::Config{};
     hammondLayerConfigs[(size_t)last] = HammondEngine::Config{};
     layerMidiDeviceIds[(size_t) last].clear();
@@ -1917,6 +1917,7 @@ juce::String ClassicPlayerAudioProcessor::liveSetSlotLayerVolumes(int bank, int 
 
     const auto count = juce::jlimit(1, Sf2Engine::layerCount,
         xml->getIntAttribute("activeLayers", Sf2Engine::defaultLayerCount));
+    const auto normalizedValues = xml->getIntAttribute("stateVersion", 0) < 160;
     std::function<bool(const juce::XmlElement&, const juce::String&, float&)> findParameter;
     findParameter = [&findParameter](const juce::XmlElement& element,
                                       const juce::String& id, float& result)
@@ -1934,13 +1935,12 @@ juce::String ClassicPlayerAudioProcessor::liveSetSlotLayerVolumes(int bank, int 
     juce::String result;
     for (int layer = 0; layer < count; ++layer)
     {
-        float value = 0.8f;
+        float value = normalizedValues ? 0.8f : 80.0f;
         if (!findParameter(*xml, "layer" + juce::String(layer + 1) + "Gain", value))
-            value = 0.8f;
-        // APVTS state has used normalized values in some releases and the
-        // displayed 0..100 range in others. Accept both formats so old
-        // .ckprogram files still show the correct Live Set volume.
-        const auto percent = value <= 1.0f ? value * 100.0f : value;
+            value = normalizedValues ? 0.8f : 80.0f;
+        // Older sessions stored normalized values. Current sessions store the
+        // displayed percentage, where 1 means 1% (not 100%).
+        const auto percent = normalizedValues ? value * 100.0f : value;
         if (result.isNotEmpty()) result << "   ";
         result << "L" << (layer + 1) << " "
                << juce::String(juce::jlimit(0, 100, juce::roundToInt(percent))) << "%";
@@ -2299,7 +2299,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                         writeParameter(gainId, 80.0f);
                 }
             }
-            state.setProperty("stateVersion", 165, nullptr);
+            state.setProperty("stateVersion", 166, nullptr);
             parameters.replaceState(state);
             for(int layer=0;layer<Sf2Engine::layerCount;++layer)
             {

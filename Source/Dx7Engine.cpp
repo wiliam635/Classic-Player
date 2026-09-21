@@ -14,6 +14,11 @@ Dx7Engine::Dx7Engine()
     : tuning(createStandardTuning())
 {
     controllers.core = &fmCore;
+    // Classic DX7 keyboard modulation: CC1 drives both pitch and amplitude
+    // modulation through the engine's native controller path.
+    controllers.wheel.range = 99;
+    controllers.wheel.pitch = true;
+    controllers.wheel.amp = true;
     controllers.refresh();
     for (auto& peak : layerPeaks) peak.store(0.0f, std::memory_order_relaxed);
 }
@@ -38,6 +43,7 @@ void Dx7Engine::prepare(double newSampleRate, int newMaximumBlockSize)
         layer.chorusPhase = 0.0;
         layer.lfoPhase = 0.0;
         layer.lfoDelayProgress = 0.0;
+        layer.modulationValue = 0;
         layer.dcInput = {};
         layer.dcOutput = {};
         layer.eq.reset();
@@ -242,6 +248,7 @@ juce::Result Dx7Engine::loadSysEx(int index, const juce::File& file)
     target.heldNotes.fill(false);
     target.heldVelocities.fill(0.0f);
     target.sustainDown = false;
+    target.modulationValue = 0;
     target.lfoPhase = 0.0;
     target.lfoDelayProgress = 0.0;
     target.chorusPhase = 0.0;
@@ -266,6 +273,7 @@ void Dx7Engine::unload(int index)
     layer.heldNotes.fill(false);
     layer.heldVelocities.fill(0.0f);
     layer.sustainDown = false;
+    layer.modulationValue = 0;
     layer.lfoPhase = 0.0;
     layer.lfoDelayProgress = 0.0;
     layer.chorusPhase = 0.0;
@@ -449,6 +457,13 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
         return;
     }
 
+    if (message.isController() && message.getControllerNumber() == 1)
+    {
+        layer.modulationValue = config.modulationEnabled
+            ? juce::jlimit(0, 127, message.getControllerValue()) : 0;
+        return;
+    }
+
     if (message.isController() && message.getControllerNumber() == 64)
     {
         if (!config.sustainEnabled) return;
@@ -587,6 +602,7 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
 
     auto host = hostMidi.begin();
     auto routed = routedMidi.begin();
+    auto activeModulation = -1;
     for (int offset = 0; offset < scratch.getNumSamples(); ++offset)
     {
         // Merge both input streams by sample position, with host first on ties.
@@ -598,6 +614,13 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
             if (event.samplePosition > offset) break;
             dispatch(layer, config, event.getMessage());
             if (useHost) ++host; else ++routed;
+        }
+        const auto desiredModulation = config.modulationEnabled ? layer.modulationValue : 0;
+        if (desiredModulation != activeModulation)
+        {
+            controllers.modwheel_cc = desiredModulation;
+            controllers.refresh();
+            activeModulation = desiredModulation;
         }
         const auto layerGain = layer.gain.getNextValue();
         for (auto& voice : layer.voices)
@@ -613,8 +636,7 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
             // MSFA expects a Q24 LFO value. The previous fixed centre value
             // disabled the DX7's native amplitude modulation entirely.
             const auto blockPhase = layer.lfoPhase + (double) offset * lfoStep;
-            const auto lfoWave = config.modulationEnabled
-                ? 0.5 + 0.5 * std::sin(blockPhase) : 0.5;
+            const auto lfoWave = 0.5 + 0.5 * std::sin(blockPhase);
             const auto delayedDepth = delaySeconds > 0.0
                 ? juce::jlimit(0.0, 1.0, (layer.lfoDelayProgress
                     + (double) offset / sampleRate) / delaySeconds) : 1.0;

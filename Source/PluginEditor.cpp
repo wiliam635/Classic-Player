@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <complex>
 #include <initializer_list>
 #include <set>
 
@@ -531,7 +532,7 @@ public:
             const auto normalized = (float) i / 240.0f;
             const auto frequency = 20.0f * std::pow(1000.0f, normalized);
             const auto level = juce::jlimit(-18.0f, 18.0f,
-                processor.spectrumDbAt(frequency) + 24.0f);
+                spectrumDbAt(frequency) + 24.0f);
             const auto point = juce::Point<float>(toX(frequency), toY(level));
             if (i == 0) spectrum.startNewSubPath(point); else spectrum.lineTo(point);
         }
@@ -587,7 +588,7 @@ public:
         g.drawText("Arraste os pontos para ajustar frequencia e ganho", 42, getHeight() - 18,
                    getWidth() - 84, 14, juce::Justification::centred);
         g.setColour(juce::Colour(0xff74c8e6).withAlpha(0.9f));
-        g.drawText("ANALISADOR", 10, 4, 70, 14, juce::Justification::left);
+        g.drawText("ANALISADOR MASTER", 10, 4, 120, 14, juce::Justification::left);
     }
 
     void mouseDown(const juce::MouseEvent& event) override
@@ -670,17 +671,38 @@ private:
                             float highFrequency, float highGain,
                             float lowQ, float midQ, float highQ)
     {
-        const auto logFrequency = std::log10(juce::jmax(20.0f, frequency));
-        const auto lowWidth = juce::jlimit(0.12f, 0.8f, 0.42f / juce::jmax(0.1f, lowQ));
-        const auto highWidth = juce::jlimit(0.12f, 0.8f, 0.42f / juce::jmax(0.1f, highQ));
-        const auto low = 1.0f / (1.0f + std::exp((logFrequency - std::log10(lowFrequency))
-                                                   / lowWidth));
-        const auto midWidth = juce::jlimit(0.04f, 0.60f, 0.30f / juce::jmax(0.1f, midQ));
-        const auto midDistance = (logFrequency - std::log10(midFrequency)) / midWidth;
-        const auto mid = std::exp(-0.5f * midDistance * midDistance);
-        const auto high = 1.0f / (1.0f + std::exp((std::log10(highFrequency) - logFrequency)
-                                                    / highWidth));
-        return juce::jlimit(-18.0f, 18.0f, lowGain * low + midGain * mid + highGain * high);
+        const auto peakingDb = [frequency](float centre, float gainDb, float q)
+        {
+            constexpr float sampleRate = 48000.0f;
+            const auto safeCentre = juce::jlimit(20.0f, sampleRate * 0.49f, centre);
+            const auto safeQ = juce::jlimit(0.1f, 20.0f, q);
+            const auto amplitude = juce::Decibels::decibelsToGain(0.5f * gainDb);
+            const auto omega = juce::MathConstants<float>::twoPi * safeCentre / sampleRate;
+            const auto alpha = std::sin(omega) / (2.0f * safeQ);
+            const auto cosine = std::cos(omega);
+            const auto a0 = 1.0f + alpha / amplitude;
+            const std::array<float, 3> b {
+                (1.0f + alpha * amplitude) / a0,
+                (-2.0f * cosine) / a0,
+                (1.0f - alpha * amplitude) / a0
+            };
+            const std::array<float, 3> a {
+                1.0f,
+                (-2.0f * cosine) / a0,
+                (1.0f - alpha / amplitude) / a0
+            };
+            const auto probe = juce::MathConstants<float>::twoPi
+                             * juce::jlimit(20.0f, sampleRate * 0.49f, frequency) / sampleRate;
+            const std::complex<float> z1 { std::cos(probe), -std::sin(probe) };
+            const auto z2 = z1 * z1;
+            const auto numerator = b[0] + b[1] * z1 + b[2] * z2;
+            const auto denominator = a[0] + a[1] * z1 + a[2] * z2;
+            return juce::Decibels::gainToDecibels(std::abs(numerator / denominator), -60.0f);
+        };
+        return juce::jlimit(-18.0f, 18.0f,
+            peakingDb(lowFrequency, lowGain, lowQ)
+          + peakingDb(midFrequency, midGain, midQ)
+          + peakingDb(highFrequency, highGain, highQ));
     }
 
     void drawBandNode(juce::Graphics& g, juce::Rectangle<float> graph,
@@ -724,9 +746,40 @@ private:
         return selected;
     }
 
-    void timerCallback() override { repaint(); }
+    float spectrumDbAt(float frequency) const
+    {
+        const auto sampleRate = static_cast<float>(processor.spectrumSampleRate());
+        const auto bin = juce::jlimit(0.0f, static_cast<float>(spectrumSize / 2),
+            frequency / sampleRate * static_cast<float>(spectrumSize));
+        const auto lower = static_cast<int>(std::floor(bin));
+        const auto upper = juce::jmin(spectrumSize / 2, lower + 1);
+        return juce::jmap(bin - static_cast<float>(lower),
+                          spectrumBins[(size_t) lower], spectrumBins[(size_t) upper]);
+    }
+
+    void timerCallback() override
+    {
+        processor.copySpectrumSamples(spectrumData.data(), spectrumSize);
+        spectrumWindow.multiplyWithWindowingTable(spectrumData.data(), spectrumSize);
+        std::fill(spectrumData.begin() + spectrumSize, spectrumData.end(), 0.0f);
+        spectrumFft.performFrequencyOnlyForwardTransform(spectrumData.data());
+        const auto scale = 2.0f / static_cast<float>(spectrumSize);
+        for (int bin = 0; bin <= spectrumSize / 2; ++bin)
+            spectrumBins[(size_t) bin] = juce::jlimit(-100.0f, 6.0f,
+                juce::Decibels::gainToDecibels(
+                    juce::jmax(1.0e-7f, spectrumData[(size_t) bin] * scale)));
+        repaint();
+    }
 
     ClassicPlayerAudioProcessor& processor;
+    static constexpr int spectrumOrder = 11;
+    static constexpr int spectrumSize = 1 << spectrumOrder;
+    juce::dsp::FFT spectrumFft { spectrumOrder };
+    juce::dsp::WindowingFunction<float> spectrumWindow {
+        spectrumSize, juce::dsp::WindowingFunction<float>::hann, true
+    };
+    std::array<float, spectrumSize * 2> spectrumData {};
+    std::array<float, spectrumSize / 2 + 1> spectrumBins {};
     int layer = 0;
     bool master = false;
     int selectedBand = -1;
@@ -1387,13 +1440,30 @@ public:
     {
         flatButton(saveButton);
         saveButton.setButtonText("Salvar Preset");
-        saveButton.setTooltip("Salva a programação completa, incluindo esta layer, na biblioteca de programas.");
+        saveButton.setTooltip("Salva a programação completa no local escolhido.");
         saveButton.onClick = [this]
         {
-            juce::File saved;
-            const auto result=processor.saveProgram(engineName+" - Layer "+juce::String(index+1),saved);
-            if(result.failed()) juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,"Falha ao salvar",result.getErrorMessage());
-            else status.setText("SALVO: "+saved.getFileName(),juce::dontSendNotification);
+            auto name = (engineName + " - Layer " + juce::String(index + 1))
+                .retainCharacters("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_()");
+            const auto destination = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                .getChildFile(name + ".ckprogram");
+            chooser = std::make_unique<juce::FileChooser>("Salvar Preset Classic Player",
+                                                          destination, "*.ckprogram");
+            const juce::Component::SafePointer<EngineProgramSavePanel> safe(this);
+            chooser->launchAsync(juce::FileBrowserComponent::saveMode
+                                 | juce::FileBrowserComponent::canSelectFiles
+                                 | juce::FileBrowserComponent::warnAboutOverwriting,
+                [safe](const juce::FileChooser& selectedFile)
+                {
+                    if (safe == nullptr || selectedFile.getResult() == juce::File{}) return;
+                    juce::File saved;
+                    const auto result = safe->processor.saveProgramToFile(selectedFile.getResult(), saved);
+                    if (result.failed())
+                        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                               "Falha ao salvar", result.getErrorMessage());
+                    else
+                        safe->status.setText("SALVO: " + saved.getFullPathName(), juce::dontSendNotification);
+                });
         };
         status.setJustificationType(juce::Justification::centredLeft);
         status.setColour(juce::Label::textColourId,juce::Colour(mutedText));
@@ -1403,6 +1473,7 @@ public:
     void resized() override {auto row=getLocalBounds().reduced(2);saveButton.setBounds(row.removeFromLeft(210));status.setBounds(row.reduced(8,0));}
 private:
     ClassicPlayerAudioProcessor& processor;int index;juce::String engineName;juce::TextButton saveButton;juce::Label status;
+    std::unique_ptr<juce::FileChooser> chooser;
 };
 
 class Sf2EditorPanel final : public juce::Component
@@ -3093,11 +3164,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     // this explicit reset, switching from Drum Pads left the meter, knobs and
     // routing controls hidden in the next SF2/DX7/Analog layer.
     const std::initializer_list<juce::Component*> sharedControls {
-        &fileLabel, &gain, &cutoff, &reverb, &compressor, &mode, &sustain,
+        &fileLabel, &gain, &attack, &release, &cutoff, &reverb, &compressor, &mode, &sustain,
         &midiChannel, &octave, &lowNote, &highNote, &velocityCurve, &midiDevice,
         &volumeLearn, &resetMidiLearnButton, &cutoffLearn, &reverbLearn,
         &compressorLearn, &reverbEditButton, &compressorEditButton, &meter,
-        &chorus, &chorusEditButton, &cutoffLabel, &reverbLabel, &compressorLabel,
+        &chorus, &chorusEditButton, &attackLabel, &releaseLabel, &cutoffLabel, &reverbLabel, &compressorLabel,
         &chorusLabel, &routingLabel,
         &modulationButton
     };
@@ -3134,11 +3205,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
             &loadButton, &externalInstrumentButton, &dx7Button, &deleteDx7LibraryButton,
             &openExternalEditorButton, &deleteLibraryButton, &categoryBox, &libraryBox,
             &presetBox, &externalInstrumentBox, &dx7LibraryBox, &dx7PatchBox, &fileLabel,
-            &gain, &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel,
+            &gain, &attack, &release, &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel,
             &octave, &lowNote, &highNote, &velocityCurve, &midiDevice,
             &volumeLearn, &resetMidiLearnButton, &cutoffLearn, &reverbLearn,
             &compressorLearn, &reverbEditButton, &compressorEditButton, &meter,
-            &chorus, &chorusEditButton, &cutoffLabel, &reverbLabel, &compressorLabel,
+            &chorus, &chorusEditButton, &attackLabel, &releaseLabel, &cutoffLabel, &reverbLabel, &compressorLabel,
             &chorusLabel, &routingLabel
         };
         for (auto* control : controls)
@@ -3156,11 +3227,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
             &loadButton, &externalInstrumentButton, &dx7Button, &deleteDx7LibraryButton,
             &openExternalEditorButton, &deleteLibraryButton, &categoryBox, &libraryBox,
             &presetBox, &externalInstrumentBox, &dx7LibraryBox, &dx7PatchBox, &fileLabel,
-            &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel, &octave,
+            &attack, &release, &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel, &octave,
             &lowNote, &highNote, &velocityCurve, &midiDevice,
             &resetMidiLearnButton, &cutoffLearn, &reverbLearn, &compressorLearn,
             &reverbEditButton, &compressorEditButton, &chorus, &chorusEditButton,
-            &cutoffLabel, &reverbLabel, &compressorLabel, &chorusLabel, &routingLabel
+            &attackLabel, &releaseLabel, &cutoffLabel, &reverbLabel, &compressorLabel, &chorusLabel, &routingLabel
         };
         for (auto* control : detailedControls)
             control->setVisible(false);

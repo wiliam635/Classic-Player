@@ -95,6 +95,7 @@ private:
         std::array<uint64_t, 128> noteOrder {};
         uint64_t noteSequence = 0;
         bool sustainDown = false;
+        int modulationValue = 0;
         // LFO/chorus buffers are prepared when the engine is prepared or a
         // bank is loaded. They are never allocated by render().
         double lfoPhase = 0.0;

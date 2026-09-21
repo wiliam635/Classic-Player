@@ -41,7 +41,11 @@ struct LayerEqState
         {
             const auto safeFrequency = juce::jlimit(20.0f, 0.49f * (float) safeRate, frequency);
             const auto safeQ = juce::jlimit(0.1f, 20.0f, q);
-            const auto amplitude = juce::Decibels::decibelsToGain(juce::jlimit(-18.0f, 18.0f, gainDb));
+            // RBJ peaking-EQ coefficients use A = 10^(dB/40), not the
+            // ordinary amplitude conversion 10^(dB/20). Using the latter
+            // doubles the requested boost/cut and disagrees with the graph.
+            const auto amplitude = juce::Decibels::decibelsToGain(
+                0.5f * juce::jlimit(-18.0f, 18.0f, gainDb));
             const auto omega = juce::MathConstants<float>::twoPi * safeFrequency / (float) safeRate;
             const auto alpha = std::sin(omega) / (2.0f * safeQ);
             const auto cosine = std::cos(omega);
