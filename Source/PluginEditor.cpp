@@ -122,11 +122,11 @@ public:
             g.setColour(juce::Colour(text));
             g.setFont(juce::FontOptions(juce::jlimit(17.0f, 28.0f, w * 0.085f), juce::Font::bold));
             g.drawFittedText(button.getProperties()["liveTitle"].toString(),
-                            14, (int)(h * 0.49f), (int)w - 28, (int)(h * 0.29f), juce::Justification::centred, 2);
+                            14, (int)(h * 0.49f), (int)w - 28, (int)(h * 0.20f), juce::Justification::centred, 2);
             const auto summary = button.getProperties()["liveSummary"].toString();
             const auto volumes = button.getProperties()["liveVolumes"].toString();
-            auto summaryBounds = juce::Rectangle<float>(14, volumes.isEmpty() ? h * 0.82f : h * 0.77f,
-                                                        w - 28, volumes.isEmpty() ? h * 0.12f : h * 0.09f);
+            auto summaryBounds = juce::Rectangle<float>(14, volumes.isEmpty() ? h * 0.78f : h * 0.70f,
+                                                        w - 28, volumes.isEmpty() ? h * 0.12f : h * 0.08f);
             if (summary.endsWith("CAMADA") || summary.endsWith("CAMADAS"))
             {
                 const float iconX=w*0.5f-70.0f, iconY=summaryBounds.getCentreY()-7.0f;
@@ -151,10 +151,36 @@ public:
             g.drawText(summary, summaryBounds, juce::Justification::centred);
             if (volumes.isNotEmpty())
             {
-                g.setColour(juce::Colour(mutedText).brighter(0.15f));
-                g.setFont(juce::FontOptions(juce::jlimit(10.0f, 13.0f, h * 0.052f), juce::Font::bold));
-                g.drawText(volumes, juce::Rectangle<float>(14, h * 0.88f, w - 28, h * 0.08f),
-                           juce::Justification::centred);
+                juce::StringArray tokens;
+                tokens.addTokens(volumes, " ", "");
+                std::vector<int> levels;
+                for (const auto& token : tokens)
+                    if (token.endsWithChar('%'))
+                        levels.push_back(juce::jlimit(0, 100, token.dropLastCharacters(1).getIntValue()));
+                const auto count = juce::jmin(8, static_cast<int>(levels.size()));
+                if (count > 0)
+                {
+                    const auto bars = juce::Rectangle<float>(w * 0.18f, h * 0.84f,
+                                                              w * 0.64f, h * 0.12f);
+                    const auto cellWidth = bars.getWidth() / static_cast<float>(count);
+                    for (int layer = 0; layer < count; ++layer)
+                    {
+                        const auto barWidth = juce::jmin(18.0f, cellWidth * 0.48f);
+                        const auto x = bars.getX() + cellWidth * (layer + 0.5f) - barWidth * 0.5f;
+                        const auto amount = static_cast<float>(levels[(size_t) layer]) / 100.0f;
+                        g.setColour(juce::Colour(teal));
+                        g.fillRect(juce::Rectangle<float>(x, bars.getY(), barWidth, bars.getHeight()));
+                        g.setColour(juce::Colour(yellow));
+                        g.fillRect(juce::Rectangle<float>(x, bars.getBottom() - bars.getHeight() * amount,
+                                                          barWidth, bars.getHeight() * amount));
+                        g.setColour(juce::Colour(text));
+                        g.setFont(juce::FontOptions(juce::jlimit(8.0f, 11.0f, h * 0.045f), juce::Font::bold));
+                        g.drawText("L" + juce::String(layer + 1),
+                                   juce::Rectangle<float>(x - 5.0f, bars.getY() - 14.0f,
+                                                          barWidth + 10.0f, 12.0f),
+                                   juce::Justification::centred);
+                    }
+                }
             }
             if (button.hasKeyboardFocus(true))
             {
@@ -278,6 +304,20 @@ public:
     }
 
     void userTriedToCloseWindow() override { exitModalState(0); }
+
+    void resized() override
+    {
+        juce::AlertWindow::resized();
+        // JUCE applies platform-dependent margins to AlertWindow content.
+        // Re-centre every custom panel so macOS and Windows stay aligned.
+        for (int i = 0; i < getNumCustomComponents(); ++i)
+            if (auto* component = getCustomComponent(i))
+            {
+                auto bounds = component->getBounds();
+                bounds.setX((getWidth() - bounds.getWidth()) / 2);
+                component->setBounds(bounds);
+            }
+    }
 };
 
 class KnobEditorPanel final : public juce::Component
@@ -1007,6 +1047,110 @@ private:
     int selectedHandle = -1;
 };
 
+class EqFilterButtonsPanel final : public juce::Component
+{
+public:
+    EqFilterButtonsPanel(ClassicPlayerAudioProcessor& p, int layer)
+        : processor(p), index(layer)
+    {
+        for (auto* button : { &highPass, &lowPass })
+        {
+            flatButton(*button);
+            addAndMakeVisible(*button);
+        }
+        highPass.onClick = [this] { choose(true); };
+        lowPass.onClick = [this] { choose(false); };
+        refresh();
+        setSize(700, 36);
+    }
+
+    void resized() override
+    {
+        auto row = getLocalBounds().reduced(90, 2);
+        highPass.setBounds(row.removeFromLeft(row.getWidth() / 2).reduced(3, 0));
+        lowPass.setBounds(row.reduced(3, 0));
+    }
+
+private:
+    void refresh()
+    {
+        const auto config = processor.layerConfig(index);
+        highPass.setButtonText(config.highPassHz <= 20.5f ? "HIGH PASS: OFF"
+            : "HIGH PASS: " + juce::String((int) config.highPassHz) + " Hz");
+        lowPass.setButtonText(config.lowPassHz >= 19950.0f ? "LOW PASS: OFF"
+            : "LOW PASS: " + juce::String((int) (config.lowPassHz / 1000.0f)) + " kHz");
+    }
+
+    void choose(bool high)
+    {
+        const std::array<int, 7> highValues { 20, 60, 100, 160, 250, 400, 800 };
+        const std::array<int, 7> lowValues { 20000, 16000, 12000, 8000, 6000, 4000, 2000 };
+        juce::PopupMenu menu;
+        for (int i = 0; i < 7; ++i)
+        {
+            const auto value = high ? highValues[(size_t) i] : lowValues[(size_t) i];
+            menu.addItem(i + 1, (high ? value == 20 : value == 20000) ? "OFF"
+                : high ? juce::String(value) + " Hz" : juce::String(value / 1000) + " kHz");
+        }
+        const juce::Component::SafePointer<EqFilterButtonsPanel> safe(this);
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(high ? highPass : lowPass),
+            [safe, high, highValues, lowValues](int chosen)
+            {
+                if (safe == nullptr || chosen <= 0) return;
+                auto config = safe->processor.layerConfig(safe->index);
+                if (high) config.highPassHz = (float) highValues[(size_t) (chosen - 1)];
+                else config.lowPassHz = (float) lowValues[(size_t) (chosen - 1)];
+                safe->processor.setLayerConfig(safe->index, config);
+                safe->refresh();
+            });
+    }
+
+    ClassicPlayerAudioProcessor& processor;
+    int index;
+    juce::TextButton highPass, lowPass;
+};
+
+class ModulationTogglePanel final : public juce::Component
+{
+public:
+    ModulationTogglePanel(ClassicPlayerAudioProcessor& p, int layer)
+        : processor(p), index(layer)
+    {
+        flatButton(button);
+        button.setClickingTogglesState(true);
+        button.setTooltip("Ativa ou desativa a modulação recebida pelo teclado");
+        button.onClick = [this]
+        {
+            if (auto* parameter = processor.parameters.getParameter(
+                    "layer" + juce::String(index + 1) + "ModulationEnabled"))
+                parameter->setValueNotifyingHost(parameter->convertTo0to1(
+                    button.getToggleState() ? 1.0f : 0.0f));
+            refresh();
+        };
+        addAndMakeVisible(button);
+        refresh();
+        setSize(700, 36);
+    }
+
+    void resized() override { button.setBounds(getLocalBounds().withSizeKeepingCentre(260, 30)); }
+
+private:
+    void refresh()
+    {
+        const auto* value = processor.parameters.getRawParameterValue(
+            "layer" + juce::String(index + 1) + "ModulationEnabled");
+        const auto enabled = value == nullptr || value->load() >= 0.5f;
+        button.setToggleState(enabled, juce::dontSendNotification);
+        button.setButtonText(enabled ? "MODULATION DO TECLADO: ON" : "MODULATION DO TECLADO: OFF");
+        button.setColour(juce::TextButton::buttonColourId,
+                         enabled ? juce::Colour(0xff1b554e) : juce::Colour(panelLight));
+    }
+
+    ClassicPlayerAudioProcessor& processor;
+    int index;
+    juce::TextButton button;
+};
+
 static void showParametricLayerEqEditor(ClassicPlayerAudioProcessor& processor, int layer)
 {
     const auto prefix = "layer" + juce::String(layer + 1);
@@ -1033,8 +1177,9 @@ static void showParametricLayerEqEditor(ClassicPlayerAudioProcessor& processor, 
     }, 3);
     auto* graph = new ParametricEqGraph(processor, layer);
     dialog->addCustomComponent(new CentredEditorPanel(graph, 700));
+    dialog->addCustomComponent(new CentredEditorPanel(new EqFilterButtonsPanel(processor, layer), 700));
     dialog->addCustomComponent(new CentredEditorPanel(knobs, 700));
-    dialog->setSize(760, 780);
+    dialog->setSize(760, 816);
     graph->onPointChanged = [knobs](int band, float frequency, float gain)
     {
         const auto first = band * 3;
@@ -1384,52 +1529,6 @@ private:
     KnobEditorPanel knobs;
     float scopePhase = 0.0f;
     bool presetOnly = false;
-};
-
-class FilterButtonsPanel final : public juce::Component
-{
-public:
-    FilterButtonsPanel(ClassicPlayerAudioProcessor& p, int layer) : processor(p), index(layer)
-    {
-        flatButton(highPassButton); flatButton(lowPassButton);
-        highPassButton.onClick = [this] { chooseHighPass(); };
-        lowPassButton.onClick = [this] { chooseLowPass(); };
-        highPassButton.setTooltip("Filtro passa-altas da fonte. Clique para escolher a frequência.");
-        lowPassButton.setTooltip("Filtro passa-baixas da fonte. Clique para escolher a frequência.");
-        addAndMakeVisible(highPassButton); addAndMakeVisible(lowPassButton);
-        refresh(); setSize(440, 34);
-    }
-    void resized() override
-    {
-        auto row=getLocalBounds().reduced(2);
-        highPassButton.setBounds(row.removeFromLeft(row.getWidth()/2).reduced(2,0));
-        lowPassButton.setBounds(row.reduced(2,0));
-    }
-private:
-    void refresh()
-    {
-        const auto config=processor.layerConfig(index);
-        highPassButton.setButtonText(config.highPassHz<=20.5f ? "HIGH PASS: OFF" : "HIGH PASS: "+juce::String((int)config.highPassHz)+" Hz");
-        lowPassButton.setButtonText(config.lowPassHz>=19950.f ? "LOW PASS: OFF" : "LOW PASS: "+juce::String((int)(config.lowPassHz/1000.f))+" kHz");
-    }
-    void chooseHighPass()
-    {
-        juce::PopupMenu menu; const std::array<int,7> values{{20,60,100,160,250,400,800}};
-        for(int i=0;i<(int)values.size();++i) menu.addItem(i+1,values[(size_t)i]==20 ? "OFF" : juce::String(values[(size_t)i])+" Hz");
-        const juce::Component::SafePointer<FilterButtonsPanel> safe(this);
-        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(highPassButton),[safe,values](int chosen)
-        { if(safe==nullptr || chosen<=0)return;auto config=safe->processor.layerConfig(safe->index);config.highPassHz=(float)values[(size_t)(chosen-1)];safe->processor.setLayerConfig(safe->index,config);safe->refresh(); });
-    }
-    void chooseLowPass()
-    {
-        juce::PopupMenu menu; const std::array<int,7> values{{20000,16000,12000,8000,6000,4000,2000}};
-        for(int i=0;i<(int)values.size();++i) menu.addItem(i+1,values[(size_t)i]==20000 ? "OFF" : juce::String(values[(size_t)i]/1000)+" kHz");
-        const juce::Component::SafePointer<FilterButtonsPanel> safe(this);
-        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(lowPassButton),[safe,values](int chosen)
-        { if(safe==nullptr || chosen<=0)return;auto config=safe->processor.layerConfig(safe->index);config.lowPassHz=(float)values[(size_t)(chosen-1)];safe->processor.setLayerConfig(safe->index,config);safe->refresh(); });
-    }
-    ClassicPlayerAudioProcessor& processor; int index;
-    juce::TextButton highPassButton,lowPassButton;
 };
 
 class EngineProgramSavePanel final : public juce::Component
@@ -2688,7 +2787,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     // empty gap before the effect knobs and made the dialog unnecessarily
     // tall.  Reserve only the space the controls actually occupy.
     dialog->addCustomComponent(new CenteredPanel(sf2Panel, 620, 275));
-    dialog->addCustomComponent(new CenteredPanel(new FilterButtonsPanel(processor, index), 440, 36));
+    dialog->addCustomComponent(new CenteredPanel(new ModulationTogglePanel(processor, index), 620, 36));
     // Layer controls share a two-row grid so envelopes and EQ remain readable.
     dialog->addCustomComponent(new CenteredPanel(knobs, 620, 248));
     dialog->addCustomComponent(new CenteredPanel(effectButtons, 360, 38));
@@ -2823,10 +2922,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
     // dialog shown by the reference layout.
     pads->setSize(560, 560);
     dialog->addCustomComponent(pads);
-    if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::continuousPads)
-        dialog->addCustomComponent(new FilterButtonsPanel(processor, index));
-    dialog->setSize(678, processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::continuousPads ? 682 : 630);
     const juce::Component::SafePointer<LayerStrip> safe(this);
+    if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::continuousPads)
+    {
+        auto* eqButton = new juce::TextButton("EDITAR EQ / FILTROS");
+        flatButton(*eqButton);
+        eqButton->setSize(440, 34);
+        eqButton->onClick = [safe] { if (safe != nullptr) safe->showEqEditor(); };
+        dialog->addCustomComponent(eqButton);
+    }
+    dialog->setSize(678, processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::continuousPads ? 682 : 630);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->drumPadPanel.refresh(); }), true);
 }
@@ -2901,7 +3006,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     soloButton.setBounds(top.removeFromLeft(30).reduced(1));
     auto layerActions = area.removeFromTop(25);
     editButton.setBounds(layerActions.removeFromLeft(70).reduced(1));
-    modulationButton.setBounds(layerActions.removeFromRight(64).reduced(1));
     resetButton.setBounds(layerActions.removeFromRight(52).reduced(1));
     removeButton.setBounds(layerActions.removeFromRight(24).reduced(1));
     area.removeFromTop(4);
@@ -2909,9 +3013,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     sourceSummary.setBounds(summaryRow.reduced(2, 0));
     area.removeFromTop(4);
     const auto type = processor.layerType(index);
-    const auto modulationLayer = type == ClassicPlayerAudioProcessor::LayerType::sf2
-                              || type == ClassicPlayerAudioProcessor::LayerType::dx7;
-    modulationButton.setVisible(modulationLayer);
+    modulationButton.setVisible(false);
     if (type == ClassicPlayerAudioProcessor::LayerType::drumPads || type == ClassicPlayerAudioProcessor::LayerType::continuousPads)
     {
         gain.setSliderStyle(juce::Slider::LinearVertical);
@@ -3184,7 +3286,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     externalInstrumentButton.setVisible(isVst && processor.supportsExternalInstruments());
     openExternalEditorButton.setVisible(isVst && processor.supportsExternalInstruments());
     dx7Button.setVisible(isDx7 || isAnalog || isHammond);
-    modulationButton.setVisible(isSf2 || isDx7);
+    modulationButton.setVisible(false);
     mode.setEnabled(!isHammond); velocityCurve.setEnabled(!isHammond);
     dx7LibraryBox.setVisible(isDx7);
     dx7PatchBox.setVisible(isDx7);
@@ -3562,6 +3664,20 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::setEngineEnabled(bool enable
 void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMeter()
 {
     meter.setLevel(std::sqrt(juce::jlimit(0.0f, 1.0f, processor.layerPeak(index))));
+    // MIDI Learn updates the processor from the message-thread bridge. Mirror
+    // the current parameter values explicitly so the on-screen knobs follow
+    // the physical controller even when a host delays attachment callbacks.
+    const auto prefix = "layer" + juce::String(index + 1);
+    const auto sync = [this, prefix](juce::Slider& slider, const char* suffix)
+    {
+        if (const auto* value = processor.parameters.getRawParameterValue(prefix + suffix))
+            slider.setValue(value->load(), juce::dontSendNotification);
+    };
+    sync(gain, "Gain");
+    sync(cutoff, "Cutoff");
+    sync(reverb, "Reverb");
+    sync(compressor, "Comp");
+    sync(release, "Release");
     if (processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::drumPads || processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::continuousPads)
         drumPadPanel.refresh();
     updateMidiLearnState();
@@ -4095,10 +4211,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         set("Reverb", common->value(4)); set("Comp", common->value(5));
         set("Dx7Chorus", common->value(6));
     });
+    dialog->addCustomComponent(new CenteredPanel(new ModulationTogglePanel(processor, index), 600, 36));
     dialog->addCustomComponent(new CenteredPanel(midiPanel, 600, 44));
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.
-    dialog->setSize(758, 789);
+    dialog->setSize(758, 825);
     // Use AlertWindow's footer button so JUCE reserves a dedicated row below
     // the MIDI Learn panel instead of treating FECHAR as another component.
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
