@@ -237,6 +237,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
             juce::ParameterID{"layer" + n + "EqHighFrequency", 1}, "Layer " + n + " EQ High Frequency",
             juce::NormalisableRange<float>(1000.0f, 20000.0f, 1.0f, 0.40f), 4200.0f));
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "EqLowQ", 1}, "Layer " + n + " EQ Low Q",
+            juce::NormalisableRange<float>(0.1f, 4.0f, 0.01f, 0.5f), 0.707f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "EqMidQ", 1}, "Layer " + n + " EQ Mid Q",
+            juce::NormalisableRange<float>(0.1f, 20.0f, 0.01f, 0.5f), 1.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "EqHighQ", 1}, "Layer " + n + " EQ High Q",
+            juce::NormalisableRange<float>(0.1f, 4.0f, 0.01f, 0.5f), 0.707f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"layer" + n + "Reverb", 1}, "Layer " + n + " Reverb",
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 0.0f));
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -448,6 +457,9 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         config.eqLowFrequency = parameters.getRawParameterValue(prefix + "EqLowFrequency")->load();
         config.eqMidFrequency = parameters.getRawParameterValue(prefix + "EqMidFrequency")->load();
         config.eqHighFrequency = parameters.getRawParameterValue(prefix + "EqHighFrequency")->load();
+        config.eqLowQ = parameters.getRawParameterValue(prefix + "EqLowQ")->load();
+        config.eqMidQ = parameters.getRawParameterValue(prefix + "EqMidQ")->load();
+        config.eqHighQ = parameters.getRawParameterValue(prefix + "EqHighQ")->load();
         config.reverb = parameters.getRawParameterValue(prefix + "Reverb")->load();
         config.reverbSize = parameters.getRawParameterValue(prefix + "ReverbSize")->load();
         config.reverbDamping = parameters.getRawParameterValue(prefix + "ReverbDamping")->load();
@@ -1215,9 +1227,10 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     if (layer >= count || count <= 1) return false;
 
     const auto last = count - 1;
-    static constexpr std::array<const char*, 21> parameterSuffixes {
+    static constexpr std::array<const char*, 24> parameterSuffixes {
         "Gain", "Attack", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh",
-        "EqLowFrequency", "EqMidFrequency", "EqHighFrequency", "Reverb", "ReverbSize", "ReverbDamping",
+        "EqLowFrequency", "EqMidFrequency", "EqHighFrequency", "EqLowQ", "EqMidQ", "EqHighQ",
+        "Reverb", "ReverbSize", "ReverbDamping",
         "ReverbWidth", "Comp", "CompThreshold", "CompRatio", "CompAttack",
         "CompRelease", "CompMakeup", "Dx7Chorus"
     };

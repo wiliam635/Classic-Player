@@ -541,7 +541,10 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
                                                    layer.config.eqHigh, currentSampleRate,
                                                    layer.config.eqLowFrequency,
                                                    layer.config.eqMidFrequency,
-                                                   layer.config.eqHighFrequency);
+                                                   layer.config.eqHighFrequency,
+                                                   layer.config.eqLowQ,
+                                                   layer.config.eqMidQ,
+                                                   layer.config.eqHighQ);
         }
 
         // The native reverb is a consistent stereo room for every SF2, rather

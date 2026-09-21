@@ -436,6 +436,381 @@ private:
     juce::TextButton reverb, compressor, chorus, eq;
 };
 
+class ParametricEqGraph final : public juce::Component, private juce::Timer
+{
+public:
+    std::function<void(int, float, float)> onPointChanged;
+
+    ParametricEqGraph(ClassicPlayerAudioProcessor& p, int layerIndex)
+        : processor(p), layer(layerIndex)
+    {
+        setSize(700, 268);
+        startTimerHz(30);
+    }
+
+    ~ParametricEqGraph() override { stopTimer(); }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.fillAll(juce::Colour(0xff0a1118));
+        auto graph = getLocalBounds().toFloat().reduced(42.0f, 22.0f);
+        graph.removeFromBottom(24.0f);
+        graph.removeFromLeft(8.0f);
+        g.setColour(juce::Colour(0xff25323c));
+        g.fillRect(graph);
+
+        const auto toX = [graph](float frequency)
+        {
+            const auto normalized = std::log10(juce::jlimit(20.0f, 20000.0f, frequency) / 20.0f)
+                                  / std::log10(1000.0f);
+            return graph.getX() + normalized * graph.getWidth();
+        };
+        const auto toY = [graph](float decibels)
+        {
+            const auto normalized = (juce::jlimit(-18.0f, 18.0f, decibels) + 18.0f) / 36.0f;
+            return graph.getBottom() - normalized * graph.getHeight();
+        };
+
+        g.setFont(juce::FontOptions(10.0f));
+        for (const auto db : { -18.0f, -12.0f, -6.0f, 0.0f, 6.0f, 12.0f, 18.0f })
+        {
+            const auto y = toY(db);
+            g.setColour(db == 0.0f ? juce::Colour(0xff60727e) : juce::Colour(0xff33434e));
+            g.drawHorizontalLine(juce::roundToInt(y), graph.getX(), graph.getRight());
+            g.setColour(juce::Colour(mutedText));
+            g.drawText(juce::String((int) db), 4, juce::roundToInt(y - 7.0f), 34, 14,
+                       juce::Justification::centredRight);
+        }
+
+        for (const auto frequency : { 20.0f, 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f,
+                                      2000.0f, 5000.0f, 10000.0f, 20000.0f })
+        {
+            const auto x = toX(frequency);
+            g.setColour(juce::Colour(0xff33434e));
+            g.drawVerticalLine(juce::roundToInt(x), graph.getY(), graph.getBottom());
+            g.setColour(juce::Colour(mutedText));
+            g.drawText(formatFrequency(frequency), juce::roundToInt(x - 25.0f),
+                       juce::roundToInt(graph.getBottom() + 5.0f), 50, 14,
+                       juce::Justification::centred);
+        }
+
+        const auto lowFrequency = parameter("EqLowFrequency", 220.0f);
+        const auto midFrequency = parameter("EqMidFrequency", 1200.0f);
+        const auto highFrequency = parameter("EqHighFrequency", 4200.0f);
+        const auto lowGain = parameter("EqLow", 0.0f);
+        const auto midGain = parameter("EqMid", 0.0f);
+        const auto highGain = parameter("EqHigh", 0.0f);
+        const auto lowQ = parameter("EqLowQ", 0.707f);
+        const auto midQ = parameter("EqMidQ", 1.0f);
+        const auto highQ = parameter("EqHighQ", 0.707f);
+
+        juce::Path curve;
+        for (int i = 0; i <= 240; ++i)
+        {
+            const auto normalized = (float) i / 240.0f;
+            const auto frequency = 20.0f * std::pow(1000.0f, normalized);
+            const auto response = responseAt(frequency, lowFrequency, lowGain,
+                                              midFrequency, midGain, highFrequency, highGain,
+                                              lowQ, midQ, highQ);
+            const auto point = juce::Point<float>(toX(frequency), toY(response));
+            if (i == 0) curve.startNewSubPath(point);
+            else curve.lineTo(point);
+        }
+        g.setColour(juce::Colour(teal).withAlpha(0.18f));
+        juce::Path area = curve;
+        area.lineTo(graph.getRight(), toY(0.0f));
+        area.lineTo(graph.getX(), toY(0.0f));
+        area.closeSubPath();
+        g.fillPath(area);
+        g.setColour(juce::Colour(teal));
+        g.strokePath(curve, juce::PathStrokeType(2.2f));
+
+        drawBandNode(g, graph, toX(lowFrequency), toY(lowGain), "1");
+        drawBandNode(g, graph, toX(midFrequency), toY(midGain), "2");
+        drawBandNode(g, graph, toX(highFrequency), toY(highGain), "3");
+        g.setColour(juce::Colour(text));
+        g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+        g.drawText("EQ PARAMETRICO DA LAYER", 42, 3, getWidth() - 84, 18,
+                   juce::Justification::centred);
+        g.setFont(juce::FontOptions(10.0f));
+        g.setColour(juce::Colour(mutedText));
+        g.drawText("Arraste os pontos para ajustar frequencia e ganho", 42, getHeight() - 18,
+                   getWidth() - 84, 14, juce::Justification::centred);
+    }
+
+    void mouseDown(const juce::MouseEvent& event) override
+    {
+        selectedBand = nearestBand(event.position);
+    }
+
+    void mouseDrag(const juce::MouseEvent& event) override
+    {
+        if (selectedBand < 0) return;
+        auto graph = graphBounds();
+        const auto normalizedX = juce::jlimit(0.0f, 1.0f,
+            (event.position.x - graph.getX()) / graph.getWidth());
+        const auto frequency = 20.0f * std::pow(1000.0f, normalizedX);
+        const auto normalizedY = juce::jlimit(0.0f, 1.0f,
+            (graph.getBottom() - event.position.y) / graph.getHeight());
+        const auto gain = juce::jmap(normalizedY, -18.0f, 18.0f);
+        static constexpr std::array<const char*, 3> frequencyNames {
+            "EqLowFrequency", "EqMidFrequency", "EqHighFrequency"
+        };
+        static constexpr std::array<const char*, 3> gainNames { "EqLow", "EqMid", "EqHigh" };
+        const auto prefix = "layer" + juce::String(layer + 1);
+        if (auto* frequencyParameter = processor.parameters.getParameter(prefix + frequencyNames[(size_t) selectedBand]))
+            frequencyParameter->setValueNotifyingHost(frequencyParameter->convertTo0to1(frequency));
+        if (auto* gainParameter = processor.parameters.getParameter(prefix + gainNames[(size_t) selectedBand]))
+            gainParameter->setValueNotifyingHost(gainParameter->convertTo0to1(gain));
+        if (onPointChanged) onPointChanged(selectedBand, frequency, gain);
+    }
+
+private:
+    juce::String parameterName(const char* suffix) const
+    {
+        return "layer" + juce::String(layer + 1) + suffix;
+    }
+
+    float parameter(const char* suffix, float fallback) const
+    {
+        if (const auto* value = processor.parameters.getRawParameterValue(parameterName(suffix)))
+            return value->load();
+        return fallback;
+    }
+
+    juce::Rectangle<float> graphBounds() const
+    {
+        auto graph = getLocalBounds().toFloat().reduced(42.0f, 22.0f);
+        graph.removeFromBottom(24.0f);
+        return graph.withX(graph.getX() + 8.0f).withWidth(graph.getWidth() - 8.0f);
+    }
+
+    static juce::String formatFrequency(float frequency)
+    {
+        if (frequency >= 1000.0f)
+            return juce::String(frequency / 1000.0f, frequency >= 10000.0f ? 0 : 1) + "k";
+        return juce::String((int) std::round(frequency));
+    }
+
+    static float responseAt(float frequency, float lowFrequency, float lowGain,
+                            float midFrequency, float midGain,
+                            float highFrequency, float highGain,
+                            float lowQ, float midQ, float highQ)
+    {
+        const auto logFrequency = std::log10(juce::jmax(20.0f, frequency));
+        const auto lowWidth = juce::jlimit(0.12f, 0.8f, 0.42f / juce::jmax(0.1f, lowQ));
+        const auto highWidth = juce::jlimit(0.12f, 0.8f, 0.42f / juce::jmax(0.1f, highQ));
+        const auto low = 1.0f / (1.0f + std::exp((logFrequency - std::log10(lowFrequency))
+                                                   / lowWidth));
+        const auto midWidth = juce::jlimit(0.04f, 0.60f, 0.30f / juce::jmax(0.1f, midQ));
+        const auto midDistance = (logFrequency - std::log10(midFrequency)) / midWidth;
+        const auto mid = std::exp(-0.5f * midDistance * midDistance);
+        const auto high = 1.0f / (1.0f + std::exp((std::log10(highFrequency) - logFrequency)
+                                                    / highWidth));
+        return juce::jlimit(-18.0f, 18.0f, lowGain * low + midGain * mid + highGain * high);
+    }
+
+    void drawBandNode(juce::Graphics& g, juce::Rectangle<float> graph,
+                      float x, float y, const char* number) const
+    {
+        juce::ignoreUnused(graph);
+        g.setColour(juce::Colour(0xffd9e4e8));
+        g.fillEllipse(x - 7.0f, y - 7.0f, 14.0f, 14.0f);
+        g.setColour(juce::Colour(background));
+        g.drawEllipse(x - 7.0f, y - 7.0f, 14.0f, 14.0f, 1.0f);
+        g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+        g.drawText(number, juce::Rectangle<float>(x - 6.0f, y - 6.0f, 12.0f, 12.0f),
+                   juce::Justification::centred);
+    }
+
+    int nearestBand(juce::Point<float> position) const
+    {
+        const auto graph = graphBounds();
+        const auto toX = [graph](float frequency)
+        {
+            return graph.getX() + std::log10(juce::jlimit(20.0f, 20000.0f, frequency) / 20.0f)
+                 / std::log10(1000.0f) * graph.getWidth();
+        };
+        const auto toY = [graph](float gain)
+        {
+            return graph.getBottom() - (gain + 18.0f) / 36.0f * graph.getHeight();
+        };
+        const std::array<float, 3> x { toX(parameter("EqLowFrequency", 220.0f)),
+                                       toX(parameter("EqMidFrequency", 1200.0f)),
+                                       toX(parameter("EqHighFrequency", 4200.0f)) };
+        const std::array<float, 3> y { toY(parameter("EqLow", 0.0f)),
+                                       toY(parameter("EqMid", 0.0f)),
+                                       toY(parameter("EqHigh", 0.0f)) };
+        auto selected = -1;
+        auto distance = 24.0f;
+        for (int band = 0; band < 3; ++band)
+        {
+            const auto current = position.getDistanceFrom({ x[(size_t) band], y[(size_t) band] });
+            if (current < distance) { distance = current; selected = band; }
+        }
+        return selected;
+    }
+
+    void timerCallback() override { repaint(); }
+
+    ClassicPlayerAudioProcessor& processor;
+    int layer = 0;
+    int selectedBand = -1;
+};
+
+class CompressorResponseView final : public juce::Component, private juce::Timer
+{
+public:
+    CompressorResponseView(ClassicPlayerAudioProcessor& p, int layerIndex)
+        : processor(p), layer(layerIndex)
+    {
+        setSize(700, 284);
+        startTimerHz(30);
+    }
+
+    ~CompressorResponseView() override { stopTimer(); }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.fillAll(juce::Colour(0xff101617));
+        auto area = getLocalBounds().toFloat().reduced(18.0f, 24.0f);
+        auto graph = area.withX(area.getX() + 74.0f).withWidth(area.getWidth() - 148.0f);
+        graph.removeFromBottom(25.0f);
+        graph.removeFromTop(4.0f);
+        g.setColour(juce::Colour(0xff161d20));
+        g.fillRoundedRectangle(area, 10.0f);
+        g.setColour(juce::Colour(0xff303a3c));
+        g.drawRoundedRectangle(area, 10.0f, 1.0f);
+
+        const auto threshold = parameter("CompThreshold", -18.0f);
+        const auto ratio = juce::jmax(1.0f, parameter("CompRatio", 4.0f));
+        const auto makeup = parameter("CompMakeup", 0.0f);
+        const auto mix = juce::jlimit(0.0f, 1.0f, parameter("Comp", 0.0f) / 100.0f);
+        const auto outputDb = juce::jlimit(-60.0f, 6.0f,
+            juce::Decibels::gainToDecibels(juce::jmax(1.0e-6f, processor.layerPeak(layer))));
+        const auto reduction = outputDb > threshold
+            ? (outputDb - threshold) * (1.0f - 1.0f / ratio) * mix : 0.0f;
+        const auto inputDb = juce::jlimit(-60.0f, 6.0f, outputDb + reduction - makeup * mix);
+
+        const auto toX = [graph](float db)
+        {
+            return graph.getX() + (juce::jlimit(-60.0f, 6.0f, db) + 60.0f) / 66.0f * graph.getWidth();
+        };
+        const auto toY = [graph](float db)
+        {
+            return graph.getBottom() - (juce::jlimit(-60.0f, 12.0f, db) + 60.0f) / 72.0f * graph.getHeight();
+        };
+        g.setFont(juce::FontOptions(9.0f));
+        for (const auto db : { -60.0f, -45.0f, -30.0f, -15.0f, 0.0f })
+        {
+            const auto x = toX(db);
+            const auto y = toY(db);
+            g.setColour(juce::Colour(0xff354346));
+            g.drawVerticalLine(juce::roundToInt(x), graph.getY(), graph.getBottom());
+            g.drawHorizontalLine(juce::roundToInt(y), graph.getX(), graph.getRight());
+            g.setColour(juce::Colour(mutedText));
+            g.drawText(juce::String((int) db), juce::roundToInt(x - 14.0f),
+                       juce::roundToInt(graph.getBottom() + 4.0f),
+                       28, 14, juce::Justification::centred);
+        }
+        g.setColour(juce::Colour(0xff657578));
+        g.drawLine(toX(-60.0f), toY(-60.0f), toX(6.0f), toY(6.0f), 1.0f);
+
+        juce::Path curve;
+        for (int i = 0; i <= 120; ++i)
+        {
+            const auto input = -60.0f + 66.0f * (float) i / 120.0f;
+            const auto compressed = input <= threshold
+                ? input : threshold + (input - threshold) / ratio + makeup;
+            const auto output = input + (compressed - input) * mix;
+            const auto point = juce::Point<float>(toX(input), toY(output));
+            if (i == 0) curve.startNewSubPath(point); else curve.lineTo(point);
+        }
+        g.setColour(juce::Colour(teal).withAlpha(0.22f));
+        juce::Path filled = curve;
+        filled.lineTo(toX(6.0f), toY(-60.0f));
+        filled.lineTo(toX(-60.0f), toY(-60.0f));
+        filled.closeSubPath();
+        g.fillPath(filled);
+        g.setColour(juce::Colour(teal));
+        g.strokePath(curve, juce::PathStrokeType(2.0f));
+        g.setColour(juce::Colour(yellow));
+        g.drawLine(toX(threshold), graph.getY(), toX(threshold), graph.getBottom(), 1.5f);
+        g.fillEllipse(toX(inputDb) - 4.5f, toY(outputDb) - 4.5f, 9.0f, 9.0f);
+
+        drawMeter(g, area.getX() + 18.0f, area.getY() + 25.0f, area.getHeight() - 58.0f,
+                  inputDb, -60.0f, 0.0f, "INPUT", juce::Colour(0xff4ac0aa));
+        drawMeter(g, area.getRight() - 45.0f, area.getY() + 25.0f, area.getHeight() - 58.0f,
+                  outputDb, -60.0f, 0.0f, "OUTPUT", juce::Colour(0xff4ac0aa));
+        drawReductionMeter(g, area.getX() + 48.0f, area.getY() + 25.0f,
+                           area.getHeight() - 58.0f, reduction);
+        g.setColour(juce::Colour(text));
+        g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+        g.drawText("COMPRESSOR DA LAYER", juce::roundToInt(area.getX()), 4,
+                   juce::roundToInt(area.getWidth()), 18,
+                   juce::Justification::centred);
+        g.setFont(juce::FontOptions(9.0f));
+        g.setColour(juce::Colour(mutedText));
+        g.drawText("CURVA", juce::roundToInt(graph.getX()), juce::roundToInt(area.getBottom() - 17.0f),
+                   juce::roundToInt(graph.getWidth()), 14,
+                   juce::Justification::centred);
+        g.setColour(juce::Colour(yellow));
+        g.drawText(juce::String(reduction, 1) + " dB GR", juce::roundToInt(graph.getX()),
+                   juce::roundToInt(area.getY() + 5.0f), juce::roundToInt(graph.getWidth()), 14,
+                   juce::Justification::centred);
+    }
+
+private:
+    juce::String parameterName(const char* suffix) const
+    {
+        return "layer" + juce::String(layer + 1) + suffix;
+    }
+
+    float parameter(const char* suffix, float fallback) const
+    {
+        if (const auto* value = processor.parameters.getRawParameterValue(parameterName(suffix)))
+            return value->load();
+        return fallback;
+    }
+
+    static void drawMeter(juce::Graphics& g, float x, float y, float height,
+                          float levelDb, float minimum, float maximum,
+                          const char* label, juce::Colour colour)
+    {
+        auto meter = juce::Rectangle<float>(x, y, 18.0f, height);
+        g.setColour(juce::Colour(0xff090d0f));
+        g.fillRect(meter);
+        const auto amount = juce::jlimit(0.0f, 1.0f, (levelDb - minimum) / (maximum - minimum));
+        g.setColour(colour);
+        g.fillRect(meter.withTop(meter.getBottom() - amount * meter.getHeight()));
+        g.setColour(juce::Colour(mutedText));
+        g.drawRect(meter, 1.0f);
+        g.setFont(juce::FontOptions(8.0f, juce::Font::bold));
+        g.drawText(label, juce::roundToInt(x - 18.0f), juce::roundToInt(meter.getBottom() + 4.0f), 54, 12,
+                   juce::Justification::centred);
+    }
+
+    static void drawReductionMeter(juce::Graphics& g, float x, float y, float height, float reduction)
+    {
+        auto meter = juce::Rectangle<float>(x, y, 12.0f, height);
+        g.setColour(juce::Colour(0xff090d0f));
+        g.fillRect(meter);
+        const auto amount = juce::jlimit(0.0f, 1.0f, reduction / 24.0f);
+        g.setColour(juce::Colour(yellow));
+        g.fillRect(meter.withTop(meter.getBottom() - amount * meter.getHeight()));
+        g.setColour(juce::Colour(mutedText));
+        g.drawRect(meter, 1.0f);
+        g.setFont(juce::FontOptions(8.0f, juce::Font::bold));
+        g.drawText("GR", juce::roundToInt(x - 9.0f), juce::roundToInt(meter.getBottom() + 4.0f), 30, 12,
+                   juce::Justification::centred);
+    }
+
+    void timerCallback() override { repaint(); }
+
+    ClassicPlayerAudioProcessor& processor;
+    int layer = 0;
+};
+
 static void showParametricLayerEqEditor(ClassicPlayerAudioProcessor& processor, int layer)
 {
     const auto prefix = "layer" + juce::String(layer + 1);
@@ -452,18 +827,31 @@ static void showParametricLayerEqEditor(ClassicPlayerAudioProcessor& processor, 
     auto* knobs = new KnobEditorPanel({
         { "LOW FREQ Hz", value("EqLowFrequency", 220.0f), 40.0f, 2000.0f, 1.0f, 0 },
         { "LOW GAIN dB", value("EqLow", 0.0f), -18.0f, 18.0f, 0.1f, 1 },
+        { "LOW Q", value("EqLowQ", 0.707f), 0.1f, 4.0f, 0.01f, 2 },
         { "MID FREQ Hz", value("EqMidFrequency", 1200.0f), 60.0f, 12000.0f, 1.0f, 0 },
         { "MID GAIN dB", value("EqMid", 0.0f), -18.0f, 18.0f, 0.1f, 1 },
+        { "MID Q", value("EqMidQ", 1.0f), 0.1f, 20.0f, 0.01f, 2 },
         { "HIGH FREQ Hz", value("EqHighFrequency", 4200.0f), 1000.0f, 20000.0f, 1.0f, 0 },
-        { "HIGH GAIN dB", value("EqHigh", 0.0f), -18.0f, 18.0f, 0.1f, 1 }
+        { "HIGH GAIN dB", value("EqHigh", 0.0f), -18.0f, 18.0f, 0.1f, 1 },
+        { "HIGH Q", value("EqHighQ", 0.707f), 0.1f, 4.0f, 0.01f, 2 }
     }, 3);
+    auto* graph = new ParametricEqGraph(processor, layer);
+    dialog->addCustomComponent(graph);
     dialog->addCustomComponent(knobs);
+    dialog->setSize(760, 780);
+    graph->onPointChanged = [knobs](int band, float frequency, float gain)
+    {
+        const auto first = band * 3;
+        knobs->setValue(first, frequency);
+        knobs->setValue(first + 1, gain);
+    };
     const auto apply = [&processor, prefix, knobs]
     {
-        const std::array<const char*, 6> names {
-            "EqLowFrequency", "EqLow", "EqMidFrequency", "EqMid", "EqHighFrequency", "EqHigh"
+        const std::array<const char*, 9> names {
+            "EqLowFrequency", "EqLow", "EqLowQ", "EqMidFrequency", "EqMid", "EqMidQ",
+            "EqHighFrequency", "EqHigh", "EqHighQ"
         };
-        for (int i = 0; i < 6; ++i)
+        for (int i = 0; i < 9; ++i)
             if (auto* parameter = processor.parameters.getParameter(prefix + names[(size_t) i]))
                 parameter->setValueNotifyingHost(parameter->convertTo0to1(knobs->value(i)));
     };
@@ -2073,7 +2461,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
         { "RELEASE ms", processor.parameters.getRawParameterValue(prefix + "CompRelease")->load(), 5.0f, 1000.0f, 1.0f, 0 },
         { "MAKEUP dB", processor.parameters.getRawParameterValue(prefix + "CompMakeup")->load(), 0.0f, 24.0f, 0.1f, 1 }
     }, 3);
+    auto* graph = new CompressorResponseView(processor, index);
+    dialog->addCustomComponent(graph);
     dialog->addCustomComponent(knobs);
+    dialog->setSize(760, 660);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     knobs->setOnValueChange([safe, knobs, prefix]
     {

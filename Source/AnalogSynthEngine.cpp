@@ -732,7 +732,10 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
                                      config.routing.eqHigh, sampleRate,
                                      config.routing.eqLowFrequency,
                                      config.routing.eqMidFrequency,
-                                     config.routing.eqHighFrequency));
+                                     config.routing.eqHighFrequency,
+                                     config.routing.eqLowQ,
+                                     config.routing.eqMidQ,
+                                     config.routing.eqHighQ));
 
         for (int sampleIndex = 0; sampleIndex < output.getNumSamples(); ++sampleIndex)
         {

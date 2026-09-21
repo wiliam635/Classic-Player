@@ -274,7 +274,10 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
                                      c.routing.eqHigh, sampleRate,
                                      c.routing.eqLowFrequency,
                                      c.routing.eqMidFrequency,
-                                     c.routing.eqHighFrequency);
+                                     c.routing.eqHighFrequency,
+                                     c.routing.eqLowQ,
+                                     c.routing.eqMidQ,
+                                     c.routing.eqHighQ);
                 value*=gain*(ch==0?std::sqrt(1-pan):std::sqrt(1+pan));
             }
             if(out.getNumChannels()>1){out.addSample(0,s,left);out.addSample(1,s,right);}
