@@ -2115,10 +2115,12 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
 
     fileLabel.setJustificationType(juce::Justification::centred);
     fileLabel.setMinimumHorizontalScale(0.6f);
+    fileLabel.setFont(juce::FontOptions(12.0f, juce::Font::bold));
     addAndMakeVisible(fileLabel);
-    sourceSummary.setJustificationType(juce::Justification::centredLeft);
+    sourceSummary.setJustificationType(juce::Justification::centred);
     sourceSummary.setColour(juce::Label::textColourId, juce::Colour(text));
-    sourceSummary.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+    sourceSummary.setFont(juce::FontOptions(14.0f, juce::Font::bold));
+    sourceSummary.setMinimumHorizontalScale(0.45f);
     addAndMakeVisible(sourceSummary);
     for (const auto& category : ClassicPlayerAudioProcessor::soundFontCategories())
         categoryBox.addItem(category, categoryBox.getNumItems() + 1);
@@ -2574,19 +2576,19 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     muteButton.setBounds(top.removeFromLeft(30).reduced(1));
     soloButton.setBounds(top.removeFromLeft(30).reduced(1));
     auto layerActions = area.removeFromTop(25);
+    editButton.setBounds(layerActions.removeFromLeft(70).reduced(1));
     resetButton.setBounds(layerActions.removeFromRight(52).reduced(1));
     removeButton.setBounds(layerActions.removeFromRight(24).reduced(1));
-    area.removeFromTop(5);
+    area.removeFromTop(4);
+    auto summaryRow = area.removeFromTop(30);
+    sourceSummary.setBounds(summaryRow.reduced(2, 0));
+    area.removeFromTop(4);
     const auto type = processor.layerType(index);
     if (type == ClassicPlayerAudioProcessor::LayerType::drumPads || type == ClassicPlayerAudioProcessor::LayerType::continuousPads)
     {
         gain.setSliderStyle(juce::Slider::LinearVertical);
         gain.setTextBoxStyle(juce::Slider::TextBoxBelow,false,58,18);
         gain.setTooltip("Volume da layer de drum pads");
-        auto summaryRow = area.removeFromTop(28);
-        sourceSummary.setBounds(summaryRow.removeFromLeft(summaryRow.getWidth() - 70).reduced(3, 1));
-        editButton.setBounds(summaryRow.reduced(1, 1));
-        area.removeFromTop(4);
         auto faderArea = area.removeFromRight(100).reduced(8, 4);
         volumeLearn.setBounds(faderArea.removeFromBottom(24).withWidth(juce::jmin(86, faderArea.getWidth())));
         faderArea.removeFromBottom(6);
@@ -2600,10 +2602,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     gain.setTextBoxStyle(juce::Slider::TextBoxBelow,false,58,18);
     if (! expanded)
     {
-        auto summaryRow = area.removeFromTop(28);
-        sourceSummary.setBounds(summaryRow.removeFromLeft(summaryRow.getWidth() - 70).reduced(3, 1));
-        editButton.setBounds(summaryRow.reduced(1, 1));
-        area.removeFromTop(4);
         auto faderArea = area.reduced(8, 4);
         volumeLearn.setBounds(faderArea.removeFromBottom(24).withWidth(juce::jmin(86, faderArea.getWidth())));
         faderArea.removeFromBottom(6);
@@ -2612,8 +2610,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
         gain.setBounds(faderArea.removeFromLeft(faderWidth).reduced(4, 2));
         return;
     }
-    editButton.setBounds(area.removeFromTop(28).removeFromRight(70).reduced(1, 1));
-    area.removeFromTop(4);
     if (type == ClassicPlayerAudioProcessor::LayerType::sf2)
     {
         loadButton.setBounds(area.removeFromTop(28));
@@ -3110,6 +3106,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
         fileLabel.setText(type==ClassicPlayerAudioProcessor::LayerType::continuousPads ? "PAD CONTINUO" : "DRUM PADS", juce::dontSendNotification);
         fileLabel.setColour(juce::Label::backgroundColourId, juce::Colour(yellow));
         fileLabel.setColour(juce::Label::textColourId, juce::Colours::black);
+        sourceSummary.setTooltip(fileLabel.getText());
         return;
     }
     const auto path = processor.soundFontPath(index);
@@ -3153,6 +3150,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
                         hasSource ? juce::Colour(yellow) : juce::Colour(0xff0b1218));
     fileLabel.setColour(juce::Label::textColourId,
                         hasSource ? juce::Colours::black : juce::Colour(mutedText));
+    sourceSummary.setTooltip(fileLabel.getText());
     openExternalEditorButton.setEnabled(processor.supportsExternalInstruments()
                                         && processor.hasExternalInstrument(index));
     const auto config = processor.layerConfig(index);
