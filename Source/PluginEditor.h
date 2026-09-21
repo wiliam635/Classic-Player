@@ -153,6 +153,7 @@ private:
         juce::Label reverbLabel;
         juce::Label compressorLabel;
         juce::Label routingLabel;
+        juce::TextButton modulationButton { "MOD: ON" };
         juce::TextButton volumeLearn { "LEARN CC" };
         juce::TextButton resetMidiLearnButton { "RESET CC" };
         juce::TextButton cutoffLearn { "LEARN" };

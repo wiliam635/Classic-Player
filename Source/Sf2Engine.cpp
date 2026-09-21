@@ -283,8 +283,9 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
             return;
         }
         if (cc == 1)
-            layer.modulationAmount = value / 127.0f;
-        fluid_synth_cc(layer.synth.get(), channel - 1, cc, value);
+            layer.modulationAmount = layer.config.modulationEnabled ? value / 127.0f : 0.0f;
+        const auto forwardedValue = (cc == 1 && !layer.config.modulationEnabled) ? 0 : value;
+        fluid_synth_cc(layer.synth.get(), channel - 1, cc, forwardedValue);
         return;
     }
 
@@ -440,7 +441,8 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         // the approved front-end: tremolo for electric pianos and fast rotary
         // movement for organs. CC1 at zero keeps the layer dry.
         const auto category = juce::File { layer.soundFontPath }.getParentDirectory().getFileName();
-        const auto mod = juce::jlimit(0.0f, 1.0f, layer.modulationAmount);
+        const auto mod = layer.config.modulationEnabled
+            ? juce::jlimit(0.0f, 1.0f, layer.modulationAmount) : 0.0f;
         if (mod > 0.001f && (category == "Piano Eletrico" || category == "Organ"))
         {
             const auto tremolo = category == "Piano Eletrico";
@@ -640,6 +642,11 @@ void Sf2Engine::setConfig(int index, const LayerConfig& config)
         }
         layer.monoNote = -1;
     }
+    if (layer.config.modulationEnabled && !config.modulationEnabled && layer.synth != nullptr)
+        for (int channel = 0; channel < 16; ++channel)
+            fluid_synth_cc(layer.synth.get(), channel, 1, 0);
+    if (!config.modulationEnabled)
+        layer.modulationAmount = 0.0f;
     layer.config = config;
 }
 
@@ -687,7 +694,8 @@ void Sf2Engine::sendController(int index, int controller, int value)
     auto& layer = layers[(size_t) index];
     if (!layer.synth || layer.soundFontId < 0) return;
     if (controller == 1)
-        layer.modulationAmount = juce::jlimit(0, 127, value) / 127.0f;
+        layer.modulationAmount = layer.config.modulationEnabled
+            ? juce::jlimit(0, 127, value) / 127.0f : 0.0f;
     for (int channel = 0; channel < 16; ++channel)
         fluid_synth_cc(layer.synth.get(), channel, juce::jlimit(0, 127, controller),
                        juce::jlimit(0, 127, value));

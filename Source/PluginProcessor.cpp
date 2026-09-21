@@ -281,6 +281,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"layer" + n + "Dx7Chorus", 1}, "Layer " + n + " DX7 Chorus",
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 20.0f));
+        result.push_back(std::make_unique<juce::AudioParameterBool>(
+            juce::ParameterID{"layer" + n + "ModulationEnabled", 1},
+            "Layer " + n + " Keyboard Modulation", true));
     }
     return { result.begin(), result.end() };
 }
@@ -484,6 +487,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         config.compressorRelease = parameters.getRawParameterValue(prefix + "CompRelease")->load();
         config.compressorMakeup = parameters.getRawParameterValue(prefix + "CompMakeup")->load();
         config.dx7Chorus = parameters.getRawParameterValue(prefix + "Dx7Chorus")->load();
+        config.modulationEnabled = parameters.getRawParameterValue(prefix + "ModulationEnabled")->load() >= 0.5f;
         engine.setConfig(i, config);
         dx7LayerConfigs[(size_t) i] = config;
         auto analogConfig = analogLayerConfigs[(size_t) i];
@@ -1282,12 +1286,12 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     if (layer >= count || count <= 1) return false;
 
     const auto last = count - 1;
-    static constexpr std::array<const char*, 24> parameterSuffixes {
+    static constexpr std::array<const char*, 25> parameterSuffixes {
         "Gain", "Attack", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh",
         "EqLowFrequency", "EqMidFrequency", "EqHighFrequency", "EqLowQ", "EqMidQ", "EqHighQ",
         "Reverb", "ReverbSize", "ReverbDamping",
         "ReverbWidth", "Comp", "CompThreshold", "CompRatio", "CompAttack",
-        "CompRelease", "CompMakeup", "Dx7Chorus"
+        "CompRelease", "CompMakeup", "Dx7Chorus", "ModulationEnabled"
     };
 
     // Preserve the visual and audio order. The previous implementation moved

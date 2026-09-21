@@ -2158,6 +2158,19 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     soloButton.setClickingTogglesState(true);
     muteButton.onClick = [this] { muted = muteButton.getToggleState(); mixStateChanged(); };
     soloButton.onClick = [this] { solo = soloButton.getToggleState(); mixStateChanged(); };
+    flatButton(modulationButton);
+    addAndMakeVisible(modulationButton);
+    modulationButton.setClickingTogglesState(true);
+    modulationButton.setTooltip("Ativa ou desativa a modulação recebida pelo teclado nesta layer");
+    modulationButton.onClick = [this]
+    {
+        if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::sf2
+            && processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::dx7) return;
+        if (auto* parameter = processor.parameters.getParameter(
+                "layer" + juce::String(index + 1) + "ModulationEnabled"))
+            parameter->setValueNotifyingHost(parameter->convertTo0to1(modulationButton.getToggleState() ? 1.0f : 0.0f));
+        refresh();
+    };
     resetButton.onClick = [this] { resetLayer(); };
     editButton.setTooltip("Mostrar ou ocultar os controles desta layer");
     editButton.onClick = [this]
@@ -2718,6 +2731,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     soloButton.setBounds(top.removeFromLeft(30).reduced(1));
     auto layerActions = area.removeFromTop(25);
     editButton.setBounds(layerActions.removeFromLeft(70).reduced(1));
+    modulationButton.setBounds(layerActions.removeFromRight(64).reduced(1));
     resetButton.setBounds(layerActions.removeFromRight(52).reduced(1));
     removeButton.setBounds(layerActions.removeFromRight(24).reduced(1));
     area.removeFromTop(4);
@@ -2725,6 +2739,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     sourceSummary.setBounds(summaryRow.reduced(2, 0));
     area.removeFromTop(4);
     const auto type = processor.layerType(index);
+    const auto modulationLayer = type == ClassicPlayerAudioProcessor::LayerType::sf2
+                              || type == ClassicPlayerAudioProcessor::LayerType::dx7;
+    modulationButton.setVisible(modulationLayer);
     if (type == ClassicPlayerAudioProcessor::LayerType::drumPads || type == ClassicPlayerAudioProcessor::LayerType::continuousPads)
     {
         gain.setSliderStyle(juce::Slider::LinearVertical);
@@ -2982,7 +2999,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
         &volumeLearn, &resetMidiLearnButton, &cutoffLearn, &reverbLearn,
         &compressorLearn, &reverbEditButton, &compressorEditButton, &meter,
         &chorus, &chorusEditButton, &cutoffLabel, &reverbLabel, &compressorLabel,
-        &chorusLabel, &routingLabel
+        &chorusLabel, &routingLabel,
+        &modulationButton
     };
     for (auto* control : sharedControls)
         control->setVisible(!isDrumPads);
@@ -2996,6 +3014,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     externalInstrumentButton.setVisible(isVst && processor.supportsExternalInstruments());
     openExternalEditorButton.setVisible(isVst && processor.supportsExternalInstruments());
     dx7Button.setVisible(isDx7 || isAnalog || isHammond);
+    modulationButton.setVisible(isSf2 || isDx7);
     mode.setEnabled(!isHammond); velocityCurve.setEnabled(!isHammond);
     dx7LibraryBox.setVisible(isDx7);
     dx7PatchBox.setVisible(isDx7);
@@ -3136,6 +3155,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resetLayer()
     lowNote.setSelectedId(1);
     highNote.setSelectedId(128);
     velocityCurve.setSelectedId(1);
+    if (auto* parameter = processor.parameters.getParameter(
+            "layer" + juce::String(index + 1) + "ModulationEnabled"))
+        parameter->setValueNotifyingHost(parameter->getDefaultValue());
     refresh();
     mixStateChanged();
 }
@@ -3295,6 +3317,14 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
     openExternalEditorButton.setEnabled(processor.supportsExternalInstruments()
                                         && processor.hasExternalInstrument(index));
     const auto config = processor.layerConfig(index);
+    const auto modulationParameter = processor.parameters.getRawParameterValue(
+        "layer" + juce::String(index + 1) + "ModulationEnabled");
+    const auto modulationEnabled = modulationParameter == nullptr || modulationParameter->load() >= 0.5f;
+    modulationButton.setToggleState(modulationEnabled, juce::dontSendNotification);
+    modulationButton.setButtonText(modulationEnabled ? "MOD: ON" : "MOD: OFF");
+    modulationButton.setColour(juce::TextButton::buttonColourId,
+                               modulationEnabled ? juce::Colour(0xff1b554e)
+                                                  : juce::Colour(panelLight));
     mode.setSelectedId(config.portamento ? 3 : (config.mono ? 2 : 1),
                        juce::dontSendNotification);
     sustain.setSelectedId(config.sustainEnabled ? 1 : 2, juce::dontSendNotification);

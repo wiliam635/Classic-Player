@@ -62,6 +62,8 @@ public:
         // Used only by DX7 layers.  Keeping it in the common routing config
         // preserves source-specific controls without mixing their engines.
         float dx7Chorus = 20.0f;
+        // Enables the keyboard modulation source (CC1/LFO) for SF2 and DX7.
+        bool modulationEnabled = true;
     };
 
     struct Preset

@@ -613,7 +613,8 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
             // MSFA expects a Q24 LFO value. The previous fixed centre value
             // disabled the DX7's native amplitude modulation entirely.
             const auto blockPhase = layer.lfoPhase + (double) offset * lfoStep;
-            const auto lfoWave = 0.5 + 0.5 * std::sin(blockPhase);
+            const auto lfoWave = config.modulationEnabled
+                ? 0.5 + 0.5 * std::sin(blockPhase) : 0.5;
             const auto delayedDepth = delaySeconds > 0.0
                 ? juce::jlimit(0.0, 1.0, (layer.lfoDelayProgress
                     + (double) offset / sampleRate) / delaySeconds) : 1.0;
