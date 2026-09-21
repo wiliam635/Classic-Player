@@ -436,13 +436,32 @@ private:
     juce::TextButton reverb, compressor, chorus, eq;
 };
 
+class CentredEditorPanel final : public juce::Component
+{
+public:
+    CentredEditorPanel(juce::Component* childToOwn, int panelWidth)
+        : child(childToOwn)
+    {
+        addAndMakeVisible(child.get());
+        setSize(panelWidth, child->getHeight());
+    }
+
+    void resized() override
+    {
+        child->setTopLeftPosition((getWidth() - child->getWidth()) / 2, 0);
+    }
+
+private:
+    std::unique_ptr<juce::Component> child;
+};
+
 class ParametricEqGraph final : public juce::Component, private juce::Timer
 {
 public:
     std::function<void(int, float, float)> onPointChanged;
 
-    ParametricEqGraph(ClassicPlayerAudioProcessor& p, int layerIndex)
-        : processor(p), layer(layerIndex)
+    ParametricEqGraph(ClassicPlayerAudioProcessor& p, int layerIndex, bool masterEditor = false)
+        : processor(p), layer(layerIndex), master(masterEditor)
     {
         setSize(700, 268);
         startTimerHz(30);
@@ -530,7 +549,7 @@ public:
         drawBandNode(g, graph, toX(highFrequency), toY(highGain), "3");
         g.setColour(juce::Colour(text));
         g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-        g.drawText("EQ PARAMETRICO DA LAYER", 42, 3, getWidth() - 84, 18,
+        g.drawText(master ? "EQ PARAMETRICO MASTER" : "EQ PARAMETRICO DA LAYER", 42, 3, getWidth() - 84, 18,
                    juce::Justification::centred);
         g.setFont(juce::FontOptions(10.0f));
         g.setColour(juce::Colour(mutedText));
@@ -557,10 +576,20 @@ public:
             "EqLowFrequency", "EqMidFrequency", "EqHighFrequency"
         };
         static constexpr std::array<const char*, 3> gainNames { "EqLow", "EqMid", "EqHigh" };
+        const std::array<juce::String, 3> masterFrequencyNames {
+            "masterEqLowFrequency", "masterEqFrequency", "masterEqHighFrequency"
+        };
+        const std::array<juce::String, 3> masterGainNames {
+            "masterEqLow", "masterEqMid", "masterEqHigh"
+        };
         const auto prefix = "layer" + juce::String(layer + 1);
-        if (auto* frequencyParameter = processor.parameters.getParameter(prefix + frequencyNames[(size_t) selectedBand]))
+        const auto frequencyId = master ? masterFrequencyNames[(size_t) selectedBand]
+                                        : prefix + frequencyNames[(size_t) selectedBand];
+        const auto gainId = master ? masterGainNames[(size_t) selectedBand]
+                                   : prefix + gainNames[(size_t) selectedBand];
+        if (auto* frequencyParameter = processor.parameters.getParameter(frequencyId))
             frequencyParameter->setValueNotifyingHost(frequencyParameter->convertTo0to1(frequency));
-        if (auto* gainParameter = processor.parameters.getParameter(prefix + gainNames[(size_t) selectedBand]))
+        if (auto* gainParameter = processor.parameters.getParameter(gainId))
             gainParameter->setValueNotifyingHost(gainParameter->convertTo0to1(gain));
         if (onPointChanged) onPointChanged(selectedBand, frequency, gain);
     }
@@ -568,11 +597,22 @@ public:
 private:
     juce::String parameterName(const char* suffix) const
     {
+        if (master)
+        {
+            if (juce::String(suffix) == "EqLowFrequency") return "masterEqLowFrequency";
+            if (juce::String(suffix) == "EqMidFrequency") return "masterEqFrequency";
+            if (juce::String(suffix) == "EqHighFrequency") return "masterEqHighFrequency";
+            if (juce::String(suffix) == "EqLow") return "masterEqLow";
+            if (juce::String(suffix) == "EqMid") return "masterEqMid";
+            if (juce::String(suffix) == "EqHigh") return "masterEqHigh";
+        }
         return "layer" + juce::String(layer + 1) + suffix;
     }
 
     float parameter(const char* suffix, float fallback) const
     {
+        if (master && juce::String(suffix).endsWithChar('Q'))
+            return fallback;
         if (const auto* value = processor.parameters.getRawParameterValue(parameterName(suffix)))
             return value->load();
         return fallback;
@@ -655,6 +695,7 @@ private:
 
     ClassicPlayerAudioProcessor& processor;
     int layer = 0;
+    bool master = false;
     int selectedBand = -1;
 };
 
@@ -722,8 +763,7 @@ public:
             const auto input = -60.0f + 66.0f * (float) i / 120.0f;
             const auto compressed = input <= threshold
                 ? input : threshold + (input - threshold) / ratio + makeup;
-            const auto output = input + (compressed - input) * mix;
-            const auto point = juce::Point<float>(toX(input), toY(output));
+            const auto point = juce::Point<float>(toX(input), toY(compressed));
             if (i == 0) curve.startNewSubPath(point); else curve.lineTo(point);
         }
         g.setColour(juce::Colour(teal).withAlpha(0.22f));
@@ -736,6 +776,16 @@ public:
         g.strokePath(curve, juce::PathStrokeType(2.0f));
         g.setColour(juce::Colour(yellow));
         g.drawLine(toX(threshold), graph.getY(), toX(threshold), graph.getBottom(), 1.5f);
+        const auto thresholdPoint = juce::Point<float>(toX(threshold), toY(threshold + makeup));
+        const auto ratioPoint = juce::Point<float>(toX(6.0f),
+            toY(threshold + (6.0f - threshold) / ratio + makeup));
+        for (const auto& point : { thresholdPoint, ratioPoint })
+        {
+            g.setColour(juce::Colour(yellow));
+            g.fillEllipse(point.x - 8.0f, point.y - 8.0f, 16.0f, 16.0f);
+            g.setColour(juce::Colour(0xff101617));
+            g.fillEllipse(point.x - 3.0f, point.y - 3.0f, 6.0f, 6.0f);
+        }
         g.fillEllipse(toX(inputDb) - 4.5f, toY(outputDb) - 4.5f, 9.0f, 9.0f);
 
         drawMeter(g, area.getX() + 18.0f, area.getY() + 25.0f, area.getHeight() - 58.0f,
@@ -760,7 +810,66 @@ public:
                    juce::Justification::centred);
     }
 
+    void mouseDown(const juce::MouseEvent& event) override
+    {
+        const auto graph = graphBounds();
+        const auto threshold = parameter("CompThreshold", -18.0f);
+        const auto ratio = juce::jmax(1.0f, parameter("CompRatio", 4.0f));
+        const auto makeup = parameter("CompMakeup", 0.0f);
+        const auto thresholdPoint = juce::Point<float>(toX(graph, threshold), toY(graph, threshold + makeup));
+        const auto ratioPoint = juce::Point<float>(toX(graph, 6.0f),
+            toY(graph, threshold + (6.0f - threshold) / ratio + makeup));
+        selectedHandle = event.position.getDistanceFrom(thresholdPoint)
+                       <= event.position.getDistanceFrom(ratioPoint) ? 0 : 1;
+    }
+
+    void mouseDrag(const juce::MouseEvent& event) override
+    {
+        const auto graph = graphBounds();
+        if (selectedHandle == 0)
+        {
+            const auto threshold = juce::jmap(juce::jlimit(0.0f, 1.0f,
+                (event.position.x - graph.getX()) / graph.getWidth()), -60.0f, 0.0f);
+            setParameter("CompThreshold", threshold);
+            if (onCurveChanged) onCurveChanged(0, threshold);
+        }
+        else
+        {
+            const auto ratio = juce::jmap(juce::jlimit(0.0f, 1.0f,
+                (graph.getBottom() - event.position.y) / graph.getHeight()), 1.0f, 20.0f);
+            setParameter("CompRatio", ratio);
+            if (onCurveChanged) onCurveChanged(1, ratio);
+        }
+    }
+
+    std::function<void(int, float)> onCurveChanged;
+
 private:
+    juce::Rectangle<float> graphBounds() const
+    {
+        auto area = getLocalBounds().toFloat().reduced(18.0f, 24.0f);
+        auto graph = area.withX(area.getX() + 74.0f).withWidth(area.getWidth() - 148.0f);
+        graph.removeFromBottom(25.0f);
+        graph.removeFromTop(4.0f);
+        return graph;
+    }
+
+    static float toX(juce::Rectangle<float> graph, float db)
+    {
+        return graph.getX() + (juce::jlimit(-60.0f, 6.0f, db) + 60.0f) / 66.0f * graph.getWidth();
+    }
+
+    static float toY(juce::Rectangle<float> graph, float db)
+    {
+        return graph.getBottom() - (juce::jlimit(-60.0f, 12.0f, db) + 60.0f) / 72.0f * graph.getHeight();
+    }
+
+    void setParameter(const char* suffix, float value)
+    {
+        if (auto* target = processor.parameters.getParameter(parameterName(suffix)))
+            target->setValueNotifyingHost(target->convertTo0to1(value));
+    }
+
     juce::String parameterName(const char* suffix) const
     {
         return "layer" + juce::String(layer + 1) + suffix;
@@ -809,6 +918,7 @@ private:
 
     ClassicPlayerAudioProcessor& processor;
     int layer = 0;
+    int selectedHandle = -1;
 };
 
 static void showParametricLayerEqEditor(ClassicPlayerAudioProcessor& processor, int layer)
@@ -836,8 +946,8 @@ static void showParametricLayerEqEditor(ClassicPlayerAudioProcessor& processor, 
         { "HIGH Q", value("EqHighQ", 0.707f), 0.1f, 4.0f, 0.01f, 2 }
     }, 3);
     auto* graph = new ParametricEqGraph(processor, layer);
-    dialog->addCustomComponent(graph);
-    dialog->addCustomComponent(knobs);
+    dialog->addCustomComponent(new CentredEditorPanel(graph, 700));
+    dialog->addCustomComponent(new CentredEditorPanel(knobs, 700));
     dialog->setSize(760, 780);
     graph->onPointChanged = [knobs](int band, float frequency, float gain)
     {
@@ -2422,11 +2532,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
         juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* knobs = new KnobEditorPanel({
-        { "TAMANHO", processor.parameters.getRawParameterValue(prefix + "ReverbSize")->load(), 0.0f, 100.0f, 1.0f, 0 },
-        { "DAMPING", processor.parameters.getRawParameterValue(prefix + "ReverbDamping")->load(), 0.0f, 100.0f, 1.0f, 0 },
-        { "LARGURA ESTEREO", processor.parameters.getRawParameterValue(prefix + "ReverbWidth")->load(), 0.0f, 100.0f, 1.0f, 0 }
-    }, 3);
-    dialog->addCustomComponent(knobs);
+        { "TEMPO", processor.parameters.getRawParameterValue(prefix + "ReverbSize")->load(), 0.0f, 100.0f, 1.0f, 0 },
+        { "DIFUSAO", 100.0f - processor.parameters.getRawParameterValue(prefix + "ReverbDamping")->load(), 0.0f, 100.0f, 1.0f, 0 },
+        { "LARGURA", processor.parameters.getRawParameterValue(prefix + "ReverbWidth")->load(), 0.0f, 100.0f, 1.0f, 0 },
+        { "MIX", processor.parameters.getRawParameterValue(prefix + "Reverb")->load(), 0.0f, 100.0f, 1.0f, 0 }
+    }, 2);
+    dialog->addCustomComponent(new CentredEditorPanel(knobs, 700));
+    dialog->setSize(760, 500);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     knobs->setOnValueChange([safe, knobs, prefix]
     {
@@ -2437,8 +2549,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
                 parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
         };
         set("ReverbSize", juce::jlimit(0.0f, 100.0f, knobs->value(0)));
-        set("ReverbDamping", juce::jlimit(0.0f, 100.0f, knobs->value(1)));
+        set("ReverbDamping", 100.0f - juce::jlimit(0.0f, 100.0f, knobs->value(1)));
         set("ReverbWidth", juce::jlimit(0.0f, 100.0f, knobs->value(2)));
+        set("Reverb", juce::jlimit(0.0f, 100.0f, knobs->value(3)));
     });
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
@@ -2464,8 +2577,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
         { "MAKEUP dB", processor.parameters.getRawParameterValue(prefix + "CompMakeup")->load(), 0.0f, 24.0f, 0.1f, 1 }
     }, 3);
     auto* graph = new CompressorResponseView(processor, index);
-    dialog->addCustomComponent(graph);
-    dialog->addCustomComponent(knobs);
+    dialog->addCustomComponent(new CentredEditorPanel(graph, 700));
+    dialog->addCustomComponent(new CentredEditorPanel(knobs, 700));
     dialog->setSize(760, 660);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     knobs->setOnValueChange([safe, knobs, prefix]
@@ -2482,6 +2595,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
         set("CompRelease", juce::jlimit(5.0f, 1000.0f, knobs->value(3)));
         set("CompMakeup", juce::jlimit(0.0f, 24.0f, knobs->value(4)));
     });
+    graph->onCurveChanged = [knobs](int handle, float value)
+    {
+        knobs->setValue(handle, value);
+    };
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
@@ -3769,7 +3886,17 @@ void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
         { "HIGH FREQ Hz", classicProcessor.masterEqValue("masterEqHighFrequency"), 2000.0f, 16000.0f, 1.0f, 0 },
         { "HIGH CUT Hz", classicProcessor.masterEqValue("masterEqHighCut"), 2000.0f, 20000.0f, 1.0f, 0 }
     }, 4);
-    dialog->addCustomComponent(knobs);
+    auto* graph = new ParametricEqGraph(classicProcessor, 0, true);
+    dialog->addCustomComponent(new CentredEditorPanel(graph, 700));
+    dialog->addCustomComponent(new CentredEditorPanel(knobs, 700));
+    dialog->setSize(760, 660);
+    graph->onPointChanged = [knobs](int band, float frequency, float gain)
+    {
+        static constexpr std::array<int, 3> frequencyKnobs { 2, 4, 6 };
+        static constexpr std::array<int, 3> gainKnobs { 1, 3, 5 };
+        knobs->setValue(frequencyKnobs[(size_t) band], frequency);
+        knobs->setValue(gainKnobs[(size_t) band], gain);
+    };
     const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
     knobs->setOnValueChange([safe, knobs]
     {
