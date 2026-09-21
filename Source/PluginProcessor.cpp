@@ -1912,12 +1912,29 @@ juce::Result ClassicPlayerAudioProcessor::saveProgram(const juce::String& reques
     if (const auto result = folder.createDirectory(); result.failed())
         return result;
 
+    return saveProgramToFile(folder.getChildFile(name + ".ckprogram"), savedFile);
+}
+
+juce::Result ClassicPlayerAudioProcessor::saveProgramToFile(const juce::File& requestedDestination,
+                                                             juce::File& savedFile)
+{
+    if (requestedDestination == juce::File{})
+        return juce::Result::fail("Escolha um local para salvar a programação.");
+
+    auto destination = requestedDestination;
+    if (destination.getFileExtension().toLowerCase() != ".ckprogram")
+        destination = destination.withFileExtension(".ckprogram");
+
+    if (const auto parent = destination.getParentDirectory(); parent != juce::File{}
+        && !parent.exists())
+        if (const auto result = parent.createDirectory(); result.failed())
+            return result;
+
     juce::MemoryBlock data;
     getStateInformation(data);
     if (data.getSize() == 0)
         return juce::Result::fail("Não foi possível preparar a programação.");
 
-    const auto destination = folder.getChildFile(name + ".ckprogram");
     if (!destination.replaceWithData(data.getData(), data.getSize()))
         return juce::Result::fail("Não foi possível salvar a programação.");
 

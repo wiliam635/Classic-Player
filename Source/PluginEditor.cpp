@@ -4082,17 +4082,39 @@ void ClassicPlayerAudioProcessorEditor::refreshProgramLibrary()
 
 void ClassicPlayerAudioProcessorEditor::saveProgram()
 {
-    juce::File savedFile;
-    const auto result = classicProcessor.saveProgram(programBox.getText(), savedFile);
-    if (result.failed())
-    {
-        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                               "Falha ao Salvar Preset", result.getErrorMessage());
-        return;
-    }
+    auto name = programBox.getText().trim();
+    if (name.isEmpty()) name = "Classic Player Preset";
+    name = name.retainCharacters("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_()");
+    if (name.isEmpty()) name = "Classic Player Preset";
 
-    programBox.setText(savedFile.getFileNameWithoutExtension(), juce::dontSendNotification);
-    refreshProgramLibrary();
+    const auto defaultFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+        .getChildFile(name + ".ckprogram");
+    programFileChooser = std::make_unique<juce::FileChooser>(
+        "Salvar Preset Classic Player", defaultFile, "*.ckprogram");
+    programFileChooser->launchAsync(
+        juce::FileBrowserComponent::saveMode
+        | juce::FileBrowserComponent::canSelectFiles
+        | juce::FileBrowserComponent::warnAboutOverwriting,
+        [this](const juce::FileChooser& chooser)
+        {
+            const auto selected = chooser.getResult();
+            if (selected == juce::File{}) return;
+
+            juce::File savedFile;
+            const auto result = classicProcessor.saveProgramToFile(selected, savedFile);
+            if (result.failed())
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                       "Falha ao Salvar Preset", result.getErrorMessage());
+                return;
+            }
+
+            programBox.setText(savedFile.getFileNameWithoutExtension(), juce::dontSendNotification);
+            // The exported file is intentionally kept at the user's chosen
+            // location.  It can now be copied to another computer and opened
+            // with the existing "Abrir" button.
+            refreshProgramLibrary();
+        });
 }
 
 void ClassicPlayerAudioProcessorEditor::chooseProgramFile()

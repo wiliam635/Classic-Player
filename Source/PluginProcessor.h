@@ -131,6 +131,7 @@ public:
     // from DAW session state, and work on both macOS and Windows.
     juce::Array<juce::File> savedPrograms() const;
     juce::Result saveProgram(const juce::String& name, juce::File& savedFile);
+    juce::Result saveProgramToFile(const juce::File& destination, juce::File& savedFile);
     juce::Result deleteProgram(const juce::File& programFile);
     juce::Result loadProgram(const juce::File& programFile);
 

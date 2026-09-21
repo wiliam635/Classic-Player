@@ -45,6 +45,16 @@ static void startupPrograms()
     p->parameters.getParameter("master")->setValueNotifyingHost(0.25f);
     juce::File first, last;
     check(p->saveProgram("First", first).wasOk(), "save first");
+    p->parameters.getParameter("master")->setValueNotifyingHost(0.33f);
+    juce::File portable;
+    check(p->saveProgramToFile(root.getChildFile("PortablePreset"), portable).wasOk(),
+          "save portable preset");
+    check(portable.getFileExtension().toLowerCase() == ".ckprogram" && portable.existsAsFile(),
+          "portable preset extension");
+    p->parameters.getParameter("master")->setValueNotifyingHost(0.66f);
+    check(p->loadProgram(portable).wasOk()
+          && p->parameters.getRawParameterValue("master")->load() == 33,
+          "load portable preset");
     p->parameters.getParameter("master")->setValueNotifyingHost(0.75f);
     while (p->activeLayerCount() > 4)
         check(p->removeLayer(p->activeLayerCount() - 1), "remove layer for startup test");
