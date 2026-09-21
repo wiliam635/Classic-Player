@@ -1781,15 +1781,21 @@ public:
             addAndMakeVisible(*label);
         }
         flatButton(importButton);
+        flatButton(deleteButton);
         importButton.setButtonText("IMPORTAR DX7");
+        deleteButton.setButtonText("EXCLUIR DX7");
         importButton.setTooltip("Importar banco ou voz DX7 em formato SysEx (.syx)");
+        deleteButton.setTooltip("Excluir o banco DX7 selecionado da biblioteca");
         importButton.onClick = [this] { chooseDx7(); };
+        deleteButton.onClick = [this] { deleteSelectedBank(); };
         addAndMakeVisible(importButton);
+        addAndMakeVisible(deleteButton);
         rebuildBanks();
         bankBox.onChange = [this]
         {
             const auto selected = bankBox.getSelectedItemIndex();
             const auto banksNow = processor.libraryDx7Banks();
+            deleteButton.setEnabled(juce::isPositiveAndBelow(selected, banksNow.size()));
             if (juce::isPositiveAndBelow(selected, banksNow.size()))
             {
                 processor.loadDx7(index, banksNow.getReference(selected));
@@ -1812,6 +1818,7 @@ public:
         auto area = getLocalBounds().reduced(12);
         auto row = area.removeFromTop(22);
         bankLabel.setBounds(row.removeFromLeft(100));
+        deleteButton.setBounds(row.removeFromRight(112).reduced(1, 0));
         importButton.setBounds(row.removeFromRight(112).reduced(1, 0));
         bankBox.setBounds(row);
         area.removeFromTop(10);
@@ -1821,6 +1828,30 @@ public:
     }
 
 private:
+    void deleteSelectedBank()
+    {
+        const auto selected = bankBox.getSelectedItemIndex();
+        const auto banks = processor.libraryDx7Banks();
+        if (!juce::isPositiveAndBelow(selected, banks.size())) return;
+        const auto file = banks.getReference(selected);
+        const juce::Component::SafePointer<Dx7EditorPanel> safe(this);
+        juce::AlertWindow::showOkCancelBox(
+            juce::MessageBoxIconType::WarningIcon, "Excluir DX7",
+            "Excluir '" + file.getFileName() + "' da biblioteca?",
+            "Excluir", "Cancelar", this,
+            juce::ModalCallbackFunction::create([safe, file](int answer)
+            {
+                if (safe == nullptr || answer == 0) return;
+                const auto result = safe->processor.deleteLibraryDx7Bank(file);
+                if (result.failed())
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon, "Falha ao excluir DX7",
+                        result.getErrorMessage());
+                safe->rebuildBanks();
+                safe->rebuildPatches();
+            }));
+    }
+
     void rebuildBanks()
     {
         bankBox.clear(juce::dontSendNotification);
@@ -1831,6 +1862,7 @@ private:
         const auto selected = processor.dx7Path(index).isNotEmpty()
             ? banks.indexOf(juce::File(processor.dx7Path(index))) : -1;
         bankBox.setSelectedItemIndex(selected, juce::dontSendNotification);
+        deleteButton.setEnabled(juce::isPositiveAndBelow(selected, banks.size()));
     }
 
     void chooseDx7()
@@ -1873,6 +1905,7 @@ private:
     juce::Label bankLabel, patchLabel;
     juce::ComboBox bankBox, patchBox;
     juce::TextButton importButton;
+    juce::TextButton deleteButton;
     std::unique_ptr<juce::FileChooser> fileChooser;
 };
 
