@@ -89,6 +89,8 @@ public:
     void setConfig(int layer, const LayerConfig& config);
     juce::String getSoundFontPath(int layer) const;
     std::vector<Preset> getPresets(int layer) const;
+    int getSelectedBank(int layer) const;
+    int getSelectedProgram(int layer) const;
     void selectPreset(int layer, int bank, int program);
     void sendController(int layer, int controller, int value);
     float getLayerPeak(int layer) const;

@@ -1064,6 +1064,8 @@ juce::String ClassicPlayerAudioProcessor::soundFontPath(int layer) const { retur
 Sf2Engine::LayerConfig ClassicPlayerAudioProcessor::layerConfig(int layer) const { return engine.getConfig(layer); }
 void ClassicPlayerAudioProcessor::setLayerConfig(int layer, const Sf2Engine::LayerConfig& c) { engine.setConfig(layer, c); }
 std::vector<Sf2Engine::Preset> ClassicPlayerAudioProcessor::layerPresets(int layer) const { return engine.getPresets(layer); }
+int ClassicPlayerAudioProcessor::layerPresetBank(int layer) const { return engine.getSelectedBank(layer); }
+int ClassicPlayerAudioProcessor::layerPresetProgram(int layer) const { return engine.getSelectedProgram(layer); }
 void ClassicPlayerAudioProcessor::selectLayerPreset(int layer, int bank, int program) { engine.selectPreset(layer, bank, program); }
 void ClassicPlayerAudioProcessor::sendLayerController(int layer, int controller, int value) { engine.sendController(layer, controller, value); }
 float ClassicPlayerAudioProcessor::layerPeak(int layer) const
@@ -1902,6 +1904,50 @@ juce::String ClassicPlayerAudioProcessor::liveSetSlotLayerSummary(int bank, int 
     return juce::String(count) + (count == 1 ? " CAMADA" : " CAMADAS");
 }
 
+juce::String ClassicPlayerAudioProcessor::liveSetSlotLayerVolumes(int bank, int slot) const
+{
+    const auto program = liveSetSlotProgram(bank, slot);
+    if (!program.existsAsFile()) return {};
+
+    juce::MemoryBlock data;
+    if (!program.loadFileAsData(data) || data.getSize() == 0) return {};
+    const std::unique_ptr<juce::XmlElement> xml(
+        getXmlFromBinary(data.getData(), static_cast<int>(data.getSize())));
+    if (xml == nullptr) return {};
+
+    const auto count = juce::jlimit(1, Sf2Engine::layerCount,
+        xml->getIntAttribute("activeLayers", Sf2Engine::defaultLayerCount));
+    std::function<bool(const juce::XmlElement&, const juce::String&, float&)> findParameter;
+    findParameter = [&findParameter](const juce::XmlElement& element,
+                                      const juce::String& id, float& result)
+    {
+        if (element.getStringAttribute("id") == id && element.hasAttribute("value"))
+        {
+            result = static_cast<float>(element.getDoubleAttribute("value", 0.0));
+            return true;
+        }
+        for (auto* child = element.getFirstChildElement(); child != nullptr; child = child->getNextElement())
+            if (findParameter(*child, id, result)) return true;
+        return false;
+    };
+
+    juce::String result;
+    for (int layer = 0; layer < count; ++layer)
+    {
+        float value = 0.8f;
+        if (!findParameter(*xml, "layer" + juce::String(layer + 1) + "Gain", value))
+            value = 0.8f;
+        // APVTS state has used normalized values in some releases and the
+        // displayed 0..100 range in others. Accept both formats so old
+        // .ckprogram files still show the correct Live Set volume.
+        const auto percent = value <= 1.0f ? value * 100.0f : value;
+        if (result.isNotEmpty()) result << "   ";
+        result << "L" << (layer + 1) << " "
+               << juce::String(juce::jlimit(0, 100, juce::roundToInt(percent))) << "%";
+    }
+    return result;
+}
+
 juce::Result ClassicPlayerAudioProcessor::assignLiveSetSlot(int bank, int slot,
                                                             const juce::File& programFile)
 {
@@ -2097,6 +2143,8 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         const auto key = "sf2Layer" + juce::String(i + 1);
         const auto path = engine.getSoundFontPath(i);
         state.setProperty(key, path.isNotEmpty() ? path : savedPaths[(size_t) i], nullptr);
+        state.setProperty("sf2Bank" + juce::String(i + 1), engine.getSelectedBank(i), nullptr);
+        state.setProperty("sf2Program" + juce::String(i + 1), engine.getSelectedProgram(i), nullptr);
         state.setProperty("externalInstrument" + juce::String(i + 1),
                           externalInstruments[(size_t) i].getPath(), nullptr);
         // Save the instrument's own preset/state separately. Reusing the
@@ -2301,6 +2349,10 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 layerTypes[(size_t) i].store(savedType, std::memory_order_relaxed);
                 savedPaths[(size_t) i] = savedType == static_cast<int>(LayerType::sf2)
                     ? state.getProperty("sf2Layer" + juce::String(i + 1)).toString() : juce::String{};
+                savedSf2Banks[(size_t) i] = juce::jlimit(0, 16383, static_cast<int>(
+                    state.getProperty("sf2Bank" + juce::String(i + 1), 0)));
+                savedSf2Programs[(size_t) i] = juce::jlimit(0, 127, static_cast<int>(
+                    state.getProperty("sf2Program" + juce::String(i + 1), 0)));
                 const auto externalPath = savedType == static_cast<int>(LayerType::vst)
                     ? state.getProperty("externalInstrument" + juce::String(i + 1)).toString() : juce::String{};
                 const auto externalStateText = state.getProperty(
@@ -2476,7 +2528,10 @@ void ClassicPlayerAudioProcessor::restoreLayerPaths()
 {
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
         if (layerType(i) == LayerType::sf2 && savedPaths[(size_t) i].isNotEmpty())
-            engine.loadSoundFont(i, juce::File(savedPaths[(size_t) i]));
+        {
+            if (engine.loadSoundFont(i, juce::File(savedPaths[(size_t) i])).wasOk())
+                engine.selectPreset(i, savedSf2Banks[(size_t) i], savedSf2Programs[(size_t) i]);
+        }
 }
 
 juce::AudioProcessorEditor* ClassicPlayerAudioProcessor::createEditor()

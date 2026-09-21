@@ -681,6 +681,18 @@ std::vector<Sf2Engine::Preset> Sf2Engine::getPresets(int index) const
     return result;
 }
 
+int Sf2Engine::getSelectedBank(int index) const
+{
+    const juce::ScopedLock guard(lock);
+    return juce::isPositiveAndBelow(index, layerCount) ? layers[(size_t) index].selectedBank : 0;
+}
+
+int Sf2Engine::getSelectedProgram(int index) const
+{
+    const juce::ScopedLock guard(lock);
+    return juce::isPositiveAndBelow(index, layerCount) ? layers[(size_t) index].selectedProgram : 0;
+}
+
 void Sf2Engine::selectPreset(int index, int bank, int program)
 {
     if (!juce::isPositiveAndBelow(index, layerCount)) return;

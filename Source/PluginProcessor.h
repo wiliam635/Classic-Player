@@ -71,6 +71,8 @@ public:
     Sf2Engine::LayerConfig layerConfig(int layer) const;
     void setLayerConfig(int layer, const Sf2Engine::LayerConfig& config);
     std::vector<Sf2Engine::Preset> layerPresets(int layer) const;
+    int layerPresetBank(int layer) const;
+    int layerPresetProgram(int layer) const;
     void selectLayerPreset(int layer, int bank, int program);
     void sendLayerController(int layer, int controller, int value);
     float layerPeak(int layer) const;
@@ -145,6 +147,7 @@ public:
     juce::File liveSetSlotProgram(int bank, int slot) const;
     juce::String liveSetSlotName(int bank, int slot) const;
     juce::String liveSetSlotLayerSummary(int bank, int slot) const;
+    juce::String liveSetSlotLayerVolumes(int bank, int slot) const;
     juce::Result assignLiveSetSlot(int bank, int slot, const juce::File& programFile);
     void clearLiveSetSlot(int bank, int slot);
     juce::Result loadLiveSetSlot(int bank, int slot);
@@ -264,6 +267,8 @@ private:
     bool midiRecordingOverflowed = false;
     juce::File midiRecordingFile;
     std::array<juce::String, Sf2Engine::layerCount> savedPaths;
+    std::array<int, Sf2Engine::layerCount> savedSf2Banks {};
+    std::array<int, Sf2Engine::layerCount> savedSf2Programs {};
     static constexpr int learnTargetCount = static_cast<int>(LearnTarget::count);
     // A MIDI controller is identified by CC *and* channel. Some keyboards
     // send the same CC from several faders on different Part channels.

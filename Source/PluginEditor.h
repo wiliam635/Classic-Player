@@ -95,6 +95,7 @@ private:
         void resetLayer();
         void rebuildPresets();
         void rebuildLibrary();
+        void selectCurrentCategory();
         void rebuildExternalInstrumentLibrary();
         void applyConfig();
         void initialiseComboBoxes();

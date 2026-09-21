@@ -123,7 +123,9 @@ public:
             g.drawFittedText(button.getProperties()["liveTitle"].toString(),
                             14, (int)(h * 0.49f), (int)w - 28, (int)(h * 0.29f), juce::Justification::centred, 2);
             const auto summary = button.getProperties()["liveSummary"].toString();
-            auto summaryBounds = juce::Rectangle<float>(14, h * 0.82f, w - 28, h * 0.12f);
+            const auto volumes = button.getProperties()["liveVolumes"].toString();
+            auto summaryBounds = juce::Rectangle<float>(14, volumes.isEmpty() ? h * 0.82f : h * 0.77f,
+                                                        w - 28, volumes.isEmpty() ? h * 0.12f : h * 0.09f);
             if (summary.endsWith("CAMADA") || summary.endsWith("CAMADAS"))
             {
                 const float iconX=w*0.5f-70.0f, iconY=summaryBounds.getCentreY()-7.0f;
@@ -146,6 +148,13 @@ public:
             g.setColour(juce::Colour(mutedText));
             g.setFont(juce::FontOptions(juce::jlimit(11.0f, 15.0f, h * 0.065f)));
             g.drawText(summary, summaryBounds, juce::Justification::centred);
+            if (volumes.isNotEmpty())
+            {
+                g.setColour(juce::Colour(mutedText).brighter(0.15f));
+                g.setFont(juce::FontOptions(juce::jlimit(10.0f, 13.0f, h * 0.052f), juce::Font::bold));
+                g.drawText(volumes, juce::Rectangle<float>(14, h * 0.88f, w - 28, h * 0.08f),
+                           juce::Justification::centred);
+            }
             if (button.hasKeyboardFocus(true))
             {
                 g.setColour(juce::Colour(text).withAlpha(0.7f));
@@ -1528,12 +1537,50 @@ public:
     }
 
 private:
+    void selectCurrentCategory()
+    {
+        const auto path = processor.soundFontPath(index);
+        if (path.isEmpty()) return;
+
+        const auto categories = ClassicPlayerAudioProcessor::soundFontCategories();
+        const auto parentCategory = juce::File(path).getParentDirectory().getFileName();
+        int selected = categories.indexOf(parentCategory);
+
+        // Imported files from older versions may live directly in the library
+        // root, so use the actual file membership as a reliable fallback.
+        if (selected < 0)
+        {
+            for (int category = 0; category < categories.size(); ++category)
+            {
+                const auto files = processor.librarySoundFonts(categories[category]);
+                for (const auto& file : files)
+                    if (file.getFullPathName() == path)
+                    {
+                        selected = category;
+                        break;
+                    }
+                if (selected >= 0) break;
+            }
+        }
+        if (selected >= 0)
+            categoryBox.setSelectedId(selected + 1, juce::dontSendNotification);
+    }
+
     void rebuildLibrary()
     {
         libraryFiles = processor.librarySoundFonts(categoryBox.getText());
         libraryBox.clear(juce::dontSendNotification);
-        for (int i = 0; i < libraryFiles.size(); ++i) libraryBox.addItem(libraryFiles.getReference(i).getFileNameWithoutExtension(), i + 1);
+        const auto currentPath = processor.soundFontPath(index);
+        int selectedId = 0;
+        for (int i = 0; i < libraryFiles.size(); ++i)
+        {
+            const auto& file = libraryFiles.getReference(i);
+            libraryBox.addItem(file.getFileNameWithoutExtension(), i + 1);
+            if (file.getFullPathName() == currentPath) selectedId = i + 1;
+        }
         libraryBox.setTextWhenNothingSelected("ESCOLHA O SF2");
+        if (selectedId > 0)
+            libraryBox.setSelectedId(selectedId, juce::dontSendNotification);
         rebuildPresets();
     }
     void rebuildPresets()
@@ -1541,6 +1588,14 @@ private:
         presets.clear(); presetBox.clear(juce::dontSendNotification);
         presets = processor.layerPresets(index);
         for (int i = 0; i < (int) presets.size(); ++i) presetBox.addItem(juce::String(presets[(size_t) i].bank) + ": " + presets[(size_t) i].name, i + 1);
+        const auto selectedBank = processor.layerPresetBank(index);
+        const auto selectedProgram = processor.layerPresetProgram(index);
+        for (int i = 0; i < (int) presets.size(); ++i)
+            if (presets[(size_t) i].bank == selectedBank && presets[(size_t) i].program == selectedProgram)
+            {
+                presetBox.setSelectedId(i + 1, juce::dontSendNotification);
+                break;
+            }
     }
     void refreshFromProcessor()
     {
@@ -1552,6 +1607,17 @@ private:
         lowNoteBox.setSelectedId(config.lowNote + 1, juce::dontSendNotification);
         highNoteBox.setSelectedId(config.highNote + 1, juce::dontSendNotification);
         velocityBox.setSelectedId(config.velocityCurve + 1, juce::dontSendNotification);
+        const auto selectedDevice = processor.layerMidiDevice(index);
+        int selectedDeviceId = 1;
+        const auto devices = processor.availableMidiDevices();
+        for (int device = 0; device < devices.size(); ++device)
+            if (devices.getReference(device).identifier == selectedDevice)
+            {
+                selectedDeviceId = device + 2;
+                break;
+            }
+        deviceBox.setSelectedId(selectedDeviceId, juce::dontSendNotification);
+        selectCurrentCategory();
         rebuildLibrary();
     }
     void applyRouting()
@@ -3205,7 +3271,14 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::rebuildPresets()
         presetBox.addItem(juce::String(preset.bank) + ":" + juce::String(preset.program)
                           + "  " + preset.name, i + 1);
     }
-    if (!presets.empty()) presetBox.setSelectedItemIndex(0, juce::sendNotification);
+    const auto selectedBank = processor.layerPresetBank(index);
+    const auto selectedProgram = processor.layerPresetProgram(index);
+    for (int i = 0; i < (int) presets.size(); ++i)
+        if (presets[(size_t) i].bank == selectedBank && presets[(size_t) i].program == selectedProgram)
+        {
+            presetBox.setSelectedId(i + 1, juce::dontSendNotification);
+            break;
+        }
     presetBox.setEnabled(!presets.empty());
 }
 
@@ -3239,6 +3312,32 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::rebuildLibrary()
     libraryBox.setTextWhenNothingSelected(libraryFiles.isEmpty() ? "CATEGORIA VAZIA" : "ESCOLHA O SF2");
     if (selectedId > 0) libraryBox.setSelectedId(selectedId, juce::dontSendNotification);
     deleteLibraryButton.setEnabled(libraryBox.getSelectedItemIndex() >= 0);
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::selectCurrentCategory()
+{
+    const auto path = processor.soundFontPath(index);
+    if (path.isEmpty()) return;
+
+    const auto categories = ClassicPlayerAudioProcessor::soundFontCategories();
+    const auto parentCategory = juce::File(path).getParentDirectory().getFileName();
+    int selected = categories.indexOf(parentCategory);
+    if (selected < 0)
+    {
+        for (int category = 0; category < categories.size(); ++category)
+        {
+            const auto files = processor.librarySoundFonts(categories[category]);
+            for (const auto& file : files)
+                if (file.getFullPathName() == path)
+                {
+                    selected = category;
+                    break;
+                }
+            if (selected >= 0) break;
+        }
+    }
+    if (selected >= 0)
+        categoryBox.setSelectedId(selected + 1, juce::dontSendNotification);
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::rebuildDx7Library()
@@ -3312,13 +3411,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
                                  ? "ABRIR CLASSIC KEYS ANALOG" : type == ClassicPlayerAudioProcessor::LayerType::hammond ? "ABRIR HAMMOND" : "IMPORTAR DX7");
     if (type == ClassicPlayerAudioProcessor::LayerType::sf2)
     {
-        if (path.isNotEmpty())
-        {
-            const auto parentCategory = juce::File(path).getParentDirectory().getFileName();
-            const auto categories = ClassicPlayerAudioProcessor::soundFontCategories();
-            const auto categoryIndex = categories.indexOf(parentCategory);
-            if (categoryIndex >= 0) categoryBox.setSelectedId(categoryIndex + 1, juce::dontSendNotification);
-        }
+        selectCurrentCategory();
         rebuildLibrary();
         rebuildPresets();
     }
@@ -4443,14 +4536,17 @@ void ClassicPlayerAudioProcessorEditor::refreshLiveSet()
         auto& button = liveSetSlotButtons[(size_t) slot];
         const auto name = classicProcessor.liveSetSlotName(activeLiveSetBank, slot);
         const auto layers = classicProcessor.liveSetSlotLayerSummary(activeLiveSetBank, slot);
+        const auto volumes = classicProcessor.liveSetSlotLayerVolumes(activeLiveSetBank, slot);
         const auto displayName = name.isNotEmpty() ? name : "-";
         button.setButtonText(juce::String(slot + 1).paddedLeft('0', 2)
                              + "\n" + displayName
-                             + (name.isNotEmpty() && layers.isNotEmpty() ? "\n" + layers : juce::String{}));
+                             + (name.isNotEmpty() && layers.isNotEmpty() ? "\n" + layers : juce::String{})
+                             + (name.isNotEmpty() && volumes.isNotEmpty() ? "\n" + volumes : juce::String{}));
         const auto active = slot == activeLiveSetSlot && activeLiveSetBank == loadedLiveSetBank;
         button.getProperties().set("liveNumber", juce::String(slot+1).paddedLeft('0',2));
         button.getProperties().set("liveTitle", displayName);
         button.getProperties().set("liveSummary", name.isEmpty() ? juce::String{} : layers);
+        button.getProperties().set("liveVolumes", name.isEmpty() ? juce::String{} : volumes);
         button.getProperties().set("liveActive", active);
         button.repaint();
         button.setColour(juce::TextButton::buttonColourId,
