@@ -145,6 +145,8 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
         for (auto& channel : layer) channel.store(-1);
     for (auto& layer : pendingCCValues)
         for (auto& value : layer) value.store(-1.0f);
+    for (auto& layer : realtimeCCValues)
+        for (auto& value : layer) value.store(-1.0f);
     for (auto& cc : learnedLiveSetSlotCCs) cc.store(-1, std::memory_order_relaxed);
     for (auto& channel : learnedLiveSetSlotChannels) channel.store(-1, std::memory_order_relaxed);
     for (auto& peak : externalPeaks) peak.store(0.0f);
@@ -428,6 +430,13 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         recordMidiBuffer(visualMidiBuffer, recordedMidiSamples);
         recordedMidiSamples += buffer.getNumSamples();
     }
+
+    // Standalone MIDI callbacks can arrive between timer ticks. Apply the
+    // learned value before the activation check and rendering so cutoff,
+    // reverb and comp changes are never lost even when the UI bridge has not
+    // run yet.  Keeping this before the activation check also makes the
+    // parameter state deterministic while the standalone is being armed.
+    applyRealtimeMidiControlUpdates();
 
     if (!activated.load())
     {
@@ -1292,6 +1301,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
                 std::memory_order_relaxed);
             pendingCCValues[(size_t) destination][(size_t) target].store(-1.0f,
                                                                             std::memory_order_relaxed);
+            realtimeCCValues[(size_t) destination][(size_t) target].store(-1.0f,
+                                                                            std::memory_order_relaxed);
         }
 
         const auto destinationPrefix = "layer" + juce::String(destination + 1);
@@ -1321,6 +1332,7 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         learnedCCs[(size_t) last][(size_t) target].store(-1, std::memory_order_relaxed);
         learnedChannels[(size_t) last][(size_t) target].store(-1, std::memory_order_relaxed);
         pendingCCValues[(size_t) last][(size_t) target].store(-1.0f, std::memory_order_relaxed);
+        realtimeCCValues[(size_t) last][(size_t) target].store(-1.0f, std::memory_order_relaxed);
     }
     const auto lastPrefix = "layer" + juce::String(last + 1);
     for (const auto* suffix : parameterSuffixes)
@@ -1349,6 +1361,7 @@ void ClassicPlayerAudioProcessor::resetMidiLearn(int layer)
         learnedCCs[(size_t) layer][(size_t) target].store(-1, std::memory_order_relaxed);
         learnedChannels[(size_t) layer][(size_t) target].store(-1, std::memory_order_relaxed);
         pendingCCValues[(size_t) layer][(size_t) target].store(-1.0f, std::memory_order_relaxed);
+        realtimeCCValues[(size_t) layer][(size_t) target].store(-1.0f, std::memory_order_relaxed);
     }
 
     auto active = activeMidiLearn.load(std::memory_order_relaxed);
@@ -1394,6 +1407,34 @@ void ClassicPlayerAudioProcessor::consumeMidiControlUpdates()
             if (value < 0.0f) continue;
             if (auto* parameter = parameters.getParameter(prefix + suffixes[(size_t) target]))
                 parameter->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, value));
+        }
+    }
+}
+
+void ClassicPlayerAudioProcessor::applyRealtimeMidiControlUpdates()
+{
+    static const std::array<const char*, learnTargetCount> suffixes { "Gain", "Cutoff", "Reverb", "Comp", "Release" };
+    for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
+    {
+        const auto prefix = "layer" + juce::String(layer + 1);
+        for (int target = 0; target < learnTargetCount; ++target)
+        {
+            const auto value = realtimeCCValues[(size_t) layer][(size_t) target].exchange(
+                -1.0f, std::memory_order_acq_rel);
+            if (value < 0.0f) continue;
+            if (auto* parameter = parameters.getParameter(prefix + suffixes[(size_t) target]))
+            {
+                const auto normalised = juce::jlimit(0.0f, 1.0f, value);
+                // AudioParameterFloat::setValue updates the parameter's
+                // internal value but deliberately does not notify the APVTS
+                // adapter.  The renderer reads the adapter's raw atomic, so
+                // mirror the denormalised value there for immediate audio
+                // response.  The message-thread queue separately calls
+                // setValueNotifyingHost for the UI/host attachment.
+                parameter->setValue(normalised);
+                if (auto* raw = parameters.getRawParameterValue(prefix + suffixes[(size_t) target]))
+                    raw->store(parameter->convertFrom0to1(normalised), std::memory_order_release);
+            }
         }
     }
 }
@@ -1458,6 +1499,8 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
 
             pendingCCValues[(size_t) layer][(size_t) target].store(normalised,
                                                                       std::memory_order_relaxed);
+            realtimeCCValues[(size_t) layer][(size_t) target].store(normalised,
+                                                                       std::memory_order_release);
         }
 }
 

@@ -194,6 +194,7 @@ private:
     void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage&) override;
     void processMidiControlMessage(const juce::MidiMessage&, int layerFilter = -1);
     void processLiveSetSlotMidiMessage(const juce::MidiMessage&);
+    void applyRealtimeMidiControlUpdates();
     void renderExternalInstruments(juce::AudioBuffer<float>&, const juce::MidiBuffer&);
     void appendExternalMidi(int layer, const juce::MidiBuffer&, juce::MidiBuffer&);
     int liveSetIndex(int bank, int slot) const;
@@ -256,7 +257,10 @@ private:
     // send the same CC from several faders on different Part channels.
     std::array<std::array<std::atomic<int>, learnTargetCount>, Sf2Engine::layerCount> learnedCCs {};
     std::array<std::array<std::atomic<int>, learnTargetCount>, Sf2Engine::layerCount> learnedChannels {};
+    // Keep audio and UI delivery independent so a timer tick cannot consume
+    // a learned value before the next audio block applies it.
     std::array<std::array<std::atomic<float>, learnTargetCount>, Sf2Engine::layerCount> pendingCCValues {};
+    std::array<std::array<std::atomic<float>, learnTargetCount>, Sf2Engine::layerCount> realtimeCCValues {};
     std::atomic<int> activeMidiLearn { -1 };
     static constexpr int liveSetSlotCount = liveSetBankCount * liveSetSlotsPerBank;
     std::array<std::atomic<int>, liveSetSlotCount> learnedLiveSetSlotCCs {};

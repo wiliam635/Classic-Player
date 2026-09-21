@@ -17,6 +17,15 @@ static void cc(ClassicPlayerAudioProcessor& processor, int channel, int number, 
     processor.consumeMidiControlUpdates();
 }
 
+static void ccAudioOnly(ClassicPlayerAudioProcessor& processor, int channel, int number, int value)
+{
+    juce::AudioBuffer<float> audio(2, 128);
+    audio.clear();
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::controllerEvent(channel, number, value), 0);
+    processor.processBlock(audio, midi);
+}
+
 static void startupPrograms()
 {
     juce::TemporaryFile storage;
@@ -183,6 +192,14 @@ int main()
             const auto value = processor->parameters.getRawParameterValue(parameterId)->load();
             check(value >= 75.0f && value <= 76.0f, "effect CC response");
         }
+        // The audio callback must apply a learned value even before the
+        // message-thread timer has had a chance to notify the UI/host.
+        processor->beginMidiLearn(0, ClassicPlayerAudioProcessor::LearnTarget::cutoff);
+        cc(*processor, 6, 48, 96);
+        ccAudioOnly(*processor, 6, 48, 32);
+        const auto audioOnlyCutoff = processor->parameters.getRawParameterValue("layer1Cutoff")->load();
+        check(audioOnlyCutoff >= 25.0f && audioOnlyCutoff <= 26.0f,
+              "effect CC was not applied by audio callback");
         std::cout << "Layer effect MIDI Learn CC/channel mapping passed\n";
         return 0;
     }
