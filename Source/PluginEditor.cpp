@@ -594,6 +594,19 @@ public:
         const auto lowQ = parameter("EqLowQ", 0.707f);
         const auto midQ = parameter("EqMidQ", 1.0f);
         const auto highQ = parameter("EqHighQ", 0.707f);
+        float highPassHz = 20.0f;
+        float lowPassHz = 20000.0f;
+        if (master)
+        {
+            highPassHz = parameter("LowCut", 20.0f);
+            lowPassHz = parameter("HighCut", 20000.0f);
+        }
+        else
+        {
+            const auto config = processor.layerConfig(layer);
+            highPassHz = config.highPassHz;
+            lowPassHz = config.lowPassHz;
+        }
 
         juce::Path curve;
         for (int i = 0; i <= 240; ++i)
@@ -602,7 +615,7 @@ public:
             const auto frequency = 20.0f * std::pow(1000.0f, normalized);
             const auto response = responseAt(frequency, lowFrequency, lowGain,
                                               midFrequency, midGain, highFrequency, highGain,
-                                              lowQ, midQ, highQ);
+                                              lowQ, midQ, highQ, highPassHz, lowPassHz);
             const auto point = juce::Point<float>(toX(frequency), toY(response));
             if (i == 0) curve.startNewSubPath(point);
             else curve.lineTo(point);
@@ -679,6 +692,8 @@ private:
             if (juce::String(suffix) == "EqLow") return "masterEqLow";
             if (juce::String(suffix) == "EqMid") return "masterEqMid";
             if (juce::String(suffix) == "EqHigh") return "masterEqHigh";
+            if (juce::String(suffix) == "LowCut") return "masterEqLowCut";
+            if (juce::String(suffix) == "HighCut") return "masterEqHighCut";
         }
         return "layer" + juce::String(layer + 1) + suffix;
     }
@@ -709,7 +724,8 @@ private:
     static float responseAt(float frequency, float lowFrequency, float lowGain,
                             float midFrequency, float midGain,
                             float highFrequency, float highGain,
-                            float lowQ, float midQ, float highQ)
+                            float lowQ, float midQ, float highQ,
+                            float highPassHz, float lowPassHz)
     {
         const auto peakingDb = [frequency](float centre, float gainDb, float q)
         {
@@ -739,10 +755,26 @@ private:
             const auto denominator = a[0] + a[1] * z1 + a[2] * z2;
             return juce::Decibels::gainToDecibels(std::abs(numerator / denominator), -60.0f);
         };
-        return juce::jlimit(-18.0f, 18.0f,
+        auto response =
             peakingDb(lowFrequency, lowGain, lowQ)
           + peakingDb(midFrequency, midGain, midQ)
-          + peakingDb(highFrequency, highGain, highQ));
+          + peakingDb(highFrequency, highGain, highQ);
+
+        // Match the gentle one-pole filters used by the layer audio path so
+        // activating either cutoff is immediately visible in this graph.
+        if (highPassHz > 20.5f)
+        {
+            const auto ratio = frequency / juce::jmax(20.0f, highPassHz);
+            response += juce::Decibels::gainToDecibels(
+                ratio / std::sqrt(1.0f + ratio * ratio), -60.0f);
+        }
+        if (lowPassHz < 19950.0f)
+        {
+            const auto ratio = frequency / juce::jmax(20.0f, lowPassHz);
+            response += juce::Decibels::gainToDecibels(
+                1.0f / std::sqrt(1.0f + ratio * ratio), -60.0f);
+        }
+        return juce::jlimit(-18.0f, 18.0f, response);
     }
 
     void drawBandNode(juce::Graphics& g, juce::Rectangle<float> graph,
@@ -3670,8 +3702,18 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMeter()
     const auto prefix = "layer" + juce::String(index + 1);
     const auto sync = [this, prefix](juce::Slider& slider, const char* suffix)
     {
-        if (const auto* value = processor.parameters.getRawParameterValue(prefix + suffix))
-            slider.setValue(value->load(), juce::dontSendNotification);
+        if (const auto* parameter = processor.parameters.getParameter(prefix + suffix))
+        {
+            // MIDI processing updates the parameter object first. Reading its
+            // authoritative value prevents an audible CC change from leaving
+            // the on-screen knob stationary while an APVTS callback is late.
+            const auto value = parameter->convertFrom0to1(parameter->getValue());
+            if (std::abs(slider.getValue() - value) > 0.0001)
+            {
+                slider.setValue(value, juce::dontSendNotification);
+                slider.repaint();
+            }
+        }
     };
     sync(gain, "Gain");
     sync(cutoff, "Cutoff");
