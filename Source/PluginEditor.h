@@ -216,6 +216,7 @@ private:
     void activate();
     void validateStoredOnlineSession();
     void showMasterEqEditor();
+    void showMasterLimiterEditor();
     juce::String detectedChord() const;
 
     ClassicPlayerAudioProcessor& classicProcessor;
@@ -252,6 +253,7 @@ private:
     juce::Slider master;
     juce::Label masterLabel;
     juce::TextButton masterEqButton { "EQ MASTER" };
+    juce::TextButton masterLimiterButton { "LIM" };
     juce::TextButton masterLearnButton { "LEARN" };
     LevelMeter masterMeter;
     juce::ImageComponent appIcon;

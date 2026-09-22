@@ -477,6 +477,41 @@ private:
     juce::ComboBox presets;
 };
 
+class MasterLimiterMeters final : public juce::Component, private juce::Timer
+{
+public:
+    explicit MasterLimiterMeters(ClassicPlayerAudioProcessor& p) : processor(p) { setSize(620, 190); startTimerHz(30); }
+    void paint(juce::Graphics& g) override
+    {
+        g.fillAll(juce::Colour(0xff191f22));
+        const std::array<juce::String, 3> names { "INPUT", "GR", "OUTPUT" };
+        const std::array<float, 3> values {
+            juce::Decibels::gainToDecibels(processor.limiterInputLevel(), -60.0f),
+            processor.limiterGainReduction(),
+            juce::Decibels::gainToDecibels(processor.limiterOutputLevel(), -60.0f)
+        };
+        for (int i = 0; i < 3; ++i)
+        {
+            const auto x = 115 + i * 150;
+            g.setColour(juce::Colours::white);
+            g.setFont(juce::FontOptions(12.0f));
+            g.drawFittedText(names[(size_t)i], x - 30, 10, 95, 20, juce::Justification::centred, 1);
+            const auto db = values[(size_t)i];
+            g.drawFittedText(juce::String(db, 1) + " dB", x - 30, 30, 95, 20, juce::Justification::centred, 1);
+            auto rail = juce::Rectangle<float>((float)x, 60.0f, 35.0f, 112.0f);
+            g.setColour(juce::Colour(0xff0d1216)); g.fillRect(rail);
+            g.setColour(juce::Colour(0xff7b8589)); g.drawRect(rail);
+            const auto proportion = i == 1 ? juce::jlimit(0.0f, 1.0f, db / 24.0f)
+                                           : juce::jlimit(0.0f, 1.0f, (db + 60.0f) / 60.0f);
+            g.setColour(i == 1 ? juce::Colour(0xffffd75c) : juce::Colour(teal));
+            g.fillRect(rail.removeFromBottom(110.0f * proportion).reduced(2.0f, 0.0f));
+        }
+    }
+private:
+    void timerCallback() override { repaint(); }
+    ClassicPlayerAudioProcessor& processor;
+};
+
 class LayerPresetFilePanel final : public juce::Component
 {
 public:
@@ -4421,6 +4456,10 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     masterEqButton.setTooltip("Abrir o equalizador paramétrico da saída master");
     masterEqButton.onClick = [this] { showMasterEqEditor(); };
     addAndMakeVisible(masterEqButton);
+    flatButton(masterLimiterButton);
+    masterLimiterButton.setTooltip("Abrir limiter da saida master");
+    masterLimiterButton.onClick = [this] { showMasterLimiterEditor(); };
+    addAndMakeVisible(masterLimiterButton);
 
     master.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     master.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 64, 18);
@@ -4748,6 +4787,46 @@ void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->repaint(); }), true);
 }
+void ClassicPlayerAudioProcessorEditor::showMasterLimiterEditor()
+{
+    auto* dialog = new LayerEditorWindow("LIMITER MASTER", "Protecao da saida master. OUTPUT define o teto em dBFS.",
+                                        juce::MessageBoxIconType::NoIcon);
+    dialog->setLookAndFeel(&classicLookAndFeel);
+    auto& state = classicProcessor.parameters;
+    const auto current = [&state](const char* id) { return state.getRawParameterValue(id)->load(); };
+    auto* meters = new MasterLimiterMeters(classicProcessor);
+    auto* knobs = new KnobEditorPanel({
+        { "INPUT dB", current("limiterInput"), -12.0f, 12.0f, 0.1f, 1 },
+        { "RELEASE ms", current("limiterRelease"), 10.0f, 500.0f, 1.0f, 0 },
+        { "OUTPUT dB", current("limiterCeiling"), -12.0f, 0.0f, 0.1f, 1 }
+    }, 3);
+    knobs->bindParameter(0, state, "limiterInput");
+    knobs->bindParameter(1, state, "limiterRelease");
+    knobs->bindParameter(2, state, "limiterCeiling");
+    auto* presets = new EffectPresetPanel("PRESET", {
+        "Protecao transparente", "Piano suave", "Piano worship", "Piano presente", "Master forte"
+    });
+    const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
+    presets->onPresetSelected = [safe](int index)
+    {
+        if (safe == nullptr) return;
+        static constexpr float settings[][3] = {
+            { 0.0f, 80.0f, -0.3f }, { 1.0f, 180.0f, -1.0f },
+            { 2.0f, 250.0f, -1.0f }, { 3.0f, 120.0f, -0.7f },
+            { 5.0f, 80.0f, -0.5f }
+        };
+        if (!juce::isPositiveAndBelow(index, 5)) return;
+        const char* ids[] = { "limiterInput", "limiterRelease", "limiterCeiling" };
+        for (int i = 0; i < 3; ++i)
+            if (auto* parameter = safe->classicProcessor.parameters.getParameter(ids[i]))
+                parameter->setValueNotifyingHost(parameter->convertTo0to1(settings[index][i]));
+    };
+    dialog->addCustomComponent(new CentredEditorPanel(meters, 650));
+    dialog->addCustomComponent(new CentredEditorPanel(knobs, 650));
+    dialog->addCustomComponent(new CentredEditorPanel(presets, 650));
+    dialog->setSize(720, 490);
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create([](int) {}), true);
+}
 void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour(background));
@@ -4791,13 +4870,14 @@ void ClassicPlayerAudioProcessorEditor::resized()
     title.setBounds(brand.removeFromTop(38));
     subtitle.setBounds(brand.removeFromTop(25)); userLabel.setBounds(brand.removeFromTop(34)); userLabel.setVisible(userLabel.getText().isNotEmpty());
 
-    auto masterArea = header.removeFromRight(116);
+    auto masterArea = header.removeFromRight(150);
     masterMeter.setBounds(masterArea.removeFromRight(13).reduced(0, 6));
     masterLabel.setBounds(masterArea.removeFromTop(17));
     auto masterKnobArea = masterArea.removeFromTop(57);
     master.setBounds(masterKnobArea.reduced(3, 0));
     auto masterActions = masterArea.removeFromTop(20);
-    masterLearnButton.setBounds(masterActions.removeFromRight(59).reduced(1, 0));
+    masterLearnButton.setBounds(masterActions.removeFromRight(52).reduced(1, 0));
+    masterLimiterButton.setBounds(masterActions.removeFromRight(42).reduced(1, 0));
     masterEqButton.setButtonText("EQ");
     masterEqButton.setBounds(masterActions.reduced(1, 0));
     header.removeFromRight(12);
@@ -5160,7 +5240,7 @@ void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
     addLayerButton.setVisible(!show);
     for (juce::Component* component : std::initializer_list<juce::Component*>{
              &chordLabel, &chordCaption, &chordColourButton, &keyColourButton,
-             &accidentalStyleBox, &masterMeter, &masterEqButton, &masterLearnButton })
+             &accidentalStyleBox, &masterMeter, &masterEqButton, &masterLimiterButton, &masterLearnButton })
         component->setVisible(!show);
     masterLabel.setText(show ? "VOLUME" : "MASTER", juce::dontSendNotification);
     masterLabel.setVisible(true);

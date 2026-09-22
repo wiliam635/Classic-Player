@@ -213,6 +213,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
     result.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"master", 1}, "Master", juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 80.0f));
     result.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"limiterInput", 1}, "Limiter Input dB", juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
+    result.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"limiterRelease", 1}, "Limiter Release ms", juce::NormalisableRange<float>(10.0f, 500.0f, 1.0f), 80.0f));
+    result.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"limiterCeiling", 1}, "Limiter Output Ceiling dB", juce::NormalisableRange<float>(-12.0f, 0.0f, 0.1f), -0.3f));
+    result.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"masterEqLow", 1}, "Master EQ Low", juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
     result.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"masterEqMid", 1}, "Master EQ Mid", juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
@@ -582,7 +588,17 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> context(block);
+    const auto inputGain = juce::Decibels::decibelsToGain(parameters.getRawParameterValue("limiterInput")->load());
+    buffer.applyGain(inputGain);
+    const auto inputPeak = buffer.getMagnitude(0, buffer.getNumSamples());
+    outputLimiter.setThreshold(parameters.getRawParameterValue("limiterCeiling")->load());
+    outputLimiter.setRelease(parameters.getRawParameterValue("limiterRelease")->load());
     outputLimiter.process(context);
+    const auto outputPeak = buffer.getMagnitude(0, buffer.getNumSamples());
+    limiterInputPeak.store(inputPeak, std::memory_order_relaxed);
+    limiterOutputPeak.store(outputPeak, std::memory_order_relaxed);
+    limiterReduction.store(juce::jmax(0.0f, juce::Decibels::gainToDecibels(inputPeak, -60.0f)
+        - juce::Decibels::gainToDecibels(outputPeak, -60.0f)), std::memory_order_relaxed);
 
     // Publish the final stereo mix for the visual analyser. The audio callback
     // only performs atomic stores; FFT/windowing runs on the editor thread.

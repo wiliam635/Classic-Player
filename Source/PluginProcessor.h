@@ -80,6 +80,9 @@ public:
     void selectLayerPreset(int layer, int bank, int program);
     void sendLayerController(int layer, int controller, int value);
     float layerPeak(int layer) const;
+    float limiterInputLevel() const noexcept { return limiterInputPeak.load(); }
+    float limiterOutputLevel() const noexcept { return limiterOutputPeak.load(); }
+    float limiterGainReduction() const noexcept { return limiterReduction.load(); }
     static constexpr int spectrumSampleCount = 2048;
     // Copies the latest post-master samples. FFT work is deliberately left to
     // the editor/message thread so the real-time audio callback stays light.
@@ -248,6 +251,7 @@ private:
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;
     juce::dsp::Limiter<float> outputLimiter;
+    std::atomic<float> limiterInputPeak { 0.0f }, limiterOutputPeak { 0.0f }, limiterReduction { 0.0f };
     std::array<juce::dsp::IIR::Filter<float>, 2> masterEqLowCut;
     std::array<juce::dsp::IIR::Filter<float>, 2> masterEqLow;
     std::array<juce::dsp::IIR::Filter<float>, 2> masterEqMid;
