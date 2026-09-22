@@ -22,7 +22,7 @@ static void continuousPadRegression()
     check(bank.load(0,fixture.getFile()).wasOk(),"pad load");
     check(bank.load(1,fixture.getFile()).wasOk(),"second pad load");
     juce::AudioBuffer<float> audio(2,128);
-    auto block=[&]{audio.clear();bank.render(audio,1.f);};
+    auto block=[&]{audio.clear();bank.render(audio,1.f,20.f,20000.f,{});};
     block();check(audio.getMagnitude(0,128)==0,"pad autoplays after load");
     bank.trigger(0);float previous=0,maxJump=0;
     for(int b=0;b<400;++b)
