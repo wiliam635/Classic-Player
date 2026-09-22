@@ -1301,9 +1301,11 @@ bool ClassicPlayerAudioProcessor::addLayer(LayerType type)
 bool ClassicPlayerAudioProcessor::removeLayer(int layer)
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
-    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return false;
+    // Index zero is a valid, removable layer, including when it is the only
+    // remaining channel. An empty performance can be populated again with + Layer.
+    if (layer < 0 || layer >= Sf2Engine::layerCount) return false;
     const auto count = activeLayers.load(std::memory_order_relaxed);
-    if (layer >= count || count <= 1) return false;
+    if (layer >= count || count <= 0) return false;
 
     const auto last = count - 1;
     static constexpr std::array<const char*, 25> parameterSuffixes {
@@ -2675,7 +2677,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 }
             }
             const auto restoredLayerCount = juce::jlimit(
-                1, Sf2Engine::layerCount,
+                0, Sf2Engine::layerCount,
                 static_cast<int>(state.getProperty("activeLayers", Sf2Engine::defaultLayerCount)));
             activeLayers.store(restoredLayerCount, std::memory_order_relaxed);
             for (int i = 0; i < Sf2Engine::layerCount; ++i)
