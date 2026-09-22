@@ -475,6 +475,34 @@ private:
     juce::ComboBox presets;
 };
 
+class LayerPresetFilePanel final : public juce::Component
+{
+public:
+    LayerPresetFilePanel(std::function<void()> save, std::function<void()> load)
+    {
+        flatButton(saveButton);
+        flatButton(loadButton);
+        saveButton.setTooltip("Salvar somente a configuração desta layer em um arquivo portátil");
+        loadButton.setTooltip("Abrir uma configuração salva sem alterar as outras layers");
+        saveButton.onClick = std::move(save);
+        loadButton.onClick = std::move(load);
+        addAndMakeVisible(saveButton);
+        addAndMakeVisible(loadButton);
+        setSize(430, 38);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(2);
+        saveButton.setBounds(area.removeFromLeft(210).reduced(2, 0));
+        loadButton.setBounds(area.removeFromLeft(210).reduced(2, 0));
+    }
+
+private:
+    juce::TextButton saveButton { "SALVAR PRESET DA LAYER" };
+    juce::TextButton loadButton { "ABRIR PRESET DA LAYER" };
+};
+
 class LayerEffectButtons final : public juce::Component
 {
 public:
@@ -2872,6 +2900,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     // empty gap before the effect knobs and made the dialog unnecessarily
     // tall.  Reserve only the space the controls actually occupy.
     dialog->addCustomComponent(new CenteredPanel(sf2Panel, 620, 275));
+    dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
+        [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
+        [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 620, 38));
     dialog->addCustomComponent(new CenteredPanel(new ModulationTogglePanel(processor, index), 620, 36));
     // Layer controls share a two-row grid so envelopes and EQ remain readable.
     dialog->addCustomComponent(new CenteredPanel(knobs, 620, 248));
@@ -2892,7 +2923,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     });
     // Keep the footer below the Learn controls.  The old height left the
     // custom close button on top of the final Learn row in the SF2 editor.
-    dialog->setSize(760, 854);
+    dialog->setSize(760, 892);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, dialog, knobs, prefix](int)
         {
@@ -2978,6 +3009,59 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
     });
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::saveLayerPreset()
+{
+    juce::String typeName = "Layer";
+    switch (processor.layerType(index))
+    {
+        case ClassicPlayerAudioProcessor::LayerType::sf2: typeName = "SF2"; break;
+        case ClassicPlayerAudioProcessor::LayerType::dx7: typeName = "DX7"; break;
+        case ClassicPlayerAudioProcessor::LayerType::analog: typeName = "Moog"; break;
+        case ClassicPlayerAudioProcessor::LayerType::hammond: typeName = "Hammond"; break;
+        default: break;
+    }
+    const auto defaultFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+        .getChildFile("Classic Player " + typeName + ".cklayer");
+    fileChooser = std::make_unique<juce::FileChooser>(
+        "Salvar preset independente da layer", defaultFile, "*.cklayer");
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    fileChooser->launchAsync(juce::FileBrowserComponent::saveMode
+                           | juce::FileBrowserComponent::canSelectFiles
+                           | juce::FileBrowserComponent::warnAboutOverwriting,
+        [safe](const juce::FileChooser& chooser)
+        {
+            if (safe == nullptr || chooser.getResult() == juce::File{}) return;
+            juce::File saved;
+            const auto result = safe->processor.saveLayerPreset(safe->index, chooser.getResult(), saved);
+            juce::AlertWindow::showMessageBoxAsync(
+                result.wasOk() ? juce::MessageBoxIconType::InfoIcon
+                               : juce::MessageBoxIconType::WarningIcon,
+                result.wasOk() ? "Preset da layer salvo" : "Falha ao salvar",
+                result.wasOk() ? "Arquivo salvo em:\n" + saved.getFullPathName()
+                               : result.getErrorMessage());
+        });
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::loadLayerPreset()
+{
+    fileChooser = std::make_unique<juce::FileChooser>(
+        "Abrir preset independente da layer", juce::File{}, "*.cklayer");
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    fileChooser->launchAsync(juce::FileBrowserComponent::openMode
+                           | juce::FileBrowserComponent::canSelectFiles,
+        [safe](const juce::FileChooser& chooser)
+        {
+            if (safe == nullptr || chooser.getResult() == juce::File{}) return;
+            const auto result = safe->processor.loadLayerPreset(safe->index, chooser.getResult());
+            if (result.failed())
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                       "Falha ao abrir preset",
+                                                       result.getErrorMessage());
+            else
+                safe->refresh();
+        });
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showEqEditor()
@@ -4298,6 +4382,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     };
 
     dialog->addCustomComponent(new CenteredPanel(controls, 600, 86));
+    dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
+        [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
+        [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 600, 38));
     dialog->addCustomComponent(new CenteredPanel(routing, 600, 122));
     dialog->addCustomComponent(new CenteredPanel(common, 600, 100));
     dialog->addCustomComponent(new CenteredPanel(effectButtons, 600, 34));
@@ -4314,7 +4401,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
             safe->processor.setAnalogSynthConfig(safe->index, config);
         }
     };
-    dialog->setSize(758, 599);
+    dialog->setSize(758, 637);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int)
         {
@@ -4387,6 +4474,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
 
     dialog->addCustomComponent(new CenteredPanel(dx7Panel, 600, 104));
     dialog->addCustomComponent(new CenteredPanel(new EngineProgramSavePanel(processor, index, "DX7"), 600, 38));
+    dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
+        [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
+        [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 600, 38));
     dialog->addCustomComponent(new CenteredPanel(routingPanel, 600, 122));
     // DX7 has five controls on one row, matching the supplied reference.
     dialog->addCustomComponent(new CenteredPanel(common, 600, 248));
@@ -4408,7 +4498,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     dialog->addCustomComponent(new CenteredPanel(midiPanel, 600, 44));
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.
-    dialog->setSize(758, 825);
+    dialog->setSize(758, 863);
     // Use AlertWindow's footer button so JUCE reserves a dedicated row below
     // the MIDI Learn panel instead of treating FECHAR as another component.
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
@@ -5239,7 +5329,9 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
                                                              int index,
                                                              std::function<void()> reverbCallback,
                                                              std::function<void()> compressorCallback,
-                                                             std::function<void()> eqCallback)
+                                                             std::function<void()> eqCallback,
+                                                             std::function<void()> saveLayerCallback,
+                                                             std::function<void()> loadLayerCallback)
 {
     class Content final : public juce::Component
     {
@@ -5273,6 +5365,8 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
     auto content=std::make_unique<Content>();
     content->add(new HammondEditorPanel(processor,index),344);
     content->add(new EngineProgramSavePanel(processor,index,"Hammond"),38);
+    content->add(new LayerPresetFilePanel(std::move(saveLayerCallback),
+                                          std::move(loadLayerCallback)),38);
     content->add(new LayerRoutingEditorPanel(processor,index),108);
     const auto prefix="layer"+juce::String(index+1);
     const auto value=[&processor,prefix](const char* name){return processor.parameters.getRawParameterValue(prefix+name)->load();};
@@ -5297,7 +5391,7 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
     content->add(new LayerEffectButtons(
         std::move(reverbCallback), std::move(compressorCallback), {}, std::move(eqCallback)), 38);
     content->add(new LayerMidiLearnPanel(processor,index),44);
-    content->setSize(704,760);
+    content->setSize(704,806);
     return content;
 }
 
@@ -5326,7 +5420,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showHammondEditor()
             DocumentWindow::resized();
             if(auto* viewport=dynamic_cast<juce::Viewport*>(getContentComponent()))
                 if(auto* content=viewport->getViewedComponent())
-                    content->setSize(juce::jmax(620,viewport->getWidth()-viewport->getScrollBarThickness()),760);
+                    content->setSize(juce::jmax(620,viewport->getWidth()-viewport->getScrollBarThickness()),806);
         }
         void closeButtonPressed() override { exitModalState(0); }
     };
@@ -5334,7 +5428,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showHammondEditor()
     auto* window=new Window(createHammondEditorContent(processor, index,
         [safe] { if (safe != nullptr) safe->showReverbEditor(); },
         [safe] { if (safe != nullptr) safe->showCompressorEditor(); },
-        [safe] { if (safe != nullptr) safe->showEqEditor(); }));
+        [safe] { if (safe != nullptr) safe->showEqEditor(); },
+        [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
+        [safe] { if (safe != nullptr) safe->loadLayerPreset(); }));
     window->enterModalState(true,juce::ModalCallbackFunction::create([safe](int){if(safe!=nullptr)safe->refresh();}),true);
 }
 

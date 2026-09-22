@@ -148,6 +148,9 @@ public:
     juce::Result saveProgramToFile(const juce::File& destination, juce::File& savedFile);
     juce::Result deleteProgram(const juce::File& programFile);
     juce::Result loadProgram(const juce::File& programFile);
+    juce::Result saveLayerPreset(int layer, const juce::File& destination,
+                                 juce::File& savedFile);
+    juce::Result loadLayerPreset(int layer, const juce::File& presetFile);
 
     // Live Set stores only references to saved programs. Instruments are loaded
     // only when a Performance is selected, never when a bank is opened.

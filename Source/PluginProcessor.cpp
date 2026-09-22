@@ -2154,6 +2154,150 @@ juce::Result ClassicPlayerAudioProcessor::loadProgram(const juce::File& programF
     return juce::Result::ok();
 }
 
+juce::Result ClassicPlayerAudioProcessor::saveLayerPreset(int layer,
+                                                            const juce::File& requestedDestination,
+                                                            juce::File& savedFile)
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
+        return juce::Result::fail("Layer inválida.");
+    if (requestedDestination == juce::File{})
+        return juce::Result::fail("Escolha um local para salvar o preset da layer.");
+
+    auto destination = requestedDestination;
+    if (destination.getFileExtension().toLowerCase() != ".cklayer")
+        destination = destination.withFileExtension(".cklayer");
+    if (const auto parent = destination.getParentDirectory(); parent != juce::File{}
+        && !parent.exists())
+        if (const auto result = parent.createDirectory(); result.failed()) return result;
+
+    juce::MemoryBlock programData;
+    getStateInformation(programData);
+    auto xml = getXmlFromBinary(programData.getData(), static_cast<int>(programData.getSize()));
+    if (xml == nullptr)
+        return juce::Result::fail("Não foi possível preparar o preset da layer.");
+    auto state = juce::ValueTree::fromXml(*xml);
+    state.setProperty("layerPresetFormat", 1, nullptr);
+    state.setProperty("layerPresetSource", layer, nullptr);
+    state.setProperty("layerPresetType", static_cast<int>(layerType(layer)), nullptr);
+    juce::MemoryBlock presetData;
+    if (auto presetXml = state.createXml()) copyXmlToBinary(*presetXml, presetData);
+    if (presetData.getSize() == 0
+        || !destination.replaceWithData(presetData.getData(), presetData.getSize()))
+        return juce::Result::fail("Não foi possível salvar o preset da layer.");
+    savedFile = destination;
+    return juce::Result::ok();
+}
+
+juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
+                                                            const juce::File& presetFile)
+{
+    if (!juce::isPositiveAndBelow(destinationLayer, Sf2Engine::layerCount)
+        || !presetFile.existsAsFile()
+        || presetFile.getFileExtension().toLowerCase() != ".cklayer")
+        return juce::Result::fail("Selecione um preset de layer válido.");
+
+    juce::MemoryBlock presetData;
+    if (!presetFile.loadFileAsData(presetData) || presetData.getSize() == 0)
+        return juce::Result::fail("Não foi possível ler o preset da layer.");
+    auto presetXml = getXmlFromBinary(presetData.getData(), static_cast<int>(presetData.getSize()));
+    if (presetXml == nullptr)
+        return juce::Result::fail("O preset da layer está corrompido ou é incompatível.");
+    auto sourceState = juce::ValueTree::fromXml(*presetXml);
+    if ((int) sourceState.getProperty("layerPresetFormat", 0) != 1)
+        return juce::Result::fail("O arquivo não é um preset de layer do Classic Player.");
+    const auto sourceLayer = (int) sourceState.getProperty("layerPresetSource", -1);
+    const auto savedType = (int) sourceState.getProperty("layerPresetType", -1);
+    if (!juce::isPositiveAndBelow(sourceLayer, Sf2Engine::layerCount))
+        return juce::Result::fail("O preset da layer está incompleto.");
+    if (savedType != static_cast<int>(layerType(destinationLayer)))
+        return juce::Result::fail("Este preset pertence a outro tipo de layer.");
+
+    juce::MemoryBlock currentData;
+    getStateInformation(currentData);
+    auto currentXml = getXmlFromBinary(currentData.getData(), static_cast<int>(currentData.getSize()));
+    if (currentXml == nullptr) return juce::Result::fail("Não foi possível preparar a layer atual.");
+    auto destinationState = juce::ValueTree::fromXml(*currentXml);
+
+    const auto copyProperty = [&sourceState, &destinationState](const juce::String& source,
+                                                                const juce::String& destination)
+    {
+        if (sourceState.hasProperty(source))
+            destinationState.setProperty(destination, sourceState.getProperty(source), nullptr);
+    };
+    const auto sourceOne = juce::String(sourceLayer + 1);
+    const auto destinationOne = juce::String(destinationLayer + 1);
+    const auto sourceZero = juce::String(sourceLayer);
+    const auto destinationZero = juce::String(destinationLayer);
+    const juce::StringArray oneBased {
+        "layerType", "dx7Layer", "dx7Patch", "sf2Layer", "sf2Bank", "sf2Program",
+        "externalInstrument", "externalInstrumentState", "analogOsc1Wave", "analogOsc2Wave",
+        "analogOsc3Wave", "analogOsc1Level", "analogOsc2Level", "analogOsc3Level",
+        "analogOsc1Semitones", "analogOsc2Semitones", "analogOsc3Semitones",
+        "analogOsc1Fine", "analogOsc2Fine", "analogOsc3Fine", "analogOsc1Enabled",
+        "analogOsc2Enabled", "analogOsc3Enabled", "analogNoise", "analogPinkNoise",
+        "analogCutoff", "analogResonance", "analogFilterEnv", "analogFilterDrive",
+        "analogAmpAttack", "analogAmpDecay", "analogAmpSustain", "analogAmpRelease",
+        "analogFilterAttack", "analogFilterDecay", "analogFilterSustain", "analogFilterRelease",
+        "analogLfoRate", "analogLfoPitch", "analogLfoFilter", "analogGlideMs",
+        "analogMonophonic", "analogMixerDrive", "analogKeyTrack", "analogModWheelPitch",
+        "analogModWheelFilter", "analogAmpDecaySwitch", "analogBrowserCompatible"
+    };
+    for (const auto& prefix : oneBased)
+        copyProperty(prefix + sourceOne, prefix + destinationOne);
+    const juce::StringArray zeroBased {
+        "midiChannel", "low", "high", "octave", "velocityCurve", "mono", "portamento",
+        "sustain", "highPassHz", "lowPassHz", "midiDevice"
+    };
+    for (const auto& prefix : zeroBased)
+        copyProperty(prefix + sourceZero, prefix + destinationZero);
+    for (int target = 0; target < learnTargetCount; ++target)
+    {
+        copyProperty("learn" + sourceZero + "_" + juce::String(target),
+                     "learn" + destinationZero + "_" + juce::String(target));
+        copyProperty("learnChannel" + sourceZero + "_" + juce::String(target),
+                     "learnChannel" + destinationZero + "_" + juce::String(target));
+    }
+
+    const auto sourceParameterPrefix = "layer" + sourceOne;
+    const auto destinationParameterPrefix = "layer" + destinationOne;
+    for (const auto& sourceChild : sourceState)
+    {
+        const auto id = sourceChild.getProperty("id").toString();
+        if (!id.startsWith(sourceParameterPrefix)) continue;
+        const auto destinationId = destinationParameterPrefix
+                                 + id.substring(sourceParameterPrefix.length());
+        for (auto destinationChild : destinationState)
+            if (destinationChild.getProperty("id").toString() == destinationId)
+            {
+                destinationChild.setProperty("value", sourceChild.getProperty("value"), nullptr);
+                break;
+            }
+    }
+
+    for (int child = destinationState.getNumChildren(); --child >= 0;)
+    {
+        const auto item = destinationState.getChild(child);
+        if ((item.hasType("Hammond") || item.hasType("ContinuousPads"))
+            && (int) item.getProperty("layer", -1) == destinationLayer)
+            destinationState.removeChild(child, nullptr);
+    }
+    for (const auto& sourceChild : sourceState)
+        if ((sourceChild.hasType("Hammond") || sourceChild.hasType("ContinuousPads"))
+            && (int) sourceChild.getProperty("layer", -1) == sourceLayer)
+        {
+            auto copy = sourceChild.createCopy();
+            copy.setProperty("layer", destinationLayer, nullptr);
+            destinationState.addChild(copy, -1, nullptr);
+        }
+
+    juce::MemoryBlock mergedData;
+    if (auto mergedXml = destinationState.createXml()) copyXmlToBinary(*mergedXml, mergedData);
+    if (mergedData.getSize() == 0) return juce::Result::fail("Não foi possível aplicar o preset.");
+    stopAllSoundsBeforeProgramChange();
+    setStateInformation(mergedData.getData(), static_cast<int>(mergedData.getSize()));
+    return juce::Result::ok();
+}
+
 void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
 {
     const juce::ScopedLock callbackLock(getCallbackLock());

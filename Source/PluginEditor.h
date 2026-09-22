@@ -109,6 +109,8 @@ private:
         void showAnalogSynthEditor();
         void showHammondEditor();
         void showDx7Editor();
+        void saveLayerPreset();
+        void loadLayerPreset();
 
         ClassicPlayerAudioProcessor& processor;
         const int index;
