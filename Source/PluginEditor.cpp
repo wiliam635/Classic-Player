@@ -3779,6 +3779,21 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     if (classicProcessor.supportsExternalInstruments())
         classicProcessor.refreshExternalInstrumentLibrary();
 
+    // UI preferences live in the processor state so JUCE's standalone holder
+    // persists them together with the current performance when the app exits.
+    // Keeping them outside the editor also means reopening the editor in the
+    // same session restores the user's choices immediately.
+    const auto uiState = classicProcessor.parameters.state;
+    chordColour = juce::Colour::fromString(
+        uiState.getProperty("uiChordColour", chordColour.toString()).toString());
+    const auto savedKeyColour = juce::Colour::fromString(
+        uiState.getProperty("uiKeyColour",
+                            keyboard.findColour(juce::MidiKeyboardComponent::keyDownOverlayColourId)
+                                .toString()).toString());
+    keyboard.setActiveColour(savedKeyColour);
+    virtualKeyboardVisible = static_cast<bool>(
+        uiState.getProperty("uiVirtualKeyboardVisible", true));
+
     appIcon.setImage(embeddedImage("classicplayerappicon_png"), juce::RectanglePlacement::centred);
     appIcon.setInterceptsMouseClicks(false, false);
     addAndMakeVisible(appIcon);
@@ -3810,6 +3825,8 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
             safe->chordColour = colour;
             safe->chordLabel.setColour(juce::Label::textColourId, colour);
             safe->chordLabel.repaint();
+            safe->classicProcessor.parameters.state.setProperty(
+                "uiChordColour", colour.toString(), nullptr);
         });
         juce::CallOutBox::launchAsynchronously(std::move(picker), chordColourButton.getScreenBounds(), nullptr);
     };
@@ -3822,7 +3839,10 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
         const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
         auto picker = std::make_unique<ColourPicker>(current, [safe](juce::Colour colour)
         {
-            if (safe != nullptr) safe->keyboard.setActiveColour(colour);
+            if (safe == nullptr) return;
+            safe->keyboard.setActiveColour(colour);
+            safe->classicProcessor.parameters.state.setProperty(
+                "uiKeyColour", colour.toString(), nullptr);
         });
         juce::CallOutBox::launchAsynchronously(std::move(picker), keyColourButton.getScreenBounds(), nullptr);
     };
@@ -3930,12 +3950,16 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
 
     flatButton(keyboardVisibilityButton);
     keyboardVisibilityButton.setTooltip("Mostrar ou ocultar o teclado virtual para liberar espaço para as layers");
+    keyboardVisibilityButton.setButtonText(virtualKeyboardVisible ? "OCULTAR TECLADO"
+                                                                   : "MOSTRAR TECLADO");
     keyboardVisibilityButton.onClick = [this]
     {
         virtualKeyboardVisible = !virtualKeyboardVisible;
         keyboardVisibilityButton.setButtonText(virtualKeyboardVisible ? "OCULTAR TECLADO"
                                                                        : "MOSTRAR TECLADO");
         keyboard.setVisible(virtualKeyboardVisible && !showingLiveSet);
+        classicProcessor.parameters.state.setProperty(
+            "uiVirtualKeyboardVisible", virtualKeyboardVisible, nullptr);
         resized();
     };
     addAndMakeVisible(keyboardVisibilityButton);
