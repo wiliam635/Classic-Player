@@ -5,7 +5,9 @@ std::unique_ptr<juce::Component> createHammondEditorContent(
     ClassicPlayerAudioProcessor&, int layer,
     std::function<void()> reverbCallback = {},
     std::function<void()> compressorCallback = {},
-    std::function<void()> eqCallback = {});
+    std::function<void()> eqCallback = {},
+    std::function<void()> savePresetCallback = {},
+    std::function<void()> loadPresetCallback = {});
 
 // Instrument controls only: deliberately no on-screen keyboard.
 class HammondEditorPanel final : public juce::Component, private juce::Timer
