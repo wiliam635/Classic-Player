@@ -125,6 +125,7 @@ public:
                             14, (int)(h * 0.49f), (int)w - 28, (int)(h * 0.20f), juce::Justification::centred, 2);
             const auto summary = button.getProperties()["liveSummary"].toString();
             const auto volumes = button.getProperties()["liveVolumes"].toString();
+            const auto movingLayers = static_cast<int>(button.getProperties()["liveMovingLayers"]);
             auto summaryBounds = juce::Rectangle<float>(14, volumes.isEmpty() ? h * 0.78f : h * 0.70f,
                                                         w - 28, volumes.isEmpty() ? h * 0.12f : h * 0.08f);
             if (summary.endsWith("CAMADA") || summary.endsWith("CAMADAS"))
@@ -168,9 +169,10 @@ public:
                         const auto barWidth = juce::jmin(18.0f, cellWidth * 0.48f);
                         const auto x = bars.getX() + cellWidth * (layer + 0.5f) - barWidth * 0.5f;
                         const auto amount = static_cast<float>(levels[(size_t) layer]) / 100.0f;
-                        g.setColour(juce::Colour(teal));
+                        g.setColour(juce::Colour(0xff253943));
                         g.fillRect(juce::Rectangle<float>(x, bars.getY(), barWidth, bars.getHeight()));
-                        g.setColour(juce::Colour(yellow));
+                        const auto isMoving = (movingLayers & (1 << layer)) != 0;
+                        g.setColour(juce::Colour(isMoving ? yellow : teal));
                         g.fillRect(juce::Rectangle<float>(x, bars.getBottom() - bars.getHeight() * amount,
                                                           barWidth, bars.getHeight() * amount));
                         g.setColour(juce::Colour(text));
@@ -3419,10 +3421,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     layerTitle.setBounds(top.removeFromLeft(72));
     muteButton.setBounds(top.removeFromLeft(30).reduced(1));
     soloButton.setBounds(top.removeFromLeft(30).reduced(1));
+    removeButton.setBounds(top.removeFromRight(28).reduced(1));
     auto layerActions = area.removeFromTop(25);
     editButton.setBounds(layerActions.removeFromLeft(70).reduced(1));
     resetButton.setBounds(layerActions.removeFromRight(52).reduced(1));
-    removeButton.setBounds(layerActions.removeFromRight(24).reduced(1));
     area.removeFromTop(4);
     auto summaryRow = area.removeFromTop(30);
     sourceSummary.setBounds(summaryRow.reduced(2, 0));
@@ -4938,6 +4940,8 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
         masterLabel.setText(classicProcessor.isMasterMidiLearning() ? "MOVA UM CC"
             : masterCC < 0 ? "VOLUME" : "VOLUME / CC " + juce::String(masterCC), juce::dontSendNotification);
     classicProcessor.consumeMidiControlUpdates();
+    if (showingLiveSet)
+        refreshLiveSetVolumeIndicators();
     if (classicProcessor.consumeLiveSetSlotMidiLearnChanged())
     {
         classicProcessor.saveLiveSetSlotMidiLearnState();
@@ -5209,6 +5213,7 @@ void ClassicPlayerAudioProcessorEditor::refreshLiveSet()
         button.getProperties().set("liveTitle", displayName);
         button.getProperties().set("liveSummary", name.isEmpty() ? juce::String{} : layers);
         button.getProperties().set("liveVolumes", name.isEmpty() ? juce::String{} : volumes);
+        button.getProperties().set("liveMovingLayers", 0);
         button.getProperties().set("liveActive", active);
         button.repaint();
         button.setColour(juce::TextButton::buttonColourId,
@@ -5235,6 +5240,55 @@ void ClassicPlayerAudioProcessorEditor::refreshLiveSet()
                                                    + juce::String(classicProcessor.liveSetSlotMidiLearnChannel(activeLiveSetBank, slot))
                                                    + ". Clique para reaprender."
                                                    : "Clique e mova um controle MIDI para carregar esta performance"));
+    }
+
+    refreshLiveSetVolumeIndicators();
+}
+
+void ClassicPlayerAudioProcessorEditor::refreshLiveSetVolumeIndicators()
+{
+    if (!showingLiveSet
+        || !juce::isPositiveAndBelow(activeLiveSetSlot,
+                                     ClassicPlayerAudioProcessor::liveSetSlotsPerBank)
+        || activeLiveSetBank != loadedLiveSetBank)
+        return;
+
+    const auto isNewSlot = liveVolumeTrackedBank != activeLiveSetBank
+                        || liveVolumeTrackedSlot != activeLiveSetSlot;
+    liveVolumeTrackedBank = activeLiveSetBank;
+    liveVolumeTrackedSlot = activeLiveSetSlot;
+
+    const auto now = juce::Time::currentTimeMillis();
+    if (isNewSlot)
+        liveSetVolumeHighlightUntil.fill(0);
+    const auto layerCount = juce::jlimit(0, Sf2Engine::layerCount,
+                                         classicProcessor.activeLayerCount());
+    juce::String volumes;
+    int movingLayers = 0;
+    for (int layer = 0; layer < layerCount; ++layer)
+    {
+        const auto* value = classicProcessor.parameters.getRawParameterValue(
+            "layer" + juce::String(layer + 1) + "Gain");
+        const auto current = value != nullptr ? value->load() : 0.0f;
+        if (!isNewSlot && std::abs(current - liveSetLastVolumes[(size_t) layer]) > 0.01f)
+            liveSetVolumeHighlightUntil[(size_t) layer] = now + 450;
+        liveSetLastVolumes[(size_t) layer] = current;
+        if (liveSetVolumeHighlightUntil[(size_t) layer] > now)
+            movingLayers |= 1 << layer;
+        if (volumes.isNotEmpty()) volumes << " ";
+        volumes << "L" << juce::String(layer + 1) << " "
+                << juce::String(juce::roundToInt(current)) << "%";
+    }
+
+    auto& button = liveSetSlotButtons[(size_t) activeLiveSetSlot];
+    const auto volumeChanged = button.getProperties()["liveVolumes"].toString() != volumes;
+    const auto movementChanged = static_cast<int>(button.getProperties()["liveMovingLayers"])
+                              != movingLayers;
+    if (volumeChanged || movementChanged)
+    {
+        button.getProperties().set("liveVolumes", volumes);
+        button.getProperties().set("liveMovingLayers", movingLayers);
+        button.repaint();
     }
 }
 

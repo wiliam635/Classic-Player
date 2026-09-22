@@ -207,6 +207,7 @@ private:
     void showLiveSet(bool show);
     void showAudioMidiSettings();
     void refreshLiveSet();
+    void refreshLiveSetVolumeIndicators();
     void chooseLiveSetSlot(int slot);
     void loadLiveSetSlot(int slot);
     void addLayer(ClassicPlayerAudioProcessor::LayerType type = ClassicPlayerAudioProcessor::LayerType::sf2);
@@ -278,6 +279,10 @@ private:
     int activeLiveSetBank = 0;
     int activeLiveSetSlot = -1;
     int loadedLiveSetBank = -1;
+    int liveVolumeTrackedBank = -1;
+    int liveVolumeTrackedSlot = -1;
+    std::array<float, Sf2Engine::layerCount> liveSetLastVolumes {};
+    std::array<juce::int64, Sf2Engine::layerCount> liveSetVolumeHighlightUntil {};
     bool showingLiveSet = false;
     bool editingLiveSet = false;
     bool virtualKeyboardVisible = true;
