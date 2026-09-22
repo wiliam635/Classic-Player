@@ -32,6 +32,6 @@ jobs:
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: Classic-Player-1.6.1-Windows-x64-login
+          name: Classic-Player-2.0-Windows-x64-login
           if-no-files-found: error
-          path: outputs/installers/Classic-Player-1.6.1-Windows-x64-Setup.exe
+          path: outputs/installers/Classic-Player-2.0-Windows-x64-Setup.exe

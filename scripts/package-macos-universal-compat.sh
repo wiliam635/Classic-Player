@@ -11,11 +11,11 @@ if [ -z "$APP" ] || [ ! -d "$APP" ]; then
   find "$ROOT/build" -type d -name "*.app" -print 2>/dev/null || true
   exit 1
 fi
-# Compatibility path for older workflow checks.
-ln -sfn "$APP" "$ROOT/build/Classic Player 1.6.1 macOS Universal.app"
+# Compatibility path for workflow checks.
+ln -sfn "$APP" "$ROOT/build/Classic Player 2.0 macOS Universal.app"
 OUTPUT="${OUTPUT_DIR:-$ROOT/../../outputs/installers}"
-PACKAGE_NAME="Classic-Player-1.6.1-macOS-High-Sierra-a-Tahoe-Universal.pkg"
-ZIP_NAME="Classic-Player-1.6.1-macOS-High-Sierra-a-Tahoe-Universal-App.zip"
+PACKAGE_NAME="Classic-Player-2.0-macOS-High-Sierra-a-Tahoe-Universal.pkg"
+ZIP_NAME="Classic-Player-2.0-macOS-High-Sierra-a-Tahoe-Universal-App.zip"
 WORK="$(mktemp -d "$ROOT/build/package-macos-compat.XXXXXX")"
 STAGE="$WORK/root"
 PACKAGES="$WORK/packages"
@@ -29,7 +29,7 @@ ditto --noextattr --noqtn "$APP" "$STAGE/Applications/Classic Player.app"
 
 pkgbuild --root "$STAGE" \
   --identifier com.classickeys.classicplayer.standalone \
-  --version 1.6.1 \
+  --version 2.0.0 \
   --install-location / \
   --component-plist "$ROOT/installer/macos/components-standalone.plist" \
   "$PACKAGES/ClassicPlayer-standalone.pkg"

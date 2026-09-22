@@ -73,7 +73,7 @@ find_standalone_app() {
 
 ARM_APP="$(find_standalone_app "$ROOT/build/macos-compat-arm64")"
 X64_APP="$(find_standalone_app "$ROOT/build/macos-compat-x86_64")"
-UNIVERSAL="$ROOT/build/Classic Player 1.6.1 macOS Universal.app"
+UNIVERSAL="$ROOT/build/Classic Player 2.0 macOS Universal.app"
 EXECUTABLE="$UNIVERSAL/Contents/MacOS/ClassicPlayer"
 
 if [[ -z "$ARM_APP" || ! -d "$ARM_APP" || -z "$X64_APP" || ! -d "$X64_APP" ]]; then
@@ -92,8 +92,8 @@ rm "$UNIVERSAL/Contents/MacOS/Classic Player"
 
 /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable ClassicPlayer" "$UNIVERSAL/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.classickeys.classicplayer.macos161" "$UNIVERSAL/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.6.1" "$UNIVERSAL/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 1.6.1" "$UNIVERSAL/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 2.0.0" "$UNIVERSAL/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 2.0.0" "$UNIVERSAL/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 10.13" "$UNIVERSAL/Contents/Info.plist" 2>/dev/null || \
   /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion 10.13" "$UNIVERSAL/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :NSHighResolutionCapable bool true" "$UNIVERSAL/Contents/Info.plist" 2>/dev/null || \

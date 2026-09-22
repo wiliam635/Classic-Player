@@ -1,5 +1,5 @@
 #define MyAppName "Classic Player"
-#define MyAppVersion "1.6.1"
+#define MyAppVersion "2.0.0"
 #define MyAppPublisher "Classic Keys"
 #define BuildRoot "..\..\build\windows-x64\ClassicPlayer_artefacts\Release"
 
@@ -8,8 +8,8 @@ AppId={{7A44AE69-49B7-4FD9-A468-5164FA579A98}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-VersionInfoVersion=1.6.1.0
-VersionInfoProductVersion=1.6.1.0
+VersionInfoVersion=2.0.0.0
+VersionInfoProductVersion=2.0.0.0
 VersionInfoDescription=Classic Player SF2 Workstation Setup
 VersionInfoProductName=Classic Player
 VersionInfoCompany=Classic Keys
@@ -18,7 +18,7 @@ MinVersion=10.0.10240
 DefaultDirName={autopf}\Classic Keys\Classic Player
 DefaultGroupName=Classic Keys
 OutputDir=..\..\outputs\installers
-OutputBaseFilename=Classic-Player-1.6.1-Windows-x64-Setup
+OutputBaseFilename=Classic-Player-2.0-Windows-x64-Setup
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible

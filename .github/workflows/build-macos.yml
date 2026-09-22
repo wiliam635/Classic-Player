@@ -61,7 +61,7 @@ jobs:
 
       - name: Package universal app
         env:
-          APP_PATH: ${{ github.workspace }}/build/Classic Player 1.6.1 macOS Universal.app
+          APP_PATH: ${{ github.workspace }}/build/Classic Player 2.0 macOS Universal.app
           OUTPUT_DIR: ${{ github.workspace }}/outputs/installers
         run: |
           chmod +x scripts/package-macos-universal-compat.sh
@@ -71,9 +71,9 @@ jobs:
         run: |
           grep -q "CLASSIC KEYS SF2 WORKSTATION" Source/PluginEditor.cpp
           grep -q "set(CLASSIC_PLAYER_FORMATS Standalone VST3)" CMakeLists.txt
-          test -d "build/Classic Player 1.6.1 macOS Universal.app"
-          test -f "outputs/installers/Classic-Player-1.6.1-macOS-High-Sierra-a-Tahoe-Universal.pkg"
-          test -f "outputs/installers/Classic-Player-1.6.1-macOS-High-Sierra-a-Tahoe-Universal-App.zip"
+          test -d "build/Classic Player 2.0 macOS Universal.app"
+          test -f "outputs/installers/Classic-Player-2.0-macOS-High-Sierra-a-Tahoe-Universal.pkg"
+          test -f "outputs/installers/Classic-Player-2.0-macOS-High-Sierra-a-Tahoe-Universal-App.zip"
 
       - name: Upload macOS installer
         uses: actions/upload-artifact@v4
@@ -81,5 +81,5 @@ jobs:
           name: Classic-Player-${{ env.DOWNLOAD_VERSION }}-macOS-Universal
           if-no-files-found: error
           path: |
-            outputs/installers/Classic-Player-1.6.1-macOS-High-Sierra-a-Tahoe-Universal.pkg
-            outputs/installers/Classic-Player-1.6.1-macOS-High-Sierra-a-Tahoe-Universal-App.zip
+            outputs/installers/Classic-Player-2.0-macOS-High-Sierra-a-Tahoe-Universal.pkg
+            outputs/installers/Classic-Player-2.0-macOS-High-Sierra-a-Tahoe-Universal-App.zip

@@ -128,7 +128,7 @@ jobs:
       - name: Verify installer payload
         shell: pwsh
         run: |
-          $installer = "outputs\installers\Classic-Player-1.6.1-Windows-x64-Setup.exe"
+          $installer = "outputs\installers\Classic-Player-2.0-Windows-x64-Setup.exe"
           if (-not (Test-Path $installer)) { throw "Instalador não foi criado." }
           Get-FileHash -Algorithm SHA256 $installer
 
@@ -137,4 +137,4 @@ jobs:
         with:
           name: Classic-Player-${{ env.DOWNLOAD_VERSION }}-Windows-x64
           if-no-files-found: error
-          path: outputs/installers/Classic-Player-1.6.1-Windows-x64-Setup.exe
+          path: outputs/installers/Classic-Player-2.0-Windows-x64-Setup.exe

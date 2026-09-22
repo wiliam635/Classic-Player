@@ -18,20 +18,20 @@ jobs:
           scripts/build-macos-universal-compat.sh
       - name: Package universal app
         env:
-          APP_PATH: ${{ github.workspace }}/build/Classic Player 1.6.1 macOS Universal.app
+          APP_PATH: ${{ github.workspace }}/build/Classic Player 2.0 macOS Universal.app
           OUTPUT_DIR: ${{ github.workspace }}/outputs/installers
         run: |
           chmod +x scripts/package-macos-universal-compat.sh
           scripts/package-macos-universal-compat.sh
       - name: Verify package
         run: |
-          test -f "outputs/installers/Classic-Player-1.6.1-macOS-High-Sierra-a-Tahoe-Universal.pkg"
-          test -f "outputs/installers/Classic-Player-1.6.1-macOS-High-Sierra-a-Tahoe-Universal-App.zip"
+          test -f "outputs/installers/Classic-Player-2.0-macOS-High-Sierra-a-Tahoe-Universal.pkg"
+          test -f "outputs/installers/Classic-Player-2.0-macOS-High-Sierra-a-Tahoe-Universal-App.zip"
       - name: Upload macOS installer
         uses: actions/upload-artifact@v4
         with:
-          name: Classic-Player-1.6.1-macOS-Universal-login
+          name: Classic-Player-2.0-macOS-Universal-login
           if-no-files-found: error
           path: |
-            outputs/installers/Classic-Player-1.6.1-macOS-High-Sierra-a-Tahoe-Universal.pkg
-            outputs/installers/Classic-Player-1.6.1-macOS-High-Sierra-a-Tahoe-Universal-App.zip
+            outputs/installers/Classic-Player-2.0-macOS-High-Sierra-a-Tahoe-Universal.pkg
+            outputs/installers/Classic-Player-2.0-macOS-High-Sierra-a-Tahoe-Universal-App.zip

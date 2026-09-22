@@ -10,5 +10,5 @@
   <choice id="classicplayer" visible="false" title="Classic Player">
     <pkg-ref id="com.classickeys.classicplayer.standalone"/>
   </choice>
-  <pkg-ref id="com.classickeys.classicplayer.standalone" version="1.6.1" onConclusion="none">ClassicPlayer-standalone.pkg</pkg-ref>
+  <pkg-ref id="com.classickeys.classicplayer.standalone" version="2.0.0" onConclusion="none">ClassicPlayer-standalone.pkg</pkg-ref>
 </installer-gui-script>

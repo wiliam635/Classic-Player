@@ -1,10 +1,10 @@
-# Classic Player 1.6.1 para Windows
+# Classic Player 2.0 para Windows
 
 ## Artefatos produzidos
 
 - Aplicativo standalone Windows x64.
 - Instrumento VST3 Windows x64.
-- Instalador `Classic-Player-1.6.1-Windows-x64-Setup.exe`.
+- Instalador `Classic-Player-2.0-Windows-x64-Setup.exe`.
 
 ## Compilacao recomendada
 
