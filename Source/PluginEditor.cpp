@@ -1186,6 +1186,7 @@ private:
 static void showParametricLayerEqEditor(ClassicPlayerAudioProcessor& processor, int layer)
 {
     const auto prefix = "layer" + juce::String(layer + 1);
+    const auto layerConfig = processor.layerConfig(layer);
     auto* dialog = new LayerEditorWindow(
         "EQ DA LAYER", "Equalizador parametrico de tres bandas: frequencia e ganho independentes.",
         juce::MessageBoxIconType::NoIcon);
@@ -1205,20 +1206,22 @@ static void showParametricLayerEqEditor(ClassicPlayerAudioProcessor& processor, 
         { "MID Q", value("EqMidQ", 1.0f), 0.1f, 20.0f, 0.01f, 2 },
         { "HIGH FREQ Hz", value("EqHighFrequency", 4200.0f), 1000.0f, 20000.0f, 1.0f, 0 },
         { "HIGH GAIN dB", value("EqHigh", 0.0f), -18.0f, 18.0f, 0.1f, 1 },
-        { "HIGH Q", value("EqHighQ", 0.707f), 0.1f, 4.0f, 0.01f, 2 }
+        { "HIGH Q", value("EqHighQ", 0.707f), 0.1f, 4.0f, 0.01f, 2 },
+        { "LOW CUT Hz", layerConfig.highPassHz, 20.0f, 250.0f, 1.0f, 0 },
+        { "HIGH CUT Hz", layerConfig.lowPassHz, 2000.0f, 20000.0f, 1.0f, 0 }
     }, 3);
     auto* graph = new ParametricEqGraph(processor, layer);
     dialog->addCustomComponent(new CentredEditorPanel(graph, 700));
-    dialog->addCustomComponent(new CentredEditorPanel(new EqFilterButtonsPanel(processor, layer), 700));
     dialog->addCustomComponent(new CentredEditorPanel(knobs, 700));
-    dialog->setSize(760, 816);
+    // Three EQ bands plus the Low/High Cut row need four complete knob rows.
+    dialog->setSize(760, 890);
     graph->onPointChanged = [knobs](int band, float frequency, float gain)
     {
         const auto first = band * 3;
         knobs->setValue(first, frequency);
         knobs->setValue(first + 1, gain);
     };
-    const auto apply = [&processor, prefix, knobs]
+    const auto apply = [&processor, layer, prefix, knobs]
     {
         const std::array<const char*, 9> names {
             "EqLowFrequency", "EqLow", "EqLowQ", "EqMidFrequency", "EqMid", "EqMidQ",
@@ -1227,6 +1230,10 @@ static void showParametricLayerEqEditor(ClassicPlayerAudioProcessor& processor, 
         for (int i = 0; i < 9; ++i)
             if (auto* parameter = processor.parameters.getParameter(prefix + names[(size_t) i]))
                 parameter->setValueNotifyingHost(parameter->convertTo0to1(knobs->value(i)));
+        auto config = processor.layerConfig(layer);
+        config.highPassHz = juce::jlimit(20.0f, 250.0f, knobs->value(9));
+        config.lowPassHz = juce::jlimit(2000.0f, 20000.0f, knobs->value(10));
+        processor.setLayerConfig(layer, config);
     };
     knobs->setOnValueChange(apply);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
