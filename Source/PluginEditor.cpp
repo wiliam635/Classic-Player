@@ -494,6 +494,13 @@ static constexpr std::array<std::array<float, 6>, 4> factoryCompressorPresets {{
     {{ -14.0f, 2.0f, 25.0f, 260.0f, 2.0f, 50.0f }},
     {{ -22.0f, 4.0f, 35.0f, 360.0f, 4.5f, 65.0f }}
 }};
+static constexpr std::array<std::array<float, 3>, 5> factoryLimiterPresets {{
+    {{ 0.0f, 80.0f, -0.3f }},
+    {{ 1.0f, 180.0f, -1.0f }},
+    {{ 2.0f, 250.0f, -1.0f }},
+    {{ 3.0f, 120.0f, -0.7f }},
+    {{ 5.0f, 80.0f, -0.5f }}
+}};
 
 class MasterLimiterMeters final : public juce::Component, private juce::Timer
 {
@@ -4840,20 +4847,26 @@ void ClassicPlayerAudioProcessorEditor::showMasterLimiterEditor()
     auto* presets = new EffectPresetPanel("PRESET", {
         "Protecao transparente", "Piano suave", "Piano worship", "Piano presente", "Master forte"
     });
+    for (int preset = 0; preset < (int) factoryLimiterPresets.size(); ++preset)
+    {
+        const auto& values = factoryLimiterPresets[(size_t) preset];
+        if (std::abs(current("limiterInput") - values[0]) < 0.1f
+            && std::abs(current("limiterRelease") - values[1]) < 0.1f
+            && std::abs(current("limiterCeiling") - values[2]) < 0.1f)
+        {
+            presets->setSelectedPreset(preset);
+            break;
+        }
+    }
     const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
     presets->onPresetSelected = [safe](int index)
     {
         if (safe == nullptr) return;
-        static constexpr float settings[][3] = {
-            { 0.0f, 80.0f, -0.3f }, { 1.0f, 180.0f, -1.0f },
-            { 2.0f, 250.0f, -1.0f }, { 3.0f, 120.0f, -0.7f },
-            { 5.0f, 80.0f, -0.5f }
-        };
         if (!juce::isPositiveAndBelow(index, 5)) return;
         const char* ids[] = { "limiterInput", "limiterRelease", "limiterCeiling" };
         for (int i = 0; i < 3; ++i)
             if (auto* parameter = safe->classicProcessor.parameters.getParameter(ids[i]))
-                parameter->setValueNotifyingHost(parameter->convertTo0to1(settings[index][i]));
+                parameter->setValueNotifyingHost(parameter->convertTo0to1(factoryLimiterPresets[(size_t) index][(size_t) i]));
     };
     dialog->addCustomComponent(new CentredEditorPanel(meters, 650));
     dialog->addCustomComponent(new CentredEditorPanel(knobs, 650));

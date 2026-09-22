@@ -597,8 +597,15 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const auto outputPeak = buffer.getMagnitude(0, buffer.getNumSamples());
     limiterInputPeak.store(inputPeak, std::memory_order_relaxed);
     limiterOutputPeak.store(outputPeak, std::memory_order_relaxed);
-    limiterReduction.store(juce::jmax(0.0f, juce::Decibels::gainToDecibels(inputPeak, -60.0f)
-        - juce::Decibels::gainToDecibels(outputPeak, -60.0f)), std::memory_order_relaxed);
+    // JUCE's Limiter applies make-up gain after its compressors (7.5 dB from
+    // the first stage plus compensation for the threshold). Comparing raw
+    // input/output peaks without removing that gain incorrectly reads 0 dB GR.
+    const auto makeupDb = 7.5f - parameters.getRawParameterValue("limiterCeiling")->load();
+    const auto inputDb = juce::Decibels::gainToDecibels(inputPeak, -60.0f);
+    const auto outputBeforeMakeupDb = juce::Decibels::gainToDecibels(outputPeak, -60.0f) - makeupDb;
+    limiterReduction.store(inputPeak > 0.00001f
+        ? juce::jlimit(0.0f, 60.0f, inputDb - outputBeforeMakeupDb) : 0.0f,
+        std::memory_order_relaxed);
 
     // Publish the final stereo mix for the visual analyser. The audio callback
     // only performs atomic stores; FFT/windowing runs on the editor thread.
