@@ -3126,8 +3126,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::loadLayerPreset()
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::saveEffectPreset(const juce::String& effect)
 {
-    const auto extension = effect == "EQ" ? ".ckeq"
-                         : effect == "COMP" ? ".ckcomp" : ".ckreverb";
+    const juce::String extension = effect == "EQ" ? ".ckeq"
+                                 : effect == "COMP" ? ".ckcomp" : ".ckreverb";
     const auto defaultFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
         .getChildFile("Classic Player " + effect + extension);
     fileChooser = std::make_unique<juce::FileChooser>(
@@ -3177,8 +3177,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::saveEffectPreset(const juce:
 void ClassicPlayerAudioProcessorEditor::LayerStrip::loadEffectPreset(
     const juce::String& effect, std::function<void()> onLoaded)
 {
-    const auto extension = effect == "EQ" ? ".ckeq"
-                         : effect == "COMP" ? ".ckcomp" : ".ckreverb";
+    const juce::String extension = effect == "EQ" ? ".ckeq"
+                                 : effect == "COMP" ? ".ckcomp" : ".ckreverb";
     fileChooser = std::make_unique<juce::FileChooser>(
         "Abrir meu preset de " + effect, juce::File{}, "*" + extension);
     const juce::Component::SafePointer<LayerStrip> safe(this);
