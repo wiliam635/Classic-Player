@@ -556,7 +556,10 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         {const auto message=event.getMessage();if(config.midiChannel==0||message.getChannel()==config.midiChannel)bank.midi(message);}};
         inspect(midi);inspect(routedMidiBuffers[(size_t)layer]);
         bank.render(buffer,config.enabled ? parameters.getRawParameterValue("layer"+juce::String(layer+1)+"Gain")->load()/100.f:0.f,
-                    config.highPassHz,config.lowPassHz);
+                    config.highPassHz,config.lowPassHz,
+                    {config.eqLow,config.eqMid,config.eqHigh,
+                     config.eqLowFrequency,config.eqMidFrequency,config.eqHighFrequency,
+                     config.eqLowQ,config.eqMidQ,config.eqHighQ});
     }
     // The master control is calibrated with +6 dB of nominal output gain.
     // The limiter immediately after it keeps the boosted output clip-safe.
