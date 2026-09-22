@@ -111,6 +111,8 @@ private:
         void showDx7Editor();
         void saveLayerPreset();
         void loadLayerPreset();
+        void saveEffectPreset(const juce::String& effect);
+        void loadEffectPreset(const juce::String& effect, std::function<void()> onLoaded);
 
         ClassicPlayerAudioProcessor& processor;
         const int index;

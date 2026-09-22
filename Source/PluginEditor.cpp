@@ -503,6 +503,27 @@ private:
     juce::TextButton loadButton { "ABRIR PRESET DA LAYER" };
 };
 
+class EffectPresetFilePanel final : public juce::Component
+{
+public:
+    EffectPresetFilePanel(std::function<void()> save, std::function<void()> load)
+    {
+        flatButton(saveButton); flatButton(loadButton);
+        saveButton.onClick = std::move(save); loadButton.onClick = std::move(load);
+        addAndMakeVisible(saveButton); addAndMakeVisible(loadButton);
+        setSize(430, 38);
+    }
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(2);
+        saveButton.setBounds(area.removeFromLeft(210).reduced(2, 0));
+        loadButton.setBounds(area.removeFromLeft(210).reduced(2, 0));
+    }
+private:
+    juce::TextButton saveButton { "SALVAR MEU PRESET" };
+    juce::TextButton loadButton { "ABRIR MEU PRESET" };
+};
+
 class LayerEffectButtons final : public juce::Component
 {
 public:
@@ -1250,7 +1271,10 @@ private:
     juce::TextButton button;
 };
 
-static void showParametricLayerEqEditor(ClassicPlayerAudioProcessor& processor, int layer)
+static void showParametricLayerEqEditor(
+    ClassicPlayerAudioProcessor& processor, int layer,
+    std::function<void()> savePreset,
+    std::function<void(std::function<void()>)> loadPreset)
 {
     const auto prefix = "layer" + juce::String(layer + 1);
     const auto layerConfig = processor.layerConfig(layer);
@@ -1279,9 +1303,29 @@ static void showParametricLayerEqEditor(ClassicPlayerAudioProcessor& processor, 
     }, 3);
     auto* graph = new ParametricEqGraph(processor, layer);
     dialog->addCustomComponent(new CentredEditorPanel(graph, 700));
+    auto refreshControls = [&processor, layer, prefix, knobs, graph]
+    {
+        const std::array<const char*, 9> names {
+            "EqLowFrequency", "EqLow", "EqLowQ", "EqMidFrequency", "EqMid", "EqMidQ",
+            "EqHighFrequency", "EqHigh", "EqHighQ"
+        };
+        for (int i = 0; i < 9; ++i)
+            if (auto* value = processor.parameters.getRawParameterValue(prefix + names[(size_t) i]))
+                knobs->setValue(i, value->load());
+        const auto config = processor.layerConfig(layer);
+        knobs->setValue(9, config.highPassHz);
+        knobs->setValue(10, config.lowPassHz);
+        graph->repaint();
+    };
+    dialog->addCustomComponent(new CentredEditorPanel(new EffectPresetFilePanel(
+        std::move(savePreset),
+        [loadPreset = std::move(loadPreset), refreshControls]
+        {
+            loadPreset(refreshControls);
+        }), 700));
     dialog->addCustomComponent(new CentredEditorPanel(knobs, 700));
     // Three EQ bands plus the Low/High Cut row need four complete knob rows.
-    dialog->setSize(760, 890);
+    dialog->setSize(760, 928);
     graph->onPointChanged = [knobs](int band, float frequency, float gain)
     {
         const auto first = band * 3;
@@ -2965,10 +3009,24 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
     auto* presets = new EffectPresetPanel("PRESET", {
         "Piano Intimo", "Sala Clara", "Worship Hall", "Ambient Grande"
     });
-    dialog->addCustomComponent(new CentredEditorPanel(presets, 700));
-    dialog->addCustomComponent(new CentredEditorPanel(knobs, 700));
-    dialog->setSize(760, 550);
     const juce::Component::SafePointer<LayerStrip> safe(this);
+    dialog->addCustomComponent(new CentredEditorPanel(presets, 700));
+    dialog->addCustomComponent(new CentredEditorPanel(new EffectPresetFilePanel(
+        [safe] { if (safe != nullptr) safe->saveEffectPreset("REVERB"); },
+        [safe, knobs, prefix]
+        {
+            if (safe == nullptr) return;
+            safe->loadEffectPreset("REVERB", [safe, knobs, prefix]
+            {
+                if (safe == nullptr) return;
+                knobs->setValue(0, safe->processor.parameters.getRawParameterValue(prefix + "ReverbSize")->load());
+                knobs->setValue(1, 100.0f - safe->processor.parameters.getRawParameterValue(prefix + "ReverbDamping")->load());
+                knobs->setValue(2, safe->processor.parameters.getRawParameterValue(prefix + "ReverbWidth")->load());
+                knobs->setValue(3, safe->processor.parameters.getRawParameterValue(prefix + "Reverb")->load());
+            });
+        }), 700));
+    dialog->addCustomComponent(new CentredEditorPanel(knobs, 700));
+    dialog->setSize(760, 588);
     const auto setParameter = [safe, prefix](const juce::String& id, float value)
     {
         if (safe == nullptr) return;
@@ -3064,9 +3122,118 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::loadLayerPreset()
         });
 }
 
+void ClassicPlayerAudioProcessorEditor::LayerStrip::saveEffectPreset(const juce::String& effect)
+{
+    const auto extension = effect == "EQ" ? ".ckeq"
+                         : effect == "COMP" ? ".ckcomp" : ".ckreverb";
+    const auto defaultFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+        .getChildFile("Classic Player " + effect + extension);
+    fileChooser = std::make_unique<juce::FileChooser>(
+        "Salvar meu preset de " + effect, defaultFile, "*" + extension);
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    fileChooser->launchAsync(juce::FileBrowserComponent::saveMode
+                           | juce::FileBrowserComponent::canSelectFiles
+                           | juce::FileBrowserComponent::warnAboutOverwriting,
+        [safe, effect, extension](const juce::FileChooser& chooser)
+        {
+            if (safe == nullptr || chooser.getResult() == juce::File{}) return;
+            auto destination = chooser.getResult();
+            if (destination.getFileExtension().toLowerCase() != extension)
+                destination = destination.withFileExtension(extension);
+            juce::ValueTree preset("ClassicPlayerEffectPreset");
+            preset.setProperty("format", 1, nullptr);
+            preset.setProperty("effect", effect, nullptr);
+            const auto prefix = "layer" + juce::String(safe->index + 1);
+            juce::StringArray suffixes;
+            if (effect == "EQ")
+                suffixes = { "EqLow", "EqMid", "EqHigh", "EqLowFrequency", "EqMidFrequency",
+                             "EqHighFrequency", "EqLowQ", "EqMidQ", "EqHighQ" };
+            else if (effect == "COMP")
+                suffixes = { "Comp", "CompThreshold", "CompRatio", "CompAttack",
+                             "CompRelease", "CompMakeup" };
+            else
+                suffixes = { "Reverb", "ReverbSize", "ReverbDamping", "ReverbWidth" };
+            for (const auto& suffix : suffixes)
+                if (auto* value = safe->processor.parameters.getRawParameterValue(prefix + suffix))
+                    preset.setProperty(suffix, value->load(), nullptr);
+            if (effect == "EQ")
+            {
+                const auto config = safe->processor.layerConfig(safe->index);
+                preset.setProperty("LowCut", config.highPassHz, nullptr);
+                preset.setProperty("HighCut", config.lowPassHz, nullptr);
+            }
+            auto xml = preset.createXml();
+            const auto ok = xml != nullptr && destination.replaceWithText(xml->toString());
+            juce::AlertWindow::showMessageBoxAsync(
+                ok ? juce::MessageBoxIconType::InfoIcon : juce::MessageBoxIconType::WarningIcon,
+                ok ? "Preset salvo" : "Falha ao salvar",
+                ok ? "Arquivo salvo em:\n" + destination.getFullPathName()
+                   : "Não foi possível salvar o preset.");
+        });
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::loadEffectPreset(
+    const juce::String& effect, std::function<void()> onLoaded)
+{
+    const auto extension = effect == "EQ" ? ".ckeq"
+                         : effect == "COMP" ? ".ckcomp" : ".ckreverb";
+    fileChooser = std::make_unique<juce::FileChooser>(
+        "Abrir meu preset de " + effect, juce::File{}, "*" + extension);
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    fileChooser->launchAsync(juce::FileBrowserComponent::openMode
+                           | juce::FileBrowserComponent::canSelectFiles,
+        [safe, effect, onLoaded = std::move(onLoaded)](const juce::FileChooser& chooser)
+        {
+            if (safe == nullptr || chooser.getResult() == juce::File{}) return;
+            auto xml = juce::XmlDocument::parse(chooser.getResult());
+            if (xml == nullptr)
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                       "Preset inválido", "O arquivo está corrompido.");
+                return;
+            }
+            const auto preset = juce::ValueTree::fromXml(*xml);
+            if (!preset.hasType("ClassicPlayerEffectPreset")
+                || preset.getProperty("effect").toString() != effect)
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                       "Preset incompatível",
+                                                       "Escolha um preset de " + effect + ".");
+                return;
+            }
+            const auto prefix = "layer" + juce::String(safe->index + 1);
+            for (int property = 0; property < preset.getNumProperties(); ++property)
+            {
+                const auto suffix = preset.getPropertyName(property).toString();
+                if (suffix == "format" || suffix == "effect" || suffix == "LowCut" || suffix == "HighCut")
+                    continue;
+                if (auto* parameter = safe->processor.parameters.getParameter(prefix + suffix))
+                {
+                    const auto value = static_cast<float>(preset.getProperty(suffix));
+                    parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
+                }
+            }
+            if (effect == "EQ")
+            {
+                auto config = safe->processor.layerConfig(safe->index);
+                config.highPassHz = static_cast<float>(preset.getProperty("LowCut", config.highPassHz));
+                config.lowPassHz = static_cast<float>(preset.getProperty("HighCut", config.lowPassHz));
+                safe->processor.setLayerConfig(safe->index, config);
+            }
+            if (onLoaded) onLoaded();
+            safe->refresh();
+        });
+}
+
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showEqEditor()
 {
-    showParametricLayerEqEditor(processor, index);
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    showParametricLayerEqEditor(processor, index,
+        [safe] { if (safe != nullptr) safe->saveEffectPreset("EQ"); },
+        [safe](std::function<void()> loaded)
+        {
+            if (safe != nullptr) safe->loadEffectPreset("EQ", std::move(loaded));
+        });
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
@@ -3087,11 +3254,26 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
     auto* presets = new EffectPresetPanel("PRESET", {
         "Piano Natural", "Piano Presenca", "Worship Suave", "Worship Sustentado"
     });
+    const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->addCustomComponent(new CentredEditorPanel(presets, 700));
+    dialog->addCustomComponent(new CentredEditorPanel(new EffectPresetFilePanel(
+        [safe] { if (safe != nullptr) safe->saveEffectPreset("COMP"); },
+        [safe, knobs, prefix]
+        {
+            if (safe == nullptr) return;
+            safe->loadEffectPreset("COMP", [safe, knobs, prefix]
+            {
+                if (safe == nullptr) return;
+                const std::array<const char*, 5> names {
+                    "CompThreshold", "CompRatio", "CompAttack", "CompRelease", "CompMakeup"
+                };
+                for (int i = 0; i < 5; ++i)
+                    knobs->setValue(i, safe->processor.parameters.getRawParameterValue(prefix + names[(size_t) i])->load());
+            });
+        }), 700));
     dialog->addCustomComponent(new CentredEditorPanel(graph, 700));
     dialog->addCustomComponent(new CentredEditorPanel(knobs, 700));
-    dialog->setSize(760, 710);
-    const juce::Component::SafePointer<LayerStrip> safe(this);
+    dialog->setSize(760, 748);
     const auto setParameter = [safe, prefix](const juce::String& id, float value)
     {
         if (safe == nullptr) return;
