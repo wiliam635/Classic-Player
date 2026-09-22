@@ -2,6 +2,12 @@ name: Build Classic Player - macOS Universal
 
 on:
   workflow_dispatch:
+    inputs:
+      approved:
+        description: "Versão 2.0 aprovada (remove TESTE do nome do download)"
+        required: true
+        default: false
+        type: boolean
 
 jobs:
   build-macos-universal:
@@ -11,6 +17,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Define download version
+        shell: bash
+        run: |
+          if [[ "${{ inputs.approved }}" == "true" ]]; then
+            echo "DOWNLOAD_VERSION=2.0.0" >> "$GITHUB_ENV"
+          else
+            echo "DOWNLOAD_VERSION=2.0.0-teste-${{ github.run_number }}" >> "$GITHUB_ENV"
+          fi
 
       - name: Preflight native source
         run: |
@@ -63,7 +78,7 @@ jobs:
       - name: Upload macOS installer
         uses: actions/upload-artifact@v4
         with:
-          name: Classic-Player-1.6.1-macOS-Universal
+          name: Classic-Player-${{ env.DOWNLOAD_VERSION }}-macOS-Universal
           if-no-files-found: error
           path: |
             outputs/installers/Classic-Player-1.6.1-macOS-High-Sierra-a-Tahoe-Universal.pkg
