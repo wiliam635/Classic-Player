@@ -58,6 +58,8 @@ void ClassicPlayerAudioProcessor::saveStartupSettings()
     settings.setAttribute("lastSavedProgram", lastSavedProgram);
     settings.setAttribute("masterCC", masterCC.load());
     settings.setAttribute("masterChannel", masterCCChannel.load());
+    settings.setAttribute("panicCC", panicCC.load());
+    settings.setAttribute("panicChannel", panicCCChannel.load());
     const auto file = startupSettingsFile();
     if (file.getParentDirectory().createDirectory().failed() || !settings.writeTo(file))
         juce::Logger::writeToLog("Não foi possível salvar as preferências de inicialização.");
@@ -77,6 +79,8 @@ void ClassicPlayerAudioProcessor::restoreStartupSettings()
         // Hardware mapping survives even if another/older program is restored.
         masterCC.store(juce::jlimit(-1, 119, settings->getIntAttribute("masterCC", -1)));
         masterCCChannel.store(juce::jlimit(-1, 16, settings->getIntAttribute("masterChannel", -1)));
+        panicCC.store(juce::jlimit(-1, 119, settings->getIntAttribute("panicCC", -1)));
+        panicCCChannel.store(juce::jlimit(-1, 16, settings->getIntAttribute("panicChannel", -1)));
     }
     else if (!startupSettingsFile().existsAsFile())
     {
@@ -96,7 +100,15 @@ void ClassicPlayerAudioProcessor::restoreStartupSettings()
 void ClassicPlayerAudioProcessor::beginMasterMidiLearn()
 {
     activeMidiLearn.store(-1);
+    panicLearning.store(false);
     masterLearning.store(!masterLearning.load());
+}
+
+void ClassicPlayerAudioProcessor::beginPanicMidiLearn()
+{
+    activeMidiLearn.store(-1);
+    masterLearning.store(false);
+    panicLearning.store(!panicLearning.load());
 }
 
 void ClassicPlayerAudioProcessor::resetMasterMidiLearn()
@@ -114,6 +126,20 @@ void ClassicPlayerAudioProcessor::processMasterMidiMessage(const juce::MidiMessa
     const auto cc = message.getControllerNumber();
     // Sustain and MIDI channel-mode messages must not become a volume control.
     if (cc == 64 || cc >= 120) return;
+    if (panicLearning.exchange(false))
+    {
+        panicCCChannel.store(message.getChannel());
+        panicCC.store(cc);
+        panicCCArmed.store(message.getControllerValue() < 64);
+        startupSettingsDirty.store(true);
+    }
+    if (cc == panicCC.load() && message.getChannel() == panicCCChannel.load())
+    {
+        if (message.getControllerValue() < 64)
+            panicCCArmed.store(true);
+        else if (panicCCArmed.exchange(false))
+            pendingPanic.store(true);
+    }
     if (masterLearning.exchange(false))
     {
         masterCCChannel.store(message.getChannel());
@@ -127,6 +153,7 @@ void ClassicPlayerAudioProcessor::processMasterMidiMessage(const juce::MidiMessa
 void ClassicPlayerAudioProcessor::timerCallback()
 {
     consumeMidiControlUpdates();
+    if (pendingPanic.exchange(false)) panic();
     // Message-thread updates and file I/O work even with the editor closed.
     if (startupSettingsDirty.exchange(false)) saveStartupSettings();
 }
@@ -1398,6 +1425,7 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
 void ClassicPlayerAudioProcessor::beginMidiLearn(int layer, LearnTarget target)
 {
     masterLearning.store(false);
+    panicLearning.store(false);
     const auto targetIndex = static_cast<int>(target);
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount) ||
         !juce::isPositiveAndBelow(targetIndex, learnTargetCount)) return;
@@ -2132,7 +2160,9 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
     auto state = parameters.copyState();
     state.setProperty("masterLearnCC", masterCC.load(), nullptr);
     state.setProperty("masterLearnChannel", masterCCChannel.load(), nullptr);
-    state.setProperty("stateVersion", 166, nullptr);
+    state.setProperty("panicLearnCC", panicCC.load(), nullptr);
+    state.setProperty("panicLearnChannel", panicCCChannel.load(), nullptr);
+    state.setProperty("stateVersion", 167, nullptr);
     state.setProperty("activeLayers", activeLayerCount(), nullptr);
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
@@ -2243,6 +2273,11 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             masterCCChannel.store(juce::jlimit(-1, 16, (int) state.getProperty("masterLearnChannel", -1)));
             masterLearning.store(false);
             pendingMasterValue.store(-1.0f);
+            panicCC.store(juce::jlimit(-1, 119, (int) state.getProperty("panicLearnCC", -1)));
+            panicCCChannel.store(juce::jlimit(-1, 16, (int) state.getProperty("panicLearnChannel", -1)));
+            panicLearning.store(false);
+            pendingPanic.store(false);
+            panicCCArmed.store(true);
             const auto savedStateVersion = static_cast<int>(state.getProperty("stateVersion", 0));
             auto findParameterState = [&state](const juce::String& parameterId)
             {

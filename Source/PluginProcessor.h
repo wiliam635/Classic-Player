@@ -23,6 +23,10 @@ public:
     bool isMasterMidiLearning() const { return masterLearning.load(); }
     int masterMidiLearnCC() const { return masterCC.load(); }
     int masterMidiLearnChannel() const { return masterCCChannel.load(); }
+    void beginPanicMidiLearn();
+    bool isPanicMidiLearning() const { return panicLearning.load(); }
+    int panicMidiLearnCC() const { return panicCC.load(); }
+    int panicMidiLearnChannel() const { return panicCCChannel.load(); }
     juce::String currentSavedProgramName() const { return currentSavedProgram; }
     // Immediate MIDI/audio safety reset exposed to the standalone UI.
     void panic();
@@ -196,8 +200,11 @@ private:
     juce::String lastSavedProgram;
     juce::String currentSavedProgram;
     bool startupRestored = false;
-    std::atomic<bool> masterLearning { false }, startupSettingsDirty { false };
+    std::atomic<bool> masterLearning { false }, panicLearning { false },
+                      startupSettingsDirty { false }, pendingPanic { false },
+                      panicCCArmed { true };
     std::atomic<int> masterCC { -1 }, masterCCChannel { -1 };
+    std::atomic<int> panicCC { -1 }, panicCCChannel { -1 };
     std::atomic<float> pendingMasterValue { -1.0f };
     juce::SmoothedValue<float> masterGain;
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameters();

@@ -3906,6 +3906,10 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     panicButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff7d3540));
     panicButton.onClick = [this] { classicProcessor.panic(); };
     addAndMakeVisible(panicButton);
+    flatButton(panicLearnButton);
+    panicLearnButton.setTooltip("Aprender um MIDI CC para acionar o Panic");
+    panicLearnButton.onClick = [this] { classicProcessor.beginPanicMidiLearn(); };
+    addAndMakeVisible(panicLearnButton);
 
     flatButton(keyboardVisibilityButton);
     keyboardVisibilityButton.setTooltip("Mostrar ou ocultar o teclado virtual para liberar espaço para as layers");
@@ -4410,7 +4414,9 @@ void ClassicPlayerAudioProcessorEditor::resized()
 
     area.removeFromTop(12);
     auto footer = area.removeFromBottom(54);
-    panicButton.setBounds(footer.removeFromRight(86).removeFromBottom(28).reduced(1, 0));
+    auto panicArea = footer.removeFromRight(166).removeFromBottom(28);
+    panicLearnButton.setBounds(panicArea.removeFromRight(78).reduced(1, 0));
+    panicButton.setBounds(panicArea.reduced(1, 0));
     auto recordingArea = footer.removeFromTop(27);
     recordingButton.setBounds(recordingArea.removeFromLeft(156).reduced(1, 0));
     recordingStatus.setBounds(recordingArea.removeFromLeft(230).reduced(6, 0));
@@ -4499,6 +4505,13 @@ void ClassicPlayerAudioProcessorEditor::resized()
 
 void ClassicPlayerAudioProcessorEditor::timerCallback()
 {
+    const auto panicCC = classicProcessor.panicMidiLearnCC();
+    panicLearnButton.setButtonText(classicProcessor.isPanicMidiLearning() ? "MOVA O CC"
+        : panicCC < 0 ? "LEARN" : "CC " + juce::String(panicCC));
+    panicLearnButton.setColour(juce::TextButton::buttonColourId,
+        classicProcessor.isPanicMidiLearning() ? juce::Colour(yellow)
+                                               : panicCC >= 0 ? juce::Colour(0xff1b554e)
+                                                              : juce::Colour(panelLight));
     const auto masterCC = classicProcessor.masterMidiLearnCC();
     masterLearnButton.setButtonText(classicProcessor.isMasterMidiLearning() ? "MOVE CC"
         : masterCC < 0 ? "LEARN" : "CC " + juce::String(masterCC));

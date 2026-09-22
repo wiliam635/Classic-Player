@@ -230,6 +230,7 @@ private:
     juce::TextButton addLayerButton { "+ LAYER" };
     juce::TextButton recordingButton { "GRAVAR WAV+MIDI" };
     juce::TextButton panicButton { "PANIC" };
+    juce::TextButton panicLearnButton { "LEARN" };
     juce::Label recordingStatus;
     juce::TextButton keyboardVisibilityButton { "OCULTAR TECLADO" };
     juce::TextButton audioMidiSettingsButton { "AUDIO / MIDI" };
