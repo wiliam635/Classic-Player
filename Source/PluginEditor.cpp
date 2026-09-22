@@ -2779,6 +2779,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         { "EQ MID dB", valueOf(prefix + "EqMid", 0.0f), -18.0f, 18.0f, 0.1f, 1 },
         { "EQ HIGH dB", valueOf(prefix + "EqHigh", 0.0f), -18.0f, 18.0f, 0.1f, 1 }
     }, 5);
+    const std::array<const char*, 9> editorParameterSuffixes {
+        "Gain", "Attack", "Release", "Cutoff", "Reverb", "Comp",
+        "EqLow", "EqMid", "EqHigh"
+    };
+    for (int control = 0; control < (int) editorParameterSuffixes.size(); ++control)
+        knobs->bindParameter(control, processor.parameters,
+                             prefix + editorParameterSuffixes[(size_t) control]);
     auto* sf2Panel = new Sf2EditorPanel(processor, index);
     // Match the compact editor slot so the SF2 controls are not followed by
     // an oversized empty region when the dialog is displayed at full size.
@@ -2875,6 +2882,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
         { "LARGURA", processor.parameters.getRawParameterValue(prefix + "ReverbWidth")->load(), 0.0f, 100.0f, 1.0f, 0 },
         { "MIX", processor.parameters.getRawParameterValue(prefix + "Reverb")->load(), 0.0f, 100.0f, 1.0f, 0 }
     }, 2);
+    // The mix knob is also the layer's learned REVERB target. Keep this
+    // editor live when the value comes from a hardware controller.
+    knobs->bindParameter(3, processor.parameters, prefix + "Reverb");
     dialog->addCustomComponent(new CentredEditorPanel(knobs, 700));
     dialog->setSize(760, 500);
     const juce::Component::SafePointer<LayerStrip> safe(this);
@@ -4206,6 +4216,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         { "COMP", valueOf("Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "CHORUS", valueOf("Dx7Chorus", 20.0f), 0.0f, 100.0f, 1.0f, 0 }
     }, 4);
+    const std::array<const char*, 7> commonParameterSuffixes {
+        "Gain", "Attack", "Release", "Cutoff", "Reverb", "Comp", "Dx7Chorus"
+    };
+    for (int control = 0; control < (int) commonParameterSuffixes.size(); ++control)
+        common->bindParameter(control, processor.parameters,
+                              prefix + commonParameterSuffixes[(size_t) control]);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     auto* effectButtons = new LayerEffectButtons(
         [safe] { if (safe != nullptr) safe->showReverbEditor(); },
@@ -5133,6 +5149,12 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
         {"VOLUME",value("Gain"),0,100,1,0},{"ATTACK ms",value("Attack"),0,100,0.1f,1},
         {"RELEASE ms",value("Release"),0,100,1,0},{"CUTOFF",value("Cutoff"),0,100,1,0},
         {"REVERB",value("Reverb"),0,100,1,0},{"COMP",value("Comp"),0,100,1,0}},6);
+    const std::array<const char*,6> commonParameterSuffixes {
+        "Gain","Attack","Release","Cutoff","Reverb","Comp"
+    };
+    for(int control=0;control<(int)commonParameterSuffixes.size();++control)
+        common->bindParameter(control,processor.parameters,
+                              prefix+commonParameterSuffixes[(size_t)control]);
     // This layout follows the available height, including each numeric field.
     common->useCompactGrid(true);
     content->add(common,94);
