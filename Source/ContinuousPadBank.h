@@ -94,8 +94,8 @@ public:
         if(stopCC==cc){stop();return;}
         for(int i=0;i<count;++i)if(pads[(size_t)i].cc==cc){trigger(i);break;}
     }
-    void render(juce::AudioBuffer<float>& output,float gain,float highPassHz=20.f,float lowPassHz=20000.f,
-                const EqSettings& eqSettings={})
+    void render(juce::AudioBuffer<float>& output,float gain,float highPassHz,float lowPassHz,
+                const EqSettings& eqSettings)
     {
         const juce::ScopedTryLock g(lock);if(!g.isLocked()){meter=0;return;}
         const int next=command.exchange(-2);
