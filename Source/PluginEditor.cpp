@@ -436,6 +436,45 @@ private:
     juce::OwnedArray<juce::AudioProcessorValueTreeState::SliderAttachment> attachments;
 };
 
+class EffectPresetPanel final : public juce::Component
+{
+public:
+    EffectPresetPanel(const juce::String& title, const juce::StringArray& names)
+    {
+        label.setText(title, juce::dontSendNotification);
+        label.setJustificationType(juce::Justification::centredRight);
+        label.setColour(juce::Label::textColourId, juce::Colour(text));
+        label.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+        addAndMakeVisible(label);
+
+        for (int item = 0; item < names.size(); ++item)
+            presets.addItem(names[item], item + 1);
+        presets.setTextWhenNothingSelected("ESCOLHA UM PRESET");
+        presets.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
+        presets.setColour(juce::ComboBox::textColourId, juce::Colour(text));
+        presets.setColour(juce::ComboBox::outlineColourId, juce::Colour(line));
+        presets.onChange = [this]
+        {
+            if (onPresetSelected) onPresetSelected(presets.getSelectedItemIndex());
+        };
+        addAndMakeVisible(presets);
+        setSize(620, 38);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(4, 3);
+        label.setBounds(area.removeFromLeft(120));
+        presets.setBounds(area.removeFromLeft(330));
+    }
+
+    std::function<void(int)> onPresetSelected;
+
+private:
+    juce::Label label;
+    juce::ComboBox presets;
+};
+
 class LayerEffectButtons final : public juce::Component
 {
 public:
@@ -2892,9 +2931,38 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
     // The mix knob is also the layer's learned REVERB target. Keep this
     // editor live when the value comes from a hardware controller.
     knobs->bindParameter(3, processor.parameters, prefix + "Reverb");
+    auto* presets = new EffectPresetPanel("PRESET", {
+        "Piano Intimo", "Sala Clara", "Worship Hall", "Ambient Grande"
+    });
+    dialog->addCustomComponent(new CentredEditorPanel(presets, 700));
     dialog->addCustomComponent(new CentredEditorPanel(knobs, 700));
-    dialog->setSize(760, 500);
+    dialog->setSize(760, 550);
     const juce::Component::SafePointer<LayerStrip> safe(this);
+    const auto setParameter = [safe, prefix](const juce::String& id, float value)
+    {
+        if (safe == nullptr) return;
+        if (auto* parameter = safe->processor.parameters.getParameter(prefix + id))
+            parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
+    };
+    presets->onPresetSelected = [safe, knobs, setParameter](int preset)
+    {
+        if (safe == nullptr || preset < 0) return;
+        // TEMPO, DIFUSAO, LARGURA and MIX. The four voicings move from a
+        // close piano room to the long, wide tail commonly used for worship.
+        static constexpr std::array<std::array<float, 4>, 4> values {{
+            {{ 32.0f, 55.0f, 70.0f, 14.0f }},
+            {{ 45.0f, 75.0f, 85.0f, 18.0f }},
+            {{ 72.0f, 68.0f, 100.0f, 28.0f }},
+            {{ 92.0f, 82.0f, 100.0f, 42.0f }}
+        }};
+        const auto& selected = values[(size_t) juce::jlimit(0, 3, preset)];
+        for (int control = 0; control < 4; ++control)
+            knobs->setValue(control, selected[(size_t) control]);
+        setParameter("ReverbSize", selected[0]);
+        setParameter("ReverbDamping", 100.0f - selected[1]);
+        setParameter("ReverbWidth", selected[2]);
+        setParameter("Reverb", selected[3]);
+    };
     knobs->setOnValueChange([safe, knobs, prefix]
     {
         if (safe == nullptr) return;
@@ -2932,10 +3000,42 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
         { "MAKEUP dB", processor.parameters.getRawParameterValue(prefix + "CompMakeup")->load(), 0.0f, 24.0f, 0.1f, 1 }
     }, 3);
     auto* graph = new CompressorResponseView(processor, index);
+    auto* presets = new EffectPresetPanel("PRESET", {
+        "Piano Natural", "Piano Presenca", "Worship Suave", "Worship Sustentado"
+    });
+    dialog->addCustomComponent(new CentredEditorPanel(presets, 700));
     dialog->addCustomComponent(new CentredEditorPanel(graph, 700));
     dialog->addCustomComponent(new CentredEditorPanel(knobs, 700));
-    dialog->setSize(760, 660);
+    dialog->setSize(760, 710);
     const juce::Component::SafePointer<LayerStrip> safe(this);
+    const auto setParameter = [safe, prefix](const juce::String& id, float value)
+    {
+        if (safe == nullptr) return;
+        if (auto* parameter = safe->processor.parameters.getParameter(prefix + id))
+            parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
+    };
+    presets->onPresetSelected = [safe, knobs, setParameter](int preset)
+    {
+        if (safe == nullptr || preset < 0) return;
+        // Threshold, ratio, attack, release, makeup and parallel mix. The
+        // first two start from Yamaha's documented piano compressor programs;
+        // the worship variants remain gentle enough to preserve piano attack.
+        static constexpr std::array<std::array<float, 6>, 4> values {{
+            {{ -9.0f,  2.5f, 17.0f, 238.0f, 1.0f, 45.0f }},
+            {{ -18.0f, 3.5f,  7.0f, 180.0f, 4.0f, 55.0f }},
+            {{ -14.0f, 2.0f, 25.0f, 260.0f, 2.0f, 50.0f }},
+            {{ -22.0f, 4.0f, 35.0f, 360.0f, 4.5f, 65.0f }}
+        }};
+        const auto& selected = values[(size_t) juce::jlimit(0, 3, preset)];
+        for (int control = 0; control < 5; ++control)
+            knobs->setValue(control, selected[(size_t) control]);
+        setParameter("CompThreshold", selected[0]);
+        setParameter("CompRatio", selected[1]);
+        setParameter("CompAttack", selected[2]);
+        setParameter("CompRelease", selected[3]);
+        setParameter("CompMakeup", selected[4]);
+        setParameter("Comp", selected[5]);
+    };
     knobs->setOnValueChange([safe, knobs, prefix]
     {
         if (safe == nullptr) return;
