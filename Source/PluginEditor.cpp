@@ -470,12 +470,30 @@ public:
         presets.setBounds(area.removeFromLeft(330));
     }
 
+    void setSelectedPreset(int index)
+    {
+        presets.setSelectedId(index + 1, juce::dontSendNotification);
+    }
+
     std::function<void(int)> onPresetSelected;
 
 private:
     juce::Label label;
     juce::ComboBox presets;
 };
+
+static constexpr std::array<std::array<float, 4>, 4> factoryReverbPresets {{
+    {{ 32.0f, 55.0f, 70.0f, 14.0f }},
+    {{ 45.0f, 75.0f, 85.0f, 18.0f }},
+    {{ 72.0f, 68.0f, 100.0f, 28.0f }},
+    {{ 92.0f, 82.0f, 100.0f, 42.0f }}
+}};
+static constexpr std::array<std::array<float, 6>, 4> factoryCompressorPresets {{
+    {{ -9.0f,  2.5f, 17.0f, 238.0f, 1.0f, 45.0f }},
+    {{ -18.0f, 3.5f,  7.0f, 180.0f, 4.0f, 55.0f }},
+    {{ -14.0f, 2.0f, 25.0f, 260.0f, 2.0f, 50.0f }},
+    {{ -22.0f, 4.0f, 35.0f, 360.0f, 4.5f, 65.0f }}
+}};
 
 class MasterLimiterMeters final : public juce::Component, private juce::Timer
 {
@@ -3046,6 +3064,19 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
     auto* presets = new EffectPresetPanel("PRESET", {
         "Piano Intimo", "Sala Clara", "Worship Hall", "Ambient Grande"
     });
+    for (int preset = 0; preset < (int) factoryReverbPresets.size(); ++preset)
+    {
+        const auto& values = factoryReverbPresets[(size_t) preset];
+        const auto current = [&] (const char* suffix) { return processor.parameters.getRawParameterValue(prefix + suffix)->load(); };
+        if (std::abs(current("ReverbSize") - values[0]) < 0.1f
+            && std::abs(current("ReverbDamping") - (100.0f - values[1])) < 0.1f
+            && std::abs(current("ReverbWidth") - values[2]) < 0.1f
+            && std::abs(current("Reverb") - values[3]) < 0.1f)
+        {
+            presets->setSelectedPreset(preset);
+            break;
+        }
+    }
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->addCustomComponent(new CentredEditorPanel(presets, 700));
     dialog->addCustomComponent(new CentredEditorPanel(new EffectPresetFilePanel(
@@ -3075,13 +3106,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
         if (safe == nullptr || preset < 0) return;
         // TEMPO, DIFUSAO, LARGURA and MIX. The four voicings move from a
         // close piano room to the long, wide tail commonly used for worship.
-        static constexpr std::array<std::array<float, 4>, 4> values {{
-            {{ 32.0f, 55.0f, 70.0f, 14.0f }},
-            {{ 45.0f, 75.0f, 85.0f, 18.0f }},
-            {{ 72.0f, 68.0f, 100.0f, 28.0f }},
-            {{ 92.0f, 82.0f, 100.0f, 42.0f }}
-        }};
-        const auto& selected = values[(size_t) juce::jlimit(0, 3, preset)];
+        const auto& selected = factoryReverbPresets[(size_t) juce::jlimit(0, 3, preset)];
         for (int control = 0; control < 4; ++control)
             knobs->setValue(control, selected[(size_t) control]);
         setParameter("ReverbSize", selected[0]);
@@ -3291,6 +3316,21 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
     auto* presets = new EffectPresetPanel("PRESET", {
         "Piano Natural", "Piano Presenca", "Worship Suave", "Worship Sustentado"
     });
+    for (int preset = 0; preset < (int) factoryCompressorPresets.size(); ++preset)
+    {
+        const auto& values = factoryCompressorPresets[(size_t) preset];
+        const auto current = [&] (const char* suffix) { return processor.parameters.getRawParameterValue(prefix + suffix)->load(); };
+        if (std::abs(current("CompThreshold") - values[0]) < 0.1f
+            && std::abs(current("CompRatio") - values[1]) < 0.1f
+            && std::abs(current("CompAttack") - values[2]) < 0.1f
+            && std::abs(current("CompRelease") - values[3]) < 0.1f
+            && std::abs(current("CompMakeup") - values[4]) < 0.1f
+            && std::abs(current("Comp") - values[5]) < 0.1f)
+        {
+            presets->setSelectedPreset(preset);
+            break;
+        }
+    }
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->addCustomComponent(new CentredEditorPanel(presets, 700));
     dialog->addCustomComponent(new CentredEditorPanel(new EffectPresetFilePanel(
@@ -3323,13 +3363,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
         // Threshold, ratio, attack, release, makeup and parallel mix. The
         // first two start from Yamaha's documented piano compressor programs;
         // the worship variants remain gentle enough to preserve piano attack.
-        static constexpr std::array<std::array<float, 6>, 4> values {{
-            {{ -9.0f,  2.5f, 17.0f, 238.0f, 1.0f, 45.0f }},
-            {{ -18.0f, 3.5f,  7.0f, 180.0f, 4.0f, 55.0f }},
-            {{ -14.0f, 2.0f, 25.0f, 260.0f, 2.0f, 50.0f }},
-            {{ -22.0f, 4.0f, 35.0f, 360.0f, 4.5f, 65.0f }}
-        }};
-        const auto& selected = values[(size_t) juce::jlimit(0, 3, preset)];
+        const auto& selected = factoryCompressorPresets[(size_t) juce::jlimit(0, 3, preset)];
         for (int control = 0; control < 5; ++control)
             knobs->setValue(control, selected[(size_t) control]);
         setParameter("CompThreshold", selected[0]);
