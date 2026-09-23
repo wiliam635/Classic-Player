@@ -17,7 +17,8 @@ class ClassicPlayerAudioProcessor final : public juce::AudioProcessor,
                                           private juce::Timer
 {
 public:
-    enum class LearnTarget { volume = 0, cutoff, reverb, compressor, release, count };
+    // Keep existing indices stable because mappings are serialized by index.
+    enum class LearnTarget { volume = 0, cutoff, reverb, compressor, release, mute, count };
     void beginMasterMidiLearn();
     void resetMasterMidiLearn();
     bool isMasterMidiLearning() const { return masterLearning.load(); }
@@ -129,6 +130,8 @@ public:
     void setMasterEqValue(const juce::String& parameterId, float value);
     void beginMidiLearn(int layer, LearnTarget target);
     void resetMidiLearn(int layer);
+    bool isLayerMuted(int layer) const;
+    void setLayerMuted(int layer, bool muted);
     int midiLearnCC(int layer, LearnTarget target) const;
     int midiLearnChannel(int layer, LearnTarget target) const;
     bool isMidiLearning(int layer, LearnTarget target) const;
@@ -151,6 +154,7 @@ public:
     juce::Result saveProgramToFile(const juce::File& destination, juce::File& savedFile);
     juce::Result deleteProgram(const juce::File& programFile);
     juce::Result loadProgram(const juce::File& programFile);
+    void resetToNewProgram();
     juce::Result saveLayerPreset(int layer, const juce::File& destination,
                                  juce::File& savedFile);
     juce::Result loadLayerPreset(int layer, const juce::File& presetFile);
@@ -293,6 +297,10 @@ private:
     // a learned value before the next audio block applies it.
     std::array<std::array<std::atomic<float>, learnTargetCount>, Sf2Engine::layerCount> pendingCCValues {};
     std::array<std::array<std::atomic<float>, learnTargetCount>, Sf2Engine::layerCount> realtimeCCValues {};
+    // Mute Learn is edge-triggered so a held CC button toggles only once.
+    // The toggle count is consumed on the message thread and written to APVTS.
+    std::array<std::atomic<bool>, Sf2Engine::layerCount> learnedMuteCCPressed {};
+    std::array<std::atomic<int>, Sf2Engine::layerCount> pendingLayerMuteToggles {};
     std::atomic<int> activeMidiLearn { -1 };
     static constexpr int liveSetSlotCount = liveSetBankCount * liveSetSlotsPerBank;
     std::array<std::atomic<int>, liveSetSlotCount> learnedLiveSetSlotCCs {};

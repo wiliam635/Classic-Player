@@ -60,6 +60,19 @@ public:
     int mapping(int i) const {const juce::ScopedLock g(lock);return i==count?stopCC:pads[(size_t)i].cc;}
     int learningTarget() const {return learning.load();}
     void learn(int i){learning=i;}
+    // Standalone MIDI callbacks run outside the audio thread. Capture here
+    // before device/channel routing so Learn behaves like the other layer
+    // controls, including for controllers whose current value is below 64.
+    bool captureLearnedCC(const juce::MidiMessage& message)
+    {
+        if (!message.isController()) return false;
+        const int cc = message.getControllerNumber();
+        if (cc == 64 || cc >= 120 || learning.load() < 0) return false;
+        const juce::ScopedLock guard(lock);
+        const auto channel = (size_t) (message.getChannel() - 1);
+        ccDown[channel][(size_t) cc] = message.getControllerValue() >= 64;
+        return assignLearnedCC(cc);
+    }
     void trigger(int i){if(juce::isPositiveAndBelow(i,count))command=i;}
     void stop(){command=-1;}
     int selected() const{return active.load();}
@@ -82,15 +95,8 @@ public:
         const bool down=message.getControllerValue()>=64;
         const bool edge=down&&!ccDown[(size_t)channel][(size_t)cc];
         ccDown[(size_t)channel][(size_t)cc]=down;
+        if(assignLearnedCC(cc))return;
         if(!edge)return;
-        const int target=learning.exchange(-1);
-        if(target>=0)
-        {
-            for(auto& p:pads)if(p.cc==cc)p.cc=-1;
-            if(stopCC==cc)stopCC=-1;
-            if(target==count)stopCC=cc;else if(target<count)pads[(size_t)target].cc=cc;
-            return; // Learning must not start audio unexpectedly.
-        }
         if(stopCC==cc){stop();return;}
         for(int i=0;i<count;++i)if(pads[(size_t)i].cc==cc){trigger(i);break;}
     }
@@ -174,6 +180,18 @@ public:
         stopImmediately();
     }
 private:
+    bool assignLearnedCC(int cc)
+    {
+        const int target = learning.exchange(-1);
+        if (target < 0) return false;
+        for (auto& pad : pads)
+            if (pad.cc == cc) pad.cc = -1;
+        if (stopCC == cc) stopCC = -1;
+        if (target == count) stopCC = cc;
+        else if (target < count) pads[(size_t) target].cc = cc;
+        return true; // Learning must not start/stop audio unexpectedly.
+    }
+
     struct Pad {juce::AudioBuffer<float> audio;juce::String path;double rate=48000,position=0;float level=0;int cc=-1;};
     static int validCC(int cc){return cc>=0&&cc<120&&cc!=64?cc:-1;}
     static float read(const Pad& p,int ch,double pos)

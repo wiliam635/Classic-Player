@@ -174,6 +174,8 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
         for (auto& value : layer) value.store(-1.0f);
     for (auto& layer : realtimeCCValues)
         for (auto& value : layer) value.store(-1.0f);
+    for (auto& pressed : learnedMuteCCPressed) pressed.store(false, std::memory_order_relaxed);
+    for (auto& toggles : pendingLayerMuteToggles) toggles.store(0, std::memory_order_relaxed);
     for (auto& cc : learnedLiveSetSlotCCs) cc.store(-1, std::memory_order_relaxed);
     for (auto& channel : learnedLiveSetSlotChannels) channel.store(-1, std::memory_order_relaxed);
     for (auto& peak : externalPeaks) peak.store(0.0f);
@@ -317,6 +319,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
         result.push_back(std::make_unique<juce::AudioParameterBool>(
             juce::ParameterID{"layer" + n + "ModulationEnabled", 1},
             "Layer " + n + " Keyboard Modulation", true));
+    }
+    // Append new parameters after the existing layer groups so adding Mute
+    // does not shift the parameter indices used by existing DAW automation.
+    for (int i = 0; i < Sf2Engine::layerCount; ++i)
+    {
+        const auto n = juce::String(i + 1);
+        result.push_back(std::make_unique<juce::AudioParameterBool>(
+            juce::ParameterID{"layer" + n + "Muted", 1}, "Layer " + n + " Muted", false));
     }
     return { result.begin(), result.end() };
 }
@@ -489,6 +499,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         auto config = engine.getConfig(i);
         const auto prefix = "layer" + juce::String(i + 1);
         auto layerGain = parameters.getRawParameterValue(prefix + "Gain")->load() / 100.0f;
+        if (isLayerMuted(i)) layerGain = 0.0f;
         // Keep the DX7 6 dB lower than the previous approved trim.
         // Keep Analog and all other sources at their approved levels.
         const auto type = layerType(i);
@@ -553,9 +564,12 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         if(layerType(layer)!=LayerType::continuousPads)continue;
         auto& bank=continuousPads(layer);const auto config=engine.getConfig(layer);
         const auto inspect=[&](const juce::MidiBuffer& events){for(const auto event:events)
-        {const auto message=event.getMessage();if(config.midiChannel==0||message.getChannel()==config.midiChannel)bank.midi(message);}};
+        {const auto message=event.getMessage();
+         if(bank.learningTarget()>=0||config.midiChannel==0||message.getChannel()==config.midiChannel)
+             bank.midi(message);}};
         inspect(midi);inspect(routedMidiBuffers[(size_t)layer]);
-        bank.render(buffer,config.enabled ? parameters.getRawParameterValue("layer"+juce::String(layer+1)+"Gain")->load()/100.f:0.f,
+        bank.render(buffer,config.enabled && !isLayerMuted(layer)
+                    ? parameters.getRawParameterValue("layer"+juce::String(layer+1)+"Gain")->load()/100.f:0.f,
                     config.highPassHz,config.lowPassHz,
                     {config.eqLow,config.eqMid,config.eqHigh,
                      config.eqLowFrequency,config.eqMidFrequency,config.eqHighFrequency,
@@ -917,7 +931,7 @@ void ClassicPlayerAudioProcessor::processDrumPads(juce::AudioBuffer<float>& outp
     for(int layer=0;layer<activeLayerCount();++layer)
     {
         if(layerType(layer)!=LayerType::drumPads)continue;
-        const auto target=engine.getConfig(layer).enabled
+        const auto target=engine.getConfig(layer).enabled && !isLayerMuted(layer)
             ? parameters.getRawParameterValue("layer"+juce::String(layer+1)+"Gain")->load()/100.f : 0.f;
         auto& gain=drumLayerGains[(size_t)layer];
         if(!drumGainReady[(size_t)layer]){gain.setCurrentAndTargetValue(target);drumGainReady[(size_t)layer]=true;}
@@ -1107,6 +1121,21 @@ void ClassicPlayerAudioProcessor::renderExternalInstruments(juce::AudioBuffer<fl
 juce::String ClassicPlayerAudioProcessor::soundFontPath(int layer) const { return engine.getSoundFontPath(layer); }
 Sf2Engine::LayerConfig ClassicPlayerAudioProcessor::layerConfig(int layer) const { return engine.getConfig(layer); }
 void ClassicPlayerAudioProcessor::setLayerConfig(int layer, const Sf2Engine::LayerConfig& c) { engine.setConfig(layer, c); }
+bool ClassicPlayerAudioProcessor::isLayerMuted(int layer) const
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return false;
+    if (const auto* value = parameters.getRawParameterValue("layer" + juce::String(layer + 1) + "Muted"))
+        return value->load(std::memory_order_relaxed) >= 0.5f;
+    return false;
+}
+
+void ClassicPlayerAudioProcessor::setLayerMuted(int layer, bool muted)
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return;
+    if (auto* parameter = parameters.getParameter("layer" + juce::String(layer + 1) + "Muted"))
+        parameter->setValueNotifyingHost(muted ? 1.0f : 0.0f);
+}
+
 std::vector<Sf2Engine::Preset> ClassicPlayerAudioProcessor::layerPresets(int layer) const { return engine.getPresets(layer); }
 int ClassicPlayerAudioProcessor::layerPresetBank(int layer) const { return engine.getSelectedBank(layer); }
 int ClassicPlayerAudioProcessor::layerPresetProgram(int layer) const { return engine.getSelectedProgram(layer); }
@@ -1334,8 +1363,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     if (layer >= count || count <= 0) return false;
 
     const auto last = count - 1;
-    static constexpr std::array<const char*, 25> parameterSuffixes {
-        "Gain", "Attack", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh",
+    static constexpr std::array<const char*, 26> parameterSuffixes {
+        "Gain", "Muted", "Attack", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh",
         "EqLowFrequency", "EqMidFrequency", "EqHighFrequency", "EqLowQ", "EqMidQ", "EqHighQ",
         "Reverb", "ReverbSize", "ReverbDamping",
         "ReverbWidth", "Comp", "CompThreshold", "CompRatio", "CompAttack",
@@ -1409,6 +1438,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
             realtimeCCValues[(size_t) destination][(size_t) target].store(-1.0f,
                                                                             std::memory_order_relaxed);
         }
+        learnedMuteCCPressed[(size_t) destination].store(false, std::memory_order_relaxed);
+        pendingLayerMuteToggles[(size_t) destination].store(0, std::memory_order_relaxed);
 
         const auto destinationPrefix = "layer" + juce::String(destination + 1);
         const auto sourcePrefix = "layer" + juce::String(source + 1);
@@ -1441,6 +1472,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         pendingCCValues[(size_t) last][(size_t) target].store(-1.0f, std::memory_order_relaxed);
         realtimeCCValues[(size_t) last][(size_t) target].store(-1.0f, std::memory_order_relaxed);
     }
+    learnedMuteCCPressed[(size_t) last].store(false, std::memory_order_relaxed);
+    pendingLayerMuteToggles[(size_t) last].store(0, std::memory_order_relaxed);
     const auto lastPrefix = "layer" + juce::String(last + 1);
     for (const auto* suffix : parameterSuffixes)
         if (auto* parameter = parameters.getParameter(lastPrefix + suffix))
@@ -1457,6 +1490,8 @@ void ClassicPlayerAudioProcessor::beginMidiLearn(int layer, LearnTarget target)
     const auto targetIndex = static_cast<int>(target);
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount) ||
         !juce::isPositiveAndBelow(targetIndex, learnTargetCount)) return;
+    if (target == LearnTarget::mute)
+        learnedMuteCCPressed[(size_t) layer].store(false, std::memory_order_relaxed);
     activeMidiLearn.store(layer * learnTargetCount + targetIndex, std::memory_order_relaxed);
 }
 
@@ -1471,6 +1506,8 @@ void ClassicPlayerAudioProcessor::resetMidiLearn(int layer)
         pendingCCValues[(size_t) layer][(size_t) target].store(-1.0f, std::memory_order_relaxed);
         realtimeCCValues[(size_t) layer][(size_t) target].store(-1.0f, std::memory_order_relaxed);
     }
+    learnedMuteCCPressed[(size_t) layer].store(false, std::memory_order_relaxed);
+    pendingLayerMuteToggles[(size_t) layer].store(0, std::memory_order_relaxed);
 
     auto active = activeMidiLearn.load(std::memory_order_relaxed);
     if (active >= 0 && active / learnTargetCount == layer)
@@ -1505,11 +1542,16 @@ void ClassicPlayerAudioProcessor::consumeMidiControlUpdates()
     const auto masterValue = pendingMasterValue.exchange(-1.0f);
     if (masterValue >= 0.0f)
         parameters.getParameter("master")->setValueNotifyingHost(masterValue);
-    static const std::array<const char*, learnTargetCount> suffixes { "Gain", "Cutoff", "Reverb", "Comp", "Release" };
+    static const std::array<const char*, 5> suffixes { "Gain", "Cutoff", "Reverb", "Comp", "Release" };
     for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
     {
+        const auto muteToggles = pendingLayerMuteToggles[(size_t) layer].exchange(0,
+                                                                                   std::memory_order_acq_rel);
+        if ((muteToggles & 1) != 0)
+            setLayerMuted(layer, !isLayerMuted(layer));
+
         const auto prefix = "layer" + juce::String(layer + 1);
-        for (int target = 0; target < learnTargetCount; ++target)
+        for (int target = 0; target < static_cast<int>(suffixes.size()); ++target)
         {
             const auto value = pendingCCValues[(size_t) layer][(size_t) target].exchange(-1.0f);
             if (value < 0.0f) continue;
@@ -1521,11 +1563,11 @@ void ClassicPlayerAudioProcessor::consumeMidiControlUpdates()
 
 void ClassicPlayerAudioProcessor::applyRealtimeMidiControlUpdates()
 {
-    static const std::array<const char*, learnTargetCount> suffixes { "Gain", "Cutoff", "Reverb", "Comp", "Release" };
+    static const std::array<const char*, 5> suffixes { "Gain", "Cutoff", "Reverb", "Comp", "Release" };
     for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
     {
         const auto prefix = "layer" + juce::String(layer + 1);
-        for (int target = 0; target < learnTargetCount; ++target)
+        for (int target = 0; target < static_cast<int>(suffixes.size()); ++target)
         {
             const auto value = realtimeCCValues[(size_t) layer][(size_t) target].exchange(
                 -1.0f, std::memory_order_acq_rel);
@@ -1551,6 +1593,7 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
                                                              int layerFilter)
 {
     auto active = activeMidiLearn.load(std::memory_order_relaxed);
+    const auto wasLearning = active >= 0;
 
     // Preserve a useful diagnosis in the application log when a controller
     // sends something other than a normal CC (for example NRPN/SysEx).
@@ -1587,6 +1630,20 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
         {
             learnedCCs[(size_t) layer][(size_t) target].store(cc, std::memory_order_relaxed);
             learnedChannels[(size_t) layer][(size_t) target].store(channel, std::memory_order_relaxed);
+            // A captured CC is a setup gesture, not a mute action. Mark any
+            // matching mute assignments as already held so duplicate host/
+            // standalone deliveries of this event cannot toggle them either.
+            const auto muteTarget = static_cast<int>(LearnTarget::mute);
+            for (int muteLayer = 0; muteLayer < Sf2Engine::layerCount; ++muteLayer)
+            {
+                const auto muteCC = learnedCCs[(size_t) muteLayer][(size_t) muteTarget]
+                                        .load(std::memory_order_relaxed);
+                const auto muteChannel = learnedChannels[(size_t) muteLayer][(size_t) muteTarget]
+                                             .load(std::memory_order_relaxed);
+                if (muteCC == cc && (muteChannel < 0 || muteChannel == channel))
+                    learnedMuteCCPressed[(size_t) muteLayer].store(controllerValue >= 64,
+                                                                  std::memory_order_relaxed);
+            }
             juce::Logger::writeToLog("MIDI Learn: layer=" + juce::String(layer + 1)
                                      + " CC=" + juce::String(cc)
                                      + " canal=" + juce::String(channel));
@@ -1604,6 +1661,24 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
             const auto learnedChannel = learnedChannels[(size_t) layer][(size_t) target].load(std::memory_order_relaxed);
             if (learnedCC != cc || (learnedChannel >= 0 && learnedChannel != channel))
                 continue;
+
+            if (target == static_cast<int>(LearnTarget::mute))
+            {
+                // Learning a new CC must not also toggle an existing layer
+                // assignment that happens to use this same controller.
+                if (wasLearning) continue;
+                // MIDI buttons commonly send 127 on press and 0 on release.
+                // Toggle only on the low-to-high edge; host and standalone
+                // routing may deliver the same event twice, which the latch
+                // safely deduplicates.
+                const auto pressed = controllerValue >= 64;
+                const auto wasPressed = learnedMuteCCPressed[(size_t) layer].exchange(
+                    pressed, std::memory_order_acq_rel);
+                if (pressed && !wasPressed)
+                    pendingLayerMuteToggles[(size_t) layer].fetch_add(1,
+                                                                      std::memory_order_release);
+                continue;
+            }
 
             pendingCCValues[(size_t) layer][(size_t) target].store(normalised,
                                                                       std::memory_order_relaxed);
@@ -1849,6 +1924,16 @@ void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* sou
     // the physical CC and only the subsequent value updates stay routed.
     if (activeMidiLearn.load(std::memory_order_relaxed) >= 0)
         processMidiControlMessage(message);
+    // Continuous-pad Learn must see the physical controller before the
+    // per-layer device/channel routing. Use the non-audio capture path so a
+    // busy render lock cannot silently discard the Learn event.
+    for (int layer = 0; layer < activeLayerCount(); ++layer)
+        if (layerType(layer) == LayerType::continuousPads)
+        {
+            auto& bank = continuousPads(layer);
+            if (bank.learningTarget() >= 0)
+                bank.captureLearnedCC(message);
+        }
     const juce::ScopedLock guard(midiRoutingLock);
     auto routed = false;
     for (int layer = 0; layer < activeLayerCount(); ++layer)
@@ -2182,6 +2267,65 @@ juce::Result ClassicPlayerAudioProcessor::loadProgram(const juce::File& programF
     return juce::Result::ok();
 }
 
+void ClassicPlayerAudioProcessor::resetToNewProgram()
+{
+    panic();
+
+    // Master and Panic mappings belong to the musician's controller setup,
+    // not to an individual performance. Keep them while clearing the project.
+    const auto savedMasterCC = masterCC.load(std::memory_order_relaxed);
+    const auto savedMasterChannel = masterCCChannel.load(std::memory_order_relaxed);
+    const auto savedPanicCC = panicCC.load(std::memory_order_relaxed);
+    const auto savedPanicChannel = panicCCChannel.load(std::memory_order_relaxed);
+
+    // Reset every automatable value, then keep only the APVTS parameter nodes
+    // and app-wide UI preferences. All performance-specific data (layers,
+    // instrument paths, effect state, MIDI learns, and pad assignments) is
+    // intentionally omitted from the new state so the normal state loader
+    // clears the corresponding engines consistently.
+    for (auto* parameter : getParameters())
+        if (parameter != nullptr)
+            parameter->setValueNotifyingHost(parameter->getDefaultValue());
+
+    auto state = parameters.copyState();
+    const auto uiChordColour = state.getProperty("uiChordColour");
+    const auto uiKeyColour = state.getProperty("uiKeyColour");
+    const auto uiVirtualKeyboardVisible = state.getProperty("uiVirtualKeyboardVisible");
+    const auto hadUiChordColour = state.hasProperty("uiChordColour");
+    const auto hadUiKeyColour = state.hasProperty("uiKeyColour");
+    const auto hadUiVirtualKeyboardVisible = state.hasProperty("uiVirtualKeyboardVisible");
+
+    state.removeAllProperties(nullptr);
+    for (int child = state.getNumChildren(); --child >= 0;)
+        if (!state.getChild(child).hasType("PARAM"))
+            state.removeChild(child, nullptr);
+
+    if (hadUiChordColour) state.setProperty("uiChordColour", uiChordColour, nullptr);
+    if (hadUiKeyColour) state.setProperty("uiKeyColour", uiKeyColour, nullptr);
+    if (hadUiVirtualKeyboardVisible)
+        state.setProperty("uiVirtualKeyboardVisible", uiVirtualKeyboardVisible, nullptr);
+    state.setProperty("stateVersion", 168, nullptr);
+    state.setProperty("activeLayers", 0, nullptr);
+    state.setProperty("masterLearnCC", savedMasterCC, nullptr);
+    state.setProperty("masterLearnChannel", savedMasterChannel, nullptr);
+    state.setProperty("panicLearnCC", savedPanicCC, nullptr);
+    state.setProperty("panicLearnChannel", savedPanicChannel, nullptr);
+
+    if (auto xml = state.createXml())
+    {
+        juce::MemoryBlock data;
+        copyXmlToBinary(*xml, data);
+        setStateInformation(data.getData(), static_cast<int>(data.getSize()));
+    }
+
+    currentSavedProgram.clear();
+    // A blank project is deliberately unsaved. Do not restore a previous
+    // performance when the standalone app is opened again before this new
+    // project has been saved.
+    lastSavedProgram.clear();
+    saveStartupSettings();
+}
+
 juce::Result ClassicPlayerAudioProcessor::saveLayerPreset(int layer,
                                                             const juce::File& requestedDestination,
                                                             juce::File& savedFile)
@@ -2334,7 +2478,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
     state.setProperty("masterLearnChannel", masterCCChannel.load(), nullptr);
     state.setProperty("panicLearnCC", panicCC.load(), nullptr);
     state.setProperty("panicLearnChannel", panicCCChannel.load(), nullptr);
-    state.setProperty("stateVersion", 167, nullptr);
+    state.setProperty("stateVersion", 168, nullptr);
     state.setProperty("activeLayers", activeLayerCount(), nullptr);
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
@@ -2506,7 +2650,19 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                         writeParameter(gainId, 80.0f);
                 }
             }
-            state.setProperty("stateVersion", 166, nullptr);
+            // Programs from before layer mute became a saved parameter need
+            // an explicit default entry; a previously loaded muted state must
+            // not leak into a legacy performance.
+            for (int i = 0; i < Sf2Engine::layerCount; ++i)
+            {
+                const auto muteId = "layer" + juce::String(i + 1) + "Muted";
+                if (findParameterState(muteId).isValid()) continue;
+                juce::ValueTree muteState("PARAM");
+                muteState.setProperty("id", muteId, nullptr);
+                muteState.setProperty("value", 0.0f, nullptr);
+                state.addChild(muteState, -1, nullptr);
+            }
+            state.setProperty("stateVersion", 168, nullptr);
             parameters.replaceState(state);
             for(int layer=0;layer<Sf2Engine::layerCount;++layer)
             {
@@ -2701,6 +2857,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     learnedChannels[(size_t) i][(size_t) target].store(
                         state.getProperty("learnChannel" + juce::String(i) + "_" + juce::String(target), -1));
                 }
+                learnedMuteCCPressed[(size_t) i].store(false, std::memory_order_relaxed);
+                pendingLayerMuteToggles[(size_t) i].store(0, std::memory_order_relaxed);
             }
             const auto restoredLayerCount = juce::jlimit(
                 0, Sf2Engine::layerCount,

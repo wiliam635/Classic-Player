@@ -38,10 +38,22 @@ static void continuousPadRegression()
     bank.midi(juce::MidiMessage::controllerEvent(10,21,127));check(bank.mapping(0)==21&&bank.selected()==-1,"learn starts playback");
     bank.midi(juce::MidiMessage::controllerEvent(10,21,0));block();check(bank.selected()==-1,"CC release triggered pad");
     bank.midi(juce::MidiMessage::controllerEvent(10,21,127));block();check(bank.selected()==0,"CC press did not trigger pad");
+    bank.learn(ContinuousPadBank::count);
+    bank.midi(juce::MidiMessage::controllerEvent(10,48,51));
+    check(bank.learningTarget()==-1&&bank.mapping(ContinuousPadBank::count)==48,
+          "STOP Learn ignored a low-valued CC");
+    bank.midi(juce::MidiMessage::controllerEvent(10,48,127));block();
+    check(bank.selected()==-1,"learned STOP CC did not stop the active pad");
     const auto saved=bank.save();bank.restore(saved);block();check(bank.selected()==-1&&audio.getMagnitude(0,128)==0,"restore autoplays");
-    check(bank.mapping(0)==21&&bank.path(0)==fixture.getFile().getFullPathName(),"pad settings lost");
+    check(bank.mapping(0)==21&&bank.mapping(ContinuousPadBank::count)==48
+          &&bank.path(0)==fixture.getFile().getFullPathName(),"pad settings lost");
     auto p=std::make_unique<ClassicPlayerAudioProcessor>();
     p->setLayerType(1,ClassicPlayerAudioProcessor::LayerType::continuousPads);p->continuousPads(1).restore(saved);
+    auto routing=p->layerConfig(1);routing.midiChannel=1;p->setLayerConfig(1,routing);
+    p->continuousPads(1).learn(ContinuousPadBank::count);
+    p->handleIncomingMidiMessage(nullptr,juce::MidiMessage::controllerEvent(3,55,41));
+    check(p->continuousPads(1).mapping(ContinuousPadBank::count)==55,
+          "STOP Learn was blocked by the layer MIDI channel filter");
     juce::MemoryBlock state;p->getStateInformation(state);p->setStateInformation(state.getData(),(int)state.getSize());
     check(p->layerType(1)==ClassicPlayerAudioProcessor::LayerType::continuousPads&&p->continuousPads(1).mapping(0)==21,"program lost continuous pads");
     p->removeLayer(0);check(p->layerType(0)==ClassicPlayerAudioProcessor::LayerType::continuousPads&&p->continuousPads(0).mapping(0)==21,"removal lost pad bank");

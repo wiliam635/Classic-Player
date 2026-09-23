@@ -59,7 +59,8 @@ private:
         std::array<juce::TextButton, 12> pads;
         std::array<juce::TextButton, 12> loadButtons;
         std::array<juce::TextButton, 12> learnButtons;
-        juce::TextButton stopButton{"STOP"}, stopLearn{"LEARN STOP"}, volumeLearnButton{"LEARN VOLUME"};
+        juce::TextButton stopButton{"STOP"}, stopLearn{"LEARN STOP"}, volumeLearnButton{"LEARN VOLUME"},
+                         muteLearnButton{"LEARN MUTE"};
         juce::Slider fadeSlider;
         std::unique_ptr<juce::FileChooser> fileChooser;
         bool controlsVisible = true;
@@ -161,6 +162,7 @@ private:
         juce::TextButton modulationButton { "MOD: ON" };
         juce::TextButton volumeLearn { "LEARN CC" };
         juce::TextButton resetMidiLearnButton { "RESET CC" };
+        juce::TextButton muteLearn { "LEARN M" };
         juce::TextButton cutoffLearn { "LEARN" };
         juce::TextButton reverbLearn { "LEARN" };
         juce::TextButton compressorLearn { "LEARN" };
@@ -200,6 +202,7 @@ private:
     void refreshProgramLibrary();
     void refreshExternalInstrumentLibrary();
     void saveProgram();
+    void createNewProgram();
     void deleteSelectedProgram();
     void loadSelectedProgram();
     void chooseProgramFile();
@@ -229,6 +232,7 @@ private:
     juce::TextButton refreshExternalInstrumentButton { "ATUALIZAR VST" };
     juce::ComboBox accidentalStyleBox;
     juce::ComboBox programBox;
+    juce::TextButton newProgramButton { "NOVO" };
     juce::TextButton saveProgramButton { "SALVAR" };
     juce::TextButton deleteProgramButton { "EXCLUIR" };
     juce::TextButton loadProgramButton { "CARREGAR" };

@@ -97,6 +97,84 @@ static void startupPrograms()
     std::cout << "Last-saved restore, program name, device restart, plugin isolation and missing file passed\n";
 }
 
+static void livePerformanceEqPersistence()
+{
+    juce::TemporaryFile storage;
+    const auto root = storage.getFile();
+    check(root.createDirectory().wasOk(), "EQ program storage");
+    struct Cleanup { juce::File directory; ~Cleanup() { directory.deleteRecursively(); } } cleanup { root };
+    auto processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
+    const auto setParameter = [&processor](const juce::String& id, float value)
+    {
+        auto* parameter = processor->parameters.getParameter(id);
+        check(parameter != nullptr, "EQ parameter missing");
+        parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
+    };
+    const auto parameterValue = [&processor](const juce::String& id)
+    {
+        return processor->parameters.getRawParameterValue(id)->load();
+    };
+    setParameter("layer1EqLow", 6.5f);
+    setParameter("layer1EqMidFrequency", 935.0f);
+    setParameter("layer1EqHighQ", 1.35f);
+    juce::File first, second;
+    check(processor->saveProgramToFile(root.getChildFile("First EQ"), first).wasOk(),
+          "save first EQ performance");
+    setParameter("layer1EqLow", -3.0f);
+    setParameter("layer1EqMidFrequency", 2400.0f);
+    check(processor->saveProgramToFile(root.getChildFile("Second EQ"), second).wasOk(),
+          "save second EQ performance");
+    check(processor->loadProgram(second).wasOk(), "load second EQ performance");
+    check(std::abs(parameterValue("layer1EqLow") + 3.0f) < 0.11f
+          && std::abs(parameterValue("layer1EqMidFrequency") - 2400.0f) < 1.1f,
+          "second performance EQ state changed");
+    check(processor->loadProgram(first).wasOk(), "return to first EQ performance");
+    check(std::abs(parameterValue("layer1EqLow") - 6.5f) < 0.11f
+          && std::abs(parameterValue("layer1EqMidFrequency") - 935.0f) < 1.1f
+          && std::abs(parameterValue("layer1EqHighQ") - 1.35f) < 0.011f,
+          "returning to a saved performance reset its layer EQ");
+}
+
+static void newProgramStartsBlank()
+{
+    juce::TemporaryFile storage;
+    const auto root = storage.getFile();
+    check(root.createDirectory().wasOk(), "new-program storage");
+    struct Cleanup { juce::File directory; ~Cleanup() { directory.deleteRecursively(); } } cleanup { root };
+    const auto open = [&root]
+    {
+        juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
+        auto processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
+        juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
+        processor->prepareToPlay(48000, 128);
+        return processor;
+    };
+
+    auto processor = open();
+    processor->beginMasterMidiLearn();
+    cc(*processor, 2, 21, 127);
+    processor->beginPanicMidiLearn();
+    cc(*processor, 3, 22, 127);
+    juce::File saved;
+    check(processor->saveProgram("Saved performance", saved).wasOk(), "save before new project");
+
+    processor->resetToNewProgram();
+    check(processor->activeLayerCount() == 0 && processor->currentSavedProgramName().isEmpty(),
+          "new project kept an existing layer or name");
+    check(processor->masterMidiLearnCC() == 21 && processor->masterMidiLearnChannel() == 2
+          && processor->panicMidiLearnCC() == 22 && processor->panicMidiLearnChannel() == 3,
+          "new project cleared global controller mappings");
+    check(std::abs(processor->parameters.getRawParameterValue("master")->load() - 80.0f) < 0.01f,
+          "new project did not restore parameter defaults");
+
+    processor.reset();
+    processor = open();
+    check(processor->activeLayerCount() == 0 && processor->currentSavedProgramName().isEmpty(),
+          "reopening after a new project restored the previous performance");
+    check(processor->masterMidiLearnCC() == 21 && processor->panicMidiLearnCC() == 22,
+          "reopening after a new project lost global controller mappings");
+}
+
 struct MidiRecordingRegressionAccess
 {
     static void run()
@@ -144,6 +222,8 @@ int main()
     try
     {
         startupPrograms();
+        livePerformanceEqPersistence();
+        newProgramStartsBlank();
         MidiRecordingRegressionAccess::run();
         // Undefined wrapper deliberately avoids standalone preferences/programs.
         auto processor = std::make_unique<ClassicPlayerAudioProcessor>();
@@ -211,6 +291,35 @@ int main()
         check(audioOnlyCutoff >= 25.0f && audioOnlyCutoff <= 26.0f,
               "effect CC was not applied by audio callback");
         std::cout << "Layer effect MIDI Learn CC/channel mapping passed\n";
+
+        // A layer's Mute button can learn a momentary CC. Learning must not
+        // immediately mute it; each press toggles once and its release rearms.
+        using LearnTarget = ClassicPlayerAudioProcessor::LearnTarget;
+        processor->setLayerMuted(0, false);
+        processor->beginMidiLearn(0, LearnTarget::mute);
+        cc(*processor, 7, 81, 127);
+        check(processor->midiLearnCC(0, LearnTarget::mute) == 81
+              && processor->midiLearnChannel(0, LearnTarget::mute) == 7,
+              "mute CC mapping/channel not learned");
+        check(!processor->isLayerMuted(0), "mute learn press toggled the layer");
+        cc(*processor, 7, 81, 0);
+        cc(*processor, 7, 81, 127);
+        check(processor->isLayerMuted(0), "mute CC press did not mute the layer");
+        cc(*processor, 7, 81, 127);
+        check(processor->isLayerMuted(0), "held mute CC toggled more than once");
+        cc(*processor, 7, 81, 0);
+        cc(*processor, 6, 81, 127);
+        check(processor->isLayerMuted(0), "mute CC ignored its learned channel");
+
+        juce::MemoryBlock muteState;
+        processor->getStateInformation(muteState);
+        processor->setLayerMuted(0, false);
+        processor->setStateInformation(muteState.getData(), static_cast<int>(muteState.getSize()));
+        check(processor->isLayerMuted(0)
+              && processor->midiLearnCC(0, LearnTarget::mute) == 81
+              && processor->midiLearnChannel(0, LearnTarget::mute) == 7,
+              "mute state or Learn mapping did not persist");
+        std::cout << "Layer Mute CC Learn, press-edge and persistence passed\n";
         return 0;
     }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }

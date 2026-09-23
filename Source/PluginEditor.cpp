@@ -2148,14 +2148,15 @@ public:
     LayerMidiLearnPanel(ClassicPlayerAudioProcessor& p, int layer)
         : processor(p), index(layer)
     {
-        const std::array<const char*, 4> names {{ "VOLUME", "CUTOFF", "REVERB", "COMP" }};
-        const std::array<ClassicPlayerAudioProcessor::LearnTarget, 4> targets {{
+        const std::array<const char*, 5> names {{ "VOLUME", "CUTOFF", "REVERB", "COMP", "MUTE" }};
+        const std::array<ClassicPlayerAudioProcessor::LearnTarget, 5> targets {{
             ClassicPlayerAudioProcessor::LearnTarget::volume,
             ClassicPlayerAudioProcessor::LearnTarget::cutoff,
             ClassicPlayerAudioProcessor::LearnTarget::reverb,
-            ClassicPlayerAudioProcessor::LearnTarget::compressor
+            ClassicPlayerAudioProcessor::LearnTarget::compressor,
+            ClassicPlayerAudioProcessor::LearnTarget::mute
         }};
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < 5; ++i)
         {
             labels[(size_t) i].setText(names[(size_t) i], juce::dontSendNotification);
             labels[(size_t) i].setColour(juce::Label::textColourId, juce::Colour(text));
@@ -2183,8 +2184,8 @@ public:
     void resized() override
     {
         auto area = getLocalBounds().reduced(4, 2);
-        const auto width = area.getWidth() / 4;
-        for (int i = 0; i < 4; ++i)
+        const auto width = area.getWidth() / 5;
+        for (int i = 0; i < 5; ++i)
         {
             auto cell = area.removeFromLeft(width);
             labels[(size_t) i].setBounds(cell.removeFromTop(18));
@@ -2196,9 +2197,9 @@ private:
     void refresh()
     {
         using Target = ClassicPlayerAudioProcessor::LearnTarget;
-        const std::array<Target, 4> targets {{ Target::volume, Target::cutoff,
-                                                Target::reverb, Target::compressor }};
-        for (int i = 0; i < 4; ++i)
+        const std::array<Target, 5> targets {{ Target::volume, Target::cutoff,
+                                                Target::reverb, Target::compressor, Target::mute }};
+        for (int i = 0; i < 5; ++i)
         {
             const auto cc = processor.midiLearnCC(index, targets[(size_t) i]);
             const auto channel = processor.midiLearnChannel(index, targets[(size_t) i]);
@@ -2211,8 +2212,8 @@ private:
 
     ClassicPlayerAudioProcessor& processor;
     int index = 0;
-    std::array<juce::Label, 4> labels;
-    std::array<juce::TextButton, 4> buttons;
+    std::array<juce::Label, 5> labels;
+    std::array<juce::TextButton, 5> buttons;
 };
 
 class Dx7EditorPanel final : public juce::Component
@@ -2494,10 +2495,12 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
         learn.onClick = [this, pad] { if(continuous())processor.continuousPads(layerIndex).learn(pad);else processor.beginDrumPadMidiLearn(pad); refresh(); };
         addAndMakeVisible(learn);
     }
-    for(auto* button:{&stopButton,&stopLearn,&volumeLearnButton}){flatButton(*button);addAndMakeVisible(*button);}
+    for(auto* button:{&stopButton,&stopLearn,&volumeLearnButton,&muteLearnButton}){flatButton(*button);addAndMakeVisible(*button);}
     stopButton.onClick=[this]{processor.continuousPads(layerIndex).stop();};
     stopLearn.onClick=[this]{processor.continuousPads(layerIndex).learn(12);};
     volumeLearnButton.onClick=[this]{processor.beginMidiLearn(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume);};
+    muteLearnButton.setTooltip("Aprender um CC para alternar o mute desta layer");
+    muteLearnButton.onClick=[this]{processor.beginMidiLearn(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::mute);refresh();};
     fadeSlider.setRange(.02,10.0,.01);fadeSlider.setTextValueSuffix(" s crossfade");
     fadeSlider.setValue(processor.continuousPads(layerIndex).fadeSeconds(),juce::dontSendNotification);
     fadeSlider.onValueChange=[this]{processor.continuousPads(layerIndex).setFadeSeconds(fadeSlider.getValue());};
@@ -2516,6 +2519,7 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::setControlsVisible(bool sh
     }
     stopButton.setVisible(continuous());stopLearn.setVisible(controlsVisible&&continuous());
     fadeSlider.setVisible(controlsVisible&&continuous());volumeLearnButton.setVisible(controlsVisible);
+    muteLearnButton.setVisible(controlsVisible);
     resized();
 }
 
@@ -2544,6 +2548,10 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
     const auto volumeCC=processor.midiLearnCC(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume);
     volumeLearnButton.setButtonText(processor.isMidiLearning(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume)
         ? "VOLUME: MOVA O CC" : volumeCC>=0 ? "VOLUME: CC "+juce::String(volumeCC) : "LEARN VOLUME");
+    const auto muteTarget = ClassicPlayerAudioProcessor::LearnTarget::mute;
+    const auto muteCC = processor.midiLearnCC(layerIndex, muteTarget);
+    muteLearnButton.setButtonText(processor.isMidiLearning(layerIndex, muteTarget) ? "MUTE: MOVA O CC"
+        : muteCC >= 0 ? "MUTE: CC " + juce::String(muteCC) : "LEARN MUTE");
     if(continuous())
     {
         const int cc=processor.continuousPads(layerIndex).mapping(12);
@@ -2574,6 +2582,7 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
     auto available=getLocalBounds();
     if(controlsVisible)
     {
+        muteLearnButton.setBounds(available.removeFromBottom(28).reduced(3));
         volumeLearnButton.setBounds(available.removeFromBottom(28).reduced(3));
         if(continuous())
         {fadeSlider.setBounds(available.removeFromBottom(32));stopLearn.setBounds(available.removeFromBottom(28).reduced(3));}
@@ -2637,7 +2646,13 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     }
     muteButton.setClickingTogglesState(true);
     soloButton.setClickingTogglesState(true);
-    muteButton.onClick = [this] { muted = muteButton.getToggleState(); mixStateChanged(); };
+    muteButton.setTooltip("Ativar ou silenciar esta layer; o volume do fader permanece salvo");
+    muteButton.onClick = [this]
+    {
+        muted = muteButton.getToggleState();
+        processor.setLayerMuted(index, muted);
+        mixStateChanged();
+    };
     soloButton.onClick = [this] { solo = soloButton.getToggleState(); mixStateChanged(); };
     flatButton(modulationButton);
     addAndMakeVisible(modulationButton);
@@ -2865,6 +2880,14 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
         refresh();
     };
     addAndMakeVisible(resetMidiLearnButton);
+    flatButton(muteLearn);
+    muteLearn.setTooltip("Aprender um CC de botão para alternar esta layer entre ativa e muda");
+    muteLearn.onClick = [this]
+    {
+        processor.beginMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::mute);
+        updateMidiLearnState();
+    };
+    addAndMakeVisible(muteLearn);
 
     initialiseComboBoxes();
     refresh();
@@ -3622,6 +3645,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     controls.removeFromTop(5);
     auto routingRow = controls.removeFromTop(22);
     resetMidiLearnButton.setBounds(routingRow.removeFromRight(76).reduced(1, 1));
+    muteLearn.setBounds(routingRow.removeFromRight(74).reduced(1, 1));
     routingLabel.setBounds(routingRow);
     controls.removeFromTop(6);
     auto row = controls.removeFromTop(31);
@@ -3761,7 +3785,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     const std::initializer_list<juce::Component*> sharedControls {
         &fileLabel, &gain, &attack, &release, &cutoff, &reverb, &compressor, &mode, &sustain,
         &midiChannel, &octave, &lowNote, &highNote, &velocityCurve, &midiDevice,
-        &volumeLearn, &resetMidiLearnButton, &cutoffLearn, &reverbLearn,
+        &volumeLearn, &resetMidiLearnButton, &muteLearn, &cutoffLearn, &reverbLearn,
         &compressorLearn, &reverbEditButton, &compressorEditButton, &meter,
         &chorus, &chorusEditButton, &attackLabel, &releaseLabel, &cutoffLabel, &reverbLabel, &compressorLabel,
         &chorusLabel, &routingLabel,
@@ -3802,7 +3826,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
             &presetBox, &externalInstrumentBox, &dx7LibraryBox, &dx7PatchBox, &fileLabel,
             &gain, &attack, &release, &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel,
             &octave, &lowNote, &highNote, &velocityCurve, &midiDevice,
-            &volumeLearn, &resetMidiLearnButton, &cutoffLearn, &reverbLearn,
+            &volumeLearn, &resetMidiLearnButton, &muteLearn, &cutoffLearn, &reverbLearn,
             &compressorLearn, &reverbEditButton, &compressorEditButton, &meter,
             &chorus, &chorusEditButton, &attackLabel, &releaseLabel, &cutoffLabel, &reverbLabel, &compressorLabel,
             &chorusLabel, &routingLabel
@@ -3824,7 +3848,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
             &presetBox, &externalInstrumentBox, &dx7LibraryBox, &dx7PatchBox, &fileLabel,
             &attack, &release, &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel, &octave,
             &lowNote, &highNote, &velocityCurve, &midiDevice,
-            &resetMidiLearnButton, &cutoffLearn, &reverbLearn, &compressorLearn,
+            &resetMidiLearnButton, &muteLearn, &cutoffLearn, &reverbLearn, &compressorLearn,
             &reverbEditButton, &compressorEditButton, &chorus, &chorusEditButton,
             &attackLabel, &releaseLabel, &cutoffLabel, &reverbLabel, &compressorLabel, &chorusLabel, &routingLabel
         };
@@ -3907,6 +3931,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resetLayer()
     processor.unloadDx7(index);
     processor.setLayerType(index, ClassicPlayerAudioProcessor::LayerType::sf2);
     muted = solo = false;
+    processor.setLayerMuted(index, false);
     muteButton.setToggleState(false, juce::dontSendNotification);
     soloButton.setToggleState(false, juce::dontSendNotification);
     cutoff.setValue(100.0);
@@ -4058,6 +4083,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::deleteSelectedDx7Bank()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
 {
     const auto type = processor.layerType(index);
+    muted = processor.isLayerMuted(index);
+    muteButton.setToggleState(muted, juce::dontSendNotification);
     if (type == ClassicPlayerAudioProcessor::LayerType::drumPads || type == ClassicPlayerAudioProcessor::LayerType::continuousPads)
     {
         updateSourceTypeVisibility();
@@ -4157,6 +4184,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::setEngineEnabled(bool enable
 void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMeter()
 {
     meter.setLevel(std::sqrt(juce::jlimit(0.0f, 1.0f, processor.layerPeak(index))));
+    const auto processorMuted = processor.isLayerMuted(index);
+    if (muted != processorMuted)
+    {
+        muted = processorMuted;
+        muteButton.setToggleState(muted, juce::dontSendNotification);
+        mixStateChanged();
+    }
     // MIDI Learn updates the processor from the message-thread bridge. Mirror
     // the current parameter values explicitly so the on-screen knobs follow
     // the physical controller even when a host delays attachment callbacks.
@@ -4189,9 +4223,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMeter()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMidiLearnState()
 {
     using Target = ClassicPlayerAudioProcessor::LearnTarget;
-    const std::array<std::pair<Target, juce::TextButton*>, 4> controls {{
+    const std::array<std::pair<Target, juce::TextButton*>, 5> controls {{
         { Target::volume, &volumeLearn }, { Target::cutoff, &cutoffLearn },
-        { Target::reverb, &reverbLearn }, { Target::compressor, &compressorLearn }
+        { Target::reverb, &reverbLearn }, { Target::compressor, &compressorLearn },
+        { Target::mute, &muteLearn }
     }};
     for (const auto& [target, button] : controls)
     {
@@ -4313,14 +4348,18 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     programBox.setEditableText(true);
     programBox.setTextWhenNothingSelected("NOVO PROGRAMA");
     addAndMakeVisible(programBox);
+    flatButton(newProgramButton);
     flatButton(saveProgramButton);
     flatButton(deleteProgramButton);
     flatButton(loadProgramButton);
     flatButton(importProgramButton);
+    newProgramButton.setTooltip("Criar uma programação vazia do zero");
+    newProgramButton.onClick = [this] { createNewProgram(); };
     saveProgramButton.onClick = [this] { saveProgram(); };
     deleteProgramButton.onClick = [this] { deleteSelectedProgram(); };
     loadProgramButton.onClick = [this] { loadSelectedProgram(); };
     importProgramButton.onClick = [this] { chooseProgramFile(); };
+    addAndMakeVisible(newProgramButton);
     addAndMakeVisible(saveProgramButton);
     addAndMakeVisible(deleteProgramButton);
     addAndMakeVisible(loadProgramButton);
@@ -4955,6 +4994,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
     loadProgramButton.setBounds(programButtons.removeFromRight(70).reduced(1, 0));
     deleteProgramButton.setBounds(programButtons.removeFromRight(64).reduced(1, 0));
     saveProgramButton.setBounds(programButtons.removeFromRight(58).reduced(1, 0));
+    newProgramButton.setBounds(programButtons.removeFromRight(54).reduced(1, 0));
 
     auto chordBox = chordArea.reduced(2, 0);
     chordCaption.setBounds({});
@@ -5185,8 +5225,16 @@ void ClassicPlayerAudioProcessorEditor::saveProgram()
     name = name.retainCharacters("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_()");
     if (name.isEmpty()) name = "Classic Player Preset";
 
-    const auto defaultFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+    auto defaultFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
         .getChildFile(name + ".ckprogram");
+    if (juce::isPositiveAndBelow(activeLiveSetSlot,
+                                 ClassicPlayerAudioProcessor::liveSetSlotsPerBank)
+        && activeLiveSetBank == loadedLiveSetBank)
+    {
+        const auto assignedProgram = classicProcessor.liveSetSlotProgram(
+            activeLiveSetBank, activeLiveSetSlot);
+        if (assignedProgram.existsAsFile()) defaultFile = assignedProgram;
+    }
     programFileChooser = std::make_unique<juce::FileChooser>(
         "Salvar Preset Classic Player", defaultFile, "*.ckprogram");
     programFileChooser->launchAsync(
@@ -5207,11 +5255,29 @@ void ClassicPlayerAudioProcessorEditor::saveProgram()
                 return;
             }
 
+            // A Live Set tile points to a concrete .ckprogram file. If the
+            // active performance is saved to a different location/name, move
+            // that tile to the new file as part of saving; otherwise returning
+            // to the tile would reload its older EQ/effect state.
+            if (juce::isPositiveAndBelow(activeLiveSetSlot,
+                                         ClassicPlayerAudioProcessor::liveSetSlotsPerBank)
+                && activeLiveSetBank == loadedLiveSetBank)
+            {
+                const auto assigned = classicProcessor.assignLiveSetSlot(
+                    activeLiveSetBank, activeLiveSetSlot, savedFile);
+                if (assigned.failed())
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon, "Live Set não atualizado",
+                        "A programação foi salva, mas não foi possível atualizar a posição ativa do Live Set: "
+                            + assigned.getErrorMessage());
+            }
+
             programBox.setText(savedFile.getFileNameWithoutExtension(), juce::dontSendNotification);
             // The exported file is intentionally kept at the user's chosen
             // location.  It can now be copied to another computer and opened
             // with the existing "Abrir" button.
             refreshProgramLibrary();
+            refreshLiveSet();
         });
 }
 
@@ -5229,10 +5295,38 @@ void ClassicPlayerAudioProcessorEditor::chooseProgramFile()
                                                        "Falha ao abrir programação", result.getErrorMessage());
             else
             {
+                activeLiveSetSlot = -1;
+                loadedLiveSetBank = -1;
                 programBox.setText(file.getFileNameWithoutExtension(), juce::dontSendNotification);
                 refreshAfterProgramLoad();
             }
         });
+}
+
+void ClassicPlayerAudioProcessorEditor::createNewProgram()
+{
+    const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
+    juce::AlertWindow::showOkCancelBox(
+        juce::MessageBoxIconType::WarningIcon,
+        "Nova programação",
+        "Começar uma programação vazia? As alterações não salvas e as layers atuais serão removidas desta sessão. "
+        "Os arquivos salvos e os bancos do Live Set não serão apagados.",
+        "NOVO", "Cancelar", this,
+        juce::ModalCallbackFunction::create([safe](int answer)
+        {
+            if (safe == nullptr || answer == 0) return;
+
+            for (auto& strip : safe->strips)
+                if (strip != nullptr)
+                    strip->closeExternalInstrumentEditor();
+
+            safe->classicProcessor.resetToNewProgram();
+            safe->activeLiveSetSlot = -1;
+            safe->loadedLiveSetBank = -1;
+            safe->programBox.setText(juce::String{}, juce::dontSendNotification);
+            safe->refreshProgramLibrary();
+            safe->refreshAfterProgramLoad();
+        }));
 }
 
 void ClassicPlayerAudioProcessorEditor::deleteSelectedProgram()
@@ -5280,6 +5374,7 @@ void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
     keyboard.setVisible(!show && virtualKeyboardVisible);
     keyboardVisibilityButton.setVisible(!show);
     programBox.setVisible(!show);
+    newProgramButton.setVisible(!show);
     saveProgramButton.setVisible(!show);
     deleteProgramButton.setVisible(!show);
     loadProgramButton.setVisible(!show);
@@ -5465,6 +5560,7 @@ void ClassicPlayerAudioProcessorEditor::refreshAfterProgramLoad()
     addLayerButton.setEnabled(displayedLayerCount < Sf2Engine::layerCount);
     layoutLayerStrips();
     applyMixerStates();
+    refreshLiveSet();
 }
 
 void ClassicPlayerAudioProcessorEditor::loadLiveSetSlot(int slot)
@@ -5483,7 +5579,6 @@ void ClassicPlayerAudioProcessorEditor::loadLiveSetSlot(int slot)
     activeLiveSetSlot = slot;
     loadedLiveSetBank = activeLiveSetBank;
     refreshAfterProgramLoad();
-    refreshLiveSet();
 }
 
 void ClassicPlayerAudioProcessorEditor::loadSelectedProgram()
@@ -5512,6 +5607,8 @@ void ClassicPlayerAudioProcessorEditor::loadSelectedProgram()
         return;
     }
 
+    activeLiveSetSlot = -1;
+    loadedLiveSetBank = -1;
     displayedLayerCount = classicProcessor.activeLayerCount();
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
@@ -5522,6 +5619,7 @@ void ClassicPlayerAudioProcessorEditor::loadSelectedProgram()
     addLayerButton.setEnabled(displayedLayerCount < Sf2Engine::layerCount);
     layoutLayerStrips();
     applyMixerStates();
+    refreshLiveSet();
 }
 
 void ClassicPlayerAudioProcessorEditor::applyMixerStates()
@@ -5533,7 +5631,10 @@ void ClassicPlayerAudioProcessorEditor::applyMixerStates()
     for (int i = 0; i < count; ++i)
     {
         auto& strip = strips[(size_t) i];
-        strip->setEngineEnabled(anySolo ? strip->isSolo() : !strip->isMuted());
+        // Mute is a non-destructive output gate driven by its saved APVTS
+        // state; keep the layer rendered so a learned controller works even
+        // with the editor hidden. Solo still controls engine note routing.
+        strip->setEngineEnabled(anySolo ? strip->isSolo() : true);
     }
 }
 
