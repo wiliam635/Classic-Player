@@ -21,7 +21,7 @@ jobs:
           runVcpkgInstall: false
 
       - name: Configure dependencies and both architectures
-        run: scripts/build-macos-universal-compat.sh
+        run: bash scripts/build-macos-universal-compat.sh
 
       - name: Build VST3 for Intel and Apple Silicon
         run: |
