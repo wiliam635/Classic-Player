@@ -103,18 +103,15 @@ jobs:
         shell: pwsh
         run: cmake --preset windows-x64
 
-      - name: Build native release
+      - name: Build native standalone release
         shell: pwsh
-        run: cmake --build --preset windows-release --parallel 2
+        run: cmake --build build\windows-x64 --target ClassicPlayer_Standalone --config Release --parallel 2
 
-      - name: Verify native artifacts before packaging
+      - name: Verify standalone artifact before packaging
         shell: pwsh
         run: |
           $standalone = "build\windows-x64\ClassicPlayer_artefacts\Release\Standalone\Classic Player.exe"
           if (-not (Test-Path $standalone)) { throw "Standalone nativo não foi gerado: $standalone" }
-          if (-not (Test-Path "build\windows-x64\ClassicPlayer_artefacts\Release\VST3\Classic Player.vst3")) {
-            throw "VST3 não foi gerado."
-          }
           if (-not (Test-Path "Resources\WebUI\index.html")) { throw "Resources/WebUI/index.html ausente" }
 
       - name: Install Inno Setup
