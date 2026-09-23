@@ -2222,6 +2222,11 @@ juce::Result ClassicPlayerAudioProcessor::writeProgramFile(const juce::File& req
         if (const auto result = parent.createDirectory(); result.failed())
             return result;
 
+    // Standalone MIDI callbacks update the audio-facing value immediately and
+    // queue the APVTS/host-facing copy for the editor timer. Internal save and
+    // export actions run on the message thread, so drain that queue here before
+    // serializing a performance that may have just received a learned CC.
+    consumeMidiControlUpdates();
     juce::MemoryBlock data;
     getStateInformation(data);
     if (data.getSize() == 0)
@@ -2523,6 +2528,33 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
     auto state = parameters.copyState();
+    // Keep every layer's complete reverb configuration in the program file.
+    // The learned REVERB control can update the audio-facing APVTS atomic
+    // before the adapter's ValueTree mirror is flushed, so explicitly snapshot
+    // the current values rather than relying on that mirror's timing.
+    static constexpr std::array<const char*, 4> reverbSuffixes {
+        "Reverb", "ReverbSize", "ReverbDamping", "ReverbWidth"
+    };
+    for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
+    {
+        const auto prefix = "layer" + juce::String(layer + 1);
+        for (const auto* suffix : reverbSuffixes)
+        {
+            const auto parameterId = prefix + suffix;
+            const auto* currentValue = parameters.getRawParameterValue(parameterId);
+            if (currentValue == nullptr) continue;
+            for (int child = 0; child < state.getNumChildren(); ++child)
+            {
+                auto parameterState = state.getChild(child);
+                if (parameterState.hasType("PARAM")
+                    && parameterState.getProperty("id").toString() == parameterId)
+                {
+                    parameterState.setProperty("value", currentValue->load(), nullptr);
+                    break;
+                }
+            }
+        }
+    }
     state.setProperty("masterLearnCC", masterCC.load(), nullptr);
     state.setProperty("masterLearnChannel", masterCCChannel.load(), nullptr);
     state.setProperty("panicLearnCC", panicCC.load(), nullptr);

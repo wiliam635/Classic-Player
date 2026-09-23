@@ -544,8 +544,8 @@ public:
     {
         flatButton(saveButton);
         flatButton(loadButton);
-        saveButton.setTooltip("Salvar somente a configuração desta layer em um arquivo portátil");
-        loadButton.setTooltip("Abrir uma configuração salva sem alterar as outras layers");
+        saveButton.setTooltip("Exportar somente a configuração desta layer em um arquivo portátil");
+        loadButton.setTooltip("Importar uma configuração sem alterar as outras layers");
         saveButton.onClick = std::move(save);
         loadButton.onClick = std::move(load);
         addAndMakeVisible(saveButton);
@@ -561,8 +561,8 @@ public:
     }
 
 private:
-    juce::TextButton saveButton { "SALVAR PRESET DA LAYER" };
-    juce::TextButton loadButton { "ABRIR PRESET DA LAYER" };
+    juce::TextButton saveButton { "EXPORTAR PRESET" };
+    juce::TextButton loadButton { "IMPORTAR PRESET" };
 };
 
 class EffectPresetFilePanel final : public juce::Component
@@ -582,8 +582,8 @@ public:
         loadButton.setBounds(area.removeFromLeft(210).reduced(2, 0));
     }
 private:
-    juce::TextButton saveButton { "SALVAR MEU PRESET" };
-    juce::TextButton loadButton { "ABRIR MEU PRESET" };
+    juce::TextButton saveButton { "EXPORTAR PRESET" };
+    juce::TextButton loadButton { "IMPORTAR PRESET" };
 };
 
 class LayerEffectButtons final : public juce::Component
@@ -1750,15 +1750,15 @@ public:
         : processor(p), index(layer), engineName(std::move(engine))
     {
         flatButton(saveButton);
-        saveButton.setButtonText("Salvar Preset");
-        saveButton.setTooltip("Salva a programação completa no local escolhido.");
+        saveButton.setButtonText("Exportar Preset");
+        saveButton.setTooltip("Exporta a programação completa para um arquivo portátil.");
         saveButton.onClick = [this]
         {
             auto name = (engineName + " - Layer " + juce::String(index + 1))
                 .retainCharacters("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_()");
             const auto destination = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
                 .getChildFile(name + ".ckprogram");
-            chooser = std::make_unique<juce::FileChooser>("Salvar Preset Classic Player",
+            chooser = std::make_unique<juce::FileChooser>("Exportar Preset Classic Player",
                                                           destination, "*.ckprogram");
             const juce::Component::SafePointer<EngineProgramSavePanel> safe(this);
             chooser->launchAsync(juce::FileBrowserComponent::saveMode
@@ -1771,14 +1771,14 @@ public:
                     const auto result = safe->processor.saveProgramToFile(selectedFile.getResult(), saved);
                     if (result.failed())
                         juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                                               "Falha ao salvar", result.getErrorMessage());
+                                                               "Falha ao exportar", result.getErrorMessage());
                     else
-                        safe->status.setText("SALVO: " + saved.getFullPathName(), juce::dontSendNotification);
+                        safe->status.setText("EXPORTADO: " + saved.getFullPathName(), juce::dontSendNotification);
                 });
         };
         status.setJustificationType(juce::Justification::centredLeft);
         status.setColour(juce::Label::textColourId,juce::Colour(mutedText));
-        status.setText("Salva um arquivo .ckprogram que pode ser carregado em outro Classic Player.",juce::dontSendNotification);
+        status.setText("Exporta um arquivo .ckprogram que pode ser importado em outro Classic Player.",juce::dontSendNotification);
         addAndMakeVisible(saveButton);addAndMakeVisible(status);setSize(600,36);
     }
     void resized() override {auto row=getLocalBounds().reduced(2);saveButton.setBounds(row.removeFromLeft(210));status.setBounds(row.reduced(8,0));}
@@ -3175,7 +3175,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::saveLayerPreset()
     const auto defaultFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
         .getChildFile("Classic Player " + typeName + ".cklayer");
     fileChooser = std::make_unique<juce::FileChooser>(
-        "Salvar preset independente da layer", defaultFile, "*.cklayer");
+        "Exportar preset da layer", defaultFile, "*.cklayer");
     const juce::Component::SafePointer<LayerStrip> safe(this);
     fileChooser->launchAsync(juce::FileBrowserComponent::saveMode
                            | juce::FileBrowserComponent::canSelectFiles
@@ -3188,8 +3188,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::saveLayerPreset()
             juce::AlertWindow::showMessageBoxAsync(
                 result.wasOk() ? juce::MessageBoxIconType::InfoIcon
                                : juce::MessageBoxIconType::WarningIcon,
-                result.wasOk() ? "Preset da layer salvo" : "Falha ao salvar",
-                result.wasOk() ? "Arquivo salvo em:\n" + saved.getFullPathName()
+                result.wasOk() ? "Preset da layer exportado" : "Falha ao exportar preset",
+                result.wasOk() ? "Arquivo exportado para:\n" + saved.getFullPathName()
                                : result.getErrorMessage());
         });
 }
@@ -3197,7 +3197,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::saveLayerPreset()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::loadLayerPreset()
 {
     fileChooser = std::make_unique<juce::FileChooser>(
-        "Abrir preset independente da layer", juce::File{}, "*.cklayer");
+        "Importar preset da layer", juce::File{}, "*.cklayer");
     const juce::Component::SafePointer<LayerStrip> safe(this);
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode
                            | juce::FileBrowserComponent::canSelectFiles,
@@ -3207,7 +3207,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::loadLayerPreset()
             const auto result = safe->processor.loadLayerPreset(safe->index, chooser.getResult());
             if (result.failed())
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                                       "Falha ao abrir preset",
+                                                       "Falha ao importar preset",
                                                        result.getErrorMessage());
             else
                 safe->refresh();
@@ -3221,7 +3221,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::saveEffectPreset(const juce:
     const auto defaultFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
         .getChildFile("Classic Player " + effect + extension);
     fileChooser = std::make_unique<juce::FileChooser>(
-        "Salvar meu preset de " + effect, defaultFile, "*" + extension);
+        "Exportar preset de " + effect, defaultFile, "*" + extension);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     fileChooser->launchAsync(juce::FileBrowserComponent::saveMode
                            | juce::FileBrowserComponent::canSelectFiles
@@ -3258,9 +3258,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::saveEffectPreset(const juce:
             const auto ok = xml != nullptr && destination.replaceWithText(xml->toString());
             juce::AlertWindow::showMessageBoxAsync(
                 ok ? juce::MessageBoxIconType::InfoIcon : juce::MessageBoxIconType::WarningIcon,
-                ok ? "Preset salvo" : "Falha ao salvar",
-                ok ? "Arquivo salvo em:\n" + destination.getFullPathName()
-                   : "Não foi possível salvar o preset.");
+                ok ? "Preset exportado" : "Falha ao exportar preset",
+                ok ? "Arquivo exportado para:\n" + destination.getFullPathName()
+                   : "Não foi possível exportar o preset.");
         });
 }
 
@@ -3270,7 +3270,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::loadEffectPreset(
     const juce::String extension = effect == "EQ" ? ".ckeq"
                                  : effect == "COMP" ? ".ckcomp" : ".ckreverb";
     fileChooser = std::make_unique<juce::FileChooser>(
-        "Abrir meu preset de " + effect, juce::File{}, "*" + extension);
+        "Importar preset de " + effect, juce::File{}, "*" + extension);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode
                            | juce::FileBrowserComponent::canSelectFiles,
@@ -5002,8 +5002,8 @@ void ClassicPlayerAudioProcessorEditor::resized()
     programBox.setBounds(programArea.removeFromTop(28).reduced(1, 0));
     auto programButtons = programArea.removeFromTop(24);
     importProgramButton.setBounds(programButtons.removeFromRight(82).reduced(1, 0));
-    deleteProgramButton.setBounds(programButtons.removeFromRight(64).reduced(1, 0));
     exportProgramButton.setBounds(programButtons.removeFromRight(78).reduced(1, 0));
+    deleteProgramButton.setBounds(programButtons.removeFromRight(64).reduced(1, 0));
     saveProgramButton.setBounds(programButtons.removeFromRight(58).reduced(1, 0));
     newProgramButton.setBounds(programButtons.removeFromRight(54).reduced(1, 0));
 
