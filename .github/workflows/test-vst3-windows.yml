@@ -1,0 +1,42 @@
+name: Test Classic Player VST3 - Windows x64
+
+on:
+  workflow_dispatch:
+
+jobs:
+  vst3-windows:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Install vcpkg dependencies
+        uses: lukka/run-vcpkg@v11
+
+      - name: Configure x64
+        shell: pwsh
+        run: cmake --preset windows-x64
+
+      - name: Build VST3
+        shell: pwsh
+        run: cmake --build build\windows-x64 --target ClassicPlayer_VST3 --config Release --parallel 2
+
+      - name: Verify and package test plugin
+        shell: pwsh
+        run: |
+          $bundle = "build\windows-x64\ClassicPlayer_artefacts\Release\VST3\Classic Player.vst3"
+          if (-not (Test-Path $bundle -PathType Container)) { throw "VST3 não gerado: $bundle" }
+          $binary = Get-ChildItem $bundle -Recurse -Filter "*.vst3" -File | Select-Object -First 1
+          if (-not $binary) { throw "Binário VST3 não encontrado dentro do bundle" }
+          New-Item -ItemType Directory -Force "outputs\vst3-test" | Out-Null
+          Compress-Archive -Path $bundle -DestinationPath "outputs\vst3-test\Classic-Player-2.0.0-VST3-teste-Windows-x64.zip" -Force
+
+      - name: Upload test plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: Classic-Player-2.0.0-VST3-teste-${{ github.run_number }}-Windows-x64
+          if-no-files-found: error
+          path: outputs/vst3-test/Classic-Player-2.0.0-VST3-teste-Windows-x64.zip

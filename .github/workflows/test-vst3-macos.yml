@@ -1,0 +1,53 @@
+name: Test Classic Player VST3 - macOS Universal
+
+on:
+  workflow_dispatch:
+
+jobs:
+  vst3-macos:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 39344dff01c5a5a0134caf2624cdd492f05d30ea
+          runVcpkgInstall: false
+
+      - name: Configure dependencies and both architectures
+        run: scripts/build-macos-universal-compat.sh
+
+      - name: Build VST3 for Intel and Apple Silicon
+        run: |
+          cmake --build build/macos-compat-x86_64 --target ClassicPlayer_VST3 --parallel 4
+          cmake --build build/macos-compat-arm64 --target ClassicPlayer_VST3 --parallel 4
+
+      - name: Assemble and verify universal VST3
+        shell: bash
+        run: |
+          set -euo pipefail
+          arm="build/macos-compat-arm64/ClassicPlayer_artefacts/Release/VST3/Classic Player.vst3"
+          intel="build/macos-compat-x86_64/ClassicPlayer_artefacts/Release/VST3/Classic Player.vst3"
+          output="outputs/vst3-test/Classic Player.vst3"
+          test -f "$arm/Contents/MacOS/Classic Player"
+          test -f "$intel/Contents/MacOS/Classic Player"
+          mkdir -p outputs/vst3-test
+          ditto "$arm" "$output"
+          lipo -create "$intel/Contents/MacOS/Classic Player" "$arm/Contents/MacOS/Classic Player" \
+            -output "$output/Contents/MacOS/Classic Player"
+          /usr/bin/xattr -cr "$output"
+          codesign --force --deep --sign - "$output"
+          codesign --verify --deep --strict "$output"
+          lipo -verify_arch x86_64 arm64 "$output/Contents/MacOS/Classic Player"
+          ditto -c -k --sequesterRsrc --keepParent "$output" \
+            "outputs/vst3-test/Classic-Player-2.0.0-VST3-teste-macOS-Universal.zip"
+          unzip -t "outputs/vst3-test/Classic-Player-2.0.0-VST3-teste-macOS-Universal.zip"
+
+      - name: Upload test plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: Classic-Player-2.0.0-VST3-teste-${{ github.run_number }}-macOS-Universal
+          if-no-files-found: error
+          path: outputs/vst3-test/Classic-Player-2.0.0-VST3-teste-macOS-Universal.zip
