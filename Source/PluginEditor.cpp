@@ -4347,22 +4347,33 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
 
     programBox.setEditableText(true);
     programBox.setTextWhenNothingSelected("NOVO PROGRAMA");
+    programBox.setTooltip("Selecione uma performance para carregá-la imediatamente; digite um nome para salvar uma nova");
+    programBox.onChange = [this]
+    {
+        // Text entry is used to name a new performance. Only a real list item
+        // selection has a positive ID and should replace the current state.
+        if (programBox.getSelectedId() > 0)
+            loadSelectedProgram();
+    };
     addAndMakeVisible(programBox);
     flatButton(newProgramButton);
     flatButton(saveProgramButton);
+    flatButton(exportProgramButton);
     flatButton(deleteProgramButton);
-    flatButton(loadProgramButton);
     flatButton(importProgramButton);
     newProgramButton.setTooltip("Criar uma programação vazia do zero");
+    saveProgramButton.setTooltip("Salvar esta performance na biblioteca interna do Classic Player");
+    exportProgramButton.setTooltip("Exportar uma cópia portátil da performance para outro computador");
+    importProgramButton.setTooltip("Importar uma performance portátil para a biblioteca deste computador e abri-la");
     newProgramButton.onClick = [this] { createNewProgram(); };
     saveProgramButton.onClick = [this] { saveProgram(); };
+    exportProgramButton.onClick = [this] { exportProgram(); };
     deleteProgramButton.onClick = [this] { deleteSelectedProgram(); };
-    loadProgramButton.onClick = [this] { loadSelectedProgram(); };
-    importProgramButton.onClick = [this] { chooseProgramFile(); };
+    importProgramButton.onClick = [this] { importProgramFile(); };
     addAndMakeVisible(newProgramButton);
     addAndMakeVisible(saveProgramButton);
+    addAndMakeVisible(exportProgramButton);
     addAndMakeVisible(deleteProgramButton);
-    addAndMakeVisible(loadProgramButton);
     addAndMakeVisible(importProgramButton);
     refreshProgramLibrary();
 
@@ -4991,8 +5002,8 @@ void ClassicPlayerAudioProcessorEditor::resized()
     programBox.setBounds(programArea.removeFromTop(28).reduced(1, 0));
     auto programButtons = programArea.removeFromTop(24);
     importProgramButton.setBounds(programButtons.removeFromRight(82).reduced(1, 0));
-    loadProgramButton.setBounds(programButtons.removeFromRight(70).reduced(1, 0));
     deleteProgramButton.setBounds(programButtons.removeFromRight(64).reduced(1, 0));
+    exportProgramButton.setBounds(programButtons.removeFromRight(78).reduced(1, 0));
     saveProgramButton.setBounds(programButtons.removeFromRight(58).reduced(1, 0));
     newProgramButton.setBounds(programButtons.removeFromRight(54).reduced(1, 0));
 
@@ -5225,81 +5236,155 @@ void ClassicPlayerAudioProcessorEditor::saveProgram()
     name = name.retainCharacters("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_()");
     if (name.isEmpty()) name = "Classic Player Preset";
 
-    auto defaultFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
-        .getChildFile(name + ".ckprogram");
-    if (juce::isPositiveAndBelow(activeLiveSetSlot,
-                                 ClassicPlayerAudioProcessor::liveSetSlotsPerBank)
-        && activeLiveSetBank == loadedLiveSetBank)
+    bool replacing = false;
+    for (const auto& file : classicProcessor.savedPrograms())
+        if (file.getFileNameWithoutExtension().compareIgnoreCase(name) == 0)
+        {
+            replacing = true;
+            break;
+        }
+
+    const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
+    const auto saveToLibrary = [safe, name]
     {
-        const auto assignedProgram = classicProcessor.liveSetSlotProgram(
-            activeLiveSetBank, activeLiveSetSlot);
-        if (assignedProgram.existsAsFile()) defaultFile = assignedProgram;
-    }
+        if (safe == nullptr) return;
+        juce::File savedFile;
+        const auto result = safe->classicProcessor.saveProgram(name, savedFile);
+        if (result.failed())
+        {
+            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                   "Falha ao Salvar Preset", result.getErrorMessage());
+            return;
+        }
+
+        // Saving a performance loaded from the Live Set updates its reference
+        // to the newly written library file, so reselecting the tile restores
+        // the latest settings.
+        if (juce::isPositiveAndBelow(safe->activeLiveSetSlot,
+                                     ClassicPlayerAudioProcessor::liveSetSlotsPerBank)
+            && safe->activeLiveSetBank == safe->loadedLiveSetBank)
+        {
+            const auto assigned = safe->classicProcessor.assignLiveSetSlot(
+                safe->activeLiveSetBank, safe->activeLiveSetSlot, savedFile);
+            if (assigned.failed())
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::WarningIcon, "Live Set não atualizado",
+                    "A performance foi salva, mas não foi possível atualizar a posição ativa do Live Set: "
+                        + assigned.getErrorMessage());
+        }
+
+        safe->programBox.setText(savedFile.getFileNameWithoutExtension(), juce::dontSendNotification);
+        safe->refreshProgramLibrary();
+        safe->refreshLiveSet();
+    };
+
+    if (replacing)
+        juce::AlertWindow::showOkCancelBox(
+            juce::MessageBoxIconType::QuestionIcon, "Substituir performance?",
+            "Já existe uma performance chamada \"" + name + "\" na biblioteca do app. Deseja substituí-la?",
+            "SUBSTITUIR", "CANCELAR", this,
+            juce::ModalCallbackFunction::create([saveToLibrary](int answer)
+            {
+                if (answer != 0) saveToLibrary();
+            }));
+    else
+        saveToLibrary();
+}
+
+void ClassicPlayerAudioProcessorEditor::exportProgram()
+{
+    auto name = programBox.getText().trim();
+    if (name.isEmpty()) name = classicProcessor.currentSavedProgramName();
+    if (name.isEmpty()) name = "Classic Player Preset";
+    name = name.retainCharacters("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_()");
+    if (name.isEmpty()) name = "Classic Player Preset";
+
+    const auto defaultFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+        .getChildFile(name + ".ckprogram");
     programFileChooser = std::make_unique<juce::FileChooser>(
-        "Salvar Preset Classic Player", defaultFile, "*.ckprogram");
+        "Exportar performance Classic Player", defaultFile, "*.ckprogram");
     programFileChooser->launchAsync(
         juce::FileBrowserComponent::saveMode
         | juce::FileBrowserComponent::canSelectFiles
         | juce::FileBrowserComponent::warnAboutOverwriting,
         [this](const juce::FileChooser& chooser)
         {
-            const auto selected = chooser.getResult();
-            if (selected == juce::File{}) return;
+            const auto destination = chooser.getResult();
+            if (destination == juce::File{}) return;
 
-            juce::File savedFile;
-            const auto result = classicProcessor.saveProgramToFile(selected, savedFile);
+            juce::File exportedFile;
+            const auto result = classicProcessor.exportProgramToFile(destination, exportedFile);
             if (result.failed())
-            {
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                                       "Falha ao Salvar Preset", result.getErrorMessage());
-                return;
-            }
-
-            // A Live Set tile points to a concrete .ckprogram file. If the
-            // active performance is saved to a different location/name, move
-            // that tile to the new file as part of saving; otherwise returning
-            // to the tile would reload its older EQ/effect state.
-            if (juce::isPositiveAndBelow(activeLiveSetSlot,
-                                         ClassicPlayerAudioProcessor::liveSetSlotsPerBank)
-                && activeLiveSetBank == loadedLiveSetBank)
-            {
-                const auto assigned = classicProcessor.assignLiveSetSlot(
-                    activeLiveSetBank, activeLiveSetSlot, savedFile);
-                if (assigned.failed())
-                    juce::AlertWindow::showMessageBoxAsync(
-                        juce::MessageBoxIconType::WarningIcon, "Live Set não atualizado",
-                        "A programação foi salva, mas não foi possível atualizar a posição ativa do Live Set: "
-                            + assigned.getErrorMessage());
-            }
-
-            programBox.setText(savedFile.getFileNameWithoutExtension(), juce::dontSendNotification);
-            // The exported file is intentionally kept at the user's chosen
-            // location.  It can now be copied to another computer and opened
-            // with the existing "Abrir" button.
-            refreshProgramLibrary();
-            refreshLiveSet();
+                                                       "Falha ao Exportar Performance", result.getErrorMessage());
+            else
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::NoIcon, "Exportação concluída",
+                    "Cópia portátil salva em:\n" + exportedFile.getFullPathName());
         });
 }
 
-void ClassicPlayerAudioProcessorEditor::chooseProgramFile()
+void ClassicPlayerAudioProcessorEditor::importProgramFile()
 {
-    programFileChooser = std::make_unique<juce::FileChooser>("Abrir programação Classic Player", juce::File{}, "*.ckprogram");
-    programFileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+    programFileChooser = std::make_unique<juce::FileChooser>(
+        "Importar performance Classic Player", juce::File{}, "*.ckprogram");
+    programFileChooser->launchAsync(
+        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
         [this](const juce::FileChooser& chooser)
         {
-            const auto file = chooser.getResult();
-            if (!file.existsAsFile()) return;
-            const auto result = classicProcessor.loadProgram(file);
-            if (result.failed())
-                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                                       "Falha ao abrir programação", result.getErrorMessage());
-            else
+            const auto source = chooser.getResult();
+            if (!source.existsAsFile()) return;
+
+            bool alreadyInLibrary = false;
+            bool nameCollision = false;
+            for (const auto& file : classicProcessor.savedPrograms())
             {
-                activeLiveSetSlot = -1;
-                loadedLiveSetBank = -1;
-                programBox.setText(file.getFileNameWithoutExtension(), juce::dontSendNotification);
-                refreshAfterProgramLoad();
+                alreadyInLibrary = alreadyInLibrary || file == source;
+                nameCollision = nameCollision || file.getFileName().compareIgnoreCase(source.getFileName()) == 0;
             }
+
+            const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
+            const auto importAndOpen = [safe, source](bool replaceExisting)
+            {
+                if (safe == nullptr) return;
+                juce::File importedFile;
+                const auto imported = safe->classicProcessor.importProgramFromFile(
+                    source, importedFile, replaceExisting);
+                if (imported.failed())
+                {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon, "Falha ao Importar Performance",
+                        imported.getErrorMessage());
+                    return;
+                }
+
+                const auto loaded = safe->classicProcessor.loadProgram(importedFile);
+                if (loaded.failed())
+                {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon, "Falha ao Abrir Performance",
+                        loaded.getErrorMessage());
+                    return;
+                }
+                safe->activeLiveSetSlot = -1;
+                safe->loadedLiveSetBank = -1;
+                safe->programBox.setText(importedFile.getFileNameWithoutExtension(),
+                                          juce::dontSendNotification);
+                safe->refreshProgramLibrary();
+                safe->refreshAfterProgramLoad();
+            };
+
+            if (nameCollision && !alreadyInLibrary)
+                juce::AlertWindow::showOkCancelBox(
+                    juce::MessageBoxIconType::QuestionIcon, "Substituir performance?",
+                    "Já existe uma performance com esse nome na biblioteca deste computador. Deseja substituí-la?",
+                    "SUBSTITUIR", "CANCELAR", this,
+                    juce::ModalCallbackFunction::create([importAndOpen](int answer)
+                    {
+                        if (answer != 0) importAndOpen(true);
+                    }));
+            else
+                importAndOpen(false);
         });
 }
 
@@ -5377,8 +5462,8 @@ void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
     programBox.setVisible(!show);
     newProgramButton.setVisible(!show);
     saveProgramButton.setVisible(!show);
+    exportProgramButton.setVisible(!show);
     deleteProgramButton.setVisible(!show);
-    loadProgramButton.setVisible(!show);
     importProgramButton.setVisible(!show);
     addLayerButton.setVisible(!show);
     for (juce::Component* component : std::initializer_list<juce::Component*>{

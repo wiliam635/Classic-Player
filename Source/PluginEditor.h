@@ -202,10 +202,11 @@ private:
     void refreshProgramLibrary();
     void refreshExternalInstrumentLibrary();
     void saveProgram();
+    void exportProgram();
     void createNewProgram();
     void deleteSelectedProgram();
     void loadSelectedProgram();
-    void chooseProgramFile();
+    void importProgramFile();
     void refreshAfterProgramLoad();
     void showLiveSet(bool show);
     void showAudioMidiSettings();
@@ -234,9 +235,9 @@ private:
     juce::ComboBox programBox;
     juce::TextButton newProgramButton { "NOVO" };
     juce::TextButton saveProgramButton { "SALVAR" };
+    juce::TextButton exportProgramButton { "EXPORTAR" };
     juce::TextButton deleteProgramButton { "EXCLUIR" };
-    juce::TextButton loadProgramButton { "CARREGAR" };
-    juce::TextButton importProgramButton { "Abrir" };
+    juce::TextButton importProgramButton { "IMPORTAR" };
     juce::TextButton addLayerButton { "+ LAYER" };
     juce::TextButton recordingButton { "GRAVAR WAV+MIDI" };
     juce::TextButton panicButton { "PANIC" };

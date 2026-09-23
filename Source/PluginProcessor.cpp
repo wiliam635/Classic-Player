@@ -2155,6 +2155,61 @@ juce::Result ClassicPlayerAudioProcessor::saveProgram(const juce::String& reques
 juce::Result ClassicPlayerAudioProcessor::saveProgramToFile(const juce::File& requestedDestination,
                                                              juce::File& savedFile)
 {
+    const auto result = writeProgramFile(requestedDestination, savedFile);
+    if (result.failed()) return result;
+
+    currentSavedProgram = savedFile.getFileNameWithoutExtension();
+    if (wrapperType == wrapperType_Standalone)
+    {
+        lastSavedProgram = savedFile.getFullPathName();
+        saveStartupSettings();
+    }
+    return juce::Result::ok();
+}
+
+juce::Result ClassicPlayerAudioProcessor::exportProgramToFile(const juce::File& destination,
+                                                               juce::File& exportedFile)
+{
+    // Export is a portable copy only; it must not redirect the app's startup
+    // performance or move an existing Live Set assignment.
+    return writeProgramFile(destination, exportedFile);
+}
+
+juce::Result ClassicPlayerAudioProcessor::importProgramFromFile(const juce::File& source,
+                                                                 juce::File& importedFile,
+                                                                 bool replaceExisting)
+{
+    if (!source.existsAsFile() || source.getFileExtension().toLowerCase() != ".ckprogram")
+        return juce::Result::fail("Selecione um arquivo de performance Classic Player (.ckprogram).");
+
+    juce::MemoryBlock data;
+    if (!source.loadFileAsData(data) || data.getSize() == 0)
+        return juce::Result::fail("Não foi possível ler a performance para importar.");
+    const std::unique_ptr<juce::XmlElement> xml(
+        getXmlFromBinary(data.getData(), static_cast<int>(data.getSize())));
+    if (xml == nullptr || !xml->hasTagName(parameters.state.getType().toString()))
+        return juce::Result::fail("O arquivo está corrompido ou não é compatível com esta versão.");
+
+    const auto folder = programStorageDirectory().getChildFile("Programs");
+    if (const auto result = folder.createDirectory(); result.failed()) return result;
+    const auto destination = folder.getChildFile(source.getFileName());
+    if (source == destination)
+    {
+        importedFile = destination;
+        return juce::Result::ok();
+    }
+    if (destination.existsAsFile() && !replaceExisting)
+        return juce::Result::fail("Já existe uma performance com esse nome na biblioteca.");
+    if (!destination.replaceWithData(data.getData(), data.getSize()))
+        return juce::Result::fail("Não foi possível copiar a performance para a biblioteca do app.");
+
+    importedFile = destination;
+    return juce::Result::ok();
+}
+
+juce::Result ClassicPlayerAudioProcessor::writeProgramFile(const juce::File& requestedDestination,
+                                                            juce::File& savedFile)
+{
     if (requestedDestination == juce::File{})
         return juce::Result::fail("Escolha um local para salvar a programação.");
 
@@ -2176,12 +2231,6 @@ juce::Result ClassicPlayerAudioProcessor::saveProgramToFile(const juce::File& re
         return juce::Result::fail("Não foi possível salvar a programação.");
 
     savedFile = destination;
-    currentSavedProgram = destination.getFileNameWithoutExtension();
-    if (wrapperType == wrapperType_Standalone)
-    {
-        lastSavedProgram = destination.getFullPathName();
-        saveStartupSettings();
-    }
     return juce::Result::ok();
 }
 

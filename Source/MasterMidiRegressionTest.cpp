@@ -97,6 +97,50 @@ static void startupPrograms()
     std::cout << "Last-saved restore, program name, device restart, plugin isolation and missing file passed\n";
 }
 
+static void programLibraryExportImport()
+{
+    juce::TemporaryFile sourceStorage, destinationStorage;
+    const auto sourceRoot = sourceStorage.getFile();
+    const auto destinationRoot = destinationStorage.getFile();
+    check(sourceRoot.createDirectory().wasOk() && destinationRoot.createDirectory().wasOk(),
+          "preset import/export storage");
+    struct Cleanup
+    {
+        juce::File first, second;
+        ~Cleanup() { first.deleteRecursively(); second.deleteRecursively(); }
+    } cleanup { sourceRoot, destinationRoot };
+
+    ClassicPlayerAudioProcessor sourceProcessor(sourceRoot);
+    juce::File internalFile;
+    check(sourceProcessor.saveProgram("Internal Performance", internalFile).wasOk(),
+          "save performance to internal library");
+    check(internalFile.getParentDirectory().getFileName() == "Programs"
+          && sourceProcessor.savedPrograms().size() == 1,
+          "saved performance missing from internal library");
+
+    juce::File exportedFile;
+    check(sourceProcessor.exportProgramToFile(sourceRoot.getChildFile("Portable.ckprogram"),
+                                               exportedFile).wasOk(),
+          "export portable performance");
+    check(exportedFile.existsAsFile()
+          && sourceProcessor.currentSavedProgramName() == "Internal Performance"
+          && sourceProcessor.savedPrograms().size() == 1,
+          "export changed current library performance");
+
+    ClassicPlayerAudioProcessor destinationProcessor(destinationRoot);
+    juce::File importedFile;
+    check(destinationProcessor.importProgramFromFile(exportedFile, importedFile).wasOk(),
+          "import portable performance");
+    check(importedFile.existsAsFile()
+          && importedFile.getParentDirectory().getFileName() == "Programs"
+          && destinationProcessor.savedPrograms().size() == 1,
+          "imported performance missing from destination library");
+    check(destinationProcessor.loadProgram(importedFile).wasOk()
+          && destinationProcessor.currentSavedProgramName() == "Portable",
+          "imported performance could not be opened");
+    std::cout << "Internal library save, portable export and import passed\n";
+}
+
 static void livePerformanceEqPersistence()
 {
     juce::TemporaryFile storage;
@@ -222,6 +266,7 @@ int main()
     try
     {
         startupPrograms();
+        programLibraryExportImport();
         livePerformanceEqPersistence();
         newProgramStartsBlank();
         MidiRecordingRegressionAccess::run();

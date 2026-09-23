@@ -152,6 +152,9 @@ public:
     juce::Array<juce::File> savedPrograms() const;
     juce::Result saveProgram(const juce::String& name, juce::File& savedFile);
     juce::Result saveProgramToFile(const juce::File& destination, juce::File& savedFile);
+    juce::Result exportProgramToFile(const juce::File& destination, juce::File& exportedFile);
+    juce::Result importProgramFromFile(const juce::File& source, juce::File& importedFile,
+                                       bool replaceExisting = false);
     juce::Result deleteProgram(const juce::File& programFile);
     juce::Result loadProgram(const juce::File& programFile);
     void resetToNewProgram();
@@ -204,6 +207,7 @@ private:
     void processMasterMidiMessage(const juce::MidiMessage&);
     void saveStartupSettings();
     void restoreStartupSettings();
+    juce::Result writeProgramFile(const juce::File& destination, juce::File& savedFile);
     juce::File startupSettingsFile() const;
     juce::File programStorageDirectory() const;
     void installBundledDx7Banks();
