@@ -45,13 +45,14 @@ jobs:
           codesign --force --deep --sign - "$output"
           codesign --verify --deep --strict "$output"
           lipo "$output/Contents/MacOS/Classic Player" -verify_arch x86_64 arm64
-          ditto -c -k --sequesterRsrc --keepParent "$output" \
-            "outputs/vst3-test/Classic-Player-2.0.0-VST3-teste-macOS-Universal.zip"
-          unzip -t "outputs/vst3-test/Classic-Player-2.0.0-VST3-teste-macOS-Universal.zip"
+          hdiutil create -volname "Classic Player VST3 Teste" -srcfolder "$output" \
+            -ov -format UDZO \
+            "outputs/vst3-test/Classic-Player-2.0.0-VST3-teste-macOS-Universal.dmg"
+          hdiutil verify "outputs/vst3-test/Classic-Player-2.0.0-VST3-teste-macOS-Universal.dmg"
 
       - name: Upload test plugin
         uses: actions/upload-artifact@v4
         with:
           name: Classic-Player-2.0.0-VST3-teste-${{ github.run_number }}-macOS-Universal
           if-no-files-found: error
-          path: outputs/vst3-test/Classic-Player-2.0.0-VST3-teste-macOS-Universal.zip
+          path: outputs/vst3-test/Classic-Player-2.0.0-VST3-teste-macOS-Universal.dmg
