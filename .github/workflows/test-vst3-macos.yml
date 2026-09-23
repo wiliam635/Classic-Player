@@ -44,7 +44,7 @@ jobs:
           /usr/bin/xattr -cr "$output"
           codesign --force --deep --sign - "$output"
           codesign --verify --deep --strict "$output"
-          lipo -verify_arch x86_64 arm64 "$output/Contents/MacOS/Classic Player"
+          lipo "$output/Contents/MacOS/Classic Player" -verify_arch x86_64 arm64
           ditto -c -k --sequesterRsrc --keepParent "$output" \
             "outputs/vst3-test/Classic-Player-2.0.0-VST3-teste-macOS-Universal.zip"
           unzip -t "outputs/vst3-test/Classic-Player-2.0.0-VST3-teste-macOS-Universal.zip"
