@@ -199,6 +199,7 @@ public:
 
 private:
     friend struct MidiRecordingRegressionAccess;
+    friend struct ContinuousPadRegressionAccess;
     void timerCallback() override;
     void processMasterMidiMessage(const juce::MidiMessage&);
     void saveStartupSettings();

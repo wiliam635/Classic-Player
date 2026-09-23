@@ -7,6 +7,15 @@
 #include <stdexcept>
 #include <chrono>
 static void check(bool b,const char* message){if(!b)throw std::runtime_error(message);}
+struct ContinuousPadRegressionAccess
+{
+    static void handleIncomingMidiMessage(ClassicPlayerAudioProcessor& processor,
+                                          const juce::MidiMessage& message)
+    {
+        processor.handleIncomingMidiMessage(nullptr, message);
+    }
+};
+
 static void continuousPadRegression()
 {
     juce::TemporaryFile fixture(".wav");
@@ -51,7 +60,8 @@ static void continuousPadRegression()
     p->setLayerType(1,ClassicPlayerAudioProcessor::LayerType::continuousPads);p->continuousPads(1).restore(saved);
     auto routing=p->layerConfig(1);routing.midiChannel=1;p->setLayerConfig(1,routing);
     p->continuousPads(1).learn(ContinuousPadBank::count);
-    p->handleIncomingMidiMessage(nullptr,juce::MidiMessage::controllerEvent(3,55,41));
+    ContinuousPadRegressionAccess::handleIncomingMidiMessage(
+        *p,juce::MidiMessage::controllerEvent(3,55,41));
     check(p->continuousPads(1).mapping(ContinuousPadBank::count)==55,
           "STOP Learn was blocked by the layer MIDI channel filter");
     juce::MemoryBlock state;p->getStateInformation(state);p->setStateInformation(state.getData(),(int)state.getSize());
