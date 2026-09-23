@@ -2,6 +2,10 @@ name: Test Classic Player VST3 - macOS Universal
 
 on:
   workflow_dispatch:
+  push:
+    branches: [codex/fix-user-refresh]
+    paths:
+      - .github/workflows/test-vst3-macos.yml
 
 jobs:
   vst3-macos:
