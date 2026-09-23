@@ -5308,9 +5308,10 @@ void ClassicPlayerAudioProcessorEditor::createNewProgram()
     const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
     juce::AlertWindow::showOkCancelBox(
         juce::MessageBoxIconType::WarningIcon,
-        "Nova programação",
-        "Começar uma programação vazia? As alterações não salvas e as layers atuais serão removidas desta sessão. "
-        "Os arquivos salvos e os bancos do Live Set não serão apagados.",
+        juce::String::fromUTF8("Nova programação"),
+        juce::String::fromUTF8(
+            "Começar uma programação vazia? As alterações não salvas e as layers atuais serão removidas desta sessão. "
+            "Os arquivos salvos e os bancos do Live Set não serão apagados."),
         "NOVO", "Cancelar", this,
         juce::ModalCallbackFunction::create([safe](int answer)
         {
