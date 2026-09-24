@@ -73,7 +73,7 @@ jobs:
             [Vst3Loader]::FreeLibrary($module) | Out-Null
           }
           Write-Host "VST3 carregado e GetPluginFactory encontrado."
-          $hostTest = Get-ChildItem "build\windows-x64" -Recurse -Filter "Classic Player VST3 Host Smoke Test.exe" -File |
+          $hostTest = Get-ChildItem "build\windows-x64" -Recurse -Filter "*VST3*Host*Smoke*Test.exe" -File |
             Select-Object -First 1 -ExpandProperty FullName
           if (-not $hostTest) { throw "Teste de host VST3 ausente" }
           & $hostTest (Resolve-Path $bundle).Path
