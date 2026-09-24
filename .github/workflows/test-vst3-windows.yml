@@ -34,7 +34,16 @@ jobs:
 
       - name: Build standalone and VST3
         shell: pwsh
-        run: cmake --build build\windows-x64 --target ClassicPlayer_Standalone ClassicPlayer_VST3 ClassicPlayerVst3HostSmokeTest --config Release --parallel 2
+        run: cmake --build build\windows-x64 --target ClassicPlayer_Standalone ClassicPlayer_VST3 ClassicPlayerVst3HostSmokeTest ClassicPlayerHammondTest --config Release --parallel 2
+
+      - name: Verify saved effects return through menu and Live Set
+        shell: pwsh
+        run: |
+          $test = Get-ChildItem "build\windows-x64" -Recurse -Filter "*Hammond*Test.exe" -File |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $test) { throw "Teste de performance ausente" }
+          & $test --performance-effects
+          if ($LASTEXITCODE -ne 0) { throw "Falha ao restaurar efeitos da performance" }
 
       - name: Verify self-contained VST3 loads like a DAW
         shell: pwsh

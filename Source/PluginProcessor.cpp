@@ -2717,6 +2717,14 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
         auto state = juce::ValueTree::fromXml(*xml);
         if (state.isValid())
         {
+            // MIDI changes queued for the previous performance must not
+            // overwrite the effects and volumes restored below on the next
+            // audio block or editor timer tick.
+            pendingMasterValue.store(-1.0f, std::memory_order_relaxed);
+            for (auto& layer : pendingCCValues)
+                for (auto& value : layer) value.store(-1.0f, std::memory_order_relaxed);
+            for (auto& layer : realtimeCCValues)
+                for (auto& value : layer) value.store(-1.0f, std::memory_order_relaxed);
             std::array<bool, Sf2Engine::layerCount> seenVisualLayers {};
             bool validVisualOrder = true;
             for (int position = 0; position < Sf2Engine::layerCount; ++position)

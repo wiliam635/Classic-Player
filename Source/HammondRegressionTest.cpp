@@ -6,6 +6,8 @@
 #include <iostream>
 #include <stdexcept>
 #include <chrono>
+#include <array>
+#include <utility>
 static void check(bool b,const char* message){if(!b)throw std::runtime_error(message);}
 struct ContinuousPadRegressionAccess
 {
@@ -15,6 +17,64 @@ struct ContinuousPadRegressionAccess
         processor.handleIncomingMidiMessage(nullptr, message);
     }
 };
+
+static void performanceEffectsRegression()
+{
+    juce::TemporaryFile storage;
+    const auto root = storage.getFile();
+    check(root.createDirectory().wasOk(), "performance temporary storage");
+    struct Cleanup { juce::File directory; ~Cleanup() { directory.deleteRecursively(); } } cleanup { root };
+    juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
+    auto processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
+    juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
+
+    const std::array<std::pair<const char*, std::array<float, 2>>, 10> values {{
+        { "layer1EqLow", { 5.0f, -7.0f } },
+        { "layer1EqMidFrequency", { 1800.0f, 420.0f } },
+        { "layer1Comp", { 42.0f, 11.0f } },
+        { "layer1CompThreshold", { -24.0f, -9.0f } },
+        { "layer1Reverb", { 65.0f, 18.0f } },
+        { "layer1ReverbSize", { 83.0f, 32.0f } },
+        { "layer1ReverbDamping", { 27.0f, 76.0f } },
+        { "layer1ReverbWidth", { 91.0f, 41.0f } },
+        { "layer1Dx7Chorus", { 59.0f, 4.0f } },
+        { "masterEqHigh", { 3.0f, -4.0f } }
+    }};
+    const auto set = [&](int performance)
+    {
+        for (const auto& [id, pair] : values)
+        {
+            auto* parameter = processor->parameters.getParameter(id);
+            check(parameter != nullptr, "missing effect parameter");
+            parameter->setValueNotifyingHost(parameter->convertTo0to1(pair[(size_t) performance]));
+        }
+    };
+    const auto verify = [&](int performance)
+    {
+        for (const auto& [id, pair] : values)
+            check(std::abs(processor->parameters.getRawParameterValue(id)->load()
+                           - pair[(size_t) performance]) < 0.11f,
+                  "performance effect did not restore");
+    };
+    juce::File first, second;
+    set(0);
+    check(processor->saveProgram("Effects A", first).wasOk(), "save effects A");
+    check(processor->assignLiveSetSlot(0, 0, first).wasOk(), "assign effects A");
+    set(1);
+    check(processor->saveProgram("Effects B", second).wasOk(), "save effects B");
+    check(processor->assignLiveSetSlot(0, 1, second).wasOk(), "assign effects B");
+    check(processor->loadProgram(first).wasOk(), "menu load effects A");
+    verify(0);
+    check(processor->loadLiveSetSlot(0, 1).wasOk(), "Live Set load effects B");
+    verify(1);
+    processor->beginMidiLearn(0, ClassicPlayerAudioProcessor::LearnTarget::reverb);
+    ContinuousPadRegressionAccess::handleIncomingMidiMessage(
+        *processor, juce::MidiMessage::controllerEvent(1, 21, 127));
+    check(processor->loadLiveSetSlot(0, 0).wasOk(), "Live Set load effects A");
+    processor->consumeMidiControlUpdates();
+    verify(0);
+    std::cout << "Performance EQ, compressor, reverb and chorus restore passed\n";
+}
 
 static void continuousPadRegression()
 {
@@ -115,6 +175,8 @@ struct LiveSetLayoutRegressionAccess
             }
         }
         editor->liveSetSlotButtons[0].onClick();
+        check(editor->programBox.getText() == "Test instruments",
+              "Live Set selection left the previous program name in Save");
         check(processor->activeLayerCount()==2,"Live Set load changed layer count");
         check(processor->layerType(0)==ClassicPlayerAudioProcessor::LayerType::hammond,
               "Live Set load changed instrument");
@@ -390,6 +452,12 @@ int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
     try{
+        if (argc > 1 && juce::String(argv[1]) == "--performance-effects")
+        {
+            performanceEffectsRegression();
+            return 0;
+        }
+        performanceEffectsRegression();
         DrumPadRegressionAccess::run();
         continuousPadRegression();
         hammondPresetAndWheel();

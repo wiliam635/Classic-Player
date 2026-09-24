@@ -5794,6 +5794,8 @@ void ClassicPlayerAudioProcessorEditor::loadLiveSetSlot(int slot)
     }
     activeLiveSetSlot = slot;
     loadedLiveSetBank = activeLiveSetBank;
+    programBox.setText(classicProcessor.currentSavedProgramName(), juce::dontSendNotification);
+    refreshProgramLibrary();
     refreshAfterProgramLoad();
 }
 
