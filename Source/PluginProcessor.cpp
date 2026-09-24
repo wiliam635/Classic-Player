@@ -111,6 +111,15 @@ void ClassicPlayerAudioProcessor::beginPanicMidiLearn()
     panicLearning.store(!panicLearning.load());
 }
 
+void ClassicPlayerAudioProcessor::resetPanicMidiLearn()
+{
+    panicLearning.store(false);
+    panicCC.store(-1);
+    panicCCChannel.store(-1);
+    pendingPanic.store(false);
+    startupSettingsDirty.store(true);
+}
+
 void ClassicPlayerAudioProcessor::resetMasterMidiLearn()
 {
     masterLearning.store(false);
@@ -883,8 +892,20 @@ void ClassicPlayerAudioProcessor::triggerDrumPad(int pad)
 
 void ClassicPlayerAudioProcessor::beginDrumPadMidiLearn(int pad)
 {
-    if (juce::isPositiveAndBelow(pad, drumPadCount))
-        drumPads[(size_t) pad].learning.store(true, std::memory_order_release);
+    if (!juce::isPositiveAndBelow(pad, drumPadCount)) return;
+    const auto wasLearning = drumPads[(size_t) pad].learning.load(std::memory_order_acquire);
+    for (auto& state : drumPads)
+        state.learning.store(false, std::memory_order_release);
+    drumPads[(size_t) pad].learning.store(!wasLearning, std::memory_order_release);
+}
+
+void ClassicPlayerAudioProcessor::clearDrumPadMidiLearn(int pad)
+{
+    if (!juce::isPositiveAndBelow(pad, drumPadCount)) return;
+    auto& state = drumPads[(size_t) pad];
+    state.learning.store(false, std::memory_order_release);
+    state.midiCC.store(-1, std::memory_order_release);
+    state.midiNote.store(-1, std::memory_order_release);
 }
 
 bool ClassicPlayerAudioProcessor::isDrumPadMidiLearning(int pad) const
@@ -1541,7 +1562,28 @@ void ClassicPlayerAudioProcessor::beginMidiLearn(int layer, LearnTarget target)
         !juce::isPositiveAndBelow(targetIndex, learnTargetCount)) return;
     if (target == LearnTarget::mute)
         learnedMuteCCPressed[(size_t) layer].store(false, std::memory_order_relaxed);
-    activeMidiLearn.store(layer * learnTargetCount + targetIndex, std::memory_order_relaxed);
+    const auto requested = layer * learnTargetCount + targetIndex;
+    activeMidiLearn.store(activeMidiLearn.load(std::memory_order_relaxed) == requested ? -1 : requested,
+                          std::memory_order_relaxed);
+}
+
+void ClassicPlayerAudioProcessor::clearMidiLearn(int layer, LearnTarget target)
+{
+    const auto targetIndex = static_cast<int>(target);
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)
+        || !juce::isPositiveAndBelow(targetIndex, learnTargetCount)) return;
+    learnedCCs[(size_t) layer][(size_t) targetIndex].store(-1, std::memory_order_relaxed);
+    learnedChannels[(size_t) layer][(size_t) targetIndex].store(-1, std::memory_order_relaxed);
+    pendingCCValues[(size_t) layer][(size_t) targetIndex].store(-1.0f, std::memory_order_relaxed);
+    realtimeCCValues[(size_t) layer][(size_t) targetIndex].store(-1.0f, std::memory_order_relaxed);
+    if (target == LearnTarget::mute)
+    {
+        learnedMuteCCPressed[(size_t) layer].store(false, std::memory_order_relaxed);
+        pendingLayerMuteToggles[(size_t) layer].store(0, std::memory_order_relaxed);
+    }
+    auto active = activeMidiLearn.load(std::memory_order_relaxed);
+    if (active == layer * learnTargetCount + targetIndex)
+        activeMidiLearn.compare_exchange_strong(active, -1, std::memory_order_relaxed);
 }
 
 void ClassicPlayerAudioProcessor::resetMidiLearn(int layer)
@@ -1781,7 +1823,9 @@ void ClassicPlayerAudioProcessor::beginLiveSetSlotMidiLearn(int bank, int slot)
 {
     const auto index = liveSetIndex(bank, slot);
     if (index < 0) return;
-    activeLiveSetSlotMidiLearn.store(index, std::memory_order_relaxed);
+    activeLiveSetSlotMidiLearn.store(
+        activeLiveSetSlotMidiLearn.load(std::memory_order_relaxed) == index ? -1 : index,
+        std::memory_order_relaxed);
 }
 
 void ClassicPlayerAudioProcessor::resetLiveSetSlotMidiLearn(int bank, int slot)

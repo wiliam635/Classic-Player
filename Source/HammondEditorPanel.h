@@ -1,5 +1,6 @@
 #pragma once
 #include "PluginProcessor.h"
+#include "MidiLearnButton.h"
 
 std::unique_ptr<juce::Component> createHammondEditorContent(
     ClassicPlayerAudioProcessor&, int layer,
@@ -59,6 +60,7 @@ public:
         target.onChange=[this]{auto c=processor.hammondConfig(index);c.learning=-1;processor.setHammondConfig(index,c);refresh();};
         learn.onClick=[this]{auto c=processor.hammondConfig(index);c.learning=c.learning>=0?-1:target.getSelectedId()-1;processor.setHammondConfig(index,c);refresh();};
         clear.onClick=[this]{auto c=processor.hammondConfig(index);c.cc[(size_t)(target.getSelectedId()-1)]=-1;c.learning=-1;processor.setHammondConfig(index,c);refresh();};
+        learn.onClearMapping = clear.onClick;
         setSize(680,344);refresh();startTimerHz(15);
     }
     ~HammondEditorPanel() override {
@@ -111,6 +113,7 @@ private:
     std::array<juce::Slider,4> knobs;
     std::array<juce::Label,4> knobLabels;
     juce::ComboBox preset,leslie,percussion,target;
-    juce::TextButton learn {"LEARN CC"},clear {"LIMPAR"};
+    MidiLearnButton learn {"LEARN CC"};
+    juce::TextButton clear {"LIMPAR"};
     juce::Label mapping;
 };

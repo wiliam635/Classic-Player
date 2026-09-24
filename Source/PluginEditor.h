@@ -4,6 +4,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "PluginProcessor.h"
 #include "ChordDetector.h"
+#include "MidiLearnButton.h"
 #include <array>
 #include <atomic>
 
@@ -58,9 +59,10 @@ private:
         int padCount() const {return continuous()?12:8;}
         std::array<juce::TextButton, 12> pads;
         std::array<juce::TextButton, 12> loadButtons;
-        std::array<juce::TextButton, 12> learnButtons;
-        juce::TextButton stopButton{"STOP"}, stopLearn{"LEARN STOP"}, volumeLearnButton{"LEARN VOLUME"},
-                         muteLearnButton{"LEARN MUTE"};
+        std::array<MidiLearnButton, 12> learnButtons;
+        juce::TextButton stopButton{"STOP"};
+        MidiLearnButton stopLearn{"LEARN STOP"}, volumeLearnButton{"LEARN VOLUME"},
+                        muteLearnButton{"LEARN MUTE"};
         juce::Slider fadeSlider;
         std::unique_ptr<juce::FileChooser> fileChooser;
         bool controlsVisible = true;
@@ -170,12 +172,12 @@ private:
         juce::Label compressorLabel;
         juce::Label routingLabel;
         juce::TextButton modulationButton { "MOD: ON" };
-        juce::TextButton volumeLearn { "LEARN CC" };
+        MidiLearnButton volumeLearn { "LEARN CC" };
         juce::TextButton resetMidiLearnButton { "RESET CC" };
-        juce::TextButton muteLearn { "LEARN M" };
-        juce::TextButton cutoffLearn { "LEARN" };
-        juce::TextButton reverbLearn { "LEARN" };
-        juce::TextButton compressorLearn { "LEARN" };
+        MidiLearnButton muteLearn { "LEARN M" };
+        MidiLearnButton cutoffLearn { "LEARN" };
+        MidiLearnButton reverbLearn { "LEARN" };
+        MidiLearnButton compressorLearn { "LEARN" };
         juce::TextButton reverbEditButton { "EDIT" };
         juce::TextButton compressorEditButton { "EDIT" };
         juce::TextButton chorusEditButton { "EDIT" };
@@ -252,7 +254,7 @@ private:
     juce::TextButton addLayerButton { "+ LAYER" };
     juce::TextButton recordingButton { "GRAVAR WAV+MIDI" };
     juce::TextButton panicButton { "PANIC" };
-    juce::TextButton panicLearnButton { "LEARN" };
+    MidiLearnButton panicLearnButton { "LEARN" };
     juce::Label recordingStatus;
     juce::TextButton keyboardVisibilityButton { "OCULTAR TECLADO" };
     juce::TextButton audioMidiSettingsButton { "AUDIO / MIDI" };
@@ -264,13 +266,13 @@ private:
     std::array<juce::TextButton, ClassicPlayerAudioProcessor::liveSetBankCount> liveSetBankButtons;
     std::array<juce::TextButton, ClassicPlayerAudioProcessor::liveSetSlotsPerBank> liveSetSlotButtons;
     std::unique_ptr<juce::FileChooser> programFileChooser;
-    std::array<juce::TextButton, ClassicPlayerAudioProcessor::liveSetSlotsPerBank> liveSetSlotLearnButtons;
+    std::array<MidiLearnButton, ClassicPlayerAudioProcessor::liveSetSlotsPerBank> liveSetSlotLearnButtons;
     juce::Array<juce::File> programFiles;
     juce::Slider master;
     juce::Label masterLabel;
     juce::TextButton masterEqButton { "EQ MASTER" };
     juce::TextButton masterLimiterButton { "LIM" };
-    juce::TextButton masterLearnButton { "LEARN" };
+    MidiLearnButton masterLearnButton { "LEARN" };
     LevelMeter masterMeter;
     juce::ImageComponent appIcon;
     juce::ImageComponent classicKeysLogo;

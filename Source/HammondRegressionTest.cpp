@@ -113,6 +113,13 @@ static void continuousPadRegression()
           "STOP Learn ignored a low-valued CC");
     bank.midi(juce::MidiMessage::controllerEvent(10,48,127));block();
     check(bank.selected()==-1,"learned STOP CC did not stop the active pad");
+    bank.trigger(0);block();
+    bank.midi(juce::MidiMessage::controllerEvent(10,48,127));block();
+    check(bank.selected()==-1,"STOP requires a release message from the controller");
+    bank.learn(ContinuousPadBank::count);
+    bank.learn(ContinuousPadBank::count);
+    check(bank.learningTarget()==-1 && bank.mapping(ContinuousPadBank::count)==48,
+          "canceling STOP Learn erased its previous mapping");
     const auto saved=bank.save();bank.restore(saved);block();check(bank.selected()==-1&&audio.getMagnitude(0,128)==0,"restore autoplays");
     check(bank.mapping(0)==21&&bank.mapping(ContinuousPadBank::count)==48
           &&bank.path(0)==fixture.getFile().getFullPathName(),"pad settings lost");
@@ -124,6 +131,23 @@ static void continuousPadRegression()
         *p,juce::MidiMessage::controllerEvent(3,55,41));
     check(p->continuousPads(1).mapping(ContinuousPadBank::count)==55,
           "STOP Learn was blocked by the layer MIDI channel filter");
+    p->continuousPads(1).clearMapping(ContinuousPadBank::count);
+    check(p->continuousPads(1).mapping(ContinuousPadBank::count)==-1,
+          "STOP mapping could not be removed");
+    p->beginMidiLearn(1,ClassicPlayerAudioProcessor::LearnTarget::volume);
+    p->beginMidiLearn(1,ClassicPlayerAudioProcessor::LearnTarget::volume);
+    check(!p->isMidiLearning(1,ClassicPlayerAudioProcessor::LearnTarget::volume),
+          "second click did not cancel layer Learn");
+    p->beginDrumPadMidiLearn(0);
+    p->beginDrumPadMidiLearn(0);
+    check(!p->isDrumPadMidiLearning(0), "second click did not cancel drum pad Learn");
+    p->beginDrumPadMidiLearn(0);
+    p->beginDrumPadMidiLearn(1);
+    check(!p->isDrumPadMidiLearning(0) && p->isDrumPadMidiLearning(1),
+          "two drum pads stayed in Learn at once");
+    p->clearDrumPadMidiLearn(1);
+    check(!p->isDrumPadMidiLearning(1) && p->drumPadMidiMapping(1).isEmpty(),
+          "drum pad mapping could not be removed");
     juce::MemoryBlock state;p->getStateInformation(state);p->setStateInformation(state.getData(),(int)state.getSize());
     check(p->layerType(1)==ClassicPlayerAudioProcessor::LayerType::continuousPads&&p->continuousPads(1).mapping(0)==21,"program lost continuous pads");
     p->removeLayer(0);check(p->layerType(0)==ClassicPlayerAudioProcessor::LayerType::continuousPads&&p->continuousPads(0).mapping(0)==21,"removal lost pad bank");
@@ -452,6 +476,11 @@ int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
     try{
+        if (argc > 1 && juce::String(argv[1]) == "--midi-learn")
+        {
+            continuousPadRegression();
+            return 0;
+        }
         if (argc > 1 && juce::String(argv[1]) == "--performance-effects")
         {
             performanceEffectsRegression();

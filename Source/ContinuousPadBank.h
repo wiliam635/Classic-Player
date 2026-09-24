@@ -59,7 +59,14 @@ public:
     juce::String path(int i) const {const juce::ScopedLock g(lock);return pads[(size_t)i].path;}
     int mapping(int i) const {const juce::ScopedLock g(lock);return i==count?stopCC:pads[(size_t)i].cc;}
     int learningTarget() const {return learning.load();}
-    void learn(int i){learning=i;}
+    void learn(int i){learning = learning.load() == i ? -1 : i;}
+    void clearMapping(int i)
+    {
+        const juce::ScopedLock guard(lock);
+        if (i == count) stopCC = -1;
+        else if (juce::isPositiveAndBelow(i, count)) pads[(size_t) i].cc = -1;
+        if (learning.load() == i) learning = -1;
+    }
     // Standalone MIDI callbacks run outside the audio thread. Capture here
     // before device/channel routing so Learn behaves like the other layer
     // controls, including for controllers whose current value is below 64.
@@ -96,8 +103,10 @@ public:
         const bool edge=down&&!ccDown[(size_t)channel][(size_t)cc];
         ccDown[(size_t)channel][(size_t)cc]=down;
         if(assignLearnedCC(cc))return;
+        // STOP is idempotent. Some controller buttons send only 127 and no
+        // release, so an edge latch would leave a learned STOP inert.
+        if(stopCC==cc){if(down)stop();return;}
         if(!edge)return;
-        if(stopCC==cc){stop();return;}
         for(int i=0;i<count;++i)if(pads[(size_t)i].cc==cc){trigger(i);break;}
     }
     void render(juce::AudioBuffer<float>& output,float gain,float highPassHz,float lowPassHz,

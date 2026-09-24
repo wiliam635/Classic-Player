@@ -25,6 +25,7 @@ public:
     int masterMidiLearnCC() const { return masterCC.load(); }
     int masterMidiLearnChannel() const { return masterCCChannel.load(); }
     void beginPanicMidiLearn();
+    void resetPanicMidiLearn();
     bool isPanicMidiLearning() const { return panicLearning.load(); }
     int panicMidiLearnCC() const { return panicCC.load(); }
     int panicMidiLearnChannel() const { return panicCCChannel.load(); }
@@ -131,6 +132,7 @@ public:
     float masterEqValue(const juce::String& parameterId) const;
     void setMasterEqValue(const juce::String& parameterId, float value);
     void beginMidiLearn(int layer, LearnTarget target);
+    void clearMidiLearn(int layer, LearnTarget target);
     void resetMidiLearn(int layer);
     bool isLayerMuted(int layer) const;
     void setLayerMuted(int layer, bool muted);
@@ -194,6 +196,7 @@ public:
     bool isDrumPadPlaying(int pad) const;
     void triggerDrumPad(int pad);
     void beginDrumPadMidiLearn(int pad);
+    void clearDrumPadMidiLearn(int pad);
     bool isDrumPadMidiLearning(int pad) const;
     juce::Result loadDrumPad(int pad, const juce::File& file);
 

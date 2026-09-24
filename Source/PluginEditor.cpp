@@ -2253,9 +2253,15 @@ public:
             addAndMakeVisible(labels[(size_t) i]);
             flatButton(buttons[(size_t) i]);
             buttons[(size_t) i].setButtonText("LEARN");
+            buttons[(size_t) i].setTooltip("Clique novamente para cancelar; clique com o botão direito para excluir o mapeamento.");
             buttons[(size_t) i].onClick = [this, target = targets[(size_t) i]]
             {
                 processor.beginMidiLearn(index, target);
+                refresh();
+            };
+            buttons[(size_t) i].onClearMapping = [this, target = targets[(size_t) i]]
+            {
+                processor.clearMidiLearn(index, target);
                 refresh();
             };
             addAndMakeVisible(buttons[(size_t) i]);
@@ -2301,7 +2307,7 @@ private:
     ClassicPlayerAudioProcessor& processor;
     int index = 0;
     std::array<juce::Label, 5> labels;
-    std::array<juce::TextButton, 5> buttons;
+    std::array<MidiLearnButton, 5> buttons;
 };
 
 class Dx7EditorPanel final : public juce::Component
@@ -2578,17 +2584,28 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
 
         auto& learn = learnButtons[(size_t) pad];
         learn.setButtonText("LEARN");
-        learn.setTooltip("Aprender um CC MIDI exclusivo para este pad");
+        learn.setTooltip("Clique para aprender; clique novamente para cancelar; botão direito para excluir o mapeamento.");
         flatButton(learn);
         learn.onClick = [this, pad] { if(continuous())processor.continuousPads(layerIndex).learn(pad);else processor.beginDrumPadMidiLearn(pad); refresh(); };
+        learn.onClearMapping = [this, pad]
+        {
+            if (continuous()) processor.continuousPads(layerIndex).clearMapping(pad);
+            else processor.clearDrumPadMidiLearn(pad);
+            refresh();
+        };
         addAndMakeVisible(learn);
     }
-    for(auto* button:{&stopButton,&stopLearn,&volumeLearnButton,&muteLearnButton}){flatButton(*button);addAndMakeVisible(*button);}
+    flatButton(stopButton);addAndMakeVisible(stopButton);
+    for(auto* button:{&stopLearn,&volumeLearnButton,&muteLearnButton}){flatButton(*button);addAndMakeVisible(*button);}
     stopButton.onClick=[this]{processor.continuousPads(layerIndex).stop();};
-    stopLearn.onClick=[this]{processor.continuousPads(layerIndex).learn(12);};
-    volumeLearnButton.onClick=[this]{processor.beginMidiLearn(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume);};
+    stopLearn.onClick=[this]{processor.continuousPads(layerIndex).learn(12);refresh();};
+    stopLearn.setTooltip("Clique novamente para cancelar; botão direito para excluir o mapeamento do STOP.");
+    stopLearn.onClearMapping=[this]{processor.continuousPads(layerIndex).clearMapping(12);refresh();};
+    volumeLearnButton.onClick=[this]{processor.beginMidiLearn(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume);refresh();};
+    volumeLearnButton.onClearMapping=[this]{processor.clearMidiLearn(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume);refresh();};
     muteLearnButton.setTooltip("Aprender um CC para alternar o mute desta layer");
     muteLearnButton.onClick=[this]{processor.beginMidiLearn(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::mute);refresh();};
+    muteLearnButton.onClearMapping=[this]{processor.clearMidiLearn(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::mute);refresh();};
     fadeSlider.setRange(.02,10.0,.01);fadeSlider.setTextValueSuffix(" s crossfade");
     fadeSlider.setValue(processor.continuousPads(layerIndex).fadeSeconds(),juce::dontSendNotification);
     fadeSlider.onValueChange=[this]{processor.continuousPads(layerIndex).setFadeSeconds(fadeSlider.getValue());};
@@ -2944,13 +2961,17 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     for (auto* button : { &volumeLearn, &cutoffLearn, &reverbLearn, &compressorLearn })
     {
         flatButton(*button);
-        button->setTooltip("Mova um controle MIDI CC depois de ativar o learn");
+        button->setTooltip("Mova um controle MIDI CC; clique novamente para cancelar ou use o botão direito para excluir o mapeamento.");
         addAndMakeVisible(*button);
     }
-    volumeLearn.onClick = [this] { processor.beginMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::volume); };
-    cutoffLearn.onClick = [this] { processor.beginMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::cutoff); };
-    reverbLearn.onClick = [this] { processor.beginMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::reverb); };
-    compressorLearn.onClick = [this] { processor.beginMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::compressor); };
+    volumeLearn.onClick = [this] { processor.beginMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::volume); updateMidiLearnState(); };
+    cutoffLearn.onClick = [this] { processor.beginMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::cutoff); updateMidiLearnState(); };
+    reverbLearn.onClick = [this] { processor.beginMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::reverb); updateMidiLearnState(); };
+    compressorLearn.onClick = [this] { processor.beginMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::compressor); updateMidiLearnState(); };
+    volumeLearn.onClearMapping = [this] { processor.clearMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::volume); updateMidiLearnState(); };
+    cutoffLearn.onClearMapping = [this] { processor.clearMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::cutoff); updateMidiLearnState(); };
+    reverbLearn.onClearMapping = [this] { processor.clearMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::reverb); updateMidiLearnState(); };
+    compressorLearn.onClearMapping = [this] { processor.clearMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::compressor); updateMidiLearnState(); };
     for (auto* button : { &reverbEditButton, &compressorEditButton })
     {
         flatButton(*button);
@@ -2976,6 +2997,11 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     muteLearn.onClick = [this]
     {
         processor.beginMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::mute);
+        updateMidiLearnState();
+    };
+    muteLearn.onClearMapping = [this]
+    {
+        processor.clearMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::mute);
         updateMidiLearnState();
     };
     addAndMakeVisible(muteLearn);
@@ -4558,6 +4584,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     flatButton(panicLearnButton);
     panicLearnButton.setTooltip("Aprender um MIDI CC para acionar o Panic");
     panicLearnButton.onClick = [this] { classicProcessor.beginPanicMidiLearn(); };
+    panicLearnButton.onClearMapping = [this] { classicProcessor.resetPanicMidiLearn(); };
     addAndMakeVisible(panicLearnButton);
 
     flatButton(keyboardVisibilityButton);
@@ -4657,6 +4684,11 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
             classicProcessor.beginLiveSetSlotMidiLearn(activeLiveSetBank, slot);
             refreshLiveSet();
         };
+        learnButton.onClearMapping = [this, slot]
+        {
+            classicProcessor.resetLiveSetSlotMidiLearn(activeLiveSetBank, slot);
+            refreshLiveSet();
+        };
         addAndMakeVisible(learnButton);
     }
     showLiveSet(false);
@@ -4687,6 +4719,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
         else
             classicProcessor.beginMasterMidiLearn();
     };
+    masterLearnButton.onClearMapping = [this] { classicProcessor.resetMasterMidiLearn(); };
     addAndMakeVisible(masterLearnButton);
     addAndMakeVisible(masterMeter);
     masterAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(

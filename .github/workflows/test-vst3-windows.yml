@@ -44,6 +44,8 @@ jobs:
           if (-not $test) { throw "Teste de performance ausente" }
           & $test --performance-effects
           if ($LASTEXITCODE -ne 0) { throw "Falha ao restaurar efeitos da performance" }
+          & $test --midi-learn
+          if ($LASTEXITCODE -ne 0) { throw "Falha no MIDI Learn ou STOP dos pads contínuos" }
 
       - name: Verify self-contained VST3 loads like a DAW
         shell: pwsh
