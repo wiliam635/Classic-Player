@@ -13,6 +13,7 @@
 #include <cmath>
 #include <complex>
 #include <initializer_list>
+#include <limits>
 #include <set>
 
 namespace
@@ -2634,7 +2635,10 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     layerTitle.setText("LAYER " + juce::String(index + 1), juce::dontSendNotification);
     layerTitle.setFont(juce::FontOptions(14.0f, juce::Font::bold));
     layerTitle.setColour(juce::Label::textColourId, juce::Colour(text));
+    layerTitle.setTooltip("Arraste o nome para mudar a ordem das layers");
+    layerTitle.setMouseCursor(juce::MouseCursor::DraggingHandCursor);
     addAndMakeVisible(layerTitle);
+    addMouseListener(this, true);
     addAndMakeVisible(drumPadPanel);
     drumPadPanel.setVisible(false);
 
@@ -3024,19 +3028,47 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         juce::OwnedArray<juce::Component> owned;
     };
 
+    class ScrollContent final : public juce::Component
+    {
+    public:
+        void addRow(juce::Component* row, int height)
+        {
+            rows.add(row);
+            addAndMakeVisible(row);
+            row->setBounds(15, nextY, 620, height);
+            nextY += height + 6;
+            setSize(650, nextY);
+        }
+
+    private:
+        int nextY = 0;
+        juce::OwnedArray<juce::Component> rows;
+    };
+
     // The SF2 editor uses only the upper portion of its panel for the
     // library/routing controls.  Keeping the old 430 px slot created a large
     // empty gap before the effect knobs and made the dialog unnecessarily
     // tall.  Reserve only the space the controls actually occupy.
-    dialog->addCustomComponent(new CenteredPanel(sf2Panel, 620, 275));
-    dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
+    auto* content = new ScrollContent();
+    content->addRow(new CenteredPanel(sf2Panel, 620, 275), 275);
+    content->addRow(new CenteredPanel(new LayerPresetFilePanel(
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
-        [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 620, 38));
-    dialog->addCustomComponent(new CenteredPanel(new ModulationTogglePanel(processor, index), 620, 36));
+        [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 620, 38), 38);
+    content->addRow(new CenteredPanel(new ModulationTogglePanel(processor, index), 620, 36), 36);
     // Layer controls share a two-row grid so envelopes and EQ remain readable.
-    dialog->addCustomComponent(new CenteredPanel(knobs, 620, 248));
-    dialog->addCustomComponent(new CenteredPanel(effectButtons, 360, 38));
-    dialog->addCustomComponent(new CenteredPanel(midiPanel, 520, 52));
+    content->addRow(new CenteredPanel(knobs, 620, 248), 248);
+    content->addRow(new CenteredPanel(effectButtons, 360, 38), 38);
+    content->addRow(new CenteredPanel(midiPanel, 520, 52), 52);
+    auto* viewport = new juce::Viewport();
+    viewport->setViewedComponent(content, true);
+    viewport->setScrollBarsShown(true, false);
+    viewport->setScrollBarThickness(10);
+    const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect(getScreenBounds());
+    const auto screenHeight = display != nullptr ? display->userArea.getHeight() : 800;
+    const auto visibleContentHeight = juce::jmin(content->getHeight(),
+                                                juce::jmax(240, screenHeight - 210));
+    viewport->setSize(650, visibleContentHeight);
+    dialog->addCustomComponent(viewport);
     knobs->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), knobs, prefix]
     {
         if (safe == nullptr) return;
@@ -3050,9 +3082,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         set("Reverb", knobs->value(4)); set("Comp", knobs->value(5));
         set("EqLow", knobs->value(6)); set("EqMid", knobs->value(7)); set("EqHigh", knobs->value(8));
     });
-    // Keep the footer below the Learn controls.  The old height left the
-    // custom close button on top of the final Learn row in the SF2 editor.
-    dialog->setSize(760, 892);
+    // Constrain the dialog to the usable display area; the lower controls and
+    // their numeric fields remain reachable through the internal scroll view.
+    dialog->setSize(760, juce::jmin(screenHeight - 12, visibleContentHeight + 195));
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, dialog, knobs, prefix](int)
         {
@@ -3473,6 +3505,29 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showChorusEditor()
     });
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDown(const juce::MouseEvent& event)
+{
+    draggingLayerTitle = event.originalComponent == &layerTitle && event.mods.isLeftButtonDown();
+    if (draggingLayerTitle)
+        layerDragger.startDraggingComponent(this, event.getEventRelativeTo(this));
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDrag(const juce::MouseEvent& event)
+{
+    if (draggingLayerTitle)
+        layerDragger.dragComponent(this, event.getEventRelativeTo(this), nullptr);
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseUp(const juce::MouseEvent& event)
+{
+    if (!draggingLayerTitle) return;
+    draggingLayerTitle = false;
+    if (event.mouseWasDraggedSinceMouseDown() && reorderCallback)
+        reorderCallback(index, event.getScreenPosition());
+    else
+        if (auto* parent = getParentComponent()) parent->resized();
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
@@ -4588,6 +4643,8 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
         strips[(size_t) i] = std::make_unique<LayerStrip>(classicProcessor, i,
                                                           [this] { applyMixerStates(); layoutLayerStrips(); });
         strips[(size_t) i]->setRemoveCallback([this, i] { removeLayer(i); });
+        strips[(size_t) i]->setReorderCallback([this](int layer, juce::Point<int> position)
+        { reorderLayerFromDrag(layer, position); });
         layerContent.addAndMakeVisible(*strips[(size_t) i]);
         strips[(size_t) i]->setVisible(i < visibleLayerCount);
     }
@@ -5573,8 +5630,10 @@ void ClassicPlayerAudioProcessorEditor::refreshLiveSetVolumeIndicators()
                                          classicProcessor.activeLayerCount());
     juce::String volumes;
     int movingLayers = 0;
-    for (int layer = 0; layer < layerCount; ++layer)
+    for (int position = 0; position < layerCount; ++position)
     {
+        const auto layer = classicProcessor.visualLayerAt(position);
+        if (!juce::isPositiveAndBelow(layer, layerCount)) continue;
         const auto* value = classicProcessor.parameters.getRawParameterValue(
             "layer" + juce::String(layer + 1) + "Gain");
         const auto current = value != nullptr ? value->load() : 0.0f;
@@ -5582,9 +5641,9 @@ void ClassicPlayerAudioProcessorEditor::refreshLiveSetVolumeIndicators()
             liveSetVolumeHighlightUntil[(size_t) layer] = now + 450;
         liveSetLastVolumes[(size_t) layer] = current;
         if (liveSetVolumeHighlightUntil[(size_t) layer] > now)
-            movingLayers |= 1 << layer;
+            movingLayers |= 1 << position;
         if (volumes.isNotEmpty()) volumes << " ";
-        volumes << "L" << juce::String(layer + 1) << " "
+        volumes << "L" << juce::String(position + 1) << " "
                 << juce::String(juce::roundToInt(current)) << "%";
     }
 
@@ -5758,6 +5817,33 @@ void ClassicPlayerAudioProcessorEditor::removeLayer(int layer)
     applyMixerStates();
 }
 
+void ClassicPlayerAudioProcessorEditor::reorderLayerFromDrag(int layer, juce::Point<int> screenPosition)
+{
+    const auto count = classicProcessor.activeLayerCount();
+    if (juce::isPositiveAndBelow(layer, count)
+        && layerViewport.getScreenBounds().contains(screenPosition))
+    {
+        int closestLayer = -1;
+        int closestDistance = std::numeric_limits<int>::max();
+        for (int position = 0; position < count; ++position)
+        {
+            const auto candidate = classicProcessor.visualLayerAt(position);
+            if (candidate == layer || !juce::isPositiveAndBelow(candidate, count)) continue;
+            const auto distance = strips[(size_t) candidate]->getScreenBounds()
+                .getCentre().getDistanceSquaredFrom(screenPosition);
+            if (distance < closestDistance)
+            {
+                closestDistance = distance;
+                closestLayer = candidate;
+            }
+        }
+        if (closestLayer >= 0)
+            classicProcessor.moveLayerVisually(layer, closestLayer);
+    }
+    layoutLayerStrips();
+    refreshLiveSetVolumeIndicators();
+}
+
 void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
 {
     const auto count = classicProcessor.activeLayerCount();
@@ -5783,8 +5869,10 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
     // Pack variable-width pad strips without stretching ordinary instruments.
     std::vector<juce::Rectangle<int>> bounds;
     int x=0, y=gap, rowHeight=0, contentWidth=availableWidth;
-    for (int i=0;i<count;++i)
+    for (int position=0;position<count;++position)
     {
+        const auto i=classicProcessor.visualLayerAt(position);
+        if (!juce::isPositiveAndBelow(i, count)) continue;
         const bool pads=classicProcessor.layerType(i)==ClassicPlayerAudioProcessor::LayerType::drumPads || classicProcessor.layerType(i)==ClassicPlayerAudioProcessor::LayerType::continuousPads;
         const int width=pads ? juce::jmin(availableWidth,juce::jmax(420,stripWidth*2)) : stripWidth;
         const int height=strips[(size_t)i] && strips[(size_t)i]->isExpanded()
@@ -5796,12 +5884,15 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
     }
     layerContent.setSize(contentWidth,juce::jmax(y+rowHeight+gap,
         layerViewport.getHeight()-layerViewport.getScrollBarThickness()));
-    for (int i = 0; i < Sf2Engine::layerCount; ++i)
+    for (int position = 0; position < Sf2Engine::layerCount; ++position)
     {
+        const auto i = classicProcessor.visualLayerAt(position);
+        if (!juce::isPositiveAndBelow(i, Sf2Engine::layerCount)) continue;
         if (strips[(size_t) i] == nullptr) continue;
-        strips[(size_t) i]->setVisible(i < count);
-        if (i >= count) continue;
-        strips[(size_t) i]->setBounds(bounds[(size_t)i]);
+        strips[(size_t) i]->setVisible(position < count);
+        if (position >= count) continue;
+        strips[(size_t) i]->setDisplayPosition(position);
+        strips[(size_t) i]->setBounds(bounds[(size_t)position]);
     }
 }
 

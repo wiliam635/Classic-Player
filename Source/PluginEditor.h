@@ -72,6 +72,9 @@ private:
         LayerStrip(ClassicPlayerAudioProcessor&, int layerIndex, std::function<void()> mixChanged);
         void paint(juce::Graphics&) override;
         void resized() override;
+        void mouseDown(const juce::MouseEvent&) override;
+        void mouseDrag(const juce::MouseEvent&) override;
+        void mouseUp(const juce::MouseEvent&) override;
         void refresh();
         void updateMeter();
         void refreshMidiDevices();
@@ -82,6 +85,10 @@ private:
         bool isSolo() const { return solo; }
         bool isExpanded() const { return expanded; }
         void setRemoveCallback(std::function<void()> callback) { removeLayerCallback = std::move(callback); }
+        void setReorderCallback(std::function<void(int, juce::Point<int>)> callback)
+        { reorderCallback = std::move(callback); }
+        void setDisplayPosition(int position)
+        { layerTitle.setText("LAYER " + juce::String(position + 1), juce::dontSendNotification); }
 
     private:
         void chooseSoundFont();
@@ -119,6 +126,9 @@ private:
         const int index;
         std::function<void()> mixStateChanged;
         std::function<void()> removeLayerCallback;
+        std::function<void(int, juce::Point<int>)> reorderCallback;
+        juce::ComponentDragger layerDragger;
+        bool draggingLayerTitle = false;
         bool muted = false;
         bool solo = false;
         bool expanded = false;
@@ -216,6 +226,7 @@ private:
     void loadLiveSetSlot(int slot);
     void addLayer(ClassicPlayerAudioProcessor::LayerType type = ClassicPlayerAudioProcessor::LayerType::sf2);
     void removeLayer(int layer);
+    void reorderLayerFromDrag(int layer, juce::Point<int> screenPosition);
     void layoutLayerStrips();
     void activate();
     void validateStoredOnlineSession();

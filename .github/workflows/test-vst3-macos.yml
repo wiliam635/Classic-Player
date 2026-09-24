@@ -8,6 +8,11 @@ on:
       - .github/workflows/test-vst3-macos.yml
       - installer/macos/components-vst3-test.plist
       - scripts/package-macos-vst3-test.sh
+      - Source/PluginEditor.cpp
+      - Source/PluginEditor.h
+      - Source/PluginProcessor.cpp
+      - Source/PluginProcessor.h
+      - Source/HammondRegressionTest.cpp
 
 jobs:
   vst3-macos:
@@ -25,10 +30,10 @@ jobs:
       - name: Configure dependencies and both architectures
         run: bash scripts/build-macos-universal-compat.sh
 
-      - name: Build VST3 for Intel and Apple Silicon
+      - name: Build VST3 and AU for Intel and Apple Silicon
         run: |
-          cmake --build build/macos-compat-x86_64 --target ClassicPlayer_VST3 --parallel 4
-          cmake --build build/macos-compat-arm64 --target ClassicPlayer_VST3 --parallel 4
+          cmake --build build/macos-compat-x86_64 --target ClassicPlayer_VST3 ClassicPlayer_AU --parallel 4
+          cmake --build build/macos-compat-arm64 --target ClassicPlayer_VST3 ClassicPlayer_AU --parallel 4
 
       - name: Assemble and verify universal VST3
         shell: bash
@@ -52,15 +57,33 @@ jobs:
             "outputs/vst3-test/Classic-Player-2.0.0-VST3-teste-macOS-Universal.dmg"
           hdiutil verify "outputs/vst3-test/Classic-Player-2.0.0-VST3-teste-macOS-Universal.dmg"
 
-      - name: Package standalone and VST3 test installer
+      - name: Assemble and verify universal AU
+        shell: bash
+        run: |
+          set -euo pipefail
+          arm="build/macos-compat-arm64/ClassicPlayer_artefacts/Release/AU/Classic Player.component"
+          intel="build/macos-compat-x86_64/ClassicPlayer_artefacts/Release/AU/Classic Player.component"
+          output="outputs/vst3-test/Classic Player.component"
+          test -f "$arm/Contents/MacOS/Classic Player"
+          test -f "$intel/Contents/MacOS/Classic Player"
+          ditto "$arm" "$output"
+          lipo -create "$intel/Contents/MacOS/Classic Player" "$arm/Contents/MacOS/Classic Player" \
+            -output "$output/Contents/MacOS/Classic Player"
+          /usr/bin/xattr -cr "$output"
+          codesign --force --deep --sign - "$output"
+          codesign --verify --deep --strict "$output"
+          lipo "$output/Contents/MacOS/Classic Player" -verify_arch x86_64 arm64
+          plutil -lint "$output/Contents/Info.plist"
+
+      - name: Package standalone, VST3 and AU test installer
         shell: bash
         run: bash scripts/package-macos-vst3-test.sh
 
-      - name: Upload test plugin and combined installer
+      - name: Upload test plug-ins and combined installer
         uses: actions/upload-artifact@v4
         with:
-          name: Classic-Player-2.0.0-VST3-teste-${{ github.run_number }}-macOS-Universal
+          name: Classic-Player-2.0.0-VST3-AU-teste-${{ github.run_number }}-macOS-Universal
           if-no-files-found: error
           path: |
             outputs/vst3-test/Classic-Player-2.0.0-VST3-teste-macOS-Universal.dmg
-            outputs/vst3-test/Classic-Player-2.0.0-Standalone-VST3-teste-macOS-Universal.pkg
+            outputs/vst3-test/Classic-Player-2.0.0-Standalone-VST3-AU-teste-macOS-Universal.pkg

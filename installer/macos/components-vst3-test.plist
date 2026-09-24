@@ -7,7 +7,7 @@
     <key>BundleIsRelocatable</key><false/>
     <key>BundleIsVersionChecked</key><false/>
     <key>BundleOverwriteAction</key><string>replace</string>
-    <key>RootRelativeBundlePath</key><string>Applications/Classic Player VST3 Teste.app</string>
+    <key>RootRelativeBundlePath</key><string>Applications/Classic Player Teste.app</string>
   </dict>
   <dict>
     <key>BundleHasStrictIdentifier</key><true/>
@@ -15,6 +15,13 @@
     <key>BundleIsVersionChecked</key><false/>
     <key>BundleOverwriteAction</key><string>replace</string>
     <key>RootRelativeBundlePath</key><string>Library/Audio/Plug-Ins/VST3/Classic Player.vst3</string>
+  </dict>
+  <dict>
+    <key>BundleHasStrictIdentifier</key><true/>
+    <key>BundleIsRelocatable</key><false/>
+    <key>BundleIsVersionChecked</key><false/>
+    <key>BundleOverwriteAction</key><string>replace</string>
+    <key>RootRelativeBundlePath</key><string>Library/Audio/Plug-Ins/Components/Classic Player.component</string>
   </dict>
 </array>
 </plist>

@@ -288,6 +288,10 @@ struct DrumPadRegressionAccess
         for(int i=0;i<10;++i)block();
         check(std::abs(block()-.125f)<1e-6,"drum half gain");
         check(std::abs(p->layerPeak(0)-.125f)<1e-6,"drum meter ignores layer gain");
+        p->setLayerMuted(0,true);
+        check(p->layerPeak(0)<1e-6,"muted layer meter still shows a peak");
+        p->setLayerMuted(0,false);
+        check(std::abs(p->layerPeak(0)-.125f)<1e-6,"unmuted layer meter did not recover");
         gain(0);for(int i=0;i<10;++i)block();check(std::abs(block())<1e-6,"drum mute gain");
         check(p->layerPeak(0)<1e-6,"muted drum meter not silent");
         gain(50);auto config=p->layerConfig(0);config.enabled=false;p->setLayerConfig(0,config);
@@ -297,6 +301,14 @@ struct DrumPadRegressionAccess
         juce::MemoryBlock state;p->getStateInformation(state);
         p->setStateInformation(state.getData(),(int)state.getSize());
         check(std::abs(p->parameters.getRawParameterValue("layer1Gain")->load()-50)<1e-6,"drum gain persistence");
+        check(p->moveLayerVisually(0,2),"visual layer move failed");
+        check(p->visualLayerAt(0)==1 && p->visualLayerAt(1)==2 && p->visualLayerAt(2)==0,
+              "visual layer order incorrect");
+        juce::MemoryBlock reorderedState;
+        p->getStateInformation(reorderedState);
+        p->setStateInformation(reorderedState.getData(),(int)reorderedState.getSize());
+        check(p->visualLayerAt(0)==1 && p->visualLayerAt(1)==2 && p->visualLayerAt(2)==0,
+              "visual layer order was not saved");
         pad.audio.setSize(2,48000);
         for(int ch=0;ch<2;++ch)for(int i=0;i<48000;++i)pad.audio.setSample(ch,i,.25f);
         const auto sendCC=[&](int cc,int value,int channel=10){

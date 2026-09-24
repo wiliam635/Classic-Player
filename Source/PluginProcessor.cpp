@@ -181,6 +181,8 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
     for (auto& peak : externalPeaks) peak.store(0.0f);
     for (auto& sample : spectrumSamples) sample.store(0.0f, std::memory_order_relaxed);
     for (auto& type : layerTypes) type.store(static_cast<int>(LayerType::sf2));
+    for (int i = 0; i < Sf2Engine::layerCount; ++i)
+        visualLayerOrder[(size_t) i].store(i, std::memory_order_relaxed);
     for (int layer = Sf2Engine::defaultLayerCount; layer < Sf2Engine::layerCount; ++layer)
     {
         auto config = engine.getConfig(layer);
@@ -1144,6 +1146,7 @@ void ClassicPlayerAudioProcessor::sendLayerController(int layer, int controller,
 float ClassicPlayerAudioProcessor::layerPeak(int layer) const
 {
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return 0.0f;
+    if (isLayerMuted(layer)) return 0.0f;
     if (layerType(layer)==LayerType::drumPads)
         return drumPeaks[(size_t)layer].load(std::memory_order_relaxed);
     if (layerType(layer)==LayerType::continuousPads)return continuousBanks[(size_t)layer]->peak();
@@ -1353,6 +1356,37 @@ bool ClassicPlayerAudioProcessor::addLayer(LayerType type)
     return false;
 }
 
+int ClassicPlayerAudioProcessor::visualLayerAt(int position) const
+{
+    if (!juce::isPositiveAndBelow(position, Sf2Engine::layerCount)) return -1;
+    return visualLayerOrder[(size_t) position].load(std::memory_order_relaxed);
+}
+
+bool ClassicPlayerAudioProcessor::moveLayerVisually(int sourceLayer, int targetLayer)
+{
+    const juce::ScopedLock callbackLock(getCallbackLock());
+    const auto count = activeLayerCount();
+    if (!juce::isPositiveAndBelow(sourceLayer, count)
+        || !juce::isPositiveAndBelow(targetLayer, count) || sourceLayer == targetLayer)
+        return false;
+    int sourcePosition = -1, targetPosition = -1;
+    for (int position = 0; position < count; ++position)
+    {
+        const auto layer = visualLayerAt(position);
+        if (layer == sourceLayer) sourcePosition = position;
+        if (layer == targetLayer) targetPosition = position;
+    }
+    if (sourcePosition < 0 || targetPosition < 0) return false;
+    if (sourcePosition < targetPosition)
+        for (int position = sourcePosition; position < targetPosition; ++position)
+            visualLayerOrder[(size_t) position].store(visualLayerAt(position + 1), std::memory_order_relaxed);
+    else
+        for (int position = sourcePosition; position > targetPosition; --position)
+            visualLayerOrder[(size_t) position].store(visualLayerAt(position - 1), std::memory_order_relaxed);
+    visualLayerOrder[(size_t) targetPosition].store(sourceLayer, std::memory_order_relaxed);
+    return true;
+}
+
 bool ClassicPlayerAudioProcessor::removeLayer(int layer)
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
@@ -1363,6 +1397,21 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     if (layer >= count || count <= 0) return false;
 
     const auto last = count - 1;
+    // The internal slots below are compacted after removal. Apply the same
+    // index shift to the independent visual order and keep inactive slots last.
+    std::array<int, Sf2Engine::layerCount> previousVisualOrder {};
+    for (int position = 0; position < Sf2Engine::layerCount; ++position)
+        previousVisualOrder[(size_t) position] = visualLayerAt(position);
+    int visualPosition = 0;
+    for (int position = 0; position < count; ++position)
+    {
+        const auto oldLayer = previousVisualOrder[(size_t) position];
+        if (oldLayer != layer)
+            visualLayerOrder[(size_t) visualPosition++].store(
+                oldLayer > layer ? oldLayer - 1 : oldLayer, std::memory_order_relaxed);
+    }
+    for (int position = visualPosition; position < Sf2Engine::layerCount; ++position)
+        visualLayerOrder[(size_t) position].store(position, std::memory_order_relaxed);
     static constexpr std::array<const char*, 26> parameterSuffixes {
         "Gain", "Muted", "Attack", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh",
         "EqLowFrequency", "EqMidFrequency", "EqHighFrequency", "EqLowQ", "EqMidQ", "EqHighQ",
@@ -2561,6 +2610,8 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
     state.setProperty("panicLearnChannel", panicCCChannel.load(), nullptr);
     state.setProperty("stateVersion", 168, nullptr);
     state.setProperty("activeLayers", activeLayerCount(), nullptr);
+    for (int position = 0; position < Sf2Engine::layerCount; ++position)
+        state.setProperty("visualLayer" + juce::String(position), visualLayerAt(position), nullptr);
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
         state.setProperty("layerType" + juce::String(i + 1),
@@ -2666,6 +2717,23 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
         auto state = juce::ValueTree::fromXml(*xml);
         if (state.isValid())
         {
+            std::array<bool, Sf2Engine::layerCount> seenVisualLayers {};
+            bool validVisualOrder = true;
+            for (int position = 0; position < Sf2Engine::layerCount; ++position)
+            {
+                const auto layer = (int) state.getProperty("visualLayer" + juce::String(position), position);
+                if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)
+                    || seenVisualLayers[(size_t) layer])
+                {
+                    validVisualOrder = false;
+                    break;
+                }
+                seenVisualLayers[(size_t) layer] = true;
+                visualLayerOrder[(size_t) position].store(layer, std::memory_order_relaxed);
+            }
+            if (!validVisualOrder)
+                for (int position = 0; position < Sf2Engine::layerCount; ++position)
+                    visualLayerOrder[(size_t) position].store(position, std::memory_order_relaxed);
             masterCC.store(juce::jlimit(-1, 119, (int) state.getProperty("masterLearnCC", -1)));
             masterCCChannel.store(juce::jlimit(-1, 16, (int) state.getProperty("masterLearnChannel", -1)));
             masterLearning.store(false);
@@ -2945,6 +3013,13 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 0, Sf2Engine::layerCount,
                 static_cast<int>(state.getProperty("activeLayers", Sf2Engine::defaultLayerCount)));
             activeLayers.store(restoredLayerCount, std::memory_order_relaxed);
+            for (int position = 0; position < restoredLayerCount; ++position)
+                if (visualLayerAt(position) >= restoredLayerCount)
+                {
+                    for (int reset = 0; reset < Sf2Engine::layerCount; ++reset)
+                        visualLayerOrder[(size_t) reset].store(reset, std::memory_order_relaxed);
+                    break;
+                }
             for (int i = 0; i < Sf2Engine::layerCount; ++i)
             {
                 auto config = engine.getConfig(i);

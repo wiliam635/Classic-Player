@@ -6,6 +6,11 @@ on:
     branches: [codex/fix-user-refresh]
     paths:
       - .github/workflows/test-vst3-windows.yml
+      - Source/PluginEditor.cpp
+      - Source/PluginEditor.h
+      - Source/PluginProcessor.cpp
+      - Source/PluginProcessor.h
+      - Source/HammondRegressionTest.cpp
 
 jobs:
   vst3-windows:
@@ -28,13 +33,43 @@ jobs:
         shell: pwsh
         run: cmake --build build\windows-x64 --target ClassicPlayer_VST3 --config Release --parallel 2
 
-      - name: Verify and package test plugin
+      - name: Stage runtime DLLs and verify the VST3 loads
         shell: pwsh
         run: |
           $bundle = "build\windows-x64\ClassicPlayer_artefacts\Release\VST3\Classic Player.vst3"
           if (-not (Test-Path $bundle -PathType Container)) { throw "VST3 não gerado: $bundle" }
           $binary = Get-ChildItem $bundle -Recurse -Filter "*.vst3" -File | Select-Object -First 1
           if (-not $binary) { throw "Binário VST3 não encontrado dentro do bundle" }
+          # The dynamic vcpkg triplet does not embed FluidSynth/OpenSSL and their
+          # dependencies. Windows searches beside the VST3 module, not beside Reaper.
+          $vcpkgBin = "build\windows-x64\vcpkg_installed\x64-windows\bin"
+          if (-not (Test-Path $vcpkgBin -PathType Container)) { throw "DLLs vcpkg ausentes: $vcpkgBin" }
+          Get-ChildItem $vcpkgBin -Filter "*.dll" -File |
+            Copy-Item -Destination $binary.DirectoryName -Force
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class Vst3Loader {
+              [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+              public static extern IntPtr LoadLibraryEx(string path, IntPtr file, uint flags);
+              [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
+              public static extern IntPtr GetProcAddress(IntPtr module, string name);
+              [DllImport("kernel32.dll", SetLastError = true)]
+              public static extern bool FreeLibrary(IntPtr module);
+          }
+          '@
+          $module = [Vst3Loader]::LoadLibraryEx($binary.FullName, [IntPtr]::Zero, 0x00001100)
+          if ($module -eq [IntPtr]::Zero) {
+            throw "VST3 não carrega no Windows (erro Win32 $([Runtime.InteropServices.Marshal]::GetLastWin32Error()))."
+          }
+          try {
+            if ([Vst3Loader]::GetProcAddress($module, "GetPluginFactory") -eq [IntPtr]::Zero) {
+              throw "GetPluginFactory ausente no VST3."
+            }
+          } finally {
+            [Vst3Loader]::FreeLibrary($module) | Out-Null
+          }
+          Write-Host "VST3 carregado e GetPluginFactory encontrado."
           New-Item -ItemType Directory -Force "outputs\vst3-test" | Out-Null
           Compress-Archive -Path $bundle -DestinationPath "outputs\vst3-test\Classic-Player-2.0.0-VST3-teste-Windows-x64.zip" -Force
 

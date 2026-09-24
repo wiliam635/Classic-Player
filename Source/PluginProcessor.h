@@ -95,6 +95,8 @@ public:
     int activeLayerCount() const { return activeLayers.load(std::memory_order_relaxed); }
     bool addLayer(LayerType type = LayerType::sf2);
     bool removeLayer(int layer);
+    int visualLayerAt(int position) const;
+    bool moveLayerVisually(int sourceLayer, int targetLayer);
     LayerType layerType(int layer) const;
     void setLayerType(int layer, LayerType type);
     juce::Result loadDx7(int layer, const juce::File& file);
@@ -319,6 +321,9 @@ private:
     juce::MidiBuffer visualMidiBuffer;
     std::array<juce::String, Sf2Engine::layerCount> layerMidiDeviceIds;
     std::atomic<int> activeLayers { Sf2Engine::defaultLayerCount };
+    // Presentation order only: audio, MIDI learn, and saved layer parameters
+    // continue to use their stable internal indices.
+    std::array<std::atomic<int>, Sf2Engine::layerCount> visualLayerOrder {};
     mutable juce::CriticalSection midiRoutingLock;
     juce::AudioDeviceManager* standaloneDeviceManager = nullptr;
     juce::MidiInputCallback* standaloneDefaultMidiCallback = nullptr;
