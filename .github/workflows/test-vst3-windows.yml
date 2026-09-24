@@ -30,7 +30,7 @@ jobs:
 
       - name: Configure x64
         shell: pwsh
-        run: cmake --preset windows-x64 -DVCPKG_TARGET_TRIPLET=x64-windows-static
+        run: cmake --preset windows-x64 -DVCPKG_TARGET_TRIPLET=x64-windows-static '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>'
 
       - name: Build standalone and VST3
         shell: pwsh
