@@ -2,6 +2,11 @@ name: Test Classic Player VST3 - Windows x64
 
 on:
   workflow_dispatch:
+    inputs:
+      final_release:
+        description: Publicar somente o instalador final 2.0.1
+        type: boolean
+        default: false
   push:
     branches: [codex/fix-user-refresh]
     paths:
@@ -96,9 +101,15 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup --no-progress -y
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\windows\ClassicPlayerVst3Test.iss"
+          $final = "${{ inputs.final_release }}" -eq "true"
+          if ($final) {
+            & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DFINAL_RELEASE "installer\windows\ClassicPlayerVst3Test.iss"
+            $setup = "outputs\vst3-test\Classic-Player-2.0.1-Windows-x64-Setup.exe"
+          } else {
+            & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\windows\ClassicPlayerVst3Test.iss"
+            $setup = "outputs\vst3-test\Classic-Player-2.0.1-Standalone-VST3-teste-Windows-x64-Setup.exe"
+          }
           if ($LASTEXITCODE -ne 0) { throw "Instalador de teste falhou" }
-          $setup = "outputs\vst3-test\Classic-Player-2.0.1-Standalone-VST3-teste-Windows-x64-Setup.exe"
           if (-not (Test-Path $setup)) { throw "Instalador de teste não foi criado" }
           $setup = (Resolve-Path $setup).Path
           $process = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
@@ -112,6 +123,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Host nao conseguiu abrir o VST3 instalado" }
 
       - name: Upload test plugin
+        if: ${{ inputs.final_release != true }}
         uses: actions/upload-artifact@v4
         with:
           name: Classic-Player-2.0.1-VST3-teste-${{ github.run_number }}-Windows-x64
@@ -119,3 +131,11 @@ jobs:
           path: |
             outputs/vst3-test/Classic-Player-2.0.1-VST3-teste-Windows-x64.zip
             outputs/vst3-test/Classic-Player-2.0.1-Standalone-VST3-teste-Windows-x64-Setup.exe
+
+      - name: Upload final installer
+        if: ${{ inputs.final_release == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Classic-Player-2.0.1-Windows-x64
+          if-no-files-found: error
+          path: outputs/vst3-test/Classic-Player-2.0.1-Windows-x64-Setup.exe

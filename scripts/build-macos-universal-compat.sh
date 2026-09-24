@@ -92,8 +92,8 @@ rm "$UNIVERSAL/Contents/MacOS/Classic Player"
 
 /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable ClassicPlayer" "$UNIVERSAL/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.classickeys.classicplayer.macos161" "$UNIVERSAL/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 2.0.0" "$UNIVERSAL/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 2.0.0" "$UNIVERSAL/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 2.0.1" "$UNIVERSAL/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 2.0.1" "$UNIVERSAL/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 10.13" "$UNIVERSAL/Contents/Info.plist" 2>/dev/null || \
   /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion 10.13" "$UNIVERSAL/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :NSHighResolutionCapable bool true" "$UNIVERSAL/Contents/Info.plist" 2>/dev/null || \

@@ -2,12 +2,19 @@ name: Test Classic Player VST3 - macOS Universal
 
 on:
   workflow_dispatch:
+    inputs:
+      final_release:
+        description: Publicar somente o instalador final 2.0.1
+        type: boolean
+        default: false
   push:
     branches: [codex/fix-user-refresh]
     paths:
       - .github/workflows/test-vst3-macos.yml
       - installer/macos/components-vst3-test.plist
+      - installer/macos/components-vst3-final.plist
       - scripts/package-macos-vst3-test.sh
+      - scripts/build-macos-universal-compat.sh
       - Source/PluginEditor.cpp
       - Source/PluginEditor.h
       - Source/PluginProcessor.cpp
@@ -77,9 +84,12 @@ jobs:
 
       - name: Package standalone, VST3 and AU test installer
         shell: bash
+        env:
+          FINAL_RELEASE: ${{ inputs.final_release && '1' || '0' }}
         run: bash scripts/package-macos-vst3-test.sh
 
       - name: Upload test plug-ins and combined installer
+        if: ${{ inputs.final_release != true }}
         uses: actions/upload-artifact@v4
         with:
           name: Classic-Player-2.0.1-VST3-AU-teste-${{ github.run_number }}-macOS-Universal
@@ -87,3 +97,11 @@ jobs:
           path: |
             outputs/vst3-test/Classic-Player-2.0.1-VST3-teste-macOS-Universal.dmg
             outputs/vst3-test/Classic-Player-2.0.1-Standalone-VST3-AU-teste-macOS-Universal.pkg
+
+      - name: Upload final installer
+        if: ${{ inputs.final_release == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Classic-Player-2.0.1-macOS-Universal
+          if-no-files-found: error
+          path: outputs/vst3-test/Classic-Player-2.0.1-macOS-Universal.pkg
