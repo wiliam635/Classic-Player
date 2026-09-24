@@ -6,7 +6,7 @@ APP="${APP_PATH:-$ROOT/build/Classic Player 2.0 macOS Universal.app}"
 VST3="${VST3_PATH:-$ROOT/outputs/vst3-test/Classic Player.vst3}"
 AU="${AU_PATH:-$ROOT/outputs/vst3-test/Classic Player.component}"
 OUTPUT="${OUTPUT_DIR:-$ROOT/outputs/vst3-test}"
-PACKAGE="$OUTPUT/Classic-Player-2.0.0-Standalone-VST3-AU-teste-macOS-Universal.pkg"
+PACKAGE="$OUTPUT/Classic-Player-2.0.1-Standalone-VST3-AU-teste-macOS-Universal.pkg"
 STAGE="$(mktemp -d "$ROOT/build/package-vst3-test.XXXXXX")"
 
 cleanup() { rm -rf "$STAGE"; }
@@ -35,8 +35,8 @@ lipo "$STAGE/Library/Audio/Plug-Ins/VST3/Classic Player.vst3/Contents/MacOS/Clas
 lipo "$STAGE/Library/Audio/Plug-Ins/Components/Classic Player.component/Contents/MacOS/Classic Player" -verify_arch x86_64 arm64
 
 pkgbuild --root "$STAGE" \
-  --identifier com.classickeys.classicplayer.vst3-test \
-  --version 2.0.2 \
+  --identifier com.classickeys.classicplayer.vst3-au-test-201 \
+  --version 2.0.1 \
   --install-location / \
   --component-plist "$ROOT/installer/macos/components-vst3-test.plist" \
   "$PACKAGE"

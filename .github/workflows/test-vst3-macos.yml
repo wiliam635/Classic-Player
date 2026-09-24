@@ -54,8 +54,8 @@ jobs:
           lipo "$output/Contents/MacOS/Classic Player" -verify_arch x86_64 arm64
           hdiutil create -volname "Classic Player VST3 Teste" -srcfolder "$output" \
             -ov -format UDZO \
-            "outputs/vst3-test/Classic-Player-2.0.0-VST3-teste-macOS-Universal.dmg"
-          hdiutil verify "outputs/vst3-test/Classic-Player-2.0.0-VST3-teste-macOS-Universal.dmg"
+            "outputs/vst3-test/Classic-Player-2.0.1-VST3-teste-macOS-Universal.dmg"
+          hdiutil verify "outputs/vst3-test/Classic-Player-2.0.1-VST3-teste-macOS-Universal.dmg"
 
       - name: Assemble and verify universal AU
         shell: bash
@@ -82,8 +82,8 @@ jobs:
       - name: Upload test plug-ins and combined installer
         uses: actions/upload-artifact@v4
         with:
-          name: Classic-Player-2.0.0-VST3-AU-teste-${{ github.run_number }}-macOS-Universal
+          name: Classic-Player-2.0.1-VST3-AU-teste-${{ github.run_number }}-macOS-Universal
           if-no-files-found: error
           path: |
-            outputs/vst3-test/Classic-Player-2.0.0-VST3-teste-macOS-Universal.dmg
-            outputs/vst3-test/Classic-Player-2.0.0-Standalone-VST3-AU-teste-macOS-Universal.pkg
+            outputs/vst3-test/Classic-Player-2.0.1-VST3-teste-macOS-Universal.dmg
+            outputs/vst3-test/Classic-Player-2.0.1-Standalone-VST3-AU-teste-macOS-Universal.pkg
