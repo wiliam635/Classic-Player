@@ -4327,7 +4327,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::setEngineEnabled(bool enable
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMeter()
 {
-    meter.setLevel(std::sqrt(juce::jlimit(0.0f, 1.0f, processor.layerPeak(index))));
+    meter.setLevel(juce::jlimit(0.0f, 1.0f, processor.layerPeak(index)));
     const auto processorMuted = processor.isLayerMuted(index);
     if (muted != processorMuted)
     {
@@ -5296,12 +5296,10 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
         if (!showingLiveSet) showLiveSet(true);
         loadLiveSetSlot(requested % ClassicPlayerAudioProcessor::liveSetSlotsPerBank);
     }
-    float masterLevel = 0.0f;
     for (int i = 0; i < classicProcessor.activeLayerCount(); ++i)
     {
         if (strips[(size_t) i] != nullptr)
             strips[(size_t) i]->updateMeter();
-        masterLevel = juce::jmax(masterLevel, classicProcessor.layerPeak(i));
     }
     if (++timerTicks >= 20)
     {
@@ -5317,7 +5315,7 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
         for (auto& strip : strips)
             if (strip != nullptr) strip->refreshMidiDevices();
     }
-    masterMeter.setLevel(std::sqrt(juce::jlimit(0.0f, 1.0f, masterLevel)));
+    masterMeter.setLevel(juce::jlimit(0.0f, 1.0f, classicProcessor.limiterOutputLevel()));
 
     if (classicProcessor.isAudioRecording())
     {

@@ -624,11 +624,15 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     juce::dsp::ProcessContextReplacing<float> context(block);
     const auto inputGain = juce::Decibels::decibelsToGain(parameters.getRawParameterValue("limiterInput")->load());
     buffer.applyGain(inputGain);
-    const auto inputPeak = buffer.getMagnitude(0, buffer.getNumSamples());
+    float inputPeak = 0.0f;
+    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+        inputPeak = juce::jmax(inputPeak, buffer.getMagnitude(channel, 0, buffer.getNumSamples()));
     outputLimiter.setThreshold(parameters.getRawParameterValue("limiterCeiling")->load());
     outputLimiter.setRelease(parameters.getRawParameterValue("limiterRelease")->load());
     outputLimiter.process(context);
-    const auto outputPeak = buffer.getMagnitude(0, buffer.getNumSamples());
+    float outputPeak = 0.0f;
+    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+        outputPeak = juce::jmax(outputPeak, buffer.getMagnitude(channel, 0, buffer.getNumSamples()));
     limiterInputPeak.store(inputPeak, std::memory_order_relaxed);
     limiterOutputPeak.store(outputPeak, std::memory_order_relaxed);
     // JUCE's Limiter applies make-up gain after its compressors (7.5 dB from
@@ -1174,13 +1178,20 @@ float ClassicPlayerAudioProcessor::layerPeak(int layer) const
 {
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return 0.0f;
     if (isLayerMuted(layer)) return 0.0f;
-    if (layerType(layer)==LayerType::drumPads)
-        return drumPeaks[(size_t)layer].load(std::memory_order_relaxed);
-    if (layerType(layer)==LayerType::continuousPads)return continuousBanks[(size_t)layer]->peak();
-    return juce::jmax(engine.getLayerPeak(layer),
-                      juce::jmax(dx7Engine.getLayerPeak(layer),
-                                 juce::jmax(analogSynthEngine.getLayerPeak(layer),
-                                            juce::jmax(hammondEngine.getLayerPeak(layer), externalPeaks[(size_t) layer].load(std::memory_order_relaxed)))));
+    // Only the source actually selected for this layer is audible. Taking
+    // the maximum across all engines could display a stale peak from the
+    // previously selected instrument after switching performances.
+    switch (layerType(layer))
+    {
+        case LayerType::sf2: return engine.getLayerPeak(layer);
+        case LayerType::dx7: return dx7Engine.getLayerPeak(layer);
+        case LayerType::analog: return analogSynthEngine.getLayerPeak(layer);
+        case LayerType::hammond: return hammondEngine.getLayerPeak(layer);
+        case LayerType::drumPads: return drumPeaks[(size_t) layer].load(std::memory_order_relaxed);
+        case LayerType::continuousPads: return continuousBanks[(size_t) layer]->peak();
+        case LayerType::vst: return externalPeaks[(size_t) layer].load(std::memory_order_relaxed);
+    }
+    return 0.0f;
 }
 
 ClassicPlayerAudioProcessor::LayerType ClassicPlayerAudioProcessor::layerType(int layer) const

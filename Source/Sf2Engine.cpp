@@ -609,21 +609,25 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
             }
         }
 
-        const auto renderedPeak = juce::jmax(scratch.getMagnitude(0, 0, output.getNumSamples()),
-                                             scratch.getMagnitude(1, 0, output.getNumSamples()));
-        const auto previousPeak = layer.peak.load(std::memory_order_relaxed) * 0.82f;
-        layer.peak.store(juce::jmax(renderedPeak, previousPeak), std::memory_order_relaxed);
-
         layer.gain.setTargetValue(juce::jmax(0.0f, layer.config.gain));
         const auto leftPan = layer.config.pan <= 0.0f ? 1.0f : 1.0f - layer.config.pan;
         const auto rightPan = layer.config.pan >= 0.0f ? 1.0f : 1.0f + layer.config.pan;
+        float renderedPeak = 0.0f;
         for (int sample = 0; sample < output.getNumSamples(); ++sample)
         {
             const auto gain = layer.gain.getNextValue();
-            output.addSample(0, sample, scratch.getSample(0, sample) * gain * leftPan);
+            const auto left = scratch.getSample(0, sample) * gain * leftPan;
+            renderedPeak = juce::jmax(renderedPeak, std::abs(left));
+            output.addSample(0, sample, left);
             if (output.getNumChannels() > 1)
-                output.addSample(1, sample, scratch.getSample(1, sample) * gain * rightPan);
+            {
+                const auto right = scratch.getSample(1, sample) * gain * rightPan;
+                renderedPeak = juce::jmax(renderedPeak, std::abs(right));
+                output.addSample(1, sample, right);
+            }
         }
+        const auto previousPeak = layer.peak.load(std::memory_order_relaxed) * 0.82f;
+        layer.peak.store(juce::jmax(renderedPeak, previousPeak), std::memory_order_relaxed);
     }
 }
 
