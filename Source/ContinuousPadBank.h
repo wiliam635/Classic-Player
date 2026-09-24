@@ -57,7 +57,7 @@ public:
         return juce::Result::ok();
     }
     juce::String path(int i) const {const juce::ScopedLock g(lock);return pads[(size_t)i].path;}
-    int mapping(int i) const {const juce::ScopedLock g(lock);return i==count?stopCC:pads[(size_t)i].cc;}
+    int mapping(int i) const {const juce::ScopedLock g(lock);return i==count?stopCC.load():pads[(size_t)i].cc;}
     int learningTarget() const {return learning.load();}
     void learn(int i){learning = learning.load() == i ? -1 : i;}
     void clearMapping(int i)
@@ -82,6 +82,14 @@ public:
     }
     void trigger(int i){if(juce::isPositiveAndBelow(i,count))command=i;}
     void stop(){command=-1;}
+    bool stopFromMidi(const juce::MidiMessage& message)
+    {
+        if (!message.isController() || message.getControllerValue() < 64
+            || message.getControllerNumber() != stopCC.load(std::memory_order_acquire))
+            return false;
+        stop();
+        return true;
+    }
     int selected() const{return active.load();}
     float peak() const{return meter.load();}
     double fadeSeconds() const{return fade.load();}
@@ -105,7 +113,7 @@ public:
         if(assignLearnedCC(cc))return;
         // STOP is idempotent. Some controller buttons send only 127 and no
         // release, so an edge latch would leave a learned STOP inert.
-        if(stopCC==cc){if(down)stop();return;}
+        if(stopCC.load()==cc){if(down)stop();return;}
         if(!edge)return;
         for(int i=0;i<count;++i)if(pads[(size_t)i].cc==cc){trigger(i);break;}
     }
@@ -167,7 +175,7 @@ public:
     juce::ValueTree save() const
     {
         const juce::ScopedLock g(lock);juce::ValueTree tree("ContinuousPads");
-        tree.setProperty("fade",fade.load(),nullptr);tree.setProperty("stopCC",stopCC,nullptr);
+        tree.setProperty("fade",fade.load(),nullptr);tree.setProperty("stopCC",stopCC.load(),nullptr);
         for(int i=0;i<count;++i)
         {juce::ValueTree child("Pad");child.setProperty("path",pads[(size_t)i].path,nullptr);
          child.setProperty("cc",pads[(size_t)i].cc,nullptr);tree.addChild(child,-1,nullptr);}
@@ -195,7 +203,7 @@ private:
         if (target < 0) return false;
         for (auto& pad : pads)
             if (pad.cc == cc) pad.cc = -1;
-        if (stopCC == cc) stopCC = -1;
+        if (stopCC.load() == cc) stopCC = -1;
         if (target == count) stopCC = cc;
         else if (target < count) pads[(size_t) target].cc = cc;
         return true; // Learning must not start/stop audio unexpectedly.
@@ -212,7 +220,7 @@ private:
     std::array<std::array<bool,128>,16> ccDown{};
     std::atomic<int> command{-2},active{-1},learning{-1};
     std::atomic<float> meter{0};std::atomic<double> fade{1.0};
-    int stopCC=-1;double sampleRate=48000;
+    std::atomic<int> stopCC{-1};double sampleRate=48000;
     std::array<float,2> highPassInput{},highPassOutput{},lowPassState{};
     LayerEqState eq;
     juce::SmoothedValue<float> volume;

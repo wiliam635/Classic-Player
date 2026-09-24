@@ -473,6 +473,12 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         inspectDrumPadMidi(metadata.getMessage());
         processMidiControlMessage(metadata.getMessage());
         processMasterMidiMessage(metadata.getMessage());
+        // STOP is a safety action for a playing pad. The Learn gesture is
+        // captured before MIDI device/channel routing, so playback must see
+        // the same CC even if that routing excludes its channel.
+        for (int layer = 0; layer < activeLayerCount(); ++layer)
+            if (layerType(layer) == LayerType::continuousPads)
+                continuousPads(layer).stopFromMidi(metadata.getMessage());
     }
 
     for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
@@ -2026,6 +2032,9 @@ void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* sou
             auto& bank = continuousPads(layer);
             if (bank.learningTarget() >= 0)
                 bank.captureLearnedCC(message);
+            // The standalone callback can receive a controller from a device
+            // not selected as this layer's note input. Do not discard STOP.
+            bank.stopFromMidi(message);
         }
     const juce::ScopedLock guard(midiRoutingLock);
     auto routed = false;

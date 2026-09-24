@@ -11,6 +11,10 @@
 static void check(bool b,const char* message){if(!b)throw std::runtime_error(message);}
 struct ContinuousPadRegressionAccess
 {
+    static void activateForTest(ClassicPlayerAudioProcessor& processor)
+    {
+        processor.activated.store(true);
+    }
     static void handleIncomingMidiMessage(ClassicPlayerAudioProcessor& processor,
                                           const juce::MidiMessage& message)
     {
@@ -131,6 +135,24 @@ static void continuousPadRegression()
         *p,juce::MidiMessage::controllerEvent(3,55,41));
     check(p->continuousPads(1).mapping(ContinuousPadBank::count)==55,
           "STOP Learn was blocked by the layer MIDI channel filter");
+    p->prepareToPlay(48000,128);
+    ContinuousPadRegressionAccess::activateForTest(*p);
+    juce::AudioBuffer<float> routedAudio(2,128);
+    juce::MidiBuffer routedMidi;
+    const auto playBlock = [&] { routedAudio.clear();p->processBlock(routedAudio,routedMidi);routedMidi.clear(); };
+    p->continuousPads(1).trigger(0);playBlock();
+    check(p->continuousPads(1).selected()==0,"pad fixture failed to start");
+    p->setLayerMidiDevice(1,"another-controller");
+    ContinuousPadRegressionAccess::handleIncomingMidiMessage(
+        *p,juce::MidiMessage::controllerEvent(3,55,127));
+    playBlock();
+    check(p->continuousPads(1).selected()==-1,
+          "standalone STOP was filtered by layer MIDI device/channel");
+    p->continuousPads(1).trigger(0);playBlock();
+    routedMidi.addEvent(juce::MidiMessage::controllerEvent(3,55,127),0);
+    playBlock();
+    check(p->continuousPads(1).selected()==-1,
+          "host STOP was filtered by layer MIDI channel");
     p->continuousPads(1).clearMapping(ContinuousPadBank::count);
     check(p->continuousPads(1).mapping(ContinuousPadBank::count)==-1,
           "STOP mapping could not be removed");
