@@ -223,6 +223,15 @@ endif()
 
 if(CLASSIC_PLAYER_BUILD_TESTS)
     enable_testing()
+    if(WIN32)
+        juce_add_console_app(ClassicPlayerVst3HostSmokeTest PRODUCT_NAME "Classic Player VST3 Host Smoke Test")
+        target_sources(ClassicPlayerVst3HostSmokeTest PRIVATE tools/vst3_host_smoke_test.cpp)
+        target_compile_definitions(ClassicPlayerVst3HostSmokeTest PRIVATE
+            JUCE_PLUGINHOST_VST3=1 JUCE_VST3_CAN_REPLACE_VST2=0)
+        target_link_libraries(ClassicPlayerVst3HostSmokeTest PRIVATE
+            juce::juce_audio_utils juce::juce_audio_processors
+            PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+    endif()
     juce_add_console_app(ClassicPlayerHammondTest PRODUCT_NAME "Classic Player Hammond Test")
     target_sources(ClassicPlayerHammondTest PRIVATE Source/HammondRegressionTest.cpp)
     target_include_directories(ClassicPlayerHammondTest PRIVATE third_party/msfa)

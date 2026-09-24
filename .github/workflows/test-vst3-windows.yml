@@ -8,6 +8,7 @@ on:
       - .github/workflows/test-vst3-windows.yml
       - installer/windows/ClassicPlayerVst3Test.iss
       - CMakeLists.txt
+      - tools/vst3_host_smoke_test.cpp
       - Source/PluginEditor.cpp
       - Source/PluginEditor.h
       - Source/PluginProcessor.cpp
@@ -29,29 +30,23 @@ jobs:
 
       - name: Configure x64
         shell: pwsh
-        run: cmake --preset windows-x64
+        run: cmake --preset windows-x64 -DVCPKG_TARGET_TRIPLET=x64-windows-static
 
       - name: Build standalone and VST3
         shell: pwsh
-        run: cmake --build build\windows-x64 --target ClassicPlayer_Standalone ClassicPlayer_VST3 --config Release --parallel 2
+        run: cmake --build build\windows-x64 --target ClassicPlayer_Standalone ClassicPlayer_VST3 ClassicPlayerVst3HostSmokeTest --config Release --parallel 2
 
-      - name: Stage runtime DLLs and verify the VST3 loads
+      - name: Verify self-contained VST3 loads like a DAW
         shell: pwsh
         run: |
           $bundle = "build\windows-x64\ClassicPlayer_artefacts\Release\VST3\Classic Player.vst3"
           if (-not (Test-Path $bundle -PathType Container)) { throw "VST3 não gerado: $bundle" }
           $binary = Get-ChildItem $bundle -Recurse -Filter "*.vst3" -File | Select-Object -First 1
           if (-not $binary) { throw "Binário VST3 não encontrado dentro do bundle" }
-          # The dynamic vcpkg triplet does not embed FluidSynth/OpenSSL and their
-          # dependencies. Windows searches beside the VST3 module, not beside Reaper.
-          $vcpkgBin = "build\windows-x64\vcpkg_installed\x64-windows\bin"
-          if (-not (Test-Path $vcpkgBin -PathType Container)) { throw "DLLs vcpkg ausentes: $vcpkgBin" }
-          Get-ChildItem $vcpkgBin -Filter "*.dll" -File |
-            Copy-Item -Destination $binary.DirectoryName -Force
+          # A DAW may not search the plug-in folder for dependent DLLs. Static
+          # vcpkg libraries remove FluidSynth/OpenSSL runtime DLL requirements.
           $standaloneDir = "build\windows-x64\ClassicPlayer_artefacts\Release\Standalone"
           if (-not (Test-Path "$standaloneDir\Classic Player.exe")) { throw "Standalone ausente" }
-          Get-ChildItem $vcpkgBin -Filter "*.dll" -File |
-            Copy-Item -Destination $standaloneDir -Force
           New-Item -ItemType Directory -Force "$standaloneDir\Resources\WebUI" | Out-Null
           Copy-Item "Resources\WebUI\*" "$standaloneDir\Resources\WebUI" -Recurse -Force
           Add-Type -TypeDefinition @'
@@ -66,7 +61,7 @@ jobs:
               public static extern bool FreeLibrary(IntPtr module);
           }
           '@
-          $module = [Vst3Loader]::LoadLibraryEx($binary.FullName, [IntPtr]::Zero, 0x00001100)
+          $module = [Vst3Loader]::LoadLibraryEx($binary.FullName, [IntPtr]::Zero, 0)
           if ($module -eq [IntPtr]::Zero) {
             throw "VST3 não carrega no Windows (erro Win32 $([Runtime.InteropServices.Marshal]::GetLastWin32Error()))."
           }
@@ -78,6 +73,11 @@ jobs:
             [Vst3Loader]::FreeLibrary($module) | Out-Null
           }
           Write-Host "VST3 carregado e GetPluginFactory encontrado."
+          $hostTest = Get-ChildItem "build\windows-x64" -Recurse -Filter "Classic Player VST3 Host Smoke Test.exe" -File |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $hostTest) { throw "Teste de host VST3 ausente" }
+          & $hostTest (Resolve-Path $bundle).Path
+          if ($LASTEXITCODE -ne 0) { throw "Host nao conseguiu descobrir/instanciar o VST3" }
           New-Item -ItemType Directory -Force "outputs\vst3-test" | Out-Null
           Compress-Archive -Path $bundle -DestinationPath "outputs\vst3-test\Classic-Player-2.0.1-VST3-teste-Windows-x64.zip" -Force
 
@@ -89,6 +89,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Instalador de teste falhou" }
           $setup = "outputs\vst3-test\Classic-Player-2.0.1-Standalone-VST3-teste-Windows-x64-Setup.exe"
           if (-not (Test-Path $setup)) { throw "Instalador de teste não foi criado" }
+          $setup = (Resolve-Path $setup).Path
+          $process = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Instalacao de teste falhou: $($process.ExitCode)" }
+          $installedBundle = Join-Path $env:ProgramFiles "Common Files\VST3\Classic Player.vst3"
+          if (-not (Test-Path $installedBundle -PathType Container)) { throw "VST3 nao foi instalado no caminho padrao: $installedBundle" }
+          & $hostTest $installedBundle
+          if ($LASTEXITCODE -ne 0) { throw "Host nao conseguiu abrir o VST3 instalado" }
 
       - name: Upload test plugin
         uses: actions/upload-artifact@v4

@@ -67,6 +67,18 @@ public:
     }
     void resized() override
     {
+        if (getHeight() <= 240)
+        {
+            preset.setBounds(8,0,getWidth()-16,26);
+            const int w=(getWidth()-16)/9;
+            for(size_t i=0;i<9;++i){labels[i].setBounds(8+(int)i*w,28,w,16);bars[i].setBounds(8+(int)i*w,44,w,78);}
+            leslie.setBounds(8,124,getWidth()/2-16,24);percussion.setBounds(getWidth()/2,124,getWidth()/2-8,24);
+            const int k=(getWidth()-16)/4;
+            for(size_t i=0;i<4;++i){knobLabels[i].setBounds(8+(int)i*k,148,k,14);knobs[i].setBounds(8+(int)i*k,162,k,28);}
+            target.setBounds(8,192,180,28);learn.setBounds(196,192,116,28);clear.setBounds(320,192,90,28);
+            mapping.setBounds(420,192,getWidth()-428,28);
+            return;
+        }
         preset.setBounds(8,0,getWidth()-16,28);
         const int w=(getWidth()-16)/9;
         for(size_t i=0;i<9;++i){labels[i].setBounds(8+(int)i*w,32,w,22);bars[i].setBounds(8+(int)i*w,54,w,128);}
