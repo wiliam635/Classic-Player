@@ -21,7 +21,7 @@ UninstallDisplayIcon={app}\Classic Player.exe
 
 [Files]
 Source: "{#BuildRoot}\Standalone\Classic Player.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#BuildRoot}\Standalone\*.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#BuildRoot}\Standalone\*.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#BuildRoot}\Standalone\Resources\WebUI\*"; DestDir: "{app}\Resources\WebUI"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#BuildRoot}\VST3\Classic Player.vst3\*"; DestDir: "{commoncf64}\VST3\Classic Player.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs
 
