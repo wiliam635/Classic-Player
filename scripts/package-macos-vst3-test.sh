@@ -29,8 +29,9 @@ lipo "$STAGE/Library/Audio/Plug-Ins/VST3/Classic Player.vst3/Contents/MacOS/Clas
 
 pkgbuild --root "$STAGE" \
   --identifier com.classickeys.classicplayer.vst3-test \
-  --version 2.0.0 \
+  --version 2.0.1 \
   --install-location / \
+  --component-plist "$ROOT/installer/macos/components-vst3-test.plist" \
   "$PACKAGE"
 
 pkgutil --payload-files "$PACKAGE" | grep -F 'Applications/Classic Player VST3 Teste.app/Contents/MacOS/ClassicPlayer'

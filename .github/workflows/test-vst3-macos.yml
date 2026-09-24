@@ -6,6 +6,8 @@ on:
     branches: [codex/fix-user-refresh]
     paths:
       - .github/workflows/test-vst3-macos.yml
+      - installer/macos/components-vst3-test.plist
+      - scripts/package-macos-vst3-test.sh
 
 jobs:
   vst3-macos:
