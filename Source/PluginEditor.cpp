@@ -308,6 +308,59 @@ public:
 
     void userTriedToCloseWindow() override { exitModalState(0); }
 
+    void fitWithinApp(juce::Component* owner)
+    {
+        if (owner == nullptr) return;
+        const auto* topLevel = owner->getTopLevelComponent();
+        if (topLevel == nullptr) return;
+        const auto appBounds = topLevel->getScreenBounds();
+        if (appBounds.isEmpty()) return;
+        const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect(appBounds);
+        const auto available = display != nullptr ? appBounds.getIntersection(display->userArea) : appBounds;
+        const auto maxWidth = juce::jmax(320, available.getWidth() - 16);
+        const auto maxHeight = juce::jmax(280, available.getHeight() - 16);
+        const auto desiredWidth = getWidth();
+        const auto desiredHeight = getHeight();
+        if (desiredHeight > maxHeight && getNumCustomComponents() > 0)
+        {
+            // Large specialised editors (EQ, synth, pads) retain every control,
+            // but their window never extends below the host application.
+            class Stack final : public juce::Component
+            {
+            public:
+                void addRow(juce::Component* row)
+                {
+                    const auto height = row->getHeight();
+                    width = juce::jmax(width, row->getWidth());
+                    children.add(row);
+                    addAndMakeVisible(row);
+                    row->setTopLeftPosition(0, nextY);
+                    nextY += height + 4;
+                    setSize(width, nextY);
+                }
+            private:
+                int width = 0, nextY = 0;
+                juce::OwnedArray<juce::Component> children;
+            };
+            auto* stack = new Stack();
+            while (getNumCustomComponents() > 0)
+                stack->addRow(removeCustomComponent(0));
+            auto* viewport = new juce::Viewport();
+            viewport->setViewedComponent(stack, true);
+            viewport->setScrollBarsShown(true, false);
+            viewport->setSize(juce::jmin(desiredWidth, maxWidth) - 50,
+                              juce::jmax(160, maxHeight - 145));
+            addCustomComponent(viewport);
+        }
+        const auto width = juce::jmin(desiredWidth, maxWidth);
+        const auto height = juce::jmin(desiredHeight, maxHeight);
+        setSize(width, height);
+        setTopLeftPosition(juce::jlimit(available.getX(), available.getRight() - width,
+                                        appBounds.getCentreX() - width / 2),
+                           juce::jlimit(available.getY(), available.getBottom() - height,
+                                        appBounds.getCentreY() - height / 2));
+    }
+
     void resized() override
     {
         juce::AlertWindow::resized();
@@ -355,6 +408,7 @@ public:
 
     void useAnalogHardwareLayout(bool shouldUse) { analogHardwareLayout = shouldUse; resized(); }
     void useCompactGrid(bool shouldUse) { compactGrid = shouldUse; resized(); }
+    void useDenseTwoRowGrid(bool shouldUse) { denseTwoRowGrid = shouldUse; resized(); }
 
     float value(int item) const
     {
@@ -381,6 +435,21 @@ public:
 
     void resized() override
     {
+        if (denseTwoRowGrid)
+        {
+            const auto cellWidth = getWidth() / columns;
+            const auto rowHeight = getHeight() / 2;
+            for (int item = 0; item < knobs.size(); ++item)
+            {
+                auto cell = juce::Rectangle<int>((item % columns) * cellWidth,
+                                                 (item / columns) * rowHeight,
+                                                 cellWidth, rowHeight).reduced(3, 1);
+                labels[item]->setBounds(cell.removeFromTop(14));
+                knobs[item]->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 58, 17);
+                knobs[item]->setBounds(cell);
+            }
+            return;
+        }
         if (compactGrid)
         {
             const auto cellWidth = getWidth() / juce::jmax(1, columns);
@@ -432,6 +501,7 @@ private:
     int columns = 1;
     bool analogHardwareLayout = false;
     bool compactGrid = false;
+    bool denseTwoRowGrid = false;
     std::function<void()> onValueChange;
     juce::OwnedArray<juce::Label> labels;
     juce::OwnedArray<juce::Slider> knobs;
@@ -1315,7 +1385,7 @@ public:
         setSize(700, 36);
     }
 
-    void resized() override { button.setBounds(getLocalBounds().withSizeKeepingCentre(260, 30)); }
+    void resized() override { button.setBounds(getLocalBounds().withSizeKeepingCentre(260, juce::jmin(30, getHeight()))); }
 
 private:
     void refresh()
@@ -1335,7 +1405,7 @@ private:
 };
 
 static void showParametricLayerEqEditor(
-    ClassicPlayerAudioProcessor& processor, int layer,
+    ClassicPlayerAudioProcessor& processor, int layer, juce::Component* owner,
     std::function<void()> savePreset,
     std::function<void(std::function<void()>)> loadPreset)
 {
@@ -1410,6 +1480,7 @@ static void showParametricLayerEqEditor(
         processor.setLayerConfig(layer, config);
     };
     knobs->setOnValueChange(apply);
+    dialog->fitWithinApp(owner);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [&processor](int) { juce::ignoreUnused(processor); }), true);
 }
@@ -1899,20 +1970,28 @@ public:
         setSize(700, 430);
     }
 
+    void useCompactLayout(bool shouldUse) { compactLayout = shouldUse; resized(); }
+
     void resized() override
     {
         auto area = getLocalBounds().reduced(12);
-        auto top = area.removeFromTop(26);
+        auto top = area.removeFromTop(compactLayout ? 24 : 26);
         categoryLabel.setBounds(top.removeFromLeft(105)); categoryBox.setBounds(top.removeFromLeft(250));
         importButton.setBounds(top.removeFromLeft(150).reduced(2)); deleteButton.setBounds(top.reduced(2));
-        auto row = area.removeFromTop(25); libraryLabel.setBounds(row.removeFromLeft(105)); libraryBox.setBounds(row);
-        row = area.removeFromTop(25); presetLabel.setBounds(row.removeFromLeft(105)); presetBox.setBounds(row);
-        area.removeFromTop(10);
+        auto row = area.removeFromTop(compactLayout ? 22 : 25);
+        libraryLabel.setBounds(row.removeFromLeft(105)); libraryBox.setBounds(row);
+        row = area.removeFromTop(compactLayout ? 22 : 25);
+        presetLabel.setBounds(row.removeFromLeft(105)); presetBox.setBounds(row);
+        area.removeFromTop(compactLayout ? 3 : 10);
         const auto cell = area.getWidth() / 3;
-        auto place = [cell](juce::Rectangle<int> r, juce::Label& l, juce::ComboBox& b) { l.setBounds(r.removeFromTop(18)); b.setBounds(r.reduced(2)); };
+        auto place = [compact = compactLayout](juce::Rectangle<int> r, juce::Label& l, juce::ComboBox& b)
+        {
+            l.setBounds(r.removeFromTop(compact ? 12 : 18));
+            b.setBounds(r.reduced(2, compact ? 0 : 2));
+        };
         for (int rowIndex = 0; rowIndex < 3; ++rowIndex)
         {
-            auto line = area.removeFromTop(62);
+            auto line = area.removeFromTop(compactLayout ? 32 : 62);
             if (rowIndex == 0) { place(line.removeFromLeft(cell), modeLabel, modeBox); place(line.removeFromLeft(cell), sustainLabel, sustainBox); place(line, channelLabel, channelBox); }
             if (rowIndex == 1) { place(line.removeFromLeft(cell), deviceLabel, deviceBox); place(line.removeFromLeft(cell), octaveLabel, octaveBox); place(line, velocityLabel, velocityBox); }
             if (rowIndex == 2) { place(line.removeFromLeft(cell), rangeLabel, lowNoteBox); place(line.removeFromLeft(cell), rangeLabel, highNoteBox); }
@@ -2012,6 +2091,7 @@ private:
         config.velocityCurve = velocityBox.getSelectedId() - 1; processor.setLayerConfig(index, config);
     }
     ClassicPlayerAudioProcessor& processor; int index;
+    bool compactLayout = false;
     juce::Label categoryLabel, libraryLabel, presetLabel, modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel, rangeLabel, velocityLabel;
     juce::ComboBox categoryBox, libraryBox, presetBox, modeBox, sustainBox, channelBox, deviceBox, octaveBox, lowNoteBox, highNoteBox, velocityBox;
     juce::TextButton importButton, deleteButton; juce::Array<juce::File> libraryFiles; std::vector<Sf2Engine::Preset> presets;
@@ -2994,9 +3074,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         knobs->bindParameter(control, processor.parameters,
                              prefix + editorParameterSuffixes[(size_t) control]);
     auto* sf2Panel = new Sf2EditorPanel(processor, index);
-    // Match the compact editor slot so the SF2 controls are not followed by
-    // an oversized empty region when the dialog is displayed at full size.
-    sf2Panel->setSize(680, 275);
+    sf2Panel->useCompactLayout(true);
+    sf2Panel->setSize(620, 190);
+    knobs->useDenseTwoRowGrid(true);
+    knobs->setSize(620, 128);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     auto* effectButtons = new LayerEffectButtons(
         [safe] { if (safe != nullptr) safe->showReverbEditor(); },
@@ -3028,47 +3109,18 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         juce::OwnedArray<juce::Component> owned;
     };
 
-    class ScrollContent final : public juce::Component
-    {
-    public:
-        void addRow(juce::Component* row, int height)
-        {
-            rows.add(row);
-            addAndMakeVisible(row);
-            row->setBounds(15, nextY, 620, height);
-            nextY += height + 6;
-            setSize(650, nextY);
-        }
-
-    private:
-        int nextY = 0;
-        juce::OwnedArray<juce::Component> rows;
-    };
-
-    // The SF2 editor uses only the upper portion of its panel for the
-    // library/routing controls.  Keeping the old 430 px slot created a large
-    // empty gap before the effect knobs and made the dialog unnecessarily
-    // tall.  Reserve only the space the controls actually occupy.
-    auto* content = new ScrollContent();
-    content->addRow(new CenteredPanel(sf2Panel, 620, 275), 275);
-    content->addRow(new CenteredPanel(new LayerPresetFilePanel(
+    // On a 13-inch display the complete editor, including numeric values and
+    // footer, must fit without an inner scroll area.
+    dialog->addCustomComponent(new CenteredPanel(sf2Panel, 620, 190));
+    dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
-        [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 620, 38), 38);
-    content->addRow(new CenteredPanel(new ModulationTogglePanel(processor, index), 620, 36), 36);
-    // Layer controls share a two-row grid so envelopes and EQ remain readable.
-    content->addRow(new CenteredPanel(knobs, 620, 248), 248);
-    content->addRow(new CenteredPanel(effectButtons, 360, 38), 38);
-    content->addRow(new CenteredPanel(midiPanel, 520, 52), 52);
-    auto* viewport = new juce::Viewport();
-    viewport->setViewedComponent(content, true);
-    viewport->setScrollBarsShown(true, false);
-    viewport->setScrollBarThickness(10);
+        [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 620, 28));
+    dialog->addCustomComponent(new CenteredPanel(new ModulationTogglePanel(processor, index), 620, 28));
+    dialog->addCustomComponent(new CenteredPanel(knobs, 620, 128));
+    dialog->addCustomComponent(new CenteredPanel(effectButtons, 360, 28));
+    dialog->addCustomComponent(new CenteredPanel(midiPanel, 520, 36));
     const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect(getScreenBounds());
-    const auto screenHeight = display != nullptr ? display->userArea.getHeight() : 800;
-    const auto visibleContentHeight = juce::jmin(content->getHeight(),
-                                                juce::jmax(240, screenHeight - 210));
-    viewport->setSize(650, visibleContentHeight);
-    dialog->addCustomComponent(viewport);
+    const auto screenHeight = display != nullptr ? display->userArea.getHeight() : 700;
     knobs->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), knobs, prefix]
     {
         if (safe == nullptr) return;
@@ -3082,9 +3134,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         set("Reverb", knobs->value(4)); set("Comp", knobs->value(5));
         set("EqLow", knobs->value(6)); set("EqMid", knobs->value(7)); set("EqHigh", knobs->value(8));
     });
-    // Constrain the dialog to the usable display area; the lower controls and
-    // their numeric fields remain reachable through the internal scroll view.
-    dialog->setSize(760, juce::jmin(screenHeight - 12, visibleContentHeight + 195));
+    dialog->setSize(720, juce::jmin(580, screenHeight - 12));
+    dialog->fitWithinApp(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, dialog, knobs, prefix](int)
         {
@@ -3157,6 +3208,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
         }), 700));
     dialog->addCustomComponent(new CentredEditorPanel(knobs, 700));
     dialog->setSize(760, 588);
+    dialog->fitWithinApp(this);
     const auto setParameter = [safe, prefix](const juce::String& id, float value)
     {
         if (safe == nullptr) return;
@@ -3352,7 +3404,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::loadEffectPreset(
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showEqEditor()
 {
     const juce::Component::SafePointer<LayerStrip> safe(this);
-    showParametricLayerEqEditor(processor, index,
+    showParametricLayerEqEditor(processor, index, this,
         [safe] { if (safe != nullptr) safe->saveEffectPreset("EQ"); },
         [safe](std::function<void()> loaded)
         {
@@ -3413,6 +3465,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
     dialog->addCustomComponent(new CentredEditorPanel(graph, 700));
     dialog->addCustomComponent(new CentredEditorPanel(knobs, 700));
     dialog->setSize(760, 748);
+    dialog->fitWithinApp(this);
     const auto setParameter = [safe, prefix](const juce::String& id, float value)
     {
         if (safe == nullptr) return;
@@ -3480,6 +3533,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
         dialog->addCustomComponent(eqButton);
     }
     dialog->setSize(678, processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::continuousPads ? 682 : 630);
+    dialog->fitWithinApp(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->drumPadPanel.refresh(); }), true);
 }
@@ -3503,6 +3557,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showChorusEditor()
         if (auto* parameter = safe->processor.parameters.getParameter(prefix + "Dx7Chorus"))
             parameter->setValueNotifyingHost(parameter->convertTo0to1(knobs->value(0)));
     });
+    dialog->fitWithinApp(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
@@ -4773,6 +4828,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         }
     };
     dialog->setSize(758, 637);
+    dialog->fitWithinApp(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int)
         {
@@ -4870,6 +4926,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.
     dialog->setSize(758, 863);
+    dialog->fitWithinApp(this);
     // Use AlertWindow's footer button so JUCE reserves a dedicated row below
     // the MIDI Learn panel instead of treating FECHAR as another component.
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
@@ -4912,6 +4969,7 @@ void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
     dialog->addCustomComponent(new CentredEditorPanel(graph, 700));
     dialog->addCustomComponent(new CentredEditorPanel(knobs, 700));
     dialog->setSize(760, 660);
+    dialog->fitWithinApp(this);
     graph->onPointChanged = [knobs](int band, float frequency, float gain)
     {
         static constexpr std::array<int, 3> frequencyKnobs { 2, 4, 6 };
@@ -4979,6 +5037,7 @@ void ClassicPlayerAudioProcessorEditor::showMasterLimiterEditor()
     dialog->addCustomComponent(new CentredEditorPanel(knobs, 650));
     dialog->addCustomComponent(new CentredEditorPanel(presets, 650));
     dialog->setSize(720, 490);
+    dialog->fitWithinApp(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create([](int) {}), true);
 }
 void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
