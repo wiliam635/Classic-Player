@@ -35,6 +35,7 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import java.io.IOException;
 import java.io.InputStream;
@@ -467,7 +468,7 @@ public final class MainActivity extends Activity {
         int count=audioEngine.analogPresetCount(); String[] presets=new String[count];
         for(int i=0;i<count;++i)presets[i]=audioEngine.analogPresetName(i);
         int selectedPreset=getSharedPreferences("layers",MODE_PRIVATE).getInt("analog_preset_"+layer,0);
-        showPresetEditor("LAYER "+(layer+1)+" · CLASSIC KEYS ANALOG", "Escolha o timbre do motor analógico", presets, selectedPreset,
+        showPresetEditor(layer, "LAYER "+(layer+1)+" · CLASSIC KEYS ANALOG", "Escolha o timbre do motor analógico", presets, selectedPreset,
                 which -> { if(audioEngine.setAnalogPreset(layer,which)){screen.setPresetName(layer,audioEngine.analogPresetName(which));getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("analog_preset_"+layer,which).apply();} }, null, null);
     }
 
@@ -480,7 +481,7 @@ public final class MainActivity extends Activity {
         int count=audioEngine.hammondPresetCount(); String[] presets=new String[count];
         for(int i=0;i<count;++i)presets[i]=audioEngine.hammondPresetName(i);
         int selected=getSharedPreferences("layers",MODE_PRIVATE).getInt("hammond_preset_"+layer,0);
-        showPresetEditor("LAYER "+(layer+1)+" · HAMMOND / LESLIE", "Escolha o registro Hammond", presets, selected,
+        showPresetEditor(layer, "LAYER "+(layer+1)+" · HAMMOND / LESLIE", "Escolha o registro Hammond", presets, selected,
                 which -> {audioEngine.setHammondPreset(layer,which);screen.setPresetName(layer,audioEngine.hammondPresetName(which));getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("hammond_preset_"+layer,which).apply();}, null, null);
     }
 
@@ -672,7 +673,7 @@ public final class MainActivity extends Activity {
             presets.add(String.format("%03d  %s", preset + 1, name == null || name.isEmpty() ? "Preset" : name));
         }
         int selectedPreset = soundFontLayers[layer].preset();
-        showPresetEditor("LAYER " + (layer + 1) + " · TIMBRE SF2", "Selecione um preset do SoundFont", presets.toArray(new String[0]), selectedPreset, which -> {
+        showPresetEditor(layer, "LAYER " + (layer + 1) + " · TIMBRE SF2", "Selecione um preset do SoundFont", presets.toArray(new String[0]), selectedPreset, which -> {
                     if (audioEngine.setPreset(layer, which)) {
                         soundFontLayers[layer].setPreset(which);
                         screen.setPresetName(layer, audioEngine.presetName(layer, which));
@@ -688,7 +689,7 @@ public final class MainActivity extends Activity {
         final String[] patches = new String[count];
         for (int patch=0;patch<count;++patch) patches[patch]=String.format("%02d  %s",patch+1,audioEngine.dx7PatchName(layer,patch));
         int selectedPatch=getSharedPreferences("layers",MODE_PRIVATE).getInt("dx7_patch_"+layer,0);
-        showPresetEditor("LAYER "+(layer+1)+" · TIMBRE DX7", "Selecione um timbre do banco DX7", patches, selectedPatch, which -> {
+        showPresetEditor(layer, "LAYER "+(layer+1)+" · TIMBRE DX7", "Selecione um timbre do banco DX7", patches, selectedPatch, which -> {
                     if(audioEngine.setDx7Patch(layer,which)){
                         screen.setPresetName(layer,audioEngine.dx7PatchName(layer,which));
                         getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("dx7_patch_"+layer,which).apply();
@@ -699,12 +700,18 @@ public final class MainActivity extends Activity {
     private interface PresetSelection { void apply(int index); }
 
     /** Full-height editor shared by the melodic engines, matching the desktop workflow. */
-    private void showPresetEditor(String title, String subtitle, String[] items, int selected,
+    private void showPresetEditor(final int layer, String title, String subtitle, String[] items, int selected,
                                   PresetSelection selection, String secondaryLabel, Runnable secondaryAction) {
         final Dialog dialog = new Dialog(this);
         LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(28, 22, 28, 18); root.setBackgroundColor(Color.rgb(7,16,25));
         TextView heading = new TextView(this); heading.setText(title); heading.setTextColor(Color.rgb(233,239,240)); heading.setTextSize(22); heading.setPadding(0,0,0,8); root.addView(heading, new LinearLayout.LayoutParams(-1,-2));
         TextView help = new TextView(this); help.setText(subtitle); help.setTextColor(Color.rgb(145,170,180)); help.setTextSize(14); help.setPadding(0,0,0,14); root.addView(help, new LinearLayout.LayoutParams(-1,-2));
+        TextView attackLabel = new TextView(this); attackLabel.setText("ATTACK"); attackLabel.setTextColor(Color.rgb(180,195,200)); root.addView(attackLabel,new LinearLayout.LayoutParams(-1,-2));
+        SeekBar attack = new SeekBar(this); attack.setMax(199); attack.setProgress((int)((screen.layerAttack[layer]-0.001f)/1.999f*199f)); root.addView(attack,new LinearLayout.LayoutParams(-1,-2));
+        TextView releaseLabel = new TextView(this); releaseLabel.setText("RELEASE"); releaseLabel.setTextColor(Color.rgb(180,195,200)); root.addView(releaseLabel,new LinearLayout.LayoutParams(-1,-2));
+        SeekBar release = new SeekBar(this); release.setMax(199); release.setProgress((int)((screen.layerRelease[layer]-0.02f)/3.98f*199f)); root.addView(release,new LinearLayout.LayoutParams(-1,-2));
+        SeekBar.OnSeekBarChangeListener envelope = new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean from){if(!from)return;float a=0.001f+attack.getProgress()/199f*1.999f;float r=0.02f+release.getProgress()/199f*3.98f;screen.setLayerEnvelope(layer,a,r);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}};
+        attack.setOnSeekBarChangeListener(envelope); release.setOnSeekBarChangeListener(envelope);
         ListView list = new ListView(this); list.setChoiceMode(ListView.CHOICE_MODE_SINGLE); list.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_list_item_single_choice, items)); list.setItemChecked(Math.max(0, Math.min(selected, items.length-1)), true);
         list.setOnItemClickListener((parent, view, position, id) -> { selection.apply(position); list.setItemChecked(position, true); });
         root.addView(list, new LinearLayout.LayoutParams(-1, 0, 1f));
@@ -731,6 +738,8 @@ public final class MainActivity extends Activity {
         private boolean savingLiveSlot;
         private int liveBank;
         private final float[] layerVolumes = {0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f};
+        private final float[] layerAttack = {0.01f,0.01f,0.01f,0.01f,0.01f,0.01f};
+        private final float[] layerRelease = {0.25f,0.25f,0.25f,0.25f,0.25f,0.25f};
         private final boolean[] muted = new boolean[6];
         private final boolean[] solo = new boolean[6];
         private float masterVolume = 0.8f;
@@ -751,6 +760,7 @@ public final class MainActivity extends Activity {
         String engineName(int layer) { return layer >= 0 && layer < engineNames.length ? engineNames[layer] : "VAZIA"; }
         void setLiveName(int slot,String name){if(slot>=0&&slot<names.length){names[slot]=name;postInvalidate();}}
         void setLearnedVolume(int target,float value){if(target<6){layerVolumes[target]=value;applyLayerGains();}else{masterVolume=value;if(audioEngine!=null)audioEngine.setMaster(faderGain(value));}postInvalidate();}
+        void setLayerEnvelope(int layer,float attack,float release){if(layer<0||layer>=6)return;layerAttack[layer]=attack;layerRelease[layer]=release;if(audioEngine!=null)audioEngine.setLayerEnvelope(layer,attack,release);}
 
         private void text(Canvas canvas, String value, float x, float y, float size, int colour) {
             paint.setStyle(Paint.Style.FILL); paint.setColor(colour); paint.setTextSize(size);
