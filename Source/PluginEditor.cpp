@@ -18,14 +18,14 @@
 
 namespace
 {
-constexpr auto background = 0xff091018;
-constexpr auto panel = 0xff151f28;
-constexpr auto panelLight = 0xff202c35;
-constexpr auto line = 0xff33414c;
-constexpr auto teal = 0xff13b8ad;
+constexpr auto background = 0xff02080e;
+constexpr auto panel = 0xff071722;
+constexpr auto panelLight = 0xff0d2633;
+constexpr auto line = 0xff1b4658;
+constexpr auto teal = 0xff00d7e7;
 constexpr auto yellow = 0xffffd84a;
 constexpr auto text = 0xffedf4f7;
-constexpr auto mutedText = 0xff9eabb5;
+constexpr auto mutedText = 0xff91aeb8;
 
 juce::Colour drumPadColour(int pad)
 {
@@ -81,17 +81,19 @@ public:
 
     ClassicLookAndFeel()
     {
-        setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff0b141d));
+        setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff071722));
         setColour(juce::ComboBox::outlineColourId, juce::Colour(line));
         setColour(juce::ComboBox::textColourId, juce::Colour(text));
         setColour(juce::ComboBox::arrowColourId, juce::Colour(teal));
-        setColour(juce::PopupMenu::backgroundColourId, juce::Colour(0xff111b24));
+        setColour(juce::PopupMenu::backgroundColourId, juce::Colour(0xff071722));
         setColour(juce::PopupMenu::textColourId, juce::Colour(text));
         setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(teal));
         setColour(juce::PopupMenu::highlightedTextColourId, juce::Colour(background));
         setColour(juce::Slider::textBoxTextColourId, juce::Colour(text));
-        setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xff0b1117));
+        setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xff020b12));
         setColour(juce::Slider::textBoxOutlineColourId, juce::Colour(line));
+        setColour(juce::Slider::trackColourId, juce::Colour(0xff173644));
+        setColour(juce::Slider::thumbColourId, juce::Colour(teal));
     }
 
     void drawButtonText(juce::Graphics& g, juce::TextButton& button, bool over, bool down) override
@@ -228,12 +230,12 @@ public:
         const auto bounds = juce::Rectangle<float>(diameter, diameter).withCentre(centre);
         const auto angle = startAngle + position * (endAngle - startAngle);
 
-        g.setColour(juce::Colour(0xff080d11));
-        g.fillEllipse(bounds.expanded(3.0f));
-        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff69747c), bounds.getX(), bounds.getY(),
-                                               juce::Colour(0xff171e23), bounds.getRight(), bounds.getBottom(), false));
+        g.setColour(juce::Colour(0xff02070c));
+        g.fillEllipse(bounds.expanded(4.0f));
+        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff536570), bounds.getX(), bounds.getY(),
+                                               juce::Colour(0xff0b1721), bounds.getRight(), bounds.getBottom(), false));
         g.fillEllipse(bounds);
-        g.setColour(juce::Colour(0xff88939a));
+        g.setColour(juce::Colour(0xff547181));
         g.drawEllipse(bounds, 1.0f);
 
         juce::Path arc;
@@ -323,6 +325,8 @@ public:
         : juce::AlertWindow(title, message, icon)
     {
         setUsingNativeTitleBar(true);
+        setColour(juce::AlertWindow::backgroundColourId, juce::Colour(background));
+        setColour(juce::AlertWindow::textColourId, juce::Colour(text));
     }
 
     void userTriedToCloseWindow() override { exitModalState(0); }
@@ -768,11 +772,11 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        g.fillAll(juce::Colour(0xff0a1118));
+        g.fillAll(juce::Colour(0xff06131c));
         auto graph = getLocalBounds().toFloat().reduced(42.0f, 22.0f);
         graph.removeFromBottom(24.0f);
         graph.removeFromLeft(8.0f);
-        g.setColour(juce::Colour(0xff25323c));
+        g.setColour(juce::Colour(0xff0d202b));
         g.fillRect(graph);
 
         const auto toX = [graph](float frequency)
@@ -791,7 +795,7 @@ public:
         for (const auto db : { -18.0f, -12.0f, -6.0f, 0.0f, 6.0f, 12.0f, 18.0f })
         {
             const auto y = toY(db);
-            g.setColour(db == 0.0f ? juce::Colour(0xff60727e) : juce::Colour(0xff33434e));
+            g.setColour(db == 0.0f ? juce::Colour(0xff3a7180) : juce::Colour(0xff1a3947));
             g.drawHorizontalLine(juce::roundToInt(y), graph.getX(), graph.getRight());
             g.setColour(juce::Colour(mutedText));
             g.drawText(juce::String((int) db), 4, juce::roundToInt(y - 7.0f), 34, 14,
@@ -802,7 +806,7 @@ public:
                                       2000.0f, 5000.0f, 10000.0f, 20000.0f })
         {
             const auto x = toX(frequency);
-            g.setColour(juce::Colour(0xff33434e));
+            g.setColour(juce::Colour(0xff1a3947));
             g.drawVerticalLine(juce::roundToInt(x), graph.getY(), graph.getBottom());
             g.setColour(juce::Colour(mutedText));
             g.drawText(formatFrequency(frequency), juce::roundToInt(x - 25.0f),
@@ -3675,17 +3679,21 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
     const auto drumLayer = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::drumPads || processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::continuousPads;
-    g.setColour(juce::Colour(panel));
+    const auto topColour = juce::Colour(panelLight);
+    const auto bottomColour = juce::Colour(background).brighter(0.025f);
+    g.setGradientFill(juce::ColourGradient(topColour, bounds.getX(), bounds.getY(),
+                                           bottomColour, bounds.getX(), bounds.getBottom(), false));
+    g.fillRoundedRectangle(bounds, 8.0f);
+    g.setColour(juce::Colour(line).withAlpha(0.9f));
+    g.drawRoundedRectangle(bounds.reduced(0.5f), 8.0f, 1.0f);
+    g.setColour(juce::Colour(muted ? mutedText : teal).withAlpha(muted ? 0.2f : 0.9f));
+    g.fillRoundedRectangle(juce::Rectangle<float>(bounds.getX() + 10.0f, bounds.getY() + 7.0f,
+                                                   5.0f, 9.0f), 2.5f);
+    g.setColour(juce::Colour(teal).withAlpha(0.28f));
+    g.fillRect(juce::Rectangle<float>(bounds.getX() + 10.0f, bounds.getY() + 28.0f,
+                                      juce::jmax(12.0f, bounds.getWidth() - 20.0f), 1.0f));
     if (drumLayer)
-    {
-        g.fillRoundedRectangle(bounds, 7.0f);
-        g.setColour(juce::Colour(line));
-        g.drawRoundedRectangle(bounds.reduced(0.5f), 7.0f, 1.0f);
         return;
-    }
-    g.fillRoundedRectangle(bounds, 7.0f);
-    g.setColour(juce::Colour(line));
-    g.drawRoundedRectangle(bounds.reduced(0.5f), 7.0f, 1.0f);
     g.setColour(juce::Colour(mutedText));
     g.setFont(9.0f);
     const auto scaleX = gain.getRight() - 22;
@@ -5156,11 +5164,28 @@ void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
         }
         return;
     }
-    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff122633), 0.0f, 0.0f,
-                                           juce::Colour(background), (float) getWidth(), 220.0f, false));
-    g.fillRect(0, 0, getWidth(), 142);
+    const auto header = juce::Rectangle<float>(10.0f, 8.0f, (float) getWidth() - 20.0f, 132.0f);
+    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff0a2634), header.getX(), header.getY(),
+                                           juce::Colour(background), header.getRight(), header.getBottom(), false));
+    g.fillRoundedRectangle(header, 10.0f);
+    g.setColour(juce::Colour(line).withAlpha(0.8f));
+    g.drawRoundedRectangle(header.reduced(0.5f), 10.0f, 1.0f);
+    auto brandCard = appIcon.getBounds().getUnion(title.getBounds()).getUnion(subtitle.getBounds())
+        .getUnion(userLabel.getBounds()).toFloat().expanded(7.0f, 6.0f);
+    g.setColour(juce::Colour(0xff06131c).withAlpha(0.92f));
+    g.fillRoundedRectangle(brandCard, 7.0f);
     g.setColour(juce::Colour(line));
-    g.drawHorizontalLine(141, 18.0f, (float) getWidth() - 18.0f);
+    g.drawRoundedRectangle(brandCard, 7.0f, 1.0f);
+    auto programCard = programBox.getBounds().getUnion(newProgramButton.getBounds())
+        .getUnion(saveProgramButton.getBounds()).getUnion(deleteProgramButton.getBounds())
+        .getUnion(importProgramButton.getBounds()).getUnion(exportProgramButton.getBounds())
+        .toFloat().expanded(8.0f, 6.0f);
+    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff0b1b27), programCard.getX(), programCard.getY(),
+                                           juce::Colour(0xff102b38), programCard.getRight(), programCard.getBottom(), false));
+    g.fillRoundedRectangle(programCard, 8.0f);
+    g.setColour(juce::Colour(teal).withAlpha(0.45f));
+    g.drawRoundedRectangle(programCard, 8.0f, 1.0f);
+    g.setColour(juce::Colour(line).withAlpha(0.75f));
     g.drawHorizontalLine(getHeight() - 66, 18.0f, (float) getWidth() - 18.0f);
     g.setColour(juce::Colour(mutedText));
     g.setFont(10.5f);
