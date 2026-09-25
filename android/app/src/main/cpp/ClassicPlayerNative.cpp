@@ -34,6 +34,8 @@ std::array<float, kLayerCount> layerAttack { 0.01f,0.01f,0.01f,0.01f,0.01f,0.01f
 std::array<float, kLayerCount> layerRelease { 0.25f,0.25f,0.25f,0.25f,0.25f,0.25f };
 std::array<float, kLayerCount> eqLow { 1.f,1.f,1.f,1.f,1.f,1.f }, eqMid { 1.f,1.f,1.f,1.f,1.f,1.f }, eqHigh { 1.f,1.f,1.f,1.f,1.f,1.f };
 std::array<float, kLayerCount> eqLowState {}, eqHighState {};
+std::array<float, kLayerCount> compressorThreshold {0.85f,0.85f,0.85f,0.85f,0.85f,0.85f};
+std::array<float, kLayerCount> compressorRatio {1.f,1.f,1.f,1.f,1.f,1.f};
 std::array<float, kLayerCount> layerPeaks {};
 std::array<short, kMaxFrames * 2> scratch {};
 float masterGain = 0.8f;
@@ -317,6 +319,15 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerEq(JNIEnv*, jcl
     eqLow[(size_t)layer]=std::clamp((float)low,0.0f,2.0f); eqMid[(size_t)layer]=std::clamp((float)mid,0.0f,2.0f); eqHigh[(size_t)layer]=std::clamp((float)high,0.0f,2.0f);
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerCompressor(JNIEnv*, jclass, jint layer, jfloat threshold, jfloat ratio)
+{
+    if (layer < 0 || layer >= kLayerCount) return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    compressorThreshold[(size_t)layer] = std::clamp((float)threshold, 0.1f, 1.0f);
+    compressorRatio[(size_t)layer] = std::clamp((float)ratio, 1.0f, 20.0f);
+}
+
 extern "C" JNIEXPORT jint JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativePresetCount(JNIEnv*, jclass, jint layer)
 {
@@ -514,7 +525,9 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
                 const float high = input - eqLowState[(size_t)layer];
                 eqHighState[(size_t)layer] += (high - eqHighState[(size_t)layer]) * 0.18f;
                 const float lowBand = eqLowState[(size_t)layer], highBand = high - eqHighState[(size_t)layer], midBand = input - lowBand - highBand;
-                const float shaped = lowBand*eqLow[(size_t)layer] + midBand*eqMid[(size_t)layer] + highBand*eqHigh[(size_t)layer];
+                float shaped = lowBand*eqLow[(size_t)layer] + midBand*eqMid[(size_t)layer] + highBand*eqHigh[(size_t)layer];
+                const float magnitude = std::abs(shaped), threshold = compressorThreshold[(size_t)layer];
+                if (magnitude > threshold) { const float excess = magnitude - threshold; shaped = std::copysign(threshold + excess / compressorRatio[(size_t)layer], shaped); }
                 const short shapedShort=(short)std::clamp((int)(shaped*32768.0f),-32768,32767); scratch[(size_t)sample]=shapedShort; scratch[(size_t)sample+1]=shapedShort;
             }
             const int frame = sample / 2;
