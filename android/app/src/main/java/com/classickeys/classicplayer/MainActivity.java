@@ -716,6 +716,10 @@ public final class MainActivity extends Activity {
         TextView eqLabel = new TextView(this); eqLabel.setText("EQ  ·  GRAVES     MÉDIOS     AGUDOS"); eqLabel.setTextColor(Color.rgb(180,195,200)); root.addView(eqLabel,new LinearLayout.LayoutParams(-1,-2));
         root.addView(low,new LinearLayout.LayoutParams(-1,-2)); root.addView(mid,new LinearLayout.LayoutParams(-1,-2)); root.addView(high,new LinearLayout.LayoutParams(-1,-2));
         SeekBar.OnSeekBarChangeListener eq = new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean from){if(from)screen.setLayerEq(layer,low.getProgress()/100f,mid.getProgress()/100f,high.getProgress()/100f);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}}; low.setOnSeekBarChangeListener(eq);mid.setOnSeekBarChangeListener(eq);high.setOnSeekBarChangeListener(eq);
+        TextView compLabel = new TextView(this); compLabel.setText("COMPRESSOR  ·  THRESHOLD     RATIO"); compLabel.setTextColor(Color.rgb(180,195,200)); root.addView(compLabel,new LinearLayout.LayoutParams(-1,-2));
+        SeekBar threshold = new SeekBar(this); threshold.setMax(100); threshold.setProgress((int)(screen.compressorThreshold[layer]*100)); root.addView(threshold,new LinearLayout.LayoutParams(-1,-2));
+        SeekBar ratio = new SeekBar(this); ratio.setMax(190); ratio.setProgress((int)((screen.compressorRatio[layer]-1f)/19f*190f)); root.addView(ratio,new LinearLayout.LayoutParams(-1,-2));
+        SeekBar.OnSeekBarChangeListener comp = new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean from){if(from)screen.setLayerCompressor(layer,threshold.getProgress()/100f,1f+ratio.getProgress()/190f*19f);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}}; threshold.setOnSeekBarChangeListener(comp); ratio.setOnSeekBarChangeListener(comp);
         ListView list = new ListView(this); list.setChoiceMode(ListView.CHOICE_MODE_SINGLE); list.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_list_item_single_choice, items)); list.setItemChecked(Math.max(0, Math.min(selected, items.length-1)), true);
         list.setOnItemClickListener((parent, view, position, id) -> { selection.apply(position); list.setItemChecked(position, true); });
         root.addView(list, new LinearLayout.LayoutParams(-1, 0, 1f));
@@ -745,6 +749,7 @@ public final class MainActivity extends Activity {
         private final float[] layerAttack = {0.01f,0.01f,0.01f,0.01f,0.01f,0.01f};
         private final float[] layerRelease = {0.25f,0.25f,0.25f,0.25f,0.25f,0.25f};
         private final float[] eqLow = {1f,1f,1f,1f,1f,1f}, eqMid = {1f,1f,1f,1f,1f,1f}, eqHigh = {1f,1f,1f,1f,1f,1f};
+        private final float[] compressorThreshold = {0.85f,0.85f,0.85f,0.85f,0.85f,0.85f}, compressorRatio = {1f,1f,1f,1f,1f,1f};
         private final boolean[] muted = new boolean[6];
         private final boolean[] solo = new boolean[6];
         private float masterVolume = 0.8f;
@@ -767,6 +772,7 @@ public final class MainActivity extends Activity {
         void setLearnedVolume(int target,float value){if(target<6){layerVolumes[target]=value;applyLayerGains();}else{masterVolume=value;if(audioEngine!=null)audioEngine.setMaster(faderGain(value));}postInvalidate();}
         void setLayerEnvelope(int layer,float attack,float release){if(layer<0||layer>=6)return;layerAttack[layer]=attack;layerRelease[layer]=release;if(audioEngine!=null)audioEngine.setLayerEnvelope(layer,attack,release);}
         void setLayerEq(int layer,float low,float mid,float high){if(layer<0||layer>=6)return;eqLow[layer]=low;eqMid[layer]=mid;eqHigh[layer]=high;if(audioEngine!=null)audioEngine.setLayerEq(layer,low,mid,high);}
+        void setLayerCompressor(int layer,float threshold,float ratio){if(layer<0||layer>=6)return;compressorThreshold[layer]=threshold;compressorRatio[layer]=ratio;if(audioEngine!=null)audioEngine.setLayerCompressor(layer,threshold,ratio);}
 
         private void text(Canvas canvas, String value, float x, float y, float size, int colour) {
             paint.setStyle(Paint.Style.FILL); paint.setColor(colour); paint.setTextSize(size);
