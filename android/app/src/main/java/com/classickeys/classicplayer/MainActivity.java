@@ -899,15 +899,18 @@ public final class MainActivity extends Activity {
         }
 
         @Override public boolean onTouchEvent(MotionEvent event) {
-            if (event.getAction() != MotionEvent.ACTION_UP) return true;
+            final int action = event.getActionMasked();
+            final boolean tap = action == MotionEvent.ACTION_UP;
+            final boolean dragging = action == MotionEvent.ACTION_DOWN
+                    || action == MotionEvent.ACTION_MOVE || tap;
             final float w = getWidth(), h = getHeight();
-            if (event.getY() > h*.09f && event.getY() < h*.145f && event.getX() > w*.75f) {
+            if (tap && event.getY() > h*.09f && event.getY() < h*.145f && event.getX() > w*.75f) {
                 if (event.getX() < w*.832f) { liveSet = false; settings = false; }
                 else if (event.getX() < w*.912f) { liveSet = true; settings = false; }
                 else { settings = true; liveSet = false; }
                 invalidate(); return true;
             }
-            if (settings) {
+            if (settings && tap) {
                 if (event.getY() > h * .28f && event.getY() < h * .40f && audioOutputManager != null) {
                     showAudioOutputChooser();
                     return true;
@@ -923,15 +926,15 @@ public final class MainActivity extends Activity {
                 if (event.getY() > h*.77f && event.getY() < h*.88f) { settings=false; invalidate(); }
                 return true;
             }
-            if (liveSet && event.getY() > h * .235f && event.getY() < h * .90f) {
+            if (liveSet && tap && event.getY() > h * .235f && event.getY() < h * .90f) {
                 float cardW = (w - 44 - 42) / 4f;
                 int col = (int) ((event.getX() - 22) / (cardW + 14));
                 int row = event.getY() > h * .55f ? 1 : 0;
                 if (col >= 0 && col < 4) { selected = row * 4 + col; if(savingLiveSlot){savingLiveSlot=false;saveLiveSlot(liveBank,selected);}else loadLiveSlot(liveBank,selected);invalidate(); }
             }
-            if(liveSet&&event.getY()>h*.14f&&event.getY()<h*.22f){liveBank=Math.max(0,Math.min(7,(int)(event.getX()/(w/8f))));selected=0;loadLiveNames();return true;}
-            if(liveSet&&event.getY()>h*.90f&&event.getX()<300){savingLiveSlot=!savingLiveSlot;invalidate();return true;}
-            if (!liveSet && event.getY() > h * .17f && event.getY() < h * .87f) {
+            if(liveSet&&tap&&event.getY()>h*.14f&&event.getY()<h*.22f){liveBank=Math.max(0,Math.min(7,(int)(event.getX()/(w/8f))));selected=0;loadLiveNames();return true;}
+            if(liveSet&&tap&&event.getY()>h*.90f&&event.getX()<300){savingLiveSlot=!savingLiveSlot;invalidate();return true;}
+            if (!liveSet && dragging && event.getY() > h * .17f && event.getY() < h * .87f) {
                 float cardW = (w - 36 - 60 - 105) / 6f;
                 float masterX = 18 + 6*(cardW+10);
                 if (event.getX() >= masterX) {
@@ -943,21 +946,24 @@ public final class MainActivity extends Activity {
                 int layer = (int) ((event.getX() - 18) / (cardW + 10));
                 if (layer >= 0 && layer < 6) {
                     float cardX = 18 + layer*(cardW+10);
-                    if (event.getY() >= h*.17f+h*.016f && event.getY() <= h*.17f+h*.063f) {
+                    if (tap && event.getY() >= h*.17f+h*.016f && event.getY() <= h*.17f+h*.063f) {
                         if (event.getX() >= cardX+cardW*.54f && event.getX() <= cardX+cardW*.70f) muted[layer] = !muted[layer];
                         else if (event.getX() >= cardX+cardW*.74f && event.getX() <= cardX+cardW*.90f) solo[layer] = !solo[layer];
                         applyLayerGains(); invalidate(); return true;
                     }
-                    if (event.getY() >= h*.17f+h*.098f && event.getY() <= h*.17f+h*.16f) {
+                    if (tap && event.getY() >= h*.17f+h*.098f && event.getY() <= h*.17f+h*.16f) {
                         if (engineNames[layer].equals("VAZIA")) chooseLayerSource(layer);
                         else showLayerActions(layer);
                         return true;
                     }
                     float railTop = h*.17f+h*.205f, railBottom = h*.17f+h*.72f-h*.09f;
-                    if (event.getY() >= railTop && event.getY() <= railBottom) {
+                    // Handle the whole drag gesture, not only ACTION_UP. The
+                    // wider hit area makes the fader usable on touchscreens.
+                    if (event.getY() >= railTop - h*.035f && event.getY() <= railBottom + h*.035f) {
                         layerVolumes[layer] = Math.max(0f, Math.min(1f, (railBottom - event.getY()) / (railBottom - railTop)));
                         applyLayerGains();
                         invalidate();
+                        return true;
                     }
                 }
             }
