@@ -681,15 +681,27 @@ public final class MainActivity extends Activity {
         if (audioEngine == null) return;
         final int count = audioEngine.dx7PatchCount(layer);
         if (count <= 0) { openDx7Picker(layer); return; }
-        final String[] patches = new String[count];
-        for (int patch=0;patch<count;++patch) patches[patch]=String.format("%02d  %s",patch+1,audioEngine.dx7PatchName(layer,patch));
-        int selectedPatch=getSharedPreferences("layers",MODE_PRIVATE).getInt("dx7_patch_"+layer,0);
-        showPresetEditor(layer, "LAYER "+(layer+1)+" · TIMBRE DX7", "Selecione um timbre do banco DX7", patches, selectedPatch, which -> {
-                    if(audioEngine.setDx7Patch(layer,which)){
-                        screen.setPresetName(layer,audioEngine.dx7PatchName(layer,which));
-                        getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("dx7_patch_"+layer,which).apply();
-                    }
-                }, "TROCAR BANCO", () -> openDx7Picker(layer));
+        // DX7 gets an explicit bank + timbre selector, matching the desktop
+        // workflow.  The old generic list hid the bank choice and made it
+        // look as if only one patch existed.
+        final Dialog dialog = new Dialog(this);
+        LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(28,22,28,18); root.setBackgroundColor(Color.rgb(7,16,25));
+        TextView heading = new TextView(this); heading.setText("DX7 · LAYER "+(layer+1)); heading.setTextColor(Color.rgb(233,239,240)); heading.setTextSize(22); root.addView(heading);
+        TextView help = new TextView(this); help.setText("Selecione o banco e o timbre desta layer."); help.setTextColor(Color.rgb(145,170,180)); help.setPadding(0,6,0,16); root.addView(help);
+        TextView bankLabel = new TextView(this); bankLabel.setText("BANCO DX7"); bankLabel.setTextColor(Color.rgb(19,184,173)); root.addView(bankLabel);
+        Spinner bank = new Spinner(this); String[] banks={"DIVINE MASQUERADE 1","DIVINE MASQUERADE 2","IMPORTAR BANCO .SYX"}; bank.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_spinner_dropdown_item, banks)); root.addView(bank,new LinearLayout.LayoutParams(-1,-2));
+        TextView patchLabel = new TextView(this); patchLabel.setText("TIMBRE DX7"); patchLabel.setTextColor(Color.rgb(19,184,173)); patchLabel.setPadding(0,14,0,0); root.addView(patchLabel);
+        String[] patches=new String[count]; for(int patch=0;patch<count;++patch) patches[patch]=String.format("%02d  %s",patch+1,audioEngine.dx7PatchName(layer,patch));
+        Spinner patchSpinner=new Spinner(this); patchSpinner.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_spinner_dropdown_item, patches));
+        int selectedPatch=getSharedPreferences("layers",MODE_PRIVATE).getInt("dx7_patch_"+layer,0); patchSpinner.setSelection(Math.max(0,Math.min(selectedPatch,count-1))); root.addView(patchSpinner,new LinearLayout.LayoutParams(-1,-2));
+        patchSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onNothingSelected(android.widget.AdapterView<?> p){} public void onItemSelected(android.widget.AdapterView<?> p,android.view.View v,int which,long id){if(audioEngine.setDx7Patch(layer,which)){screen.setPresetName(layer,audioEngine.dx7PatchName(layer,which));getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("dx7_patch_"+layer,which).apply();}}});
+        LinearLayout actions=new LinearLayout(this); actions.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL); actions.setPadding(0,18,0,0);
+        Button change=new Button(this); change.setText("TROCAR BANCO"); change.setTextColor(Color.WHITE); change.setBackgroundColor(Color.rgb(31,70,86)); change.setOnClickListener(v->{dialog.dismiss();openDx7Picker(layer);}); actions.addView(change);
+        Button close=new Button(this); close.setText("FECHAR"); close.setTextColor(Color.WHITE); close.setBackgroundColor(Color.rgb(19,120,116)); close.setOnClickListener(v->dialog.dismiss()); actions.addView(close); root.addView(actions,new LinearLayout.LayoutParams(-1,-2));
+        final boolean[] bankReady={false};
+        bank.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onNothingSelected(android.widget.AdapterView<?> p){} public void onItemSelected(android.widget.AdapterView<?> p,android.view.View v,int which,long id){if(!bankReady[0]){bankReady[0]=true;return;} if(which<2){dialog.dismiss();activateBundledDx7(layer,which==0?R.raw.dx7_bank_1:R.raw.dx7_bank_2,which==0?"Divine Masquerade 1":"Divine Masquerade 2");openDx7Editor(layer);}}});
+        dialog.setContentView(root); dialog.show(); if(dialog.getWindow()!=null){dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);dialog.getWindow().setLayout(-1,-2);}
     }
 
     private interface PresetSelection { void apply(int index); }
