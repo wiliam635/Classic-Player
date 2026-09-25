@@ -522,7 +522,7 @@ public final class MainActivity extends Activity {
     }
     private void loadLiveSlot(int bank,int slot){
         SharedPreferences live=getSharedPreferences("live_set",MODE_PRIVATE);String root="bank_"+bank+"_slot_"+slot;if(!live.getBoolean(root+"_valid",false)){new AlertDialog.Builder(this).setMessage("Este slot está vazio. Ative SALVAR SLOT e toque nele para guardar o programa atual.").setPositiveButton("OK",null).show();return;}
-        SharedPreferences.Editor e=getSharedPreferences("layers",MODE_PRIVATE).edit();
+        SharedPreferences.Editor e=getSharedPreferences("layers",MODE_PRIVATE).edit(); screen.masterReverb=live.getFloat(root+"_reverb",0f); screen.masterChorus=live.getFloat(root+"_chorus",0f); if(audioEngine!=null) audioEngine.setMasterEffects(screen.masterReverb,screen.masterChorus);
         for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";e.putInt("engine_"+layer,live.getInt(p+"engine",0));e.putString("sf2_"+layer,live.getString(p+"sf2",null));e.putString("dx7_"+layer,live.getString(p+"dx7",null));e.putString("name_"+layer,live.getString(p+"name",null));e.putInt("preset_"+layer,live.getInt(p+"preset",0));e.putInt("dx7_patch_"+layer,live.getInt(p+"dx7_patch",0));e.putInt("analog_preset_"+layer,live.getInt(p+"analog",0));e.putInt("hammond_preset_"+layer,live.getInt(p+"hammond",0));screen.layerVolumes[layer]=live.getFloat(p+"volume",screen.layerVolumes[layer]);screen.muted[layer]=live.getBoolean(p+"muted",false);screen.solo[layer]=live.getBoolean(p+"solo",false);}e.apply();screen.masterVolume=live.getFloat(root+"_master",screen.masterVolume);screen.applyLayerGains();SharedPreferences.Editor pads=getSharedPreferences("pads",MODE_PRIVATE).edit();for(int pad=0;pad<12;pad++){String path=live.getString(root+"_pad_"+pad,null);if(path!=null)pads.putString("pad_"+pad,path);}pads.apply();recreate();
     }
 
@@ -720,6 +720,10 @@ public final class MainActivity extends Activity {
         SeekBar threshold = new SeekBar(this); threshold.setMax(100); threshold.setProgress((int)(screen.compressorThreshold[layer]*100)); root.addView(threshold,new LinearLayout.LayoutParams(-1,-2));
         SeekBar ratio = new SeekBar(this); ratio.setMax(190); ratio.setProgress((int)((screen.compressorRatio[layer]-1f)/19f*190f)); root.addView(ratio,new LinearLayout.LayoutParams(-1,-2));
         SeekBar.OnSeekBarChangeListener comp = new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean from){if(from)screen.setLayerCompressor(layer,threshold.getProgress()/100f,1f+ratio.getProgress()/190f*19f);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}}; threshold.setOnSeekBarChangeListener(comp); ratio.setOnSeekBarChangeListener(comp);
+        TextView fxLabel = new TextView(this); fxLabel.setText("MASTER FX · REVERB / CHORUS"); fxLabel.setTextColor(Color.rgb(180,195,200)); root.addView(fxLabel,new LinearLayout.LayoutParams(-1,-2));
+        SeekBar reverb = new SeekBar(this); reverb.setMax(100); reverb.setProgress((int)(screen.masterReverb*100)); root.addView(reverb,new LinearLayout.LayoutParams(-1,-2));
+        SeekBar chorus = new SeekBar(this); chorus.setMax(100); chorus.setProgress((int)(screen.masterChorus*100)); root.addView(chorus,new LinearLayout.LayoutParams(-1,-2));
+        SeekBar.OnSeekBarChangeListener fx = new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean from){if(from)screen.setMasterEffects(reverb.getProgress()/100f,chorus.getProgress()/100f);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}}; reverb.setOnSeekBarChangeListener(fx); chorus.setOnSeekBarChangeListener(fx);
         ListView list = new ListView(this); list.setChoiceMode(ListView.CHOICE_MODE_SINGLE); list.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_list_item_single_choice, items)); list.setItemChecked(Math.max(0, Math.min(selected, items.length-1)), true);
         list.setOnItemClickListener((parent, view, position, id) -> { selection.apply(position); list.setItemChecked(position, true); });
         root.addView(list, new LinearLayout.LayoutParams(-1, 0, 1f));
@@ -750,6 +754,7 @@ public final class MainActivity extends Activity {
         private final float[] layerRelease = {0.25f,0.25f,0.25f,0.25f,0.25f,0.25f};
         private final float[] eqLow = {1f,1f,1f,1f,1f,1f}, eqMid = {1f,1f,1f,1f,1f,1f}, eqHigh = {1f,1f,1f,1f,1f,1f};
         private final float[] compressorThreshold = {0.85f,0.85f,0.85f,0.85f,0.85f,0.85f}, compressorRatio = {1f,1f,1f,1f,1f,1f};
+        private float masterReverb, masterChorus;
         private final boolean[] muted = new boolean[6];
         private final boolean[] solo = new boolean[6];
         private float masterVolume = 0.8f;
@@ -773,6 +778,7 @@ public final class MainActivity extends Activity {
         void setLayerEnvelope(int layer,float attack,float release){if(layer<0||layer>=6)return;layerAttack[layer]=attack;layerRelease[layer]=release;if(audioEngine!=null)audioEngine.setLayerEnvelope(layer,attack,release);}
         void setLayerEq(int layer,float low,float mid,float high){if(layer<0||layer>=6)return;eqLow[layer]=low;eqMid[layer]=mid;eqHigh[layer]=high;if(audioEngine!=null)audioEngine.setLayerEq(layer,low,mid,high);}
         void setLayerCompressor(int layer,float threshold,float ratio){if(layer<0||layer>=6)return;compressorThreshold[layer]=threshold;compressorRatio[layer]=ratio;if(audioEngine!=null)audioEngine.setLayerCompressor(layer,threshold,ratio);}
+        void setMasterEffects(float reverb,float chorus){masterReverb=reverb;masterChorus=chorus;if(audioEngine!=null)audioEngine.setMasterEffects(reverb,chorus);postInvalidate();}
 
         private void text(Canvas canvas, String value, float x, float y, float size, int colour) {
             paint.setStyle(Paint.Style.FILL); paint.setColor(colour); paint.setTextSize(size);
