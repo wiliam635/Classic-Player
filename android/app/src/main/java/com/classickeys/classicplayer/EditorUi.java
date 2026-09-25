@@ -14,6 +14,8 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
+import android.view.ViewConfiguration;
 import android.widget.*;
 import java.util.Locale;
 
@@ -41,7 +43,7 @@ final class EditorUi {
             HorizontalScrollView tabScroller=new HorizontalScrollView(a);tabScroller.setHorizontalScrollBarEnabled(false);tabScroller.setFillViewport(true);
             tabs=new LinearLayout(a);tabs.setGravity(Gravity.CENTER);tabScroller.addView(tabs,new HorizontalScrollView.LayoutParams(-2,dp(a,28)));
             root.addView(tabScroller,new LinearLayout.LayoutParams(-1,dp(a,28)));
-            scroll=new BoundedScrollView(a);body=column(a);scroll.addView(body,new ScrollView.LayoutParams(-1,-2));root.addView(scroll,new LinearLayout.LayoutParams(-1,-2));
+            scroll=new BoundedScrollView(a);scroll.setVerticalScrollBarEnabled(true);scroll.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);body=column(a);body.setPadding(0,0,0,dp(a,8));scroll.addView(body,new ScrollView.LayoutParams(-1,-2));root.addView(scroll,new LinearLayout.LayoutParams(-1,-2));
             footer=new LinearLayout(a);footer.setGravity(Gravity.END);root.addView(footer,new LinearLayout.LayoutParams(-1,dp(a,35)));
             dialog.setContentView(root);
         }
@@ -49,7 +51,7 @@ final class EditorUi {
             android.util.DisplayMetrics m=body.getResources().getDisplayMetrics();
             // Keep the body inside the usable app area on short landscape
             // screens; the footer stays fixed and never covers the last row.
-            scroll.maxHeight=Math.max(dp(body.getContext(),48),m.heightPixels-dp(body.getContext(),208));
+            scroll.maxHeight=Math.max(dp(body.getContext(),48),m.heightPixels-dp(body.getContext(),192));
             dialog.show();android.view.Window w=dialog.getWindow();if(w!=null){
                 w.setBackgroundDrawableResource(android.R.color.transparent);
                 // Compact desktop-like panels; never impose a minimum wider
@@ -72,8 +74,13 @@ final class EditorUi {
     }
     /** Lets short effect panels wrap their controls, while long editors scroll above the fixed footer. */
     static final class BoundedScrollView extends ScrollView {
-        int maxHeight;
-        BoundedScrollView(Context context){super(context);setFillViewport(false);setClipToPadding(true);setClipChildren(true);}
+        int maxHeight;float downY;final int touchSlop;
+        BoundedScrollView(Context context){super(context);touchSlop=ViewConfiguration.get(context).getScaledTouchSlop();setFillViewport(false);setClipToPadding(true);setClipChildren(true);}
+        @Override public boolean onInterceptTouchEvent(MotionEvent event){
+            if(event.getActionMasked()==MotionEvent.ACTION_DOWN)downY=event.getY();
+            else if(event.getActionMasked()==MotionEvent.ACTION_MOVE){float delta=downY-event.getY();if(Math.abs(delta)>touchSlop&&!canScrollVertically(delta>0?1:-1))return false;}
+            return super.onInterceptTouchEvent(event);
+        }
         @Override protected void onMeasure(int widthMeasureSpec,int heightMeasureSpec){
             int parentLimit=MeasureSpec.getMode(heightMeasureSpec)==MeasureSpec.UNSPECIFIED
                     ?Integer.MAX_VALUE:MeasureSpec.getSize(heightMeasureSpec);
@@ -110,12 +117,12 @@ final class EditorUi {
     }
     static LinearLayout gridRow(LinearLayout parent){LinearLayout row=new LinearLayout(parent.getContext());row.setGravity(Gravity.CENTER_VERTICAL);parent.addView(row,new LinearLayout.LayoutParams(-1,-2));return row;}
     static LinearLayout knobRow(LinearLayout parent){LinearLayout row=new LinearLayout(parent.getContext());row.setGravity(Gravity.CENTER);row.setPadding(0,dp(parent.getContext(),2),0,dp(parent.getContext(),2));parent.addView(row,new LinearLayout.LayoutParams(-1,-2));return row;}
-    static void knob(LinearLayout row,String label,float value,float min,float max,String unit,Change action){row.addView(new Knob(row.getContext(),label,value,min,max,unit,action),new LinearLayout.LayoutParams(0,dp(row.getContext(),68),1));}
+    static void knob(LinearLayout row,String label,float value,float min,float max,String unit,Change action){row.addView(new Knob(row.getContext(),label,value,min,max,unit,action),new LinearLayout.LayoutParams(0,dp(row.getContext(),58),1));}
     static final class Knob extends View {
         final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);final String label,unit;final float min,max;final Change action;
-        float value,downY,start;int pointer=-1;
-        Knob(Context c,String label,float value,float min,float max,String unit,Change action){super(c);this.label=label;this.min=min;this.max=max;this.unit=unit;this.value=Math.max(min,Math.min(max,value));this.action=action;setFocusable(true);describe();}
-        void describe(){setContentDescription(label+" "+format());}
+        float value,downX,downY,start;int pointer=-1,dragAxis;final int touchSlop;
+        Knob(Context c,String label,float value,float min,float max,String unit,Change action){super(c);this.label=label;this.min=min;this.max=max;this.unit=unit;this.value=Math.max(min,Math.min(max,value));this.action=action;touchSlop=ViewConfiguration.get(c).getScaledTouchSlop();setFocusable(true);describe();}
+        void describe(){setContentDescription(label+" "+format()+". Arraste na horizontal para ajustar; na vertical para rolar a tela.");}
         String format(){return String.format(Locale.ROOT,"%.1f%s",value,unit);}
         @Override protected void onDraw(Canvas c){
             float w=getWidth(),h=getHeight(),cx=w/2,cy=h*.45f,r=Math.min(w*.26f,h*.22f);p.setShader(null);p.setStyle(Paint.Style.FILL);p.setColor(TEXT);p.setTextAlign(Paint.Align.CENTER);p.setTextSize(dp(getContext(),8));c.drawText(label,cx,dp(getContext(),10),p);
@@ -124,12 +131,13 @@ final class EditorUi {
             p.setStyle(Paint.Style.FILL);p.setColor(FIELD);float bottom=cy+r+dp(getContext(),2);c.drawRect(Math.max(3,cx-dp(getContext(),34)),bottom,Math.min(w-3,cx+dp(getContext(),34)),bottom+dp(getContext(),14),p);p.setColor(TEXT);p.setTextSize(dp(getContext(),9));c.drawText(format(),cx,bottom+dp(getContext(),11),p);
         }
         @Override public boolean onTouchEvent(MotionEvent e){switch(e.getActionMasked()){
-            case MotionEvent.ACTION_DOWN:pointer=e.getPointerId(0);downY=e.getY();start=value;getParent().requestDisallowInterceptTouchEvent(true);return true;
-            case MotionEvent.ACTION_MOVE:int i=e.findPointerIndex(pointer);if(i<0)return true;value=Math.max(min,Math.min(max,start+(downY-e.getY(i))/dp(getContext(),220)*(max-min)));action.set(value);describe();invalidate();return true;
-            case MotionEvent.ACTION_UP:performClick();pointer=-1;getParent().requestDisallowInterceptTouchEvent(false);return true;
-            case MotionEvent.ACTION_CANCEL:pointer=-1;getParent().requestDisallowInterceptTouchEvent(false);return true;
+            case MotionEvent.ACTION_DOWN:pointer=e.getPointerId(0);downX=e.getX();downY=e.getY();start=value;dragAxis=0;return true;
+            case MotionEvent.ACTION_MOVE:int i=e.findPointerIndex(pointer);if(i<0)return true;float dx=e.getX(i)-downX,dy=downY-e.getY(i);if(dragAxis==0){if(Math.abs(dx)>touchSlop&&Math.abs(dx)>Math.abs(dy)){dragAxis=1;getParent().requestDisallowInterceptTouchEvent(true);}else if(Math.abs(dy)>touchSlop){if(canScrollParent(dy)){return true;}dragAxis=2;getParent().requestDisallowInterceptTouchEvent(true);}}if(dragAxis!=0){float delta=dragAxis==1?dx:dy;value=Math.max(min,Math.min(max,start+delta/dp(getContext(),180)*(max-min)));action.set(value);describe();invalidate();}return true;
+            case MotionEvent.ACTION_UP:if(dragAxis==0)performClick();pointer=-1;dragAxis=0;getParent().requestDisallowInterceptTouchEvent(false);return true;
+            case MotionEvent.ACTION_CANCEL:pointer=-1;dragAxis=0;getParent().requestDisallowInterceptTouchEvent(false);return true;
             default:return true;}}
         @Override public boolean performClick(){super.performClick();return true;}
+        private boolean canScrollParent(float fingerDelta){ViewParent parent=getParent();while(parent!=null){if(parent instanceof ScrollView)return ((ScrollView)parent).canScrollVertically(fingerDelta>0?1:-1);if(parent instanceof View)parent=parent.getParent();else break;}return false;}
     }
 
     /** Small response graph for the EQ and compressor values available in the Android engine. */
