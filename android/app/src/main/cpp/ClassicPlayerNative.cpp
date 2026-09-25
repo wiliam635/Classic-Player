@@ -30,6 +30,8 @@ enum class EngineType : int { empty = 0, sf2 = 1, dx7 = 2, analog = 3, hammond =
 std::array<EngineType, kLayerCount> engineTypes {};
 std::array<float, kLayerCount> layerGains { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
 std::array<float, kLayerCount> smoothedLayerGains { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
+std::array<float, kLayerCount> layerAttack { 0.01f,0.01f,0.01f,0.01f,0.01f,0.01f };
+std::array<float, kLayerCount> layerRelease { 0.25f,0.25f,0.25f,0.25f,0.25f,0.25f };
 std::array<float, kLayerCount> layerPeaks {};
 std::array<short, kMaxFrames * 2> scratch {};
 float masterGain = 0.8f;
@@ -296,6 +298,15 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerGain(JNIEnv*, j
     layerGains[(size_t) layer] = std::clamp((float) value, 0.0f, 1.0f);
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerEnvelope(JNIEnv*, jclass, jint layer, jfloat attack, jfloat release)
+{
+    if (layer < 0 || layer >= kLayerCount) return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    layerAttack[(size_t)layer] = std::clamp((float)attack, 0.001f, 2.0f);
+    layerRelease[(size_t)layer] = std::clamp((float)release, 0.02f, 4.0f);
+}
+
 extern "C" JNIEXPORT jint JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativePresetCount(JNIEnv*, jclass, jint layer)
 {
@@ -455,7 +466,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
             auto& organ=hammondLayers[(size_t)layer]; const auto& bars=hammondBars[(size_t)organ.preset];
             const float leslieRate=organ.preset==7?6.2f:organ.preset==6?.8f:1.1f;
             for(int sample=0;sample<frames;++sample){float value=0.f;
-                for(auto& voice:organ.voices){if(!voice.active)continue;if(++voice.age>kInternalVoiceSafetySamples){voice={};continue;}voice.envelope=std::min(1.f,voice.envelope+.008f);
+                for(auto& voice:organ.voices){if(!voice.active)continue;if(++voice.age>kInternalVoiceSafetySamples){voice={};continue;}voice.envelope=std::min(1.f,voice.envelope+std::min(1.f,1.f/(layerAttack[(size_t)layer]*kSampleRate)));
                     const double base=440.0*std::pow(2.0,((double)voice.note-69.0)/12.0);float tone=0.f,total=0.f;
                     for(int d=0;d<9;++d){voice.phase[(size_t)d]+=base*hammondRatios[(size_t)d]/kSampleRate;voice.phase[(size_t)d]-=std::floor(voice.phase[(size_t)d]);tone+=(float)std::sin(voice.phase[(size_t)d]*6.28318530718)*bars[(size_t)d];total+=bars[(size_t)d];}
                     const float rotary=.82f+.18f*(float)std::sin(voice.phase[2]*leslieRate);value+=(tone/std::max(total,.1f))*voice.envelope*rotary*.30f;
@@ -464,8 +475,8 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
         }
         else if(engineTypes[(size_t)layer]==EngineType::analog) {
             auto& analog=analogLayers[(size_t)layer]; const int preset=analog.preset;
-            const float attack=preset==0||preset==6||preset==7?0.0018f:0.012f;
-            const float release=preset==0||preset==6||preset==7?0.9992f:0.996f;
+            const float attack=std::min(1.0f, 1.0f/(layerAttack[(size_t)layer]*kSampleRate));
+            const float release=std::exp(-1.0f/(layerRelease[(size_t)layer]*kSampleRate));
             for(int sample=0;sample<frames;++sample){float value=0.0f;
                 for(auto& voice:analog.voices){if(!voice.active)continue;if(++voice.age>kInternalVoiceSafetySamples){voice={};continue;}
                     voice.envelope=voice.releasing?voice.envelope*release:std::min(1.0f,voice.envelope+attack);

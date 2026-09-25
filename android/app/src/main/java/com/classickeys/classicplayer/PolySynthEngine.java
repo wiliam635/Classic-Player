@@ -39,6 +39,7 @@ final class PolySynthEngine {
     private static native void nativeClearLayer(int layer);
     private static native void nativeSetMaster(float value);
     private static native void nativeSetLayerGain(int layer, float value);
+    private static native void nativeSetLayerEnvelope(int layer, float attack, float release);
     private static native int nativePresetCount(int layer);
     private static native String nativePresetName(int layer, int preset);
     private static native boolean nativeSetPreset(int layer, int preset);
@@ -98,6 +99,7 @@ final class PolySynthEngine {
     void setMaster(float value) { nativeSetMaster(value); }
     void clearLayer(int layer) { nativeClearLayer(layer); }
     void setLayerGain(int layer, float value) { nativeSetLayerGain(layer, value); }
+    void setLayerEnvelope(int layer, float attack, float release) { nativeSetLayerEnvelope(layer, attack, release); }
     int presetCount(int layer) { return nativePresetCount(layer); }
     String presetName(int layer, int preset) { return nativePresetName(layer, preset); }
     boolean setPreset(int layer, int preset) { return nativeSetPreset(layer, preset); }
