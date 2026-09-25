@@ -57,7 +57,9 @@ std::array<std::array<float,kChorusFrames>,kLayerCount> layerChorusBuffer{};
 std::array<int,kLayerCount> layerChorusCursor{};
 int effectCursor = 0;
 std::array<float, kLayerCount> layerPeaks {};
-std::array<short, kMaxFrames * 2> scratch {};
+// Keep each engine in float until the final output conversion. Clipping a
+// SoundFont or a processed layer to PCM16 here cannot be undone by the master.
+std::array<float, kMaxFrames * 2> scratch {};
 float masterGain = 0.8f;
 float smoothedMasterGain = 0.8f;
 float masterPeak = 0.0f;
@@ -126,7 +128,7 @@ constexpr int kInternalVoiceSafetySamples = kSampleRate * 8;
 struct AnalogVoice {
     bool active=false,releasing=false; int note=-1,channel=0; int age=0;
     std::array<double,3> phase{}; std::array<float,3> increment{},targetIncrement{};
-    double pitch=69.0,lfoPhase=0.0; float envelope=0.0f,filterState=0.0f,pinkState=0.0f;
+    double pitch=69.0,lfoPhase=0.0; float envelope=0.0f,filterState=0.0f,pinkState=0.0f,filterEnvelope=1.0f;
     uint32_t noiseState=0x12345678u;
 };
 struct AnalogLayer {
@@ -671,8 +673,8 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
         const auto li=(size_t)layer;
         auto* font = fonts[(size_t) layer];
         if (engineTypes[(size_t)layer]==EngineType::empty) continue;
-        std::memset(scratch.data(), 0, (size_t) samples * sizeof(short));
-        if(engineTypes[(size_t)layer]==EngineType::sf2 && font!=nullptr) tsf_render_short(font, scratch.data(), frames, TSF_FALSE);
+        std::memset(scratch.data(), 0, (size_t) samples * sizeof(float));
+        if(engineTypes[(size_t)layer]==EngineType::sf2 && font!=nullptr) tsf_render_float(font, scratch.data(), frames, TSF_FALSE);
         else if(engineTypes[(size_t)layer]==EngineType::dx7) {
             auto& dx=dxLayers[(size_t)layer];
             for(int sample=0;sample<frames;++sample) {
@@ -685,23 +687,26 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
                     }
                     value+=(float)voice.samples[(size_t)voice.read++]/(float)(1<<24)*0.024f;
                 }
-                const int s=std::clamp((int)(value*32767.0f),-32768,32767);
-                scratch[(size_t)sample*2]=(short)s; scratch[(size_t)sample*2+1]=(short)s;
+                scratch[(size_t)sample*2]=value; scratch[(size_t)sample*2+1]=value;
             }
         }
         else if(engineTypes[(size_t)layer]==EngineType::hammond) {
             auto& organ=hammondLayers[(size_t)layer]; const auto& bars=organ.bars;
             const float leslieRate=organ.leslie==2?6.2f:organ.leslie==1?.8f:0.0f;
+            std::array<double,32> noteSteps{};
+            for(size_t v=0;v<organ.voices.size();++v)
+                if(organ.voices[v].active)
+                    noteSteps[v]=440.0*std::pow(2.0,((double)organ.voices[v].note-69.0)/12.0)/kSampleRate;
             for(int sample=0;sample<frames;++sample){float value=0.f;
-                for(auto& voice:organ.voices){if(!voice.active)continue;if(++voice.age>kInternalVoiceSafetySamples){voice={};continue;}voice.envelope=std::min(1.f,voice.envelope+std::min(1.f,1.f/(layerAttack[(size_t)layer]*kSampleRate)));
-                    const double base=440.0*std::pow(2.0,((double)voice.note-69.0)/12.0);float tone=0.f,total=0.f;
-                    for(int d=0;d<9;++d){voice.phase[(size_t)d]+=base*hammondRatios[(size_t)d]/kSampleRate;voice.phase[(size_t)d]-=std::floor(voice.phase[(size_t)d]);tone+=(float)std::sin(voice.phase[(size_t)d]*6.28318530718)*bars[(size_t)d];total+=bars[(size_t)d];}
+                for(size_t v=0;v<organ.voices.size();++v){auto& voice=organ.voices[v];if(!voice.active)continue;if(++voice.age>kInternalVoiceSafetySamples){voice={};continue;}voice.envelope=std::min(1.f,voice.envelope+std::min(1.f,1.f/(layerAttack[(size_t)layer]*kSampleRate)));
+                    const double noteStep=noteSteps[v];float tone=0.f,total=0.f;
+                    for(int d=0;d<9;++d){voice.phase[(size_t)d]+=noteStep*hammondRatios[(size_t)d];voice.phase[(size_t)d]-=std::floor(voice.phase[(size_t)d]);tone+=(float)std::sin(voice.phase[(size_t)d]*6.28318530718)*bars[(size_t)d];total+=bars[(size_t)d];}
                     const float percussion=organ.percussion==0?0.0f:(float)std::sin(voice.phase[organ.percussion==1?5:6]*6.28318530718)*std::exp(-(float)voice.age/(kSampleRate*.16f))*.28f;
                     const float keyClick=voice.age<80?(float)std::sin(voice.age*2.39996323)*std::exp(-(float)voice.age/20.0f)*organ.click*.035f:0.0f;
                     tone=tone/std::max(total,.1f)+percussion+keyClick+tone*organ.leakage*.025f;
                     const float rotary=leslieRate==0.0f?1.0f:.82f+.18f*(float)std::sin(voice.phase[2]*leslieRate);
                     value+=std::tanh(tone*(1.0f+organ.drive*5.0f))*voice.envelope*rotary*.30f*organ.level;
-                }int s=std::clamp((int)(value*32767.f),-32768,32767);scratch[(size_t)sample*2]=(short)s;scratch[(size_t)sample*2+1]=(short)s;
+                }scratch[(size_t)sample*2]=value;scratch[(size_t)sample*2+1]=value;
             }
         }
         else if(engineTypes[(size_t)layer]==EngineType::analog) {
@@ -710,6 +715,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
             const float releaseFactor=std::exp(-1.0f/(releaseMs*.001f*kSampleRate)),sustain=control[11]*.01f;
             const float baseCutoff=25.0f*std::pow(700.0f,control[6]*.01f),resonance=std::min(.82f,control[7]*.008f),drive=control[16]*.06f;
             const float lfoStep=6.28318530718f*control[13]/kSampleRate;
+            const float filterDecay=std::exp(-1.0f/(std::max(1.0f,decaySamples)*2.0f));
             for(int sample=0;sample<frames;++sample){float value=0.0f;
                 for(auto& voice:analog.voices){if(!voice.active)continue;if(++voice.age>kInternalVoiceSafetySamples){voice={};continue;}
                     if(layerMidiMode[li]==2)for(int osc=0;osc<3;++osc)voice.increment[(size_t)osc]+=(voice.targetIncrement[(size_t)osc]-voice.increment[(size_t)osc])*.0008f;
@@ -719,7 +725,8 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
                     else voice.envelope=sustain;
                     if(voice.envelope<.00015f){voice={};continue;}
                     voice.lfoPhase+=lfoStep;if(voice.lfoPhase>=6.28318530718)voice.lfoPhase-=6.28318530718;
-                    const float lfo=(float)std::sin(voice.lfoPhase),filterEnvelope=std::exp(-(float)voice.age/(std::max(1.0f,decaySamples)*2.0f));
+                    const float lfo=(float)std::sin(voice.lfoPhase),filterEnvelope=voice.filterEnvelope;
+                    voice.filterEnvelope*=filterDecay;
                     float mixed=0.0f,total=0.0f;
                     for(int osc=0;osc<3;++osc){if(!analog.oscillatorEnabled[(size_t)osc])continue;voice.phase[(size_t)osc]+=voice.increment[(size_t)osc];if(voice.phase[(size_t)osc]>=1.0)voice.phase[(size_t)osc]-=std::floor(voice.phase[(size_t)osc]);const float level=control[osc]*.01f;mixed+=analogWave(analog.waves[(size_t)osc],voice.phase[(size_t)osc])*level;total+=level;}
                     if(control[5]>0.01f){voice.noiseState^=voice.noiseState<<13;voice.noiseState^=voice.noiseState>>17;voice.noiseState^=voice.noiseState<<5;const float white=(float)(voice.noiseState&0xffff)/32767.5f-1.0f;float noise=white;if(analog.pinkNoise){voice.pinkState+=(white-voice.pinkState)*.045f;noise=voice.pinkState*2.5f;}mixed+=noise*control[5]*.0018f;}
@@ -730,7 +737,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
                     voice.filterState+=alpha*(mixed-voice.filterState*(1.0f+resonance));
                     value+=voice.filterState*voice.envelope*.24f;
                 }
-                int s=std::clamp((int)(value*32767.0f),-32768,32767);scratch[(size_t)sample*2]=(short)s;scratch[(size_t)sample*2+1]=(short)s;
+                scratch[(size_t)sample*2]=value;scratch[(size_t)sample*2+1]=value;
             }
         }
         const float targetLayer = layerGains[(size_t) layer];
@@ -740,24 +747,26 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
         const float layerStep = (targetLayer - smoothedLayerGains[(size_t)layer]) / (float)std::max(frames, 1);
         const float panStep=(layerPan[(size_t)layer]-smoothedLayerPan[(size_t)layer])/(float)std::max(frames,1);
         const float masterStep = (targetMaster - smoothedMasterGain) / (float)std::max(frames, 1);
+        const float cutoffHz=20.0f*std::pow(900.0f,layerCutoff[li]/100.0f);
+        const float cutoffAlpha=1.0f-std::exp(-6.2831853f*cutoffHz/(float)kSampleRate);
+        const float makeupGain=std::pow(10.0f,compressorMakeupDb[li]/20.0f);
+        const float attackDetector=std::exp(-1.0f/(std::max(0.0001f,compressorAttack[li])*(float)kSampleRate));
+        const float releaseDetector=std::exp(-1.0f/(std::max(0.0001f,compressorRelease[li])*(float)kSampleRate));
         for (int sample = 0; sample < samples; ++sample)
         {
             if ((sample & 1) == 0) {
-                const float input = (float)scratch[(size_t)sample] / 32768.0f;
+                const float input = scratch[(size_t)sample];
                 const auto eqIndex=(size_t)layer;float shaped=input;
                 for(auto& filter:layerEqFilters[eqIndex])shaped=processBiquad(filter,shaped);
-                const float cutoffHz=20.0f*std::pow(900.0f,layerCutoff[(size_t)layer]/100.0f);
-                const float cutoffAlpha=1.0f-std::exp(-6.2831853f*cutoffHz/(float)kSampleRate);
                 lowPassState[(size_t)layer]+=(shaped-lowPassState[(size_t)layer])*cutoffAlpha;
                 shaped=lowPassState[(size_t)layer];
                 const float magnitude=std::abs(shaped),threshold=compressorThreshold[(size_t)layer];
-                const float time=magnitude>compressorEnvelope[(size_t)layer]?compressorAttack[(size_t)layer]:compressorRelease[(size_t)layer];
-                const float detector=std::exp(-1.0f/(std::max(0.0001f,time)*(float)kSampleRate));
+                const float detector=magnitude>compressorEnvelope[li]?attackDetector:releaseDetector;
                 compressorEnvelope[(size_t)layer]=detector*compressorEnvelope[(size_t)layer]+(1.0f-detector)*magnitude;
                 const float envelope=std::max(0.000001f,compressorEnvelope[(size_t)layer]);
                 const float compressed=envelope>threshold?shaped*(threshold+(envelope-threshold)/compressorRatio[(size_t)layer])/envelope:shaped;
                 shaped=shaped+(compressed-shaped)*layerCompressorMix[(size_t)layer];
-                shaped*=std::pow(10.0f,compressorMakeupDb[(size_t)layer]/20.0f);
+                shaped*=makeupGain;
                 const int cursor=layerChorusCursor[(size_t)layer];
                 const float lfo=std::sin(cursor*0.006135923f);
                 const int chorusDelay=std::clamp((int)(720.0f+lfo*300.0f),1,kChorusFrames-1);
@@ -766,18 +775,18 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
                 layerChorusBuffer[(size_t)layer][(size_t)cursor]=shaped;
                 layerChorusCursor[(size_t)layer]=(cursor+1)%kChorusFrames;
                 shaped+=(delayedChorus-shaped)*layerChorusMix[(size_t)layer];
-                const short shapedShort=(short)std::clamp((int)(shaped*32768.0f),-32768,32767); scratch[(size_t)sample]=shapedShort; scratch[(size_t)sample+1]=shapedShort;
+                scratch[(size_t)sample]=shaped; scratch[(size_t)sample+1]=shaped;
             }
             const int frame = sample / 2;
             const float gain = (smoothedLayerGains[(size_t)layer] + layerStep * frame) *
                     (smoothedMasterGain + masterStep * frame);
             const float pan=std::clamp(smoothedLayerPan[(size_t)layer]+panStep*frame,-1.0f,1.0f);
             const float sideGain=sample%2==0?std::cos((pan+1.0f)*0.7853981634f):std::sin((pan+1.0f)*0.7853981634f);
-            const float layerSample=((float)scratch[(size_t)sample] / 32768.0f) * gain * sideGain;
+            const float layerSample=scratch[(size_t)sample] * gain * sideGain;
             mix[(size_t)sample] += layerSample;
             reverbSend[(size_t)sample]+=layerSample*layerReverbSend[(size_t)layer];
             renderedPeaks[(size_t) layer] = std::max(renderedPeaks[(size_t) layer],
-                    std::abs((float) scratch[(size_t) sample] * gain) / 32768.0f);
+                    std::abs(scratch[(size_t) sample] * gain));
         }
         smoothedLayerGains[(size_t)layer] = targetLayer;
         smoothedLayerPan[(size_t)layer]=layerPan[(size_t)layer];
