@@ -462,8 +462,8 @@ public final class MainActivity extends Activity {
         int count=audioEngine.analogPresetCount(); String[] presets=new String[count];
         for(int i=0;i<count;++i)presets[i]=audioEngine.analogPresetName(i);
         int selectedPreset=getSharedPreferences("layers",MODE_PRIVATE).getInt("analog_preset_"+layer,0);
-        showPresetEditor(layer, "LAYER "+(layer+1)+" · CLASSIC KEYS ANALOG", "Escolha o timbre do motor analógico", presets, selectedPreset,
-                which -> { if(audioEngine.setAnalogPreset(layer,which)){screen.setPresetName(layer,audioEngine.analogPresetName(which));getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("analog_preset_"+layer,which).apply();} }, null, null);
+        showPresetEditor(layer, "LAYER "+(layer+1)+" · CLASSIC KEYS ANALOG", "Selecione o banco e o timbre desta layer", presets, selectedPreset,
+                which -> { if(audioEngine.setAnalogPreset(layer,which)){screen.setPresetName(layer,audioEngine.analogPresetName(which));getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("analog_preset_"+layer,which).apply();} }, "TROCAR MOTOR", () -> panicAndChooseLayerSource(layer));
     }
 
     private void activateHammond(int layer) {
@@ -475,8 +475,8 @@ public final class MainActivity extends Activity {
         int count=audioEngine.hammondPresetCount(); String[] presets=new String[count];
         for(int i=0;i<count;++i)presets[i]=audioEngine.hammondPresetName(i);
         int selected=getSharedPreferences("layers",MODE_PRIVATE).getInt("hammond_preset_"+layer,0);
-        showPresetEditor(layer, "LAYER "+(layer+1)+" · HAMMOND / LESLIE", "Escolha o registro Hammond", presets, selected,
-                which -> {audioEngine.setHammondPreset(layer,which);screen.setPresetName(layer,audioEngine.hammondPresetName(which));getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("hammond_preset_"+layer,which).apply();}, null, null);
+        showPresetEditor(layer, "LAYER "+(layer+1)+" · HAMMOND / LESLIE", "Selecione o banco e o registro desta layer", presets, selected,
+                which -> {audioEngine.setHammondPreset(layer,which);screen.setPresetName(layer,audioEngine.hammondPresetName(which));getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("hammond_preset_"+layer,which).apply();}, "TROCAR MOTOR", () -> panicAndChooseLayerSource(layer));
     }
 
     private void openPadEditor(final int layer, final boolean continuous) {
