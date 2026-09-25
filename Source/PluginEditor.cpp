@@ -2340,6 +2340,8 @@ private:
 class Dx7EditorPanel final : public juce::Component
 {
 public:
+    static constexpr int preferredHeight = 82; // Fits both 22 px rows, 10 px gap and panel insets.
+
     Dx7EditorPanel(ClassicPlayerAudioProcessor& p, int layer) : processor(p), index(layer)
     {
         patchBox.setLookAndFeel(&dx7PatchLookAndFeel);
@@ -2381,7 +2383,7 @@ public:
         addAndMakeVisible(bankBox);
         addAndMakeVisible(patchBox);
         rebuildPatches();
-        setSize(560, 150);
+        setSize(560, preferredHeight);
     }
 
     ~Dx7EditorPanel() override { patchBox.setLookAndFeel(nullptr); }
@@ -4949,7 +4951,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* dx7Panel = new Dx7EditorPanel(processor, index);
     auto* routingPanel = new LayerRoutingEditorPanel(processor, index);
-    dx7Panel->setSize(560, 70);
+    dx7Panel->setSize(560, Dx7EditorPanel::preferredHeight);
     routingPanel->setSize(600, 92);
     auto valueOf = [this, prefix](const juce::String& suffix, float fallback)
     {
@@ -5005,7 +5007,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         juce::OwnedArray<juce::Component> owned;
     };
 
-    dialog->addCustomComponent(new CenteredPanel(dx7Panel, 600, 70));
+    dialog->addCustomComponent(new CenteredPanel(dx7Panel, 600, Dx7EditorPanel::preferredHeight));
     dialog->addCustomComponent(new CenteredPanel(new EngineProgramSavePanel(processor, index, "DX7"), 600, 30));
     dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
