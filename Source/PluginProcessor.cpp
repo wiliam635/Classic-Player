@@ -306,6 +306,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"layer" + n + "ReverbWidth", 1}, "Layer " + n + " Reverb Width",
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 100.0f));
+        result.push_back(std::make_unique<juce::AudioParameterInt>(
+            juce::ParameterID{"layer" + n + "ReverbPreset", 1}, "Layer " + n + " Reverb Preset",
+            -1, 3, -1));
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"layer" + n + "Comp", 1}, "Layer " + n + " Compressor",
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 0.0f));
@@ -1450,11 +1453,11 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     }
     for (int position = visualPosition; position < Sf2Engine::layerCount; ++position)
         visualLayerOrder[(size_t) position].store(position, std::memory_order_relaxed);
-    static constexpr std::array<const char*, 26> parameterSuffixes {
+    static constexpr std::array<const char*, 27> parameterSuffixes {
         "Gain", "Muted", "Attack", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh",
         "EqLowFrequency", "EqMidFrequency", "EqHighFrequency", "EqLowQ", "EqMidQ", "EqHighQ",
         "Reverb", "ReverbSize", "ReverbDamping",
-        "ReverbWidth", "Comp", "CompThreshold", "CompRatio", "CompAttack",
+        "ReverbWidth", "ReverbPreset", "Comp", "CompThreshold", "CompRatio", "CompAttack",
         "CompRelease", "CompMakeup", "Dx7Chorus", "ModulationEnabled"
     };
 
@@ -2471,7 +2474,7 @@ void ClassicPlayerAudioProcessor::resetToNewProgram()
     if (hadUiKeyColour) state.setProperty("uiKeyColour", uiKeyColour, nullptr);
     if (hadUiVirtualKeyboardVisible)
         state.setProperty("uiVirtualKeyboardVisible", uiVirtualKeyboardVisible, nullptr);
-    state.setProperty("stateVersion", 168, nullptr);
+    state.setProperty("stateVersion", 169, nullptr);
     state.setProperty("activeLayers", 0, nullptr);
     state.setProperty("masterLearnCC", savedMasterCC, nullptr);
     state.setProperty("masterLearnChannel", savedMasterChannel, nullptr);
@@ -2645,8 +2648,8 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
     // The learned REVERB control can update the audio-facing APVTS atomic
     // before the adapter's ValueTree mirror is flushed, so explicitly snapshot
     // the current values rather than relying on that mirror's timing.
-    static constexpr std::array<const char*, 4> reverbSuffixes {
-        "Reverb", "ReverbSize", "ReverbDamping", "ReverbWidth"
+    static constexpr std::array<const char*, 5> reverbSuffixes {
+        "Reverb", "ReverbSize", "ReverbDamping", "ReverbWidth", "ReverbPreset"
     };
     for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
     {
@@ -2672,7 +2675,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
     state.setProperty("masterLearnChannel", masterCCChannel.load(), nullptr);
     state.setProperty("panicLearnCC", panicCC.load(), nullptr);
     state.setProperty("panicLearnChannel", panicCCChannel.load(), nullptr);
-    state.setProperty("stateVersion", 168, nullptr);
+    state.setProperty("stateVersion", 169, nullptr);
     state.setProperty("activeLayers", activeLayerCount(), nullptr);
     for (int position = 0; position < Sf2Engine::layerCount; ++position)
         state.setProperty("visualLayer" + juce::String(position), visualLayerAt(position), nullptr);
@@ -2877,13 +2880,28 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             for (int i = 0; i < Sf2Engine::layerCount; ++i)
             {
                 const auto muteId = "layer" + juce::String(i + 1) + "Muted";
-                if (findParameterState(muteId).isValid()) continue;
-                juce::ValueTree muteState("PARAM");
-                muteState.setProperty("id", muteId, nullptr);
-                muteState.setProperty("value", 0.0f, nullptr);
-                state.addChild(muteState, -1, nullptr);
+                if (!findParameterState(muteId).isValid())
+                {
+                    juce::ValueTree muteState("PARAM");
+                    muteState.setProperty("id", muteId, nullptr);
+                    muteState.setProperty("value", 0.0f, nullptr);
+                    state.addChild(muteState, -1, nullptr);
+                }
+
+                // The factory-preset marker was added after older saved
+                // performances. Give those files an explicit "custom/none"
+                // value so the currently selected performance cannot leak
+                // this UI state into them when a preset is switched.
+                const auto presetId = "layer" + juce::String(i + 1) + "ReverbPreset";
+                if (!findParameterState(presetId).isValid())
+                {
+                    juce::ValueTree presetState("PARAM");
+                    presetState.setProperty("id", presetId, nullptr);
+                    presetState.setProperty("value", -1.0f, nullptr);
+                    state.addChild(presetState, -1, nullptr);
+                }
             }
-            state.setProperty("stateVersion", 168, nullptr);
+            state.setProperty("stateVersion", 169, nullptr);
             parameters.replaceState(state);
             for(int layer=0;layer<Sf2Engine::layerCount;++layer)
             {
