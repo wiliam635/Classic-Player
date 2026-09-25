@@ -299,6 +299,14 @@ public:
             .withStandardItemHeight(36)
             .withMaximumNumColumns(1);
     }
+
+    juce::Component* getParentComponentForMenuOptions(
+        const juce::PopupMenu::Options& options) override
+    {
+        if (auto* target = options.getTopLevelTargetComponent())
+            return target->getTopLevelComponent();
+        return ClassicLookAndFeel::getParentComponentForMenuOptions(options);
+    }
 };
 
 Dx7PatchLookAndFeel dx7PatchLookAndFeel;
@@ -2386,10 +2394,11 @@ public:
         deleteButton.setBounds(row.removeFromRight(112).reduced(1, 0));
         importButton.setBounds(row.removeFromRight(112).reduced(1, 0));
         bankBox.setBounds(row);
+        const auto bankFieldWidth = bankBox.getWidth();
         area.removeFromTop(10);
         row = area.removeFromTop(22);
         patchLabel.setBounds(row.removeFromLeft(100));
-        patchBox.setBounds(row);
+        patchBox.setBounds(row.removeFromLeft(bankFieldWidth));
     }
 
 private:
