@@ -389,8 +389,8 @@ public final class MainActivity extends Activity {
     private void openDx7Picker(int layer) {
         final String[] choices = {"BANCO DX7 1 · DIVINE MASQUERADE", "BANCO DX7 2 · DIVINE MASQUERADE", "IMPORTAR BANCO .SYX"};
         new AlertDialog.Builder(this).setTitle("BANCO DE TIMBRES DX7").setItems(choices, (dialog, which) -> {
-            if (which == 0) activateBundledDx7(layer, R.raw.dx7_bank_1, "Divine Masquerade 1");
-            else if (which == 1) activateBundledDx7(layer, R.raw.dx7_bank_2, "Divine Masquerade 2");
+            if (which == 0) { activateBundledDx7(layer, R.raw.dx7_bank_1, "Divine Masquerade 1"); if(audioEngine.dx7PatchCount(layer)>0)openDx7Editor(layer); }
+            else if (which == 1) { activateBundledDx7(layer, R.raw.dx7_bank_2, "Divine Masquerade 2"); if(audioEngine.dx7PatchCount(layer)>0)openDx7Editor(layer); }
             else openExternalDx7Picker(layer);
         }).setNegativeButton("CANCELAR", null).show();
     }
@@ -423,10 +423,15 @@ public final class MainActivity extends Activity {
     }
 
     private void chooseLayerSource(int layer) {
-        new AlertDialog.Builder(this).setTitle("TIPO DA LAYER " + (layer + 1))
-                .setItems(new String[]{"SOUNDFONT 2 (.sf2)", "DX7 SYSEX (.syx)", "CLASSIC KEYS ANALOG", "HAMMOND / LESLIE", "DRUM PADS", "PADS CONTÍNUOS"}, (dialog, which) -> {
-                    if (which == 0) openSf2Picker(layer); else if(which==1) openDx7Picker(layer); else if(which==2) activateAnalog(layer); else if(which==3) activateHammond(layer); else openPadEditor(layer,which==5);
-                }).setNegativeButton("CANCELAR", null).show();
+        EditorUi.Panel panel=new EditorUi.Panel(this,"ADICIONAR MOTOR · LAYER "+(layer+1),"Escolha o motor sonoro desta camada.");
+        String[] names={"SOUNDFONT 2 (.sf2)","DX7 SYSEX (.syx)","CLASSIC KEYS ANALOG","HAMMOND / LESLIE","DRUM PADS","PADS CONTÍNUOS"};
+        for(int i=0;i<names.length;i++){final int which=i;Button b=EditorUi.button(this,names[i],()->{
+            panel.dialog.dismiss();if(which==0)openSf2Picker(layer);else if(which==1)openDx7Picker(layer);
+            else if(which==2){activateAnalog(layer);openAnalogEditor(layer);}
+            else if(which==3){activateHammond(layer);openHammondEditor(layer);}
+            else openPadEditor(layer,which==5);
+        });LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,EditorUi.dp(this,52));p.setMargins(0,EditorUi.dp(this,5),0,EditorUi.dp(this,5));panel.body.addView(b,p);}
+        EditorUi.addButton(panel.footer,"CANCELAR",panel.dialog::dismiss);panel.show();
     }
 
     private void showLayerActions(final int layer) {
@@ -590,7 +595,7 @@ public final class MainActivity extends Activity {
             screen.setPresetName(layer,audioEngine.dx7PatchName(layer,0));
             getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("engine_"+layer,2)
                     .putString("dx7_"+layer,cachedPath).putString("name_"+layer,name).putInt("dx7_patch_"+layer,0).apply();
-            screen.setAudioStatus("ÁUDIO: banco DX7 carregado"); pendingLayer=-1; return;
+            screen.setAudioStatus("ÁUDIO: banco DX7 carregado"); pendingLayer=-1; openDx7Editor(layer); return;
         }
         if (requestCode == 700 && resultCode == RESULT_OK && data != null && data.getData() != null && pendingLayer >= 0) {
             Uri uri = data.getData();
@@ -619,6 +624,7 @@ public final class MainActivity extends Activity {
             sf2Uris[layer] = cachedPath;
             screen.setAudioStatus("ÁUDIO: SF2 carregado");
             pendingLayer = -1;
+            openSoundFontEditor(layer);
         }
     }
 
@@ -680,68 +686,78 @@ public final class MainActivity extends Activity {
 
     private void openDx7Editor(final int layer) {
         if (audioEngine == null) return;
-        final int count = audioEngine.dx7PatchCount(layer);
-        if (count <= 0) { openDx7Picker(layer); return; }
-        // DX7 gets an explicit bank + timbre selector, matching the desktop
-        // workflow.  The old generic list hid the bank choice and made it
-        // look as if only one patch existed.
-        final Dialog dialog = new Dialog(this);
-        LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(28,22,28,18); root.setBackgroundColor(Color.rgb(7,16,25));
-        TextView heading = new TextView(this); heading.setText("DX7 · LAYER "+(layer+1)); heading.setTextColor(Color.rgb(233,239,240)); heading.setTextSize(22); root.addView(heading);
-        TextView help = new TextView(this); help.setText("Selecione o banco e o timbre desta layer."); help.setTextColor(Color.rgb(145,170,180)); help.setPadding(0,6,0,16); root.addView(help);
-        TextView bankLabel = new TextView(this); bankLabel.setText("BANCO DX7"); bankLabel.setTextColor(Color.rgb(19,184,173)); root.addView(bankLabel);
-        Spinner bank = new Spinner(this); String[] banks={"DIVINE MASQUERADE 1","DIVINE MASQUERADE 2","IMPORTAR BANCO .SYX"}; bank.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_spinner_dropdown_item, banks)); root.addView(bank,new LinearLayout.LayoutParams(-1,-2));
-        TextView patchLabel = new TextView(this); patchLabel.setText("TIMBRE DX7"); patchLabel.setTextColor(Color.rgb(19,184,173)); patchLabel.setPadding(0,14,0,0); root.addView(patchLabel);
-        String[] patches=new String[count]; for(int patch=0;patch<count;++patch) patches[patch]=String.format("%02d  %s",patch+1,audioEngine.dx7PatchName(layer,patch));
-        Spinner patchSpinner=new Spinner(this); patchSpinner.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_spinner_dropdown_item, patches));
-        int selectedPatch=getSharedPreferences("layers",MODE_PRIVATE).getInt("dx7_patch_"+layer,0); patchSpinner.setSelection(Math.max(0,Math.min(selectedPatch,count-1))); root.addView(patchSpinner,new LinearLayout.LayoutParams(-1,-2));
-        patchSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onNothingSelected(android.widget.AdapterView<?> p){} public void onItemSelected(android.widget.AdapterView<?> p,android.view.View v,int which,long id){if(audioEngine.setDx7Patch(layer,which)){screen.setPresetName(layer,audioEngine.dx7PatchName(layer,which));getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("dx7_patch_"+layer,which).apply();}}});
-        LinearLayout actions=new LinearLayout(this); actions.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL); actions.setPadding(0,18,0,0);
-        Button change=new Button(this); change.setText("TROCAR BANCO"); change.setTextColor(Color.WHITE); change.setBackgroundColor(Color.rgb(31,70,86)); change.setOnClickListener(v->{dialog.dismiss();openDx7Picker(layer);}); actions.addView(change);
-        Button close=new Button(this); close.setText("FECHAR"); close.setTextColor(Color.WHITE); close.setBackgroundColor(Color.rgb(19,120,116)); close.setOnClickListener(v->dialog.dismiss()); actions.addView(close); root.addView(actions,new LinearLayout.LayoutParams(-1,-2));
-        final boolean[] bankReady={false};
-        bank.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onNothingSelected(android.widget.AdapterView<?> p){} public void onItemSelected(android.widget.AdapterView<?> p,android.view.View v,int which,long id){if(!bankReady[0]){bankReady[0]=true;return;} if(which<2){dialog.dismiss();activateBundledDx7(layer,which==0?R.raw.dx7_bank_1:R.raw.dx7_bank_2,which==0?"Divine Masquerade 1":"Divine Masquerade 2");openDx7Editor(layer);}}});
-        dialog.setContentView(root); dialog.show(); if(dialog.getWindow()!=null){dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);dialog.getWindow().setLayout(-1,-2);}
+        int count=audioEngine.dx7PatchCount(layer);
+        if(count<=0){openDx7Picker(layer);return;}
+        String[] names=new String[count];
+        for(int i=0;i<count;i++)names[i]=String.format(java.util.Locale.ROOT,"%02d: %s",i+1,audioEngine.dx7PatchName(layer,i));
+        showPresetEditor(layer,"DX7 · LAYER "+(layer+1),"Selecione o banco e o timbre desta camada.",names,
+            getSharedPreferences("layers",MODE_PRIVATE).getInt("dx7_patch_"+layer,0),which->{
+                if(audioEngine.setDx7Patch(layer,which)){
+                    screen.setPresetName(layer,audioEngine.dx7PatchName(layer,which));
+                    getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("dx7_patch_"+layer,which).apply();
+                }
+            },"IMPORTAR DX7",()->openExternalDx7Picker(layer));
     }
 
     private interface PresetSelection { void apply(int index); }
 
-    /** Full-height editor shared by the melodic engines, matching the desktop workflow. */
-    private void showPresetEditor(final int layer, String title, String subtitle, String[] items, int selected,
-                                  PresetSelection selection, String secondaryLabel, Runnable secondaryAction) {
-        final Dialog dialog = new Dialog(this);
-        LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(28, 22, 28, 18); root.setBackgroundColor(Color.rgb(7,16,25));
-        TextView heading = new TextView(this); heading.setText(title); heading.setTextColor(Color.rgb(233,239,240)); heading.setTextSize(22); heading.setPadding(0,0,0,8); root.addView(heading, new LinearLayout.LayoutParams(-1,-2));
-        TextView help = new TextView(this); help.setText(subtitle); help.setTextColor(Color.rgb(145,170,180)); help.setTextSize(14); help.setPadding(0,0,0,14); root.addView(help, new LinearLayout.LayoutParams(-1,-2));
-        TextView attackLabel = new TextView(this); attackLabel.setText("ATTACK"); attackLabel.setTextColor(Color.rgb(180,195,200)); root.addView(attackLabel,new LinearLayout.LayoutParams(-1,-2));
-        SeekBar attack = new SeekBar(this); attack.setMax(199); attack.setProgress((int)((screen.layerAttack[layer]-0.001f)/1.999f*199f)); root.addView(attack,new LinearLayout.LayoutParams(-1,-2));
-        TextView releaseLabel = new TextView(this); releaseLabel.setText("RELEASE"); releaseLabel.setTextColor(Color.rgb(180,195,200)); root.addView(releaseLabel,new LinearLayout.LayoutParams(-1,-2));
-        SeekBar release = new SeekBar(this); release.setMax(199); release.setProgress((int)((screen.layerRelease[layer]-0.02f)/3.98f*199f)); root.addView(release,new LinearLayout.LayoutParams(-1,-2));
-        SeekBar.OnSeekBarChangeListener envelope = new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean from){if(!from)return;float a=0.001f+attack.getProgress()/199f*1.999f;float r=0.02f+release.getProgress()/199f*3.98f;screen.setLayerEnvelope(layer,a,r);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}};
-        attack.setOnSeekBarChangeListener(envelope); release.setOnSeekBarChangeListener(envelope);
-        SeekBar low = new SeekBar(this); SeekBar mid = new SeekBar(this); SeekBar high = new SeekBar(this); low.setMax(200); mid.setMax(200); high.setMax(200); low.setProgress((int)(screen.eqLow[layer]*100)); mid.setProgress((int)(screen.eqMid[layer]*100)); high.setProgress((int)(screen.eqHigh[layer]*100));
-        TextView eqLabel = new TextView(this); eqLabel.setText("EQ"); eqLabel.setTextColor(Color.rgb(19,184,173)); eqLabel.setTextSize(16); root.addView(eqLabel,new LinearLayout.LayoutParams(-1,-2));
-        TextView lowLabel = new TextView(this); lowLabel.setText("GRAVES"); lowLabel.setTextColor(Color.rgb(180,195,200)); root.addView(lowLabel,new LinearLayout.LayoutParams(-1,-2)); root.addView(low,new LinearLayout.LayoutParams(-1,-2));
-        TextView midLabel = new TextView(this); midLabel.setText("MÉDIOS"); midLabel.setTextColor(Color.rgb(180,195,200)); root.addView(midLabel,new LinearLayout.LayoutParams(-1,-2)); root.addView(mid,new LinearLayout.LayoutParams(-1,-2));
-        TextView highLabel = new TextView(this); highLabel.setText("AGUDOS"); highLabel.setTextColor(Color.rgb(180,195,200)); root.addView(highLabel,new LinearLayout.LayoutParams(-1,-2)); root.addView(high,new LinearLayout.LayoutParams(-1,-2));
-        SeekBar.OnSeekBarChangeListener eq = new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean from){if(from)screen.setLayerEq(layer,low.getProgress()/100f,mid.getProgress()/100f,high.getProgress()/100f);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}}; low.setOnSeekBarChangeListener(eq);mid.setOnSeekBarChangeListener(eq);high.setOnSeekBarChangeListener(eq);
-        TextView compLabel = new TextView(this); compLabel.setText("COMPRESSOR"); compLabel.setTextColor(Color.rgb(19,184,173)); compLabel.setTextSize(16); root.addView(compLabel,new LinearLayout.LayoutParams(-1,-2));
-        TextView thresholdLabel = new TextView(this); thresholdLabel.setText("THRESHOLD"); thresholdLabel.setTextColor(Color.rgb(180,195,200)); root.addView(thresholdLabel,new LinearLayout.LayoutParams(-1,-2)); SeekBar threshold = new SeekBar(this); threshold.setMax(100); threshold.setProgress((int)(screen.compressorThreshold[layer]*100)); root.addView(threshold,new LinearLayout.LayoutParams(-1,-2));
-        TextView ratioLabel = new TextView(this); ratioLabel.setText("RATIO"); ratioLabel.setTextColor(Color.rgb(180,195,200)); root.addView(ratioLabel,new LinearLayout.LayoutParams(-1,-2)); SeekBar ratio = new SeekBar(this); ratio.setMax(190); ratio.setProgress((int)((screen.compressorRatio[layer]-1f)/19f*190f)); root.addView(ratio,new LinearLayout.LayoutParams(-1,-2));
-        SeekBar.OnSeekBarChangeListener comp = new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean from){if(from)screen.setLayerCompressor(layer,threshold.getProgress()/100f,1f+ratio.getProgress()/190f*19f);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}}; threshold.setOnSeekBarChangeListener(comp); ratio.setOnSeekBarChangeListener(comp);
-        TextView fxLabel = new TextView(this); fxLabel.setText("MASTER FX"); fxLabel.setTextColor(Color.rgb(19,184,173)); fxLabel.setTextSize(16); root.addView(fxLabel,new LinearLayout.LayoutParams(-1,-2));
-        TextView reverbLabel = new TextView(this); reverbLabel.setText("REVERB"); reverbLabel.setTextColor(Color.rgb(180,195,200)); root.addView(reverbLabel,new LinearLayout.LayoutParams(-1,-2)); SeekBar reverb = new SeekBar(this); reverb.setMax(100); reverb.setProgress((int)(screen.masterReverb*100)); root.addView(reverb,new LinearLayout.LayoutParams(-1,-2));
-        TextView chorusLabel = new TextView(this); chorusLabel.setText("CHORUS"); chorusLabel.setTextColor(Color.rgb(180,195,200)); root.addView(chorusLabel,new LinearLayout.LayoutParams(-1,-2)); SeekBar chorus = new SeekBar(this); chorus.setMax(100); chorus.setProgress((int)(screen.masterChorus*100)); root.addView(chorus,new LinearLayout.LayoutParams(-1,-2));
-        SeekBar.OnSeekBarChangeListener fx = new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean from){if(from)screen.setMasterEffects(reverb.getProgress()/100f,chorus.getProgress()/100f);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}}; reverb.setOnSeekBarChangeListener(fx); chorus.setOnSeekBarChangeListener(fx);
-        ListView list = new ListView(this); list.setChoiceMode(ListView.CHOICE_MODE_SINGLE); list.setDivider(new android.graphics.drawable.ColorDrawable(Color.rgb(35,62,74))); list.setDividerHeight(1); list.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_list_item_single_choice, items){@Override public android.view.View getView(int position,android.view.View convert,android.view.ViewGroup parent){android.view.View v=super.getView(position,convert,parent);if(v instanceof android.widget.TextView){android.widget.TextView t=(android.widget.TextView)v;t.setTextColor(Color.rgb(233,239,240));t.setTextSize(17);t.setPadding(12,16,12,16);}return v;}}); list.setItemChecked(Math.max(0, Math.min(selected, items.length-1)), true);
-        list.setOnItemClickListener((parent, view, position, id) -> { selection.apply(position); list.setItemChecked(position, true); });
-        root.addView(list, new LinearLayout.LayoutParams(-1, 0, 1f));
-        LinearLayout actions = new LinearLayout(this); actions.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL); actions.setPadding(0,14,0,0);
-        if (secondaryLabel != null) { Button secondary = new Button(this); secondary.setText(secondaryLabel); secondary.setTextColor(Color.WHITE); secondary.setBackgroundColor(Color.rgb(31,70,86)); secondary.setOnClickListener(v -> { dialog.dismiss(); secondaryAction.run(); }); actions.addView(secondary, new LinearLayout.LayoutParams(-2,-2)); }
-        Button close = new Button(this); close.setText("FECHAR"); close.setTextColor(Color.WHITE); close.setBackgroundColor(Color.rgb(19,120,116)); close.setOnClickListener(v -> dialog.dismiss()); actions.addView(close, new LinearLayout.LayoutParams(-2,-2)); root.addView(actions, new LinearLayout.LayoutParams(-1,-2));
-        dialog.setContentView(root); Window window = dialog.getWindow(); if (window != null) { window.setBackgroundDrawableResource(android.R.color.transparent); window.setLayout(-1,-1); }
-        dialog.show(); if (dialog.getWindow() != null) dialog.getWindow().setLayout(-1,-1);
+    private void showPresetEditor(final int layer,String title,String subtitle,String[] items,int selected,
+                                  PresetSelection selection,String secondaryLabel,Runnable secondaryAction) {
+        EditorUi.Panel panel=new EditorUi.Panel(this,title,subtitle);
+        if(screen.engineName(layer).equals("DX7")){
+            SharedPreferences prefs=getSharedPreferences("layers",MODE_PRIVATE);
+            String path=prefs.getString("dx7_"+layer,"");
+            boolean first=path.endsWith("_"+R.raw.dx7_bank_1+".syx");
+            boolean second=path.endsWith("_"+R.raw.dx7_bank_2+".syx");
+            String[] banks=first||second?new String[]{"Divine Masquerade 1","Divine Masquerade 2"}:
+                new String[]{"Divine Masquerade 1","Divine Masquerade 2",prefs.getString("name_"+layer,"Banco importado")};
+            EditorUi.selector(panel.body,"BANCO DX7",banks,first?0:second?1:2,which->{
+                if(which<2){panel.dialog.dismiss();activateBundledDx7(layer,which==0?R.raw.dx7_bank_1:R.raw.dx7_bank_2,
+                    which==0?"Divine Masquerade 1":"Divine Masquerade 2");openDx7Editor(layer);}
+            });
+        }else{
+            EditorUi.selector(panel.body,screen.engineName(layer).equals("SF2")?"SOUNDFONT":"MOTOR",
+                new String[]{screen.layerNames[layer]},0,which->{});
+        }
+        EditorUi.selector(panel.body,screen.engineName(layer).equals("HAMMOND")?"REGISTRO":"TIMBRE",items,selected,selection::apply);
+        LinearLayout source=new LinearLayout(this);
+        if(secondaryLabel!=null)EditorUi.addButton(source,secondaryLabel,()->{panel.dialog.dismiss();secondaryAction.run();});
+        EditorUi.addButton(source,"TROCAR MOTOR",()->{panel.dialog.dismiss();panicAndChooseLayerSource(layer);});
+        panel.body.addView(source);
+        LinearLayout knobs=EditorUi.knobRow(panel.body);
+        EditorUi.knob(knobs,"VOLUME",screen.layerVolumes[layer]*100f,0,100," %",v->screen.setLearnedVolume(layer,v/100f));
+        EditorUi.knob(knobs,"ATTACK",screen.layerAttack[layer]*1000f,1,2000," ms",v->screen.setLayerEnvelope(layer,v/1000f,screen.layerRelease[layer]));
+        EditorUi.knob(knobs,"RELEASE",screen.layerRelease[layer]*1000f,20,4000," ms",v->screen.setLayerEnvelope(layer,screen.layerAttack[layer],v/1000f));
+        EditorUi.selector(panel.body,"MUTE",new String[]{"SOM ATIVO","MUTE"},screen.muted[layer]?1:0,i->{screen.muted[layer]=i==1;screen.applyLayerGains();screen.invalidate();});
+        LinearLayout effects=new LinearLayout(this);
+        EditorUi.addButton(effects,"EDITAR REVERB",()->showEffectEditor(layer,"REVERB"));
+        EditorUi.addButton(effects,"EDITAR COMP",()->showEffectEditor(layer,"COMP"));
+        EditorUi.addButton(effects,"EDITAR CHORUS",()->showEffectEditor(layer,"CHORUS"));
+        EditorUi.addButton(effects,"EDITAR EQ",()->showEffectEditor(layer,"EQ"));
+        panel.body.addView(effects);
+        EditorUi.addButton(panel.footer,"FECHAR",panel.dialog::dismiss);
+        panel.show();
+    }
+
+    private void showEffectEditor(final int layer,String effect){
+        boolean global=effect.equals("REVERB")||effect.equals("CHORUS");
+        EditorUi.Panel panel=new EditorUi.Panel(this,effect+(global?" MASTER":" DA LAYER "+(layer+1)),
+            global?"Efeito compartilhado pelo mixer.":"Ajuste o processamento desta camada.");
+        LinearLayout knobs=EditorUi.knobRow(panel.body);
+        if(effect.equals("EQ")){
+            EditorUi.knob(knobs,"GRAVES",screen.eqLow[layer],0,2," ×",v->screen.setLayerEq(layer,v,screen.eqMid[layer],screen.eqHigh[layer]));
+            EditorUi.knob(knobs,"MÉDIOS",screen.eqMid[layer],0,2," ×",v->screen.setLayerEq(layer,screen.eqLow[layer],v,screen.eqHigh[layer]));
+            EditorUi.knob(knobs,"AGUDOS",screen.eqHigh[layer],0,2," ×",v->screen.setLayerEq(layer,screen.eqLow[layer],screen.eqMid[layer],v));
+        }else if(effect.equals("COMP")){
+            EditorUi.knob(knobs,"THRESHOLD",(float)(20*Math.log10(Math.max(.001f,screen.compressorThreshold[layer]))),-60,0," dB",
+                v->screen.setLayerCompressor(layer,(float)Math.pow(10,v/20f),screen.compressorRatio[layer]));
+            EditorUi.knob(knobs,"RATIO",screen.compressorRatio[layer],1,20,":1",v->screen.setLayerCompressor(layer,screen.compressorThreshold[layer],v));
+        }else if(effect.equals("REVERB")){
+            EditorUi.knob(knobs,"REVERB",screen.masterReverb*100,0,100," %",v->screen.setMasterEffects(v/100f,screen.masterChorus));
+        }else{
+            EditorUi.knob(knobs,"CHORUS",screen.masterChorus*100,0,100," %",v->screen.setMasterEffects(screen.masterReverb,v/100f));
+        }
+        EditorUi.addButton(panel.footer,"VOLTAR À LAYER",panel.dialog::dismiss);panel.show();
     }
 
     private final class ClassicPlayerView extends View {
