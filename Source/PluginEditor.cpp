@@ -69,7 +69,7 @@ juce::String accountIdentityText()
     return name + "\n" + email;
 }
 
-class ClassicLookAndFeel final : public juce::LookAndFeel_V4
+class ClassicLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
     int getAlertBoxWindowFlags() override
@@ -283,6 +283,25 @@ public:
 };
 
 ClassicLookAndFeel classicLookAndFeel;
+
+class Dx7PatchLookAndFeel final : public ClassicLookAndFeel
+{
+public:
+    juce::Font getPopupMenuFont() override
+    {
+        return juce::Font(juce::FontOptions(22.0f));
+    }
+
+    juce::PopupMenu::Options getOptionsForComboBoxPopupMenu(juce::ComboBox& box,
+                                                            juce::Label& label) override
+    {
+        return ClassicLookAndFeel::getOptionsForComboBoxPopupMenu(box, label)
+            .withStandardItemHeight(36)
+            .withMaximumNumColumns(1);
+    }
+};
+
+Dx7PatchLookAndFeel dx7PatchLookAndFeel;
 
 struct KnobEditorSpec
 {
@@ -2315,6 +2334,7 @@ class Dx7EditorPanel final : public juce::Component
 public:
     Dx7EditorPanel(ClassicPlayerAudioProcessor& p, int layer) : processor(p), index(layer)
     {
+        patchBox.setLookAndFeel(&dx7PatchLookAndFeel);
         bankLabel.setText("BANCO DX7", juce::dontSendNotification);
         patchLabel.setText("TIMBRE DX7", juce::dontSendNotification);
         for (auto* label : { &bankLabel, &patchLabel })
@@ -2355,6 +2375,8 @@ public:
         rebuildPatches();
         setSize(560, 150);
     }
+
+    ~Dx7EditorPanel() override { patchBox.setLookAndFeel(nullptr); }
 
     void resized() override
     {
