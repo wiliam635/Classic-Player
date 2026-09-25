@@ -107,9 +107,16 @@ public final class MainActivity extends Activity {
     private void processMidiMessage(int type, int channel, int first, int second) {
         if (audioEngine == null) return;
         if (type == 0xb0) {
+            // Learn is handled before the reserved MIDI CC filters so STOP
+            // can intentionally use CC 120/123 when a controller provides it.
+            if (pendingLearnTarget >= 0) {
+                getSharedPreferences("midi_learn",MODE_PRIVATE).edit().putInt("cc_"+pendingLearnTarget,first).apply();
+                screen.setMidiStatus("MIDI: CC "+first+" aprendido"); pendingLearnTarget=-1; return;
+            }
             if(first!=64&&first!=120&&first!=123){
-                if(pendingLearnTarget>=0){getSharedPreferences("midi_learn",MODE_PRIVATE).edit().putInt("cc_"+pendingLearnTarget,first).apply();screen.setMidiStatus("MIDI: CC "+first+" aprendido");pendingLearnTarget=-1;return;}
-                SharedPreferences learn=getSharedPreferences("midi_learn",MODE_PRIVATE);for(int target=0;target<7;target++)if(learn.getInt("cc_"+target,-1)==first){screen.setLearnedVolume(target,second/127f);return;}
+                SharedPreferences learn=getSharedPreferences("midi_learn",MODE_PRIVATE);for(int target=0;target<8;target++)if(learn.getInt("cc_"+target,-1)==first){if(target==7){padEngine.stopAll();screen.setMidiStatus("MIDI: pads parados");}else screen.setLearnedVolume(target,second/127f);return;}
+            } else if (getSharedPreferences("midi_learn",MODE_PRIVATE).getInt("cc_7",-1)==first) {
+                padEngine.stopAll(); screen.setMidiStatus("MIDI: pads parados"); return;
             }
             if (first == 64) {
                 boolean wasDown = midiSustain[channel];
@@ -296,8 +303,8 @@ public final class MainActivity extends Activity {
                 }).setNegativeButton("CANCELAR", null).show();
     }
     private void showMidiLearnChooser(){
-        String[] targets={"VOLUME LAYER 1","VOLUME LAYER 2","VOLUME LAYER 3","VOLUME LAYER 4","VOLUME LAYER 5","VOLUME LAYER 6","VOLUME MASTER"};
-        new AlertDialog.Builder(this).setTitle("MIDI LEARN · VOLUME").setItems(targets,(d,which)->{pendingLearnTarget=which;screen.setMidiStatus("MIDI: mova agora o controle CC");}).setNegativeButton("CANCELAR",null).show();
+        String[] targets={"VOLUME LAYER 1","VOLUME LAYER 2","VOLUME LAYER 3","VOLUME LAYER 4","VOLUME LAYER 5","VOLUME LAYER 6","VOLUME MASTER","PARAR PADS CONTÍNUOS"};
+        new AlertDialog.Builder(this).setTitle("MIDI LEARN").setItems(targets,(d,which)->{pendingLearnTarget=which;screen.setMidiStatus("MIDI: mova agora o controle CC · CANCELAR para sair");}).setNeutralButton("LIMPAR MAPEAMENTOS",(d,w)->getSharedPreferences("midi_learn",MODE_PRIVATE).edit().clear().apply()).setNegativeButton("CANCELAR",(d,w)->{pendingLearnTarget=-1;screen.setMidiStatus("MIDI: pronto");}).show();
     }
 
     private void openMidi(MidiDeviceInfo info) {
