@@ -622,14 +622,18 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeControl(JNIEnv*, jclass
                     if(!layerSustainEnabled[li])continue;
                     const int encoded=routedNotes[li][(size_t)midiChannel][(size_t)note];if(encoded==0)continue;
                     const int routedNote=encoded-1;routedNotes[li][(size_t)midiChannel][(size_t)note]=0;
-                    if (engineTypes[li] == EngineType::analog)
-                        for (auto& voice: analogLayers[li].voices) if (voice.active && voice.note == routedNote && voice.channel==midiChannel) voice.releasing=true;
-                    else if (engineTypes[li] == EngineType::hammond)
-                        for (auto& voice: hammondLayers[li].voices) if (voice.active && voice.note == routedNote && voice.channel==midiChannel) voice = {};
-                    else if (engineTypes[li] == EngineType::dx7)
-                        for (auto& voice: dxLayers[li].voices) if (voice.active && voice.note == routedNote && voice.channel==midiChannel && voice.synth) voice.synth->keyup();
-                    else if (engineTypes[li] == EngineType::sf2 && fonts[li] != nullptr)
+                    if (engineTypes[li] == EngineType::analog) {
+                        for (auto& voice: analogLayers[li].voices)
+                            if (voice.active && voice.note == routedNote && voice.channel==midiChannel) voice.releasing=true;
+                    } else if (engineTypes[li] == EngineType::hammond) {
+                        for (auto& voice: hammondLayers[li].voices)
+                            if (voice.active && voice.note == routedNote && voice.channel==midiChannel) voice = {};
+                    } else if (engineTypes[li] == EngineType::dx7) {
+                        for (auto& voice: dxLayers[li].voices)
+                            if (voice.active && voice.note == routedNote && voice.channel==midiChannel && voice.synth) voice.synth->keyup();
+                    } else if (engineTypes[li] == EngineType::sf2 && fonts[li] != nullptr) {
                         tsf_channel_note_off(fonts[li],0,routedNote);
+                    }
                 }
             }
         }
@@ -664,6 +668,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
     std::array<float, kMaxFrames * 2> reverbSend {};
     for (int layer = 0; layer < kLayerCount; ++layer)
     {
+        const auto li=(size_t)layer;
         auto* font = fonts[(size_t) layer];
         if (engineTypes[(size_t)layer]==EngineType::empty) continue;
         std::memset(scratch.data(), 0, (size_t) samples * sizeof(short));
