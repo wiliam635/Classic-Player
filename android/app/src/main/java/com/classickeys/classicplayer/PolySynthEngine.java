@@ -42,6 +42,7 @@ final class PolySynthEngine {
     private static native void nativeSetLayerEnvelope(int layer, float attack, float release);
     private static native void nativeSetLayerEq(int layer, float low, float mid, float high);
     private static native void nativeSetLayerCompressor(int layer, float threshold, float ratio);
+    private static native void nativeSetMasterEffects(float reverb, float chorus);
     private static native int nativePresetCount(int layer);
     private static native String nativePresetName(int layer, int preset);
     private static native boolean nativeSetPreset(int layer, int preset);
@@ -104,6 +105,7 @@ final class PolySynthEngine {
     void setLayerEnvelope(int layer, float attack, float release) { nativeSetLayerEnvelope(layer, attack, release); }
     void setLayerEq(int layer, float low, float mid, float high) { nativeSetLayerEq(layer, low, mid, high); }
     void setLayerCompressor(int layer, float threshold, float ratio) { nativeSetLayerCompressor(layer, threshold, ratio); }
+    void setMasterEffects(float reverb, float chorus) { nativeSetMasterEffects(reverb, chorus); }
     int presetCount(int layer) { return nativePresetCount(layer); }
     String presetName(int layer, int preset) { return nativePresetName(layer, preset); }
     boolean setPreset(int layer, int preset) { return nativeSetPreset(layer, preset); }

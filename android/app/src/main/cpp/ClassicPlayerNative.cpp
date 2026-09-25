@@ -36,6 +36,9 @@ std::array<float, kLayerCount> eqLow { 1.f,1.f,1.f,1.f,1.f,1.f }, eqMid { 1.f,1.
 std::array<float, kLayerCount> eqLowState {}, eqHighState {};
 std::array<float, kLayerCount> compressorThreshold {0.85f,0.85f,0.85f,0.85f,0.85f,0.85f};
 std::array<float, kLayerCount> compressorRatio {1.f,1.f,1.f,1.f,1.f,1.f};
+float reverbMix = 0.0f, chorusMix = 0.0f;
+std::array<float, kSampleRate * 2> reverbBuffer {};
+int effectCursor = 0;
 std::array<float, kLayerCount> layerPeaks {};
 std::array<short, kMaxFrames * 2> scratch {};
 float masterGain = 0.8f;
@@ -328,6 +331,13 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerCompressor(JNIE
     compressorRatio[(size_t)layer] = std::clamp((float)ratio, 1.0f, 20.0f);
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetMasterEffects(JNIEnv*, jclass, jfloat reverb, jfloat chorus)
+{
+    std::lock_guard<std::mutex> lock(synthMutex);
+    reverbMix=std::clamp((float)reverb,0.0f,1.0f); chorusMix=std::clamp((float)chorus,0.0f,1.0f);
+}
+
 extern "C" JNIEXPORT jint JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativePresetCount(JNIEnv*, jclass, jint layer)
 {
@@ -546,7 +556,15 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
         // SF2 regions or layers peak at the same time.
         // Leave extra headroom before the soft limiter so several active
         // layers do not hit the limiter hard and sound distorted.
-        const float limited = std::tanh(mix[(size_t)sample] * 0.62f);
+        const int delay = (sample & 1) == 0 ? 5760 : 960;
+        const int read = (effectCursor + (int)reverbBuffer.size() - delay + (int)reverbBuffer.size()) % (int)reverbBuffer.size();
+        const float delayed = reverbBuffer[(size_t)read];
+        const float chorus = reverbBuffer[(size_t)((effectCursor + (int)reverbBuffer.size() - 960 + (sample & 3) * 24) % (int)reverbBuffer.size())];
+        const float dry = mix[(size_t)sample];
+        const float effected = dry + delayed * reverbMix * 0.32f + (chorus - dry) * chorusMix * 0.22f;
+        reverbBuffer[(size_t)effectCursor] = effected;
+        effectCursor = (effectCursor + 1) % (int)reverbBuffer.size();
+        const float limited = std::tanh(effected * 0.62f);
         output[sample] = (short)std::clamp((int)(limited * 32767.0f), -32768, 32767);
         renderedMasterPeak = std::max(renderedMasterPeak, std::abs((float) output[sample]) / 32768.0f);
     }
