@@ -2,6 +2,7 @@ package com.classickeys.classicplayer;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
@@ -32,6 +33,8 @@ import android.view.Gravity;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ArrayAdapter;
+import android.widget.ListView;
 import android.widget.TextView;
 import java.io.IOException;
 import java.io.InputStream;
@@ -457,11 +460,8 @@ public final class MainActivity extends Activity {
         int count=audioEngine.analogPresetCount(); String[] presets=new String[count];
         for(int i=0;i<count;++i)presets[i]=audioEngine.analogPresetName(i);
         int selectedPreset=getSharedPreferences("layers",MODE_PRIVATE).getInt("analog_preset_"+layer,0);
-        new AlertDialog.Builder(this).setTitle("LAYER "+(layer+1)+" · CLASSIC KEYS ANALOG")
-                .setSingleChoiceItems(presets,selectedPreset,(dialog,which)->{
-                    if(audioEngine.setAnalogPreset(layer,which)){screen.setPresetName(layer,audioEngine.analogPresetName(which));getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("analog_preset_"+layer,which).apply();}
-                    dialog.dismiss();
-                }).setNegativeButton("FECHAR",null).show();
+        showPresetEditor("LAYER "+(layer+1)+" · CLASSIC KEYS ANALOG", "Escolha o timbre do motor analógico", presets, selectedPreset,
+                which -> { if(audioEngine.setAnalogPreset(layer,which)){screen.setPresetName(layer,audioEngine.analogPresetName(which));getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("analog_preset_"+layer,which).apply();} }, null, null);
     }
 
     private void activateHammond(int layer) {
@@ -473,9 +473,8 @@ public final class MainActivity extends Activity {
         int count=audioEngine.hammondPresetCount(); String[] presets=new String[count];
         for(int i=0;i<count;++i)presets[i]=audioEngine.hammondPresetName(i);
         int selected=getSharedPreferences("layers",MODE_PRIVATE).getInt("hammond_preset_"+layer,0);
-        new AlertDialog.Builder(this).setTitle("LAYER "+(layer+1)+" · HAMMOND / LESLIE")
-                .setSingleChoiceItems(presets,selected,(dialog,which)->{audioEngine.setHammondPreset(layer,which);screen.setPresetName(layer,audioEngine.hammondPresetName(which));getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("hammond_preset_"+layer,which).apply();dialog.dismiss();})
-                .setNegativeButton("FECHAR",null).show();
+        showPresetEditor("LAYER "+(layer+1)+" · HAMMOND / LESLIE", "Escolha o registro Hammond", presets, selected,
+                which -> {audioEngine.setHammondPreset(layer,which);screen.setPresetName(layer,audioEngine.hammondPresetName(which));getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("hammond_preset_"+layer,which).apply();}, null, null);
     }
 
     private void openPadEditor(final int layer, final boolean continuous) {
@@ -658,19 +657,13 @@ public final class MainActivity extends Activity {
             presets.add(String.format("%03d  %s", preset + 1, name == null || name.isEmpty() ? "Preset" : name));
         }
         int selectedPreset = soundFontLayers[layer].preset();
-        new AlertDialog.Builder(this)
-                .setTitle("LAYER " + (layer + 1) + " · TIMBRE SF2")
-                .setSingleChoiceItems(presets.toArray(new String[0]), selectedPreset, (dialog, which) -> {
+        showPresetEditor("LAYER " + (layer + 1) + " · TIMBRE SF2", "Selecione um preset do SoundFont", presets.toArray(new String[0]), selectedPreset, which -> {
                     if (audioEngine.setPreset(layer, which)) {
                         soundFontLayers[layer].setPreset(which);
                         screen.setPresetName(layer, audioEngine.presetName(layer, which));
                         getSharedPreferences("layers", MODE_PRIVATE).edit().putInt("preset_" + layer, which).apply();
                     }
-                    dialog.dismiss();
-                })
-                .setPositiveButton("TROCAR SF2", (dialog, which) -> openSf2Picker(layer))
-                .setNegativeButton("FECHAR", null)
-                .show();
+                }, "TROCAR SF2", () -> openSf2Picker(layer));
     }
 
     private void openDx7Editor(final int layer) {
@@ -680,14 +673,31 @@ public final class MainActivity extends Activity {
         final String[] patches = new String[count];
         for (int patch=0;patch<count;++patch) patches[patch]=String.format("%02d  %s",patch+1,audioEngine.dx7PatchName(layer,patch));
         int selectedPatch=getSharedPreferences("layers",MODE_PRIVATE).getInt("dx7_patch_"+layer,0);
-        new AlertDialog.Builder(this).setTitle("LAYER "+(layer+1)+" · TIMBRE DX7")
-                .setSingleChoiceItems(patches,selectedPatch,(dialog,which)->{
+        showPresetEditor("LAYER "+(layer+1)+" · TIMBRE DX7", "Selecione um timbre do banco DX7", patches, selectedPatch, which -> {
                     if(audioEngine.setDx7Patch(layer,which)){
                         screen.setPresetName(layer,audioEngine.dx7PatchName(layer,which));
                         getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("dx7_patch_"+layer,which).apply();
-                    } dialog.dismiss();
-                }).setPositiveButton("TROCAR BANCO",(dialog,which)->openDx7Picker(layer))
-                .setNegativeButton("FECHAR",null).show();
+                    }
+                }, "TROCAR BANCO", () -> openDx7Picker(layer));
+    }
+
+    private interface PresetSelection { void apply(int index); }
+
+    /** Full-height editor shared by the melodic engines, matching the desktop workflow. */
+    private void showPresetEditor(String title, String subtitle, String[] items, int selected,
+                                  PresetSelection selection, String secondaryLabel, Runnable secondaryAction) {
+        final Dialog dialog = new Dialog(this);
+        LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(28, 22, 28, 18); root.setBackgroundColor(Color.rgb(7,16,25));
+        TextView heading = new TextView(this); heading.setText(title); heading.setTextColor(Color.rgb(233,239,240)); heading.setTextSize(22); heading.setPadding(0,0,0,8); root.addView(heading, new LinearLayout.LayoutParams(-1,-2));
+        TextView help = new TextView(this); help.setText(subtitle); help.setTextColor(Color.rgb(145,170,180)); help.setTextSize(14); help.setPadding(0,0,0,14); root.addView(help, new LinearLayout.LayoutParams(-1,-2));
+        ListView list = new ListView(this); list.setChoiceMode(ListView.CHOICE_MODE_SINGLE); list.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_list_item_single_choice, items)); list.setItemChecked(Math.max(0, Math.min(selected, items.length-1)), true);
+        list.setOnItemClickListener((parent, view, position, id) -> { selection.apply(position); list.setItemChecked(position, true); });
+        root.addView(list, new LinearLayout.LayoutParams(-1, 0, 1f));
+        LinearLayout actions = new LinearLayout(this); actions.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL); actions.setPadding(0,14,0,0);
+        if (secondaryLabel != null) { Button secondary = new Button(this); secondary.setText(secondaryLabel); secondary.setOnClickListener(v -> { dialog.dismiss(); secondaryAction.run(); }); actions.addView(secondary, new LinearLayout.LayoutParams(-2,-2)); }
+        Button close = new Button(this); close.setText("FECHAR"); close.setOnClickListener(v -> dialog.dismiss()); actions.addView(close, new LinearLayout.LayoutParams(-2,-2)); root.addView(actions, new LinearLayout.LayoutParams(-1,-2));
+        dialog.setContentView(root); Window window = dialog.getWindow(); if (window != null) { window.setBackgroundDrawableResource(android.R.color.transparent); window.setLayout(-1,-1); }
+        dialog.show(); if (dialog.getWindow() != null) dialog.getWindow().setLayout(-1,-1);
     }
 
     private final class ClassicPlayerView extends View {
