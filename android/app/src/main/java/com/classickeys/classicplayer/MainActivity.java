@@ -743,15 +743,21 @@ public final class MainActivity extends Activity {
         boolean global=effect.equals("REVERB")||effect.equals("CHORUS");
         EditorUi.Panel panel=new EditorUi.Panel(this,effect+(global?" MASTER":" DA LAYER "+(layer+1)),
             global?"Efeito compartilhado pelo mixer.":"Ajuste o processamento desta camada.");
+        EditorUi.ResponseGraph graph=null;
+        if(effect.equals("EQ")||effect.equals("COMP")){
+            graph=new EditorUi.ResponseGraph(this,effect.equals("COMP"),effect.equals("EQ")?screen.eqLow[layer]:screen.compressorThreshold[layer],effect.equals("EQ")?screen.eqMid[layer]:screen.compressorRatio[layer],effect.equals("EQ")?screen.eqHigh[layer]:0f);
+            LinearLayout.LayoutParams graphLayout=new LinearLayout.LayoutParams(-1,EditorUi.dp(this,210));graphLayout.setMargins(0,EditorUi.dp(this,8),0,EditorUi.dp(this,14));panel.body.addView(graph,graphLayout);
+        }
+        final EditorUi.ResponseGraph response=graph;
         LinearLayout knobs=EditorUi.knobRow(panel.body);
         if(effect.equals("EQ")){
-            EditorUi.knob(knobs,"GRAVES",screen.eqLow[layer],0,2," ×",v->screen.setLayerEq(layer,v,screen.eqMid[layer],screen.eqHigh[layer]));
-            EditorUi.knob(knobs,"MÉDIOS",screen.eqMid[layer],0,2," ×",v->screen.setLayerEq(layer,screen.eqLow[layer],v,screen.eqHigh[layer]));
-            EditorUi.knob(knobs,"AGUDOS",screen.eqHigh[layer],0,2," ×",v->screen.setLayerEq(layer,screen.eqLow[layer],screen.eqMid[layer],v));
+            EditorUi.knob(knobs,"GRAVES",screen.eqLow[layer],0,2," ×",v->{screen.setLayerEq(layer,v,screen.eqMid[layer],screen.eqHigh[layer]);response.setValues(screen.eqLow[layer],screen.eqMid[layer],screen.eqHigh[layer]);});
+            EditorUi.knob(knobs,"MÉDIOS",screen.eqMid[layer],0,2," ×",v->{screen.setLayerEq(layer,screen.eqLow[layer],v,screen.eqHigh[layer]);response.setValues(screen.eqLow[layer],screen.eqMid[layer],screen.eqHigh[layer]);});
+            EditorUi.knob(knobs,"AGUDOS",screen.eqHigh[layer],0,2," ×",v->{screen.setLayerEq(layer,screen.eqLow[layer],screen.eqMid[layer],v);response.setValues(screen.eqLow[layer],screen.eqMid[layer],screen.eqHigh[layer]);});
         }else if(effect.equals("COMP")){
             EditorUi.knob(knobs,"THRESHOLD",(float)(20*Math.log10(Math.max(.001f,screen.compressorThreshold[layer]))),-60,0," dB",
-                v->screen.setLayerCompressor(layer,(float)Math.pow(10,v/20f),screen.compressorRatio[layer]));
-            EditorUi.knob(knobs,"RATIO",screen.compressorRatio[layer],1,20,":1",v->screen.setLayerCompressor(layer,screen.compressorThreshold[layer],v));
+                v->{screen.setLayerCompressor(layer,(float)Math.pow(10,v/20f),screen.compressorRatio[layer]);response.setValues(screen.compressorThreshold[layer],screen.compressorRatio[layer],0f);});
+            EditorUi.knob(knobs,"RATIO",screen.compressorRatio[layer],1,20,":1",v->{screen.setLayerCompressor(layer,screen.compressorThreshold[layer],v);response.setValues(screen.compressorThreshold[layer],screen.compressorRatio[layer],0f);});
         }else if(effect.equals("REVERB")){
             EditorUi.knob(knobs,"REVERB",screen.masterReverb*100,0,100," %",v->screen.setMasterEffects(v/100f,screen.masterChorus));
         }else{

@@ -78,4 +78,31 @@ final class EditorUi {
             default:return true;}}
         @Override public boolean performClick(){super.performClick();return true;}
     }
+
+    /** Small response graph for the EQ and compressor values available in the Android engine. */
+    static final class ResponseGraph extends View {
+        final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
+        final boolean compressor;
+        float a,b,c;
+        ResponseGraph(Context context,boolean compressor,float a,float b,float c){super(context);this.compressor=compressor;setValues(a,b,c);}
+        void setValues(float a,float b,float c){this.a=a;this.b=b;this.c=c;invalidate();}
+        @Override protected void onDraw(Canvas canvas){
+            int width=getWidth(),height=getHeight();float left=dp(getContext(),33),top=dp(getContext(),24),right=width-dp(getContext(),12),bottom=height-dp(getContext(),25);
+            p.setStyle(Paint.Style.FILL);p.setColor(FIELD);canvas.drawRoundRect(new RectF(0,0,width,height),dp(getContext(),5),dp(getContext(),5),p);
+            p.setTextSize(dp(getContext(),10));p.setColor(MUTED);p.setTextAlign(Paint.Align.LEFT);canvas.drawText(compressor?"COMPRESSOR DA LAYER":"EQ DA LAYER",left,dp(getContext(),16),p);
+            p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(dp(getContext(),1));p.setColor(0xff344850);
+            for(int i=0;i<=4;i++){float x=left+(right-left)*i/4f,y=top+(bottom-top)*i/4f;canvas.drawLine(x,top,x,bottom,p);canvas.drawLine(left,y,right,y,p);}
+            p.setColor(ACCENT);p.setStrokeWidth(dp(getContext(),2));
+            float prevX=left,prevY=bottom;
+            for(int i=0;i<=100;i++){
+                float x=left+(right-left)*i/100f,y;
+                if(compressor){float input=i/100f,threshold=Math.max(.1f,Math.min(1f,a)),ratio=Math.max(1f,b);float output=input<=threshold?input:threshold+(input-threshold)/ratio;y=bottom-(bottom-top)*output;}
+                else{float band=i/100f,gain=(float)(a*Math.exp(-Math.pow((band-.12f)/.2f,2))+b*Math.exp(-Math.pow((band-.5f)/.22f,2))+c*Math.exp(-Math.pow((band-.88f)/.2f,2)));y=top+(bottom-top)*(.5f-(gain-1f)*.25f);}
+                if(i>0)canvas.drawLine(prevX,prevY,x,y,p);prevX=x;prevY=y;
+            }
+            p.setStyle(Paint.Style.FILL);p.setColor(MUTED);p.setTextAlign(Paint.Align.CENTER);p.setTextSize(dp(getContext(),9));
+            String[] ticks=compressor?new String[]{"−60","−45","−30","−15","0 dB"}:new String[]{"20","100","1k","5k","20k"};
+            for(int i=0;i<5;i++)canvas.drawText(ticks[i],left+(right-left)*i/4f,bottom+dp(getContext(),15),p);
+        }
+    }
 }
