@@ -482,11 +482,18 @@ public final class MainActivity extends Activity {
         screen.setLayerName(layer,continuous?"Pads contínuos":"Drum Pads");
         screen.setEngineName(layer,continuous?"CONT. PADS":"DRUM PADS"); screen.setPresetName(layer,"12 pads · notas MIDI 36–47");
         getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("engine_"+layer,continuous?6:5).putString("name_"+layer,continuous?"Pads contínuos":"Drum Pads").apply();
-        String[] items=new String[12];for(int i=0;i<12;i++)items[i]="PAD "+(i+1)+" · "+padEngine.name(i);
-        new AlertDialog.Builder(this).setTitle(continuous?"PADS CONTÍNUOS":"DRUM PADS")
-                .setItems(items,(dialog,which)->{if(padEngine.loaded(which))padEngine.trigger(which);else openPadPicker(which,continuous);})
-                .setPositiveButton("CARREGAR PAD",(dialog,which)->choosePadToLoad(continuous))
-                .setNeutralButton("PARAR",(dialog,which)->padEngine.stopAll()).setNegativeButton("FECHAR",null).show();
+        showPadEditorScreen(layer, continuous);
+    }
+
+    private void showPadEditorScreen(final int layer, final boolean continuous) {
+        final Dialog dialog = new Dialog(this);
+        LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(28,22,28,18); root.setBackgroundColor(Color.rgb(7,16,25));
+        TextView heading = new TextView(this); heading.setText((continuous?"PADS CONTÍNUOS":"DRUM PADS")+" · LAYER "+(layer+1)); heading.setTextColor(Color.rgb(233,239,240)); heading.setTextSize(22); root.addView(heading,new LinearLayout.LayoutParams(-1,-2));
+        TextView help = new TextView(this); help.setText("Toque em um pad para disparar. Carregue arquivos individuais quando necessário."); help.setTextColor(Color.rgb(145,170,180)); help.setPadding(0,8,0,16); root.addView(help,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout grid = new LinearLayout(this); grid.setOrientation(LinearLayout.VERTICAL); root.addView(grid,new LinearLayout.LayoutParams(-1,0,1f));
+        for(int row=0;row<4;row++){LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER);grid.addView(line,new LinearLayout.LayoutParams(-1,0,1f));for(int col=0;col<3;col++){final int pad=row*3+col;Button b=new Button(this);b.setText("PAD "+(pad+1)+"\n"+padEngine.name(pad));b.setOnClickListener(v->{if(padEngine.loaded(pad))padEngine.trigger(pad);else openPadPicker(pad,continuous);});line.addView(b,new LinearLayout.LayoutParams(0,-1,1f));}}
+        LinearLayout actions=new LinearLayout(this);actions.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);actions.setPadding(0,14,0,0);Button load=new Button(this);load.setText("CARREGAR PAD");load.setOnClickListener(v->choosePadToLoad(continuous));actions.addView(load);Button stop=new Button(this);stop.setText("PARAR");stop.setOnClickListener(v->padEngine.stopAll());actions.addView(stop);Button close=new Button(this);close.setText("FECHAR");close.setOnClickListener(v->dialog.dismiss());actions.addView(close);root.addView(actions,new LinearLayout.LayoutParams(-1,-2));
+        dialog.setContentView(root);dialog.show();if(dialog.getWindow()!=null){dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);dialog.getWindow().setLayout(-1,-1);}
     }
     private void choosePadToLoad(boolean continuous){
         String[] pads=new String[12];for(int i=0;i<12;i++)pads[i]="PAD "+(i+1);
