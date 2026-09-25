@@ -3232,19 +3232,40 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
     auto* presets = new EffectPresetPanel("PRESET", {
         "Piano Intimo", "Sala Clara", "Worship Hall", "Ambient Grande"
     });
-    for (int preset = 0; preset < (int) factoryReverbPresets.size(); ++preset)
+    const auto* savedPresetValue = processor.parameters.getRawParameterValue(prefix + "ReverbPreset");
+    auto selectedPreset = savedPresetValue != nullptr ? juce::roundToInt(savedPresetValue->load()) : -1;
+    const auto presetMatchesCurrentValues = [&] (int preset)
     {
+        if (!juce::isPositiveAndBelow(preset, (int) factoryReverbPresets.size())) return false;
         const auto& values = factoryReverbPresets[(size_t) preset];
         const auto current = [&] (const char* suffix) { return processor.parameters.getRawParameterValue(prefix + suffix)->load(); };
-        if (std::abs(current("ReverbSize") - values[0]) < 0.1f
+        return std::abs(current("ReverbSize") - values[0]) < 0.1f
             && std::abs(current("ReverbDamping") - (100.0f - values[1])) < 0.1f
             && std::abs(current("ReverbWidth") - values[2]) < 0.1f
-            && std::abs(current("Reverb") - values[3]) < 0.1f)
+            && std::abs(current("Reverb") - values[3]) < 0.1f;
+    };
+    if (selectedPreset != -1 && !presetMatchesCurrentValues(selectedPreset))
+    {
+        // A manual adjustment (or an older/custom imported preset) no longer
+        // represents the last factory preset selected for this layer.
+        selectedPreset = -1;
+        if (auto* parameter = processor.parameters.getParameter(prefix + "ReverbPreset"))
+            parameter->setValueNotifyingHost(parameter->convertTo0to1(-1.0f));
+    }
+    // Older performances predate the explicit preset marker. Preserve their
+    // familiar selection by inferring it once from the stored reverb values.
+    if (selectedPreset < 0)
+    {
+        for (int preset = 0; preset < (int) factoryReverbPresets.size(); ++preset)
         {
-            presets->setSelectedPreset(preset);
-            break;
+            if (presetMatchesCurrentValues(preset))
+            {
+                selectedPreset = preset;
+                break;
+            }
         }
     }
+    if (selectedPreset >= 0) presets->setSelectedPreset(selectedPreset);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->addCustomComponent(new CentredEditorPanel(presets, 700));
     dialog->addCustomComponent(new CentredEditorPanel(new EffectPresetFilePanel(
@@ -3282,6 +3303,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
         setParameter("ReverbDamping", 100.0f - selected[1]);
         setParameter("ReverbWidth", selected[2]);
         setParameter("Reverb", selected[3]);
+        setParameter("ReverbPreset", static_cast<float>(preset));
     };
     knobs->setOnValueChange([safe, knobs, prefix]
     {
@@ -3291,6 +3313,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
             if (auto* parameter = safe->processor.parameters.getParameter(prefix + id))
                 parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
         };
+        set("ReverbPreset", -1.0f);
         set("ReverbSize", juce::jlimit(0.0f, 100.0f, knobs->value(0)));
         set("ReverbDamping", 100.0f - juce::jlimit(0.0f, 100.0f, knobs->value(1)));
         set("ReverbWidth", juce::jlimit(0.0f, 100.0f, knobs->value(2)));
@@ -3443,6 +3466,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::loadEffectPreset(
                     const auto value = static_cast<float>(preset.getProperty(suffix));
                     parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
                 }
+            }
+            if (effect == "REVERB")
+            {
+                // Imported effect files can contain arbitrary settings; they
+                // are not one of the built-in choices shown in the selector.
+                if (auto* parameter = safe->processor.parameters.getParameter(prefix + "ReverbPreset"))
+                    parameter->setValueNotifyingHost(parameter->convertTo0to1(-1.0f));
             }
             if (effect == "EQ")
             {
