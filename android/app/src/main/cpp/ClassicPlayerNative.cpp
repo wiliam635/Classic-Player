@@ -24,6 +24,7 @@ namespace
 constexpr int kLayerCount = 6;
 constexpr int kSampleRate = 48000;
 constexpr int kMaxFrames = 2048;
+constexpr size_t kVoicesPerLayer = 128;
 
 std::array<tsf*, kLayerCount> fonts {};
 enum class EngineType : int { empty = 0, sf2 = 1, dx7 = 2, analog = 3, hammond = 4 };
@@ -114,7 +115,7 @@ struct DxLayer
     std::array<std::string, 32> names {};
     int count = 0;
     int selected = 0;
-    std::array<DxVoice, 32> voices {};
+    std::array<DxVoice, kVoicesPerLayer> voices {};
 };
 std::array<DxLayer, kLayerCount> dxLayers {};
 FmCore fmCore;
@@ -138,7 +139,7 @@ struct AnalogLayer {
     float oscillator1Semitones=0.0f;
     std::array<int,3> waves {1,1,0};
     std::array<bool,3> oscillatorEnabled {true,true,true};
-    std::array<AnalogVoice,32> voices {};
+    std::array<AnalogVoice,kVoicesPerLayer> voices {};
     float modWheel=0.0f;
     bool pinkNoise=false,monophonic=false;
 };
@@ -154,7 +155,7 @@ struct HammondLayer {
     int preset=0, leslie=1, percussion=0;
     std::array<float,9> bars{};
     float click=0.15f, leakage=0.12f, drive=0.12f, level=0.8f;
-    std::array<HammondVoice,32> voices{};
+    std::array<HammondVoice,kVoicesPerLayer> voices{};
 };
 std::array<HammondLayer,kLayerCount> hammondLayers{};
 constexpr std::array<const char*,8> hammondNames { "Jimmy Gospel", "Jazz Ballad", "Rock Organ", "Percussive B3", "Full Drawbar", "Gospel Fullness", "Slow Leslie", "Fast Leslie" };
@@ -259,9 +260,13 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadLayer(
     // a little headroom for layered chords and the final safety limiter.
     // Four more dB of headroom keeps dense layered chords clean.
     tsf_set_output(loaded, TSF_STEREO_INTERLEAVED, kSampleRate, -6.0f);
-    // Mobile devices cannot sustain desktop-sized voice pools. 64 voices keeps
-    // normal piano chords responsive and avoids CPU underruns/distortion.
-    tsf_set_max_voices(loaded, 64);
+    // Preallocate a separate 128-voice pool for each SF2 layer. A preset may
+    // trigger multiple sample regions per key, so this limits sample voices,
+    // not necessarily the number of held MIDI keys.
+    if (!tsf_set_max_voices(loaded, (int)kVoicesPerLayer)) {
+        tsf_close(loaded);
+        return JNI_FALSE;
+    }
     tsf_channel_set_presetnumber(loaded, 0, 0, TSF_FALSE);
     fonts[(size_t) layer] = loaded;
     engineTypes[(size_t) layer] = EngineType::sf2;
@@ -693,7 +698,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
         else if(engineTypes[(size_t)layer]==EngineType::hammond) {
             auto& organ=hammondLayers[(size_t)layer]; const auto& bars=organ.bars;
             const float leslieRate=organ.leslie==2?6.2f:organ.leslie==1?.8f:0.0f;
-            std::array<double,32> noteSteps{};
+            std::array<double,kVoicesPerLayer> noteSteps{};
             for(size_t v=0;v<organ.voices.size();++v)
                 if(organ.voices[v].active)
                     noteSteps[v]=440.0*std::pow(2.0,((double)organ.voices[v].note-69.0)/12.0)/kSampleRate;
@@ -752,6 +757,9 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
         const float makeupGain=std::pow(10.0f,compressorMakeupDb[li]/20.0f);
         const float attackDetector=std::exp(-1.0f/(std::max(0.0001f,compressorAttack[li])*(float)kSampleRate));
         const float releaseDetector=std::exp(-1.0f/(std::max(0.0001f,compressorRelease[li])*(float)kSampleRate));
+        const bool fixedPan=panStep==0.0f;
+        const float panAngle=(std::clamp(layerPan[li],-1.0f,1.0f)+1.0f)*0.7853981634f;
+        const float fixedLeft=std::cos(panAngle),fixedRight=std::sin(panAngle);
         for (int sample = 0; sample < samples; ++sample)
         {
             if ((sample & 1) == 0) {
@@ -768,20 +776,23 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
                 shaped=shaped+(compressed-shaped)*layerCompressorMix[(size_t)layer];
                 shaped*=makeupGain;
                 const int cursor=layerChorusCursor[(size_t)layer];
-                const float lfo=std::sin(cursor*0.006135923f);
-                const int chorusDelay=std::clamp((int)(720.0f+lfo*300.0f),1,kChorusFrames-1);
-                const int chorusRead=(cursor+kChorusFrames-chorusDelay)%kChorusFrames;
-                const float delayedChorus=layerChorusBuffer[(size_t)layer][(size_t)chorusRead];
-                layerChorusBuffer[(size_t)layer][(size_t)cursor]=shaped;
+                const float dryShaped=shaped;
+                if(layerChorusMix[li]>0.0f) {
+                    const float lfo=std::sin(cursor*0.006135923f);
+                    const int chorusDelay=std::clamp((int)(720.0f+lfo*300.0f),1,kChorusFrames-1);
+                    const int chorusRead=(cursor+kChorusFrames-chorusDelay)%kChorusFrames;
+                    shaped+=(layerChorusBuffer[li][(size_t)chorusRead]-shaped)*layerChorusMix[li];
+                }
+                layerChorusBuffer[(size_t)layer][(size_t)cursor]=dryShaped;
                 layerChorusCursor[(size_t)layer]=(cursor+1)%kChorusFrames;
-                shaped+=(delayedChorus-shaped)*layerChorusMix[(size_t)layer];
                 scratch[(size_t)sample]=shaped; scratch[(size_t)sample+1]=shaped;
             }
             const int frame = sample / 2;
             const float gain = (smoothedLayerGains[(size_t)layer] + layerStep * frame) *
                     (smoothedMasterGain + masterStep * frame);
-            const float pan=std::clamp(smoothedLayerPan[(size_t)layer]+panStep*frame,-1.0f,1.0f);
-            const float sideGain=sample%2==0?std::cos((pan+1.0f)*0.7853981634f):std::sin((pan+1.0f)*0.7853981634f);
+            const float pan=fixedPan?layerPan[li]:std::clamp(smoothedLayerPan[li]+panStep*frame,-1.0f,1.0f);
+            const float sideGain=fixedPan?(sample%2==0?fixedLeft:fixedRight):
+                    (sample%2==0?std::cos((pan+1.0f)*0.7853981634f):std::sin((pan+1.0f)*0.7853981634f));
             const float layerSample=scratch[(size_t)sample] * gain * sideGain;
             mix[(size_t)sample] += layerSample;
             reverbSend[(size_t)sample]+=layerSample*layerReverbSend[(size_t)layer];
