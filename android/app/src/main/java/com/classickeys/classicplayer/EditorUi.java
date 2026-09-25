@@ -32,16 +32,34 @@ final class EditorUi {
     static final class Panel {
         final Dialog dialog;
         final LinearLayout body,footer;
+        final BoundedScrollView scroll;
         Panel(Activity a,String title,String subtitle){
             dialog=new Dialog(a);dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
             LinearLayout root=column(a);root.setPadding(dp(a,16),dp(a,12),dp(a,16),dp(a,12));root.setBackground(background(PANEL));
             root.addView(label(a,title,19),new LinearLayout.LayoutParams(-1,dp(a,34)));
             if(subtitle!=null){TextView hint=label(a,subtitle,12);hint.setTextColor(MUTED);hint.setPadding(0,0,0,dp(a,8));root.addView(hint);}
-            ScrollView scroll=new ScrollView(a);scroll.setFillViewport(true);body=column(a);scroll.addView(body,new ScrollView.LayoutParams(-1,-2));root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+            scroll=new BoundedScrollView(a);body=column(a);scroll.addView(body,new ScrollView.LayoutParams(-1,-2));root.addView(scroll,new LinearLayout.LayoutParams(-1,-2));
             footer=new LinearLayout(a);footer.setGravity(Gravity.END);root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
             dialog.setContentView(root);
         }
-        void show(){dialog.show();android.view.Window w=dialog.getWindow();if(w!=null){w.setBackgroundDrawableResource(android.R.color.transparent);android.util.DisplayMetrics m=body.getResources().getDisplayMetrics();w.setLayout(Math.min(m.widthPixels-dp(body.getContext(),16),dp(body.getContext(),1040)),m.heightPixels-dp(body.getContext(),24));}}
+        void show(){
+            android.util.DisplayMetrics m=body.getResources().getDisplayMetrics();
+            scroll.maxHeight=Math.max(dp(body.getContext(),160),m.heightPixels-dp(body.getContext(),200));
+            dialog.show();android.view.Window w=dialog.getWindow();if(w!=null){
+                w.setBackgroundDrawableResource(android.R.color.transparent);
+                w.setLayout(Math.min(m.widthPixels-dp(body.getContext(),16),dp(body.getContext(),1040)),ViewGroup.LayoutParams.WRAP_CONTENT);
+            }
+        }
+    }
+    /** Lets short effect panels wrap their controls, while long editors scroll above the fixed footer. */
+    static final class BoundedScrollView extends ScrollView {
+        int maxHeight;
+        BoundedScrollView(Context context){super(context);setFillViewport(false);setClipToPadding(true);setClipChildren(true);}
+        @Override protected void onMeasure(int widthMeasureSpec,int heightMeasureSpec){
+            int limit=maxHeight>0?maxHeight:MeasureSpec.getSize(heightMeasureSpec);
+            int bounded=MeasureSpec.makeMeasureSpec(limit,MeasureSpec.AT_MOST);
+            super.onMeasure(widthMeasureSpec,bounded);
+        }
     }
     static Spinner selector(LinearLayout parent,String caption,String[] values,int selected,Selection action){
         Context c=parent.getContext();LinearLayout row=new LinearLayout(c);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(0,dp(c,4),0,dp(c,4));
