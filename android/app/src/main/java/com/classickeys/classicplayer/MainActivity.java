@@ -712,6 +712,10 @@ public final class MainActivity extends Activity {
         SeekBar release = new SeekBar(this); release.setMax(199); release.setProgress((int)((screen.layerRelease[layer]-0.02f)/3.98f*199f)); root.addView(release,new LinearLayout.LayoutParams(-1,-2));
         SeekBar.OnSeekBarChangeListener envelope = new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean from){if(!from)return;float a=0.001f+attack.getProgress()/199f*1.999f;float r=0.02f+release.getProgress()/199f*3.98f;screen.setLayerEnvelope(layer,a,r);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}};
         attack.setOnSeekBarChangeListener(envelope); release.setOnSeekBarChangeListener(envelope);
+        SeekBar low = new SeekBar(this); SeekBar mid = new SeekBar(this); SeekBar high = new SeekBar(this); low.setMax(200); mid.setMax(200); high.setMax(200); low.setProgress((int)(screen.eqLow[layer]*100)); mid.setProgress((int)(screen.eqMid[layer]*100)); high.setProgress((int)(screen.eqHigh[layer]*100));
+        TextView eqLabel = new TextView(this); eqLabel.setText("EQ  ·  GRAVES     MÉDIOS     AGUDOS"); eqLabel.setTextColor(Color.rgb(180,195,200)); root.addView(eqLabel,new LinearLayout.LayoutParams(-1,-2));
+        root.addView(low,new LinearLayout.LayoutParams(-1,-2)); root.addView(mid,new LinearLayout.LayoutParams(-1,-2)); root.addView(high,new LinearLayout.LayoutParams(-1,-2));
+        SeekBar.OnSeekBarChangeListener eq = new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean from){if(from)screen.setLayerEq(layer,low.getProgress()/100f,mid.getProgress()/100f,high.getProgress()/100f);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}}; low.setOnSeekBarChangeListener(eq);mid.setOnSeekBarChangeListener(eq);high.setOnSeekBarChangeListener(eq);
         ListView list = new ListView(this); list.setChoiceMode(ListView.CHOICE_MODE_SINGLE); list.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_list_item_single_choice, items)); list.setItemChecked(Math.max(0, Math.min(selected, items.length-1)), true);
         list.setOnItemClickListener((parent, view, position, id) -> { selection.apply(position); list.setItemChecked(position, true); });
         root.addView(list, new LinearLayout.LayoutParams(-1, 0, 1f));
@@ -740,6 +744,7 @@ public final class MainActivity extends Activity {
         private final float[] layerVolumes = {0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f};
         private final float[] layerAttack = {0.01f,0.01f,0.01f,0.01f,0.01f,0.01f};
         private final float[] layerRelease = {0.25f,0.25f,0.25f,0.25f,0.25f,0.25f};
+        private final float[] eqLow = {1f,1f,1f,1f,1f,1f}, eqMid = {1f,1f,1f,1f,1f,1f}, eqHigh = {1f,1f,1f,1f,1f,1f};
         private final boolean[] muted = new boolean[6];
         private final boolean[] solo = new boolean[6];
         private float masterVolume = 0.8f;
@@ -761,6 +766,7 @@ public final class MainActivity extends Activity {
         void setLiveName(int slot,String name){if(slot>=0&&slot<names.length){names[slot]=name;postInvalidate();}}
         void setLearnedVolume(int target,float value){if(target<6){layerVolumes[target]=value;applyLayerGains();}else{masterVolume=value;if(audioEngine!=null)audioEngine.setMaster(faderGain(value));}postInvalidate();}
         void setLayerEnvelope(int layer,float attack,float release){if(layer<0||layer>=6)return;layerAttack[layer]=attack;layerRelease[layer]=release;if(audioEngine!=null)audioEngine.setLayerEnvelope(layer,attack,release);}
+        void setLayerEq(int layer,float low,float mid,float high){if(layer<0||layer>=6)return;eqLow[layer]=low;eqMid[layer]=mid;eqHigh[layer]=high;if(audioEngine!=null)audioEngine.setLayerEq(layer,low,mid,high);}
 
         private void text(Canvas canvas, String value, float x, float y, float size, int colour) {
             paint.setStyle(Paint.Style.FILL); paint.setColor(colour); paint.setTextSize(size);
