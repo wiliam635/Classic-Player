@@ -31,24 +31,30 @@ final class PolySynthEngine {
     private static native int nativeAnalogPresetCount();
     private static native String nativeAnalogPresetName(int preset);
     private static native boolean nativeSetAnalogPreset(int layer, int preset);
+    private static native void nativeSetAnalogControls(int layer,float[] values,int[] flags);
     private static native void nativeActivateHammond(int layer);
     private static native int nativeHammondPresetCount();
     private static native String nativeHammondPresetName(int preset);
     private static native boolean nativeSetHammondPreset(int layer, int preset);
+    private static native void nativeSetHammondControls(int layer, int[] bars, int leslie, int percussion, float click, float leakage, float drive, float level);
     private static native void nativeUnloadAll();
     private static native void nativeClearLayer(int layer);
     private static native void nativeSetMaster(float value);
     private static native void nativeSetLayerGain(int layer, float value);
+    private static native void nativeSetLayerPan(int layer,float value);
     private static native void nativeSetLayerEnvelope(int layer, float attack, float release);
-    private static native void nativeSetLayerEq(int layer, float low, float mid, float high);
-    private static native void nativeSetLayerCompressor(int layer, float threshold, float ratio);
+    private static native void nativeSetLayerTone(int layer,float cutoff,float reverb,float compMix,float chorus);
+    private static native void nativeSetLayerEq(int layer,float lowDb,float midDb,float highDb,float lowFrequency,float midFrequency,float highFrequency,float lowQ,float midQ,float highQ,float highPassHz,float lowPassHz);
+    private static native void nativeSetLayerCompressor(int layer,float threshold,float ratio,float attackMs,float releaseMs,float makeupDb);
+    private static native void nativeSetLayerReverb(int layer,float size,float damping,float width);
+    private static native void nativeSetLayerRouting(int layer,int channel,int octave,int lowNote,int highNote,int velocityCurve,boolean sustainEnabled,int mode);
     private static native void nativeSetMasterEffects(float reverb, float chorus);
     private static native int nativePresetCount(int layer);
     private static native String nativePresetName(int layer, int preset);
     private static native boolean nativeSetPreset(int layer, int preset);
-    private static native void nativeNoteOn(int note, int velocity);
-    private static native void nativeNoteOff(int note);
-    private static native void nativeControl(int controller, int value);
+    private static native void nativeNoteOn(int note, int velocity,int channel);
+    private static native void nativeNoteOff(int note,int channel);
+    private static native void nativeControl(int controller, int value,int channel);
     private static native void nativeAllNotesOff();
     private static native void nativeRender(short[] output, int frames);
     private static native float nativeLayerPeak(int layer);
@@ -95,24 +101,31 @@ final class PolySynthEngine {
     int analogPresetCount() { return nativeAnalogPresetCount(); }
     String analogPresetName(int preset) { return nativeAnalogPresetName(preset); }
     boolean setAnalogPreset(int layer, int preset) { return nativeSetAnalogPreset(layer, preset); }
+    void setAnalogControls(int layer,float[] values,int[] flags){nativeSetAnalogControls(layer,values,flags);}
     void activateHammond(int layer) { nativeActivateHammond(layer); }
     int hammondPresetCount() { return nativeHammondPresetCount(); }
     String hammondPresetName(int preset) { return nativeHammondPresetName(preset); }
     boolean setHammondPreset(int layer, int preset) { return nativeSetHammondPreset(layer, preset); }
+    void setHammondControls(int layer,int[] bars,int leslie,int percussion,float click,float leakage,float drive,float level){nativeSetHammondControls(layer,bars,leslie,percussion,click,leakage,drive,level);}
     void setMaster(float value) { nativeSetMaster(value); }
     void clearLayer(int layer) { nativeClearLayer(layer); }
     void setLayerGain(int layer, float value) { nativeSetLayerGain(layer, value); }
+    void setLayerPan(int layer,float value){nativeSetLayerPan(layer,value);}
     void setLayerEnvelope(int layer, float attack, float release) { nativeSetLayerEnvelope(layer, attack, release); }
-    void setLayerEq(int layer, float low, float mid, float high) { nativeSetLayerEq(layer, low, mid, high); }
-    void setLayerCompressor(int layer, float threshold, float ratio) { nativeSetLayerCompressor(layer, threshold, ratio); }
+    void setLayerTone(int layer,float cutoff,float reverb,float compMix,float chorus){nativeSetLayerTone(layer,cutoff,reverb,compMix,chorus);}
+    void setLayerEq(int layer,float low,float mid,float high,float lowFrequency,float midFrequency,float highFrequency,float lowQ,float midQ,float highQ,float highPassHz,float lowPassHz){nativeSetLayerEq(layer,low,mid,high,lowFrequency,midFrequency,highFrequency,lowQ,midQ,highQ,highPassHz,lowPassHz);}
+    void setLayerCompressor(int layer,float threshold,float ratio,float attack,float release,float makeup){nativeSetLayerCompressor(layer,threshold,ratio,attack,release,makeup);}
+    void setLayerReverb(int layer,float size,float damping,float width){nativeSetLayerReverb(layer,size,damping,width);}
+    void setLayerRouting(int layer,int channel,int octave,int low,int high,int velocityCurve,boolean sustain,int mode){nativeSetLayerRouting(layer,channel,octave,low,high,velocityCurve,sustain,mode);}
     void setMasterEffects(float reverb, float chorus) { nativeSetMasterEffects(reverb, chorus); }
     int presetCount(int layer) { return nativePresetCount(layer); }
     String presetName(int layer, int preset) { return nativePresetName(layer, preset); }
     boolean setPreset(int layer, int preset) { return nativeSetPreset(layer, preset); }
     boolean setPreferredDevice(AudioDeviceInfo device) { return track != null && device != null && track.setPreferredDevice(device); }
-    void noteOn(int note, int velocity) { nativeNoteOn(note, velocity); }
-    void noteOff(int note) { nativeNoteOff(note); }
-    void setSustain(boolean on) { nativeControl(64, on ? 127 : 0); }
+    void noteOn(int note, int velocity,int channel) { nativeNoteOn(note, velocity,channel); }
+    void noteOff(int note,int channel) { nativeNoteOff(note,channel); }
+    void control(int controller,int value,int channel){nativeControl(controller,value,channel);}
+    void setSustain(int channel,boolean on) { nativeControl(64, on ? 127 : 0,channel); }
     void allNotesOff() { nativeAllNotesOff(); }
     float layerPeak(int layer) { return nativeLayerPeak(layer); }
     float masterPeak() { return nativeMasterPeak(); }
