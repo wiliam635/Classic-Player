@@ -326,7 +326,7 @@ public:
     {
         setUsingNativeTitleBar(true);
         setColour(juce::AlertWindow::backgroundColourId, juce::Colour(background));
-        setColour(juce::AlertWindow::textColourId, juce::Colour(text));
+        setColour(juce::AlertWindow::textColourId, juce::Colour(0xffedf4f7));
     }
 
     void userTriedToCloseWindow() override { exitModalState(0); }
