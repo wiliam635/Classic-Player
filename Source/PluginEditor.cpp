@@ -38,6 +38,22 @@ juce::Colour drumPadColour(int pad)
     return colours[(size_t) juce::jlimit(0, 7, pad)];
 }
 
+juce::Colour layerAccent(ClassicPlayerAudioProcessor::LayerType type)
+{
+    using LayerType = ClassicPlayerAudioProcessor::LayerType;
+    switch (type)
+    {
+        case LayerType::sf2: return juce::Colour(0xff00cbd8);
+        case LayerType::dx7: return juce::Colour(0xff9b7bff);
+        case LayerType::vst: return juce::Colour(0xffffa64d);
+        case LayerType::analog: return juce::Colour(0xff45b4ff);
+        case LayerType::hammond: return juce::Colour(0xffffca58);
+        case LayerType::drumPads: return juce::Colour(0xffff5578);
+        case LayerType::continuousPads: return juce::Colour(0xff41e0aa);
+    }
+    return juce::Colour(teal);
+}
+
 void flatButton(juce::Button& button)
 {
     button.setColour(juce::TextButton::buttonColourId, juce::Colour(panelLight));
@@ -3678,20 +3694,46 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseUp(const juce::MouseEve
 void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
-    const auto drumLayer = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::drumPads || processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::continuousPads;
-    const auto topColour = juce::Colour(panelLight);
-    const auto bottomColour = juce::Colour(background).brighter(0.025f);
+    const auto type = processor.layerType(index);
+    const auto drumLayer = type == ClassicPlayerAudioProcessor::LayerType::drumPads || type == ClassicPlayerAudioProcessor::LayerType::continuousPads;
+    const auto accent = layerAccent(type);
+    const auto topColour = juce::Colour(0xff102431);
+    const auto bottomColour = juce::Colour(0xff06131c);
     g.setGradientFill(juce::ColourGradient(topColour, bounds.getX(), bounds.getY(),
                                            bottomColour, bounds.getX(), bounds.getBottom(), false));
     g.fillRoundedRectangle(bounds, 8.0f);
-    g.setColour(juce::Colour(line).withAlpha(0.9f));
+    g.setColour(accent.withAlpha(muted ? 0.22f : 0.88f));
+    g.fillRoundedRectangle(juce::Rectangle<float>(bounds.getX() + 1.0f, bounds.getY() + 1.0f,
+                                                   4.0f, bounds.getHeight() - 2.0f), 2.0f);
+    g.setColour(juce::Colour(line).withAlpha(0.96f));
     g.drawRoundedRectangle(bounds.reduced(0.5f), 8.0f, 1.0f);
-    g.setColour(juce::Colour(muted ? mutedText : teal).withAlpha(muted ? 0.2f : 0.9f));
-    g.fillRoundedRectangle(juce::Rectangle<float>(bounds.getX() + 10.0f, bounds.getY() + 7.0f,
-                                                   5.0f, 9.0f), 2.5f);
-    g.setColour(juce::Colour(teal).withAlpha(0.28f));
-    g.fillRect(juce::Rectangle<float>(bounds.getX() + 10.0f, bounds.getY() + 28.0f,
-                                      juce::jmax(12.0f, bounds.getWidth() - 20.0f), 1.0f));
+
+    // A proper instrument-card banner gives each strip its own identity,
+    // instead of presenting the mixer as a row of identical dark columns.
+    const auto banner = sourceSummary.getBounds().toFloat().reduced(1.0f, 2.0f);
+    if (!banner.isEmpty())
+    {
+        g.setGradientFill(juce::ColourGradient(accent.withAlpha(muted ? 0.12f : 0.34f),
+                                               banner.getX(), banner.getY(),
+                                               juce::Colour(0xff08141e), banner.getRight(),
+                                               banner.getBottom(), false));
+        g.fillRoundedRectangle(banner, 5.0f);
+        g.setColour(accent.withAlpha(muted ? 0.24f : 0.70f));
+        g.drawRoundedRectangle(banner, 5.0f, 1.0f);
+        juce::Path light;
+        light.startNewSubPath(banner.getX() + banner.getWidth() * 0.50f, banner.getY());
+        light.lineTo(banner.getX() + banner.getWidth() * 0.68f, banner.getY());
+        light.lineTo(banner.getX() + banner.getWidth() * 0.42f, banner.getBottom());
+        light.lineTo(banner.getX() + banner.getWidth() * 0.24f, banner.getBottom());
+        light.closeSubPath();
+        g.setColour(accent.withAlpha(muted ? 0.025f : 0.075f));
+        g.fillPath(light);
+    }
+    g.setColour(accent.withAlpha(muted ? 0.32f : 0.82f));
+    g.fillEllipse(juce::Rectangle<float>(bounds.getX() + 12.0f, bounds.getY() + 8.0f, 8.0f, 8.0f));
+    g.setColour(accent.withAlpha(0.34f));
+    g.fillRect(juce::Rectangle<float>(bounds.getX() + 11.0f, bounds.getY() + 39.0f,
+                                      juce::jmax(12.0f, bounds.getWidth() - 22.0f), 1.0f));
     if (drumLayer)
         return;
     g.setColour(juce::Colour(mutedText));
@@ -6035,10 +6077,10 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
     // channels merely to fill the viewport.
     const auto availableWidth = juce::jmax(1,
         layerViewport.getWidth() - layerViewport.getScrollBarThickness());
-    const int columns = availableWidth >= 1000 ? 8
-                       : availableWidth >= 720  ? 4
-                       : availableWidth >= 450  ? 2
-                                                  : 1;
+    // Keep the active mixer row filled: the former fixed 8-column grid left
+    // half the screen empty when only four to six layers were in use.
+    // The maximum remains eight, matching the processor's layer capacity.
+    const int columns = juce::jlimit(1, 8, count);
     constexpr int expandedHeight = 590;
     const auto viewportHeight = layerViewport.getHeight()
         - layerViewport.getScrollBarThickness();
