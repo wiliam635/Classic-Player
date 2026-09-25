@@ -359,6 +359,32 @@ public:
                                         appBounds.getCentreY() - height / 2));
     }
 
+    void fitCustomComponentsVertically()
+    {
+        const auto count = getNumCustomComponents();
+        if (count < 2) return;
+
+        const auto* first = getCustomComponent(0);
+        if (first == nullptr) return;
+        int contentHeight = 0;
+        for (int i = 0; i < count; ++i)
+            if (const auto* component = getCustomComponent(i))
+                contentHeight += component->getHeight();
+
+        // AlertWindow's default 10 px gaps can push the last row below a
+        // window capped to the app height. Keep a bottom inset for the native
+        // window frame while preserving every control's own height.
+        const int availableForGaps = getHeight() - 10 - first->getY() - contentHeight;
+        const int gap = juce::jlimit(2, 10, availableForGaps / (count - 1));
+        int y = first->getY();
+        for (int i = 0; i < count; ++i)
+            if (auto* component = getCustomComponent(i))
+            {
+                component->setTopLeftPosition(component->getX(), y);
+                y += component->getHeight() + gap;
+            }
+    }
+
     void resized() override
     {
         juce::AlertWindow::resized();
@@ -2340,7 +2366,7 @@ private:
 class Dx7EditorPanel final : public juce::Component
 {
 public:
-    static constexpr int preferredHeight = 82; // Fits both 22 px rows, 10 px gap and panel insets.
+    static constexpr int preferredHeight = 70; // Two full-height rows with compact insets.
 
     Dx7EditorPanel(ClassicPlayerAudioProcessor& p, int layer) : processor(p), index(layer)
     {
@@ -2390,14 +2416,14 @@ public:
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced(12);
+        auto area = getLocalBounds().reduced(12, 6);
         auto row = area.removeFromTop(22);
         bankLabel.setBounds(row.removeFromLeft(100));
         deleteButton.setBounds(row.removeFromRight(112).reduced(1, 0));
         importButton.setBounds(row.removeFromRight(112).reduced(1, 0));
         bankBox.setBounds(row);
         const auto bankFieldWidth = bankBox.getWidth();
-        area.removeFromTop(10);
+        area.removeFromTop(8);
         row = area.removeFromTop(22);
         patchLabel.setBounds(row.removeFromLeft(100));
         patchBox.setBounds(row.removeFromLeft(bankFieldWidth));
@@ -5034,6 +5060,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     // footer so FECHAR cannot cover the reverb Learn button.
     dialog->setSize(actionWidth + 52, 580);
     dialog->fitWithinApp(this);
+    dialog->fitCustomComponentsVertically();
     // Use AlertWindow's footer button so JUCE reserves a dedicated row below
     // the MIDI Learn panel instead of treating FECHAR as another component.
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
