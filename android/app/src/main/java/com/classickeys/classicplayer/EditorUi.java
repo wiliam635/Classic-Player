@@ -96,12 +96,12 @@ final class EditorUi {
             float prevX=left,prevY=bottom;
             for(int i=0;i<=100;i++){
                 float x=left+(right-left)*i/100f,y;
-                if(compressor){float input=i/100f,threshold=Math.max(.1f,Math.min(1f,a)),ratio=Math.max(1f,b);float output=input<=threshold?input:threshold+(input-threshold)/ratio;y=bottom-(bottom-top)*output;}
+                if(compressor){float inputDb=-20f+20f*i/100f,input=(float)Math.pow(10,inputDb/20f),threshold=Math.max(.1f,Math.min(1f,a)),ratio=Math.max(1f,b);float output=input<=threshold?input:threshold+(input-threshold)/ratio;float outputDb=Math.max(-20f,20f*(float)Math.log10(Math.max(.1f,output)));y=bottom-(bottom-top)*(outputDb+20f)/20f;}
                 else{float band=i/100f,gain=(float)(a*Math.exp(-Math.pow((band-.12f)/.2f,2))+b*Math.exp(-Math.pow((band-.5f)/.22f,2))+c*Math.exp(-Math.pow((band-.88f)/.2f,2)));y=top+(bottom-top)*(.5f-(gain-1f)*.25f);}
                 if(i>0)canvas.drawLine(prevX,prevY,x,y,p);prevX=x;prevY=y;
             }
             p.setStyle(Paint.Style.FILL);p.setColor(MUTED);p.setTextAlign(Paint.Align.CENTER);p.setTextSize(dp(getContext(),9));
-            String[] ticks=compressor?new String[]{"−60","−45","−30","−15","0 dB"}:new String[]{"20","100","1k","5k","20k"};
+            String[] ticks=compressor?new String[]{"−20","−15","−10","−5","0 dB"}:new String[]{"20","100","1k","5k","20k"};
             for(int i=0;i<5;i++)canvas.drawText(ticks[i],left+(right-left)*i/4f,bottom+dp(getContext(),15),p);
         }
     }

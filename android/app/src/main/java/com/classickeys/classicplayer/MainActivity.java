@@ -755,7 +755,8 @@ public final class MainActivity extends Activity {
             EditorUi.knob(knobs,"MÉDIOS",screen.eqMid[layer],0,2," ×",v->{screen.setLayerEq(layer,screen.eqLow[layer],v,screen.eqHigh[layer]);response.setValues(screen.eqLow[layer],screen.eqMid[layer],screen.eqHigh[layer]);});
             EditorUi.knob(knobs,"AGUDOS",screen.eqHigh[layer],0,2," ×",v->{screen.setLayerEq(layer,screen.eqLow[layer],screen.eqMid[layer],v);response.setValues(screen.eqLow[layer],screen.eqMid[layer],screen.eqHigh[layer]);});
         }else if(effect.equals("COMP")){
-            EditorUi.knob(knobs,"THRESHOLD",(float)(20*Math.log10(Math.max(.001f,screen.compressorThreshold[layer]))),-60,0," dB",
+            // The native compressor clamps its linear threshold to [0.1, 1.0], i.e. -20..0 dB.
+            EditorUi.knob(knobs,"THRESHOLD",(float)(20*Math.log10(Math.max(.1f,screen.compressorThreshold[layer]))),-20,0," dB",
                 v->{screen.setLayerCompressor(layer,(float)Math.pow(10,v/20f),screen.compressorRatio[layer]);response.setValues(screen.compressorThreshold[layer],screen.compressorRatio[layer],0f);});
             EditorUi.knob(knobs,"RATIO",screen.compressorRatio[layer],1,20,":1",v->{screen.setLayerCompressor(layer,screen.compressorThreshold[layer],v);response.setValues(screen.compressorThreshold[layer],screen.compressorRatio[layer],0f);});
         }else if(effect.equals("REVERB")){
