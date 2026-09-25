@@ -8,7 +8,7 @@ on:
         type: boolean
         default: false
   push:
-    branches: [codex/fix-user-refresh]
+    branches: [codex/fix-user-refresh, release/2.0.1]
     paths:
       - .github/workflows/test-vst3-windows.yml
       - installer/windows/ClassicPlayerVst3Test.iss
@@ -101,7 +101,7 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup --no-progress -y
-          $final = "${{ inputs.final_release }}" -eq "true"
+          $final = ("${{ inputs.final_release }}" -eq "true") -or ("${{ github.ref_name }}" -eq "release/2.0.1")
           if ($final) {
             & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DFINAL_RELEASE "installer\windows\ClassicPlayerVst3Test.iss"
             $setup = "outputs\vst3-test\Classic-Player-2.0.1-Windows-x64-Setup.exe"
@@ -123,7 +123,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Host nao conseguiu abrir o VST3 instalado" }
 
       - name: Upload test plugin
-        if: ${{ inputs.final_release != true }}
+        if: ${{ inputs.final_release != true && github.ref_name != 'release/2.0.1' }}
         uses: actions/upload-artifact@v4
         with:
           name: Classic-Player-2.0.1-VST3-teste-${{ github.run_number }}-Windows-x64
@@ -133,7 +133,7 @@ jobs:
             outputs/vst3-test/Classic-Player-2.0.1-Standalone-VST3-teste-Windows-x64-Setup.exe
 
       - name: Upload final installer
-        if: ${{ inputs.final_release == true }}
+        if: ${{ inputs.final_release == true || github.ref_name == 'release/2.0.1' }}
         uses: actions/upload-artifact@v4
         with:
           name: Classic-Player-2.0.1-Windows-x64
