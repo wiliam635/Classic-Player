@@ -430,16 +430,10 @@ public final class MainActivity extends Activity {
 
     private void showLayerActions(final int layer) {
         final String engine = screen.engineName(layer);
-        new AlertDialog.Builder(this).setTitle("LAYER " + (layer + 1) + " · " + engine)
-                .setItems(new String[]{"EDITAR MOTOR ATUAL", "TROCAR MOTOR", "LIMPAR LAYER"}, (dialog, which) -> {
-                    if (which == 1) { panicAndChooseLayerSource(layer); return; }
-                    if (which == 2) { clearLayer(layer); return; }
-                    if (engine.equals("DX7")) openDx7Editor(layer);
-                    else if (engine.equals("ANALOG")) openAnalogEditor(layer);
-                    else if (engine.equals("HAMMOND")) openHammondEditor(layer);
-                    else if (engine.contains("PADS")) openPadEditor(layer, engine.startsWith("CONT"));
-                    else openSoundFontEditor(layer);
-                }).setNegativeButton("CANCELAR", null).show();
+        final Dialog dialog=new Dialog(this); LinearLayout root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(30,26,30,20); root.setBackgroundColor(Color.rgb(7,16,25));
+        TextView title=new TextView(this); title.setText("LAYER "+(layer+1)+" · "+engine); title.setTextColor(Color.rgb(233,239,240)); title.setTextSize(22); root.addView(title,new LinearLayout.LayoutParams(-1,-2));
+        String[] actions={"EDITAR MOTOR ATUAL","TROCAR MOTOR","LIMPAR LAYER"}; for(int i=0;i<actions.length;i++){final int action=i;Button b=new Button(this);b.setText(actions[i]);b.setTextColor(Color.WHITE);b.setBackgroundColor(i==2?Color.rgb(90,45,48):Color.rgb(31,70,86));b.setOnClickListener(v->{dialog.dismiss();if(action==1){panicAndChooseLayerSource(layer);return;}if(action==2){clearLayer(layer);return;}if(engine.equals("DX7"))openDx7Editor(layer);else if(engine.equals("ANALOG"))openAnalogEditor(layer);else if(engine.equals("HAMMOND"))openHammondEditor(layer);else if(engine.contains("PADS"))openPadEditor(layer,engine.startsWith("CONT"));else openSoundFontEditor(layer);});root.addView(b,new LinearLayout.LayoutParams(-1,-2));}
+        Button cancel=new Button(this);cancel.setText("CANCELAR");cancel.setTextColor(Color.rgb(19,184,173));cancel.setBackgroundColor(Color.TRANSPARENT);cancel.setOnClickListener(v->dialog.dismiss());root.addView(cancel,new LinearLayout.LayoutParams(-1,-2));dialog.setContentView(root);dialog.show();if(dialog.getWindow()!=null){dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);dialog.getWindow().setLayout(-1,-2);}
     }
 
     private void panicAndChooseLayerSource(int layer) {
@@ -727,7 +721,7 @@ public final class MainActivity extends Activity {
         TextView reverbLabel = new TextView(this); reverbLabel.setText("REVERB"); reverbLabel.setTextColor(Color.rgb(180,195,200)); root.addView(reverbLabel,new LinearLayout.LayoutParams(-1,-2)); SeekBar reverb = new SeekBar(this); reverb.setMax(100); reverb.setProgress((int)(screen.masterReverb*100)); root.addView(reverb,new LinearLayout.LayoutParams(-1,-2));
         TextView chorusLabel = new TextView(this); chorusLabel.setText("CHORUS"); chorusLabel.setTextColor(Color.rgb(180,195,200)); root.addView(chorusLabel,new LinearLayout.LayoutParams(-1,-2)); SeekBar chorus = new SeekBar(this); chorus.setMax(100); chorus.setProgress((int)(screen.masterChorus*100)); root.addView(chorus,new LinearLayout.LayoutParams(-1,-2));
         SeekBar.OnSeekBarChangeListener fx = new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean from){if(from)screen.setMasterEffects(reverb.getProgress()/100f,chorus.getProgress()/100f);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}}; reverb.setOnSeekBarChangeListener(fx); chorus.setOnSeekBarChangeListener(fx);
-        ListView list = new ListView(this); list.setChoiceMode(ListView.CHOICE_MODE_SINGLE); list.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_list_item_single_choice, items)); list.setItemChecked(Math.max(0, Math.min(selected, items.length-1)), true);
+        ListView list = new ListView(this); list.setChoiceMode(ListView.CHOICE_MODE_SINGLE); list.setDivider(new android.graphics.drawable.ColorDrawable(Color.rgb(35,62,74))); list.setDividerHeight(1); list.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_list_item_single_choice, items){@Override public android.view.View getView(int position,android.view.View convert,android.view.ViewGroup parent){android.view.View v=super.getView(position,convert,parent);if(v instanceof android.widget.TextView){android.widget.TextView t=(android.widget.TextView)v;t.setTextColor(Color.rgb(233,239,240));t.setTextSize(17);t.setPadding(12,16,12,16);}return v;}}); list.setItemChecked(Math.max(0, Math.min(selected, items.length-1)), true);
         list.setOnItemClickListener((parent, view, position, id) -> { selection.apply(position); list.setItemChecked(position, true); });
         root.addView(list, new LinearLayout.LayoutParams(-1, 0, 1f));
         LinearLayout actions = new LinearLayout(this); actions.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL); actions.setPadding(0,14,0,0);
