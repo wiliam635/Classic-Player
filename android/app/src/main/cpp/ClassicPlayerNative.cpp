@@ -25,6 +25,7 @@ constexpr int kLayerCount = 6;
 constexpr int kSampleRate = 48000;
 constexpr int kMaxFrames = 2048;
 constexpr size_t kVoicesPerLayer = 128;
+constexpr int kHammondDelayFrames = 1204;
 
 std::array<tsf*, kLayerCount> fonts {};
 enum class EngineType : int { empty = 0, sf2 = 1, dx7 = 2, analog = 3, hammond = 4 };
@@ -150,12 +151,24 @@ constexpr std::array<const char*,32> analogNames {
     "Dub Bass", "Pulse Bass", "Crystal Pad", "Dream Pad", "Space Mod", "Atmospheric Pad", "Warm Pad", "Vintage Minimoog Pad",
     "Shimmer Pad", "Velvet Cloud", "Alien Landscape", "Digital Rain", "Submarine Sonar", "Thunder Storm", "Glass Harmonica", "Cosmic Drone"
 };
-struct HammondVoice { bool active=false; int note=-1,channel=0; int age=0; float envelope=0.0f; std::array<double,9> phase{}; };
+struct HammondVoice {
+    bool active=false,down=false,releasing=false;
+    int note=-1,channel=0,age=0,releaseAge=0;
+    float envelope=0.0f,releaseStart=0.0f,percussion=0.0f,click=0.0f;
+    double percussionPhase=0.0,percussionStep=0.0;
+    std::array<double,13> phase{},step{};
+};
 struct HammondLayer {
     int preset=0, leslie=1, percussion=0;
     std::array<float,9> bars{};
+    std::array<float,9> smoothedBars{};
     float click=0.15f, leakage=0.12f, drive=0.12f, level=0.8f;
     std::array<HammondVoice,kVoicesPerLayer> voices{};
+    std::array<double,2> rotorPhase{};
+    float crossover=0.0f,rotaryDepth=0.0f;
+    std::array<std::array<float,kHammondDelayFrames>,2> rotaryDelay{};
+    int rotaryDelayPosition=0;
+    uint32_t noise=0x1341257u;
 };
 std::array<HammondLayer,kLayerCount> hammondLayers{};
 constexpr std::array<const char*,8> hammondNames { "Jimmy Gospel", "Jazz Ballad", "Rock Organ", "Percussive B3", "Full Drawbar", "Gospel Fullness", "Slow Leslie", "Fast Leslie" };
@@ -165,7 +178,25 @@ constexpr std::array<std::array<float,9>,8> hammondBars {{
     {{1.f,1.f,1.f,1.f,1.f,1.f,1.f,1.f,1.f}}, {{1.f,.7f,1.f,.9f,.5f,.7f,.3f,.5f,.4f}},
     {{.5f,.4f,1.f,.7f,.3f,.4f,.2f,.2f,.1f}}, {{.8f,.6f,1.f,.9f,.5f,.7f,.4f,.5f,.3f}}
 }};
-constexpr std::array<double,9> hammondRatios {.5,1.5,1.,2.,3.,4.,5.,6.,8.};
+constexpr std::array<double,13> hammondRatios {.5,1.5,1.,2.,3.,4.,5.,6.,8.,.9438743126816935,1.0594630943592953,1.4983070768766815,2.0};
+const std::array<float,4097> hammondSineTable=[] {
+    std::array<float,4097> values{};
+    for(size_t i=0;i<values.size();++i)values[i]=(float)std::sin(6.283185307179586*(double)i/4096.0);
+    return values;
+}();
+float hammondSine(double phase)
+{
+    phase-=std::floor(phase);
+    const double position=phase*4096.0;
+    const auto index=std::min((size_t)position,(size_t)4095);
+    const float fraction=(float)(position-(double)index);
+    return hammondSineTable[index]+(hammondSineTable[index+1]-hammondSineTable[index])*fraction;
+}
+void releaseHammondVoice(HammondVoice& voice)
+{
+    if(!voice.active||voice.releasing)return;
+    voice.down=false;voice.releasing=true;voice.releaseAge=0;voice.releaseStart=voice.envelope;
+}
 
 float analogWave(int type,double phase)
 {
@@ -576,9 +607,33 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOn(JNIEnv*, jclass,
             for(int osc=0;osc<3;++osc){const double tune=std::pow(2.0,(double)semitones[osc]/12.0);target->targetIncrement[(size_t)osc]=(float)(440.0*std::pow(2.0,(double)(routedNote-69)/12.0)*tune/kSampleRate);target->increment[(size_t)osc]=(float)(440.0*std::pow(2.0,(target->pitch-69.0)/12.0)*tune/kSampleRate);}
         }
         else if(engineTypes[(size_t)layer]==EngineType::hammond) {
-            auto& organ=hammondLayers[(size_t)layer]; HammondVoice* target=nullptr;
-            for(auto& voice:organ.voices)if(!voice.active){target=&voice;break;} if(target==nullptr)target=&organ.voices.front();
-            *target={}; target->active=true; target->note=routedNote; target->channel=midiChannel;
+            auto& organ=hammondLayers[(size_t)layer];
+            bool first=true;
+            for(auto& voice:organ.voices)if(voice.active){
+                if(voice.down)first=false;
+                if(voice.note==routedNote&&voice.channel==midiChannel)releaseHammondVoice(voice);
+            }
+            HammondVoice* target=nullptr;
+            for(auto& voice:organ.voices)if(!voice.active){target=&voice;break;}
+            if(target==nullptr){
+                target=&organ.voices.front();
+                for(auto& voice:organ.voices)if(voice.envelope<target->envelope)target=&voice;
+            }
+            *target={};target->active=target->down=true;target->note=routedNote;target->channel=midiChannel;
+            const double base=440.0*std::pow(2.0,((double)routedNote-69.0)/12.0);
+            const double highest=std::min(440.0*std::pow(2.0,(114.0-69.0)/12.0),kSampleRate*.45);
+            const double lowest=440.0*std::pow(2.0,(24.0-69.0)/12.0);
+            for(size_t partial=0;partial<hammondRatios.size();++partial){
+                double frequency=base*hammondRatios[partial];
+                while(frequency>highest)frequency*=.5;
+                while(frequency<lowest)frequency*=2.0;
+                target->step[partial]=frequency/kSampleRate;
+            }
+            if(first&&organ.percussion>0){
+                target->percussion=.12f*(organ.percussion==2?1.0f:.72f);
+                target->percussionStep=std::min(base*(organ.percussion==2?2.0:1.0),kSampleRate*.45)/kSampleRate;
+            }
+            target->click=organ.click*.06f;
         }
     }
 }
@@ -593,7 +648,12 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOff(JNIEnv*, jclass
         const auto li=(size_t)layer;const auto type = engineTypes[li];
         const int encoded=routedNotes[li][(size_t)midiChannel][(size_t)note];routedNotes[li][(size_t)midiChannel][(size_t)note]=0;
         if(encoded==0)continue;const int routedNote=encoded-1;
-        if(layerSustainEnabled[li]&&sustainDown[(size_t)midiChannel])continue;
+        if(layerSustainEnabled[li]&&sustainDown[(size_t)midiChannel]){
+            if(type==EngineType::hammond)
+                for(auto& voice:hammondLayers[li].voices)
+                    if(voice.active&&voice.note==routedNote&&voice.channel==midiChannel)voice.down=false;
+            continue;
+        }
         // Each engine gets its own dispatch path. Do not let a loaded font or
         // another engine's state suppress the custom-engine Note Off.
         if (type == EngineType::sf2 && fonts[li] != nullptr)
@@ -609,7 +669,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOff(JNIEnv*, jclass
                 if (voice.active && voice.note == routedNote && voice.channel==midiChannel) voice.releasing=true;
         if (type == EngineType::hammond)
             for (auto& voice: hammondLayers[(size_t)layer].voices)
-                if (voice.active && voice.note == routedNote && voice.channel==midiChannel) voice = {};
+                if (voice.active && voice.note == routedNote && voice.channel==midiChannel) releaseHammondVoice(voice);
     }
 }
 
@@ -634,7 +694,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeControl(JNIEnv*, jclass
                             if (voice.active && voice.note == routedNote && voice.channel==midiChannel) voice.releasing=true;
                     } else if (engineTypes[li] == EngineType::hammond) {
                         for (auto& voice: hammondLayers[li].voices)
-                            if (voice.active && voice.note == routedNote && voice.channel==midiChannel) voice = {};
+                            if (voice.active && voice.note == routedNote && voice.channel==midiChannel) releaseHammondVoice(voice);
                     } else if (engineTypes[li] == EngineType::dx7) {
                         for (auto& voice: dxLayers[li].voices)
                             if (voice.active && voice.note == routedNote && voice.channel==midiChannel && voice.synth) voice.synth->keyup();
@@ -673,6 +733,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
     std::array<float, kLayerCount> renderedPeaks {};
     std::array<float, kMaxFrames * 2> mix {};
     std::array<float, kMaxFrames * 2> reverbSend {};
+    std::array<float,kMaxFrames> hammondSide{};
     for (int layer = 0; layer < kLayerCount; ++layer)
     {
         const auto li=(size_t)layer;
@@ -696,22 +757,83 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
             }
         }
         else if(engineTypes[(size_t)layer]==EngineType::hammond) {
-            auto& organ=hammondLayers[(size_t)layer]; const auto& bars=organ.bars;
-            const float leslieRate=organ.leslie==2?6.2f:organ.leslie==1?.8f:0.0f;
-            std::array<double,kVoicesPerLayer> noteSteps{};
-            for(size_t v=0;v<organ.voices.size();++v)
-                if(organ.voices[v].active)
-                    noteSteps[v]=440.0*std::pow(2.0,((double)organ.voices[v].note-69.0)/12.0)/kSampleRate;
-            for(int sample=0;sample<frames;++sample){float value=0.f;
-                for(size_t v=0;v<organ.voices.size();++v){auto& voice=organ.voices[v];if(!voice.active)continue;if(++voice.age>kInternalVoiceSafetySamples){voice={};continue;}voice.envelope=std::min(1.f,voice.envelope+std::min(1.f,1.f/(layerAttack[(size_t)layer]*kSampleRate)));
-                    const double noteStep=noteSteps[v];float tone=0.f,total=0.f;
-                    for(int d=0;d<9;++d){voice.phase[(size_t)d]+=noteStep*hammondRatios[(size_t)d];voice.phase[(size_t)d]-=std::floor(voice.phase[(size_t)d]);tone+=(float)std::sin(voice.phase[(size_t)d]*6.28318530718)*bars[(size_t)d];total+=bars[(size_t)d];}
-                    const float percussion=organ.percussion==0?0.0f:(float)std::sin(voice.phase[organ.percussion==1?5:6]*6.28318530718)*std::exp(-(float)voice.age/(kSampleRate*.16f))*.28f;
-                    const float keyClick=voice.age<80?(float)std::sin(voice.age*2.39996323)*std::exp(-(float)voice.age/20.0f)*organ.click*.035f:0.0f;
-                    tone=tone/std::max(total,.1f)+percussion+keyClick+tone*organ.leakage*.025f;
-                    const float rotary=leslieRate==0.0f?1.0f:.82f+.18f*(float)std::sin(voice.phase[2]*leslieRate);
-                    value+=std::tanh(tone*(1.0f+organ.drive*5.0f))*voice.envelope*rotary*.30f*organ.level;
-                }scratch[(size_t)sample*2]=value;scratch[(size_t)sample*2+1]=value;
+            auto& organ=hammondLayers[(size_t)layer];
+            const int attackSamples=std::max(1,(int)(layerAttack[li]*kSampleRate));
+            const int releaseSamples=std::max(1,(int)(std::max(15.0f,layerRelease[li]*1000.0f)*.001f*kSampleRate));
+            const float barSmoothing=1.0f-std::exp(-1.0f/(.015f*kSampleRate));
+            const float percussionDecay=std::exp(std::log(.0001f/.12f)/(.08f*kSampleRate));
+            const float clickDecay=std::exp(-8.0f/(kSampleRate*.015f));
+            const float crossoverCoefficient=1.0f-std::exp(-6.2831853f*800.0f/kSampleRate);
+            const float rotaryDepthSmoothing=1.0f-std::exp(-1.0f/(.02f*kSampleRate));
+            const float drive=std::clamp(organ.drive,0.0f,1.0f);
+            std::array<float,9> barTargets{};
+            for(size_t d=0;d<barTargets.size();++d){
+                const float drawbar=(d==8&&organ.percussion>0)?0.0f:organ.bars[d]*8.0f;
+                barTargets[d]=drawbar>0.0f?.085f*std::pow(10.0f,(drawbar-8.0f)*3.0f/20.0f):0.0f;
+            }
+            for(int sample=0;sample<frames;++sample){
+                for(size_t d=0;d<organ.smoothedBars.size();++d)
+                    organ.smoothedBars[d]+=(barTargets[d]-organ.smoothedBars[d])*barSmoothing;
+                float value=0.0f;
+                for(auto& voice:organ.voices){
+                    if(!voice.active)continue;
+                    if(voice.releasing){
+                        if(++voice.releaseAge>=releaseSamples){voice={};continue;}
+                        const float phase=(float)voice.releaseAge/(float)releaseSamples;
+                        voice.envelope=voice.releaseStart*.5f*(1.0f+std::cos(3.14159265359f*phase));
+                    }else{
+                        if(++voice.age>kInternalVoiceSafetySamples){voice={};continue;}
+                        voice.envelope=.24f*std::min(1.0f,(float)voice.age/(float)attackSamples);
+                    }
+                    float tone=0.0f;
+                    for(size_t partial=0;partial<hammondRatios.size();++partial){
+                        float amplitude=organ.leakage*.002f;
+                        if(partial<9)amplitude=organ.smoothedBars[partial];
+                        voice.phase[partial]+=voice.step[partial];
+                        voice.phase[partial]-=std::floor(voice.phase[partial]);
+                        tone+=hammondSine(voice.phase[partial])*amplitude;
+                    }
+                    if(voice.percussion>1.0e-6f){
+                        tone+=hammondSine(voice.percussionPhase)*voice.percussion;
+                        voice.percussionPhase+=voice.percussionStep;
+                        voice.percussionPhase-=std::floor(voice.percussionPhase);
+                        voice.percussion*=percussionDecay;
+                    }
+                    if(voice.click>1.0e-7f){
+                        organ.noise=organ.noise*1664525u+1013904223u;
+                        tone+=((float)(organ.noise>>8)/8388608.0f-1.0f)*voice.click;
+                        voice.click*=clickDecay;
+                    }
+                    value+=tone*voice.envelope;
+                }
+                value=value*(1.0f-drive)+std::tanh(2.0f*value*(1.0f+drive*8.0f))/std::tanh(2.0f)*drive/(1.0f+drive*2.0f);
+                value*=organ.level;
+                organ.crossover+=crossoverCoefficient*(value-organ.crossover);
+                const float bands[2]={organ.crossover,value-organ.crossover};
+                const float targetDepth=organ.leslie>0?1.0f:0.0f;
+                organ.rotaryDepth+=(targetDepth-organ.rotaryDepth)*rotaryDepthSmoothing;
+                float left=0.0f,right=0.0f;
+                for(int rotor=0;rotor<2;++rotor){
+                    const double rate=organ.leslie==2?(rotor?6.2:5.4):organ.leslie==1?(rotor?.8:.65):0.0;
+                    organ.rotorPhase[(size_t)rotor]+=rate/kSampleRate;
+                    organ.rotorPhase[(size_t)rotor]-=std::floor(organ.rotorPhase[(size_t)rotor]);
+                    const float modulation=hammondSine(organ.rotorPhase[(size_t)rotor])*organ.rotaryDepth;
+                    auto& delay=organ.rotaryDelay[(size_t)rotor];
+                    delay[(size_t)organ.rotaryDelayPosition]=bands[rotor];
+                    const double offset=(.008+modulation*(rotor?.00045:.00015))*kSampleRate;
+                    const int whole=(int)std::floor(offset),size=(int)delay.size();
+                    const int a=(organ.rotaryDelayPosition-whole+size)%size,b=(a+size-1)%size;
+                    const float fraction=(float)(offset-whole);
+                    const float rotated=(delay[(size_t)a]+fraction*(delay[(size_t)b]-delay[(size_t)a]))
+                            *(.7f+modulation*(rotor?.12f:.08f));
+                    const float pan=modulation*(rotor?.65f:.4f);
+                    left+=rotated*std::sqrt(.5f*(1.0f-pan));
+                    right+=rotated*std::sqrt(.5f*(1.0f+pan));
+                }
+                organ.rotaryDelayPosition=(organ.rotaryDelayPosition+1)%kHammondDelayFrames;
+                scratch[(size_t)sample*2]=(left+right)*.5f;
+                scratch[(size_t)sample*2+1]=scratch[(size_t)sample*2];
+                hammondSide[(size_t)sample]=(left-right)*.5f;
             }
         }
         else if(engineTypes[(size_t)layer]==EngineType::analog) {
@@ -785,7 +907,9 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
                 }
                 layerChorusBuffer[(size_t)layer][(size_t)cursor]=dryShaped;
                 layerChorusCursor[(size_t)layer]=(cursor+1)%kChorusFrames;
-                scratch[(size_t)sample]=shaped; scratch[(size_t)sample+1]=shaped;
+                const float side=engineTypes[li]==EngineType::hammond?hammondSide[(size_t)(sample/2)]:0.0f;
+                scratch[(size_t)sample]=shaped+side;
+                scratch[(size_t)sample+1]=shaped-side;
             }
             const int frame = sample / 2;
             const float gain = (smoothedLayerGains[(size_t)layer] + layerStep * frame) *
