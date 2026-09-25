@@ -32,6 +32,8 @@ std::array<float, kLayerCount> layerGains { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f }
 std::array<float, kLayerCount> smoothedLayerGains { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
 std::array<float, kLayerCount> layerAttack { 0.01f,0.01f,0.01f,0.01f,0.01f,0.01f };
 std::array<float, kLayerCount> layerRelease { 0.25f,0.25f,0.25f,0.25f,0.25f,0.25f };
+std::array<float, kLayerCount> eqLow { 1.f,1.f,1.f,1.f,1.f,1.f }, eqMid { 1.f,1.f,1.f,1.f,1.f,1.f }, eqHigh { 1.f,1.f,1.f,1.f,1.f,1.f };
+std::array<float, kLayerCount> eqLowState {}, eqHighState {};
 std::array<float, kLayerCount> layerPeaks {};
 std::array<short, kMaxFrames * 2> scratch {};
 float masterGain = 0.8f;
@@ -307,6 +309,14 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerEnvelope(JNIEnv
     layerRelease[(size_t)layer] = std::clamp((float)release, 0.02f, 4.0f);
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerEq(JNIEnv*, jclass, jint layer, jfloat low, jfloat mid, jfloat high)
+{
+    if (layer < 0 || layer >= kLayerCount) return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    eqLow[(size_t)layer]=std::clamp((float)low,0.0f,2.0f); eqMid[(size_t)layer]=std::clamp((float)mid,0.0f,2.0f); eqHigh[(size_t)layer]=std::clamp((float)high,0.0f,2.0f);
+}
+
 extern "C" JNIEXPORT jint JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativePresetCount(JNIEnv*, jclass, jint layer)
 {
@@ -498,6 +508,15 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
         const float masterStep = (targetMaster - smoothedMasterGain) / (float)std::max(frames, 1);
         for (int sample = 0; sample < samples; ++sample)
         {
+            if ((sample & 1) == 0) {
+                const float input = (float)scratch[(size_t)sample] / 32768.0f;
+                eqLowState[(size_t)layer] += (input - eqLowState[(size_t)layer]) * 0.08f;
+                const float high = input - eqLowState[(size_t)layer];
+                eqHighState[(size_t)layer] += (high - eqHighState[(size_t)layer]) * 0.18f;
+                const float lowBand = eqLowState[(size_t)layer], highBand = high - eqHighState[(size_t)layer], midBand = input - lowBand - highBand;
+                const float shaped = lowBand*eqLow[(size_t)layer] + midBand*eqMid[(size_t)layer] + highBand*eqHigh[(size_t)layer];
+                const short shapedShort=(short)std::clamp((int)(shaped*32768.0f),-32768,32767); scratch[(size_t)sample]=shapedShort; scratch[(size_t)sample+1]=shapedShort;
+            }
             const int frame = sample / 2;
             const float gain = (smoothedLayerGains[(size_t)layer] + layerStep * frame) *
                     (smoothedMasterGain + masterStep * frame);
