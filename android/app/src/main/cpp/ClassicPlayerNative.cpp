@@ -196,10 +196,19 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadDx7(
     env->ReleaseStringUTFChars(path, utf8Path);
     if (!input) return JNI_FALSE;
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(input)), {});
+    // A DX7 32-voice bank is normally a 4104-byte SysEx message, but files
+    // exported by different editors may contain a leading header, multiple
+    // messages, or a trailing checksum/F7.  Locate the bulk-data header and
+    // only require the 4096 bytes that contain the 32 packed voices.
     int start = -1;
-    for (int i=0; i+4102 <= (int)bytes.size(); ++i)
-        if (bytes[(size_t)i]==0xf0 && bytes[(size_t)i+1]==0x43 && bytes[(size_t)i+3]==0x09
-            && bytes[(size_t)i+4]==0x20 && bytes[(size_t)i+5]==0x00) { start=i+6; break; }
+    for (int i=0; i+6 <= (int)bytes.size(); ++i) {
+        if (bytes[(size_t)i] == 0xf0 && bytes[(size_t)i+1] == 0x43 &&
+            bytes[(size_t)i+3] == 0x09 && bytes[(size_t)i+4] == 0x20 &&
+            bytes[(size_t)i+5] == 0x00 && i + 6 + 32 * 128 <= (int)bytes.size()) {
+            start = i + 6;
+            break;
+        }
+    }
     if (start < 0) return JNI_FALSE;
     std::lock_guard<std::mutex> lock(synthMutex);
     initialiseDx();
@@ -209,6 +218,8 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadDx7(
         const auto* packed=bytes.data()+start+patch*128;
         expandDxPatch(packed,dx.patches[(size_t)patch]);
         dx.names[(size_t)patch]=dxName(packed+118,10);
+        if (dx.names[(size_t)patch].empty())
+            dx.names[(size_t)patch] = "Timbre DX7 " + std::to_string(patch + 1);
     }
     dx.count=32; dx.selected=0;
     engineTypes[(size_t)layer]=EngineType::dx7;
