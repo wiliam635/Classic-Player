@@ -37,14 +37,7 @@ jobs:
           cmake: 3.22.1
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: |
-            mkdir -p android-test-artifacts
-            adb logcat -c
-            result=0
-            gradle --no-daemon -p android -PtestAbis=x86_64 :app:connectedDebugAndroidTest || result=$?
-            adb logcat -d > android-test-artifacts/logcat.txt
-            adb pull /sdcard/Android/data/com.classickeys.classicplayer/files/audio-regression android-test-artifacts/ || true
-            exit "$result"
+          script: bash android/run-emulator-tests.sh
       - name: Upload reports even on regression failure
         if: always()
         uses: actions/upload-artifact@v4
