@@ -31,6 +31,12 @@ final class AudioOutputManager {
             if (device.getId() == id) return device;
         return null;
     }
+    AudioDeviceInfo deviceByIdentity(int type, String name) {
+        if (audio == null || name.isEmpty()) return null;
+        for (AudioDeviceInfo device : audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS))
+            if (device.getType() == type && name.contentEquals(device.getProductName())) return device;
+        return null;
+    }
     private String typeName(int type) {
         switch (type) {
             case AudioDeviceInfo.TYPE_USB_DEVICE: return "USB";

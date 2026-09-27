@@ -122,6 +122,7 @@ final class PolySynthEngine {
     String presetName(int layer, int preset) { return nativePresetName(layer, preset); }
     boolean setPreset(int layer, int preset) { return nativeSetPreset(layer, preset); }
     boolean setPreferredDevice(AudioDeviceInfo device) { return track != null && device != null && track.setPreferredDevice(device); }
+    AudioDeviceInfo routedDevice() { return track == null ? null : track.getRoutedDevice(); }
     void noteOn(int note, int velocity,int channel) { nativeNoteOn(note, velocity,channel); }
     void noteOff(int note,int channel) { nativeNoteOff(note,channel); }
     void control(int controller,int value,int channel){nativeControl(controller,value,channel);}

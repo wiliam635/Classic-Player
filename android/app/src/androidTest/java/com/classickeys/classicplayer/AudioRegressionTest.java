@@ -128,6 +128,15 @@ public class AudioRegressionTest {
                 + ",\"loadMs\":" + elapsed / 1e6 + "}");
     }
 
+    @Test public void failedSoundFontImportPreservesLayer() throws Exception {
+        activate(1, 0);
+        assertFalse(engine.loadLayer(0, new File(context.getCacheDir(), "missing-font.sf2").getAbsolutePath()));
+        assertEquals(1, engine.engineType(0));
+        assertEquals(1, engine.presetCount(0));
+        engine.noteOn(60, 100, 0);
+        assertTrue(rms(pcm(RATE / 4)) > .0005);
+    }
+
     @Test public void sixLayers128InputNotesAndFaders() throws Exception {
         // Stress traffic, NOT proof of 128 surviving DSP voices: layered SF2
         // regions and voice-stealing require separate voice-count diagnostics.

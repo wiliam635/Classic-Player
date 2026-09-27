@@ -68,7 +68,7 @@ public final class MainActivity extends Activity {
     private AudioOutputManager audioOutputManager;
     private final AudioDeviceCallback audioDeviceCallback = new AudioDeviceCallback() {
         @Override public void onAudioDevicesAdded(AudioDeviceInfo[] added) { refreshMidiDevices(); restorePreferredAudioDevice(); }
-        @Override public void onAudioDevicesRemoved(AudioDeviceInfo[] removed) { refreshMidiDevices(); }
+        @Override public void onAudioDevicesRemoved(AudioDeviceInfo[] removed) { refreshMidiDevices(); restorePreferredAudioDevice(); }
     };
     private PadEngine padEngine;
     private int pendingPad = -1;
@@ -313,8 +313,8 @@ public final class MainActivity extends Activity {
         int count = midiManager == null ? 0 : midiManager.getDevices().length;
         screen.setMidiStatus(count == 0 ? "MIDI USB: nenhum dispositivo" :
                 "MIDI USB: " + count + (count == 1 ? " dispositivo" : " dispositivos"));
-        if (audioOutputManager != null) screen.setAudioStatus(audioOutputManager.outputs().isEmpty()
-                ? "ÁUDIO: saída do sistema" : "ÁUDIO: " + audioOutputManager.outputs().get(0));
+        AudioDeviceInfo routed = audioEngine == null ? null : audioEngine.routedDevice();
+        screen.setAudioStatus(routed == null ? "ÁUDIO: saída do sistema" : "ÁUDIO: " + routed.getProductName());
         if (count > 0 && midiDevice == null) openMidi(midiManager.getDevices()[Math.min(midiIndex, count - 1)]);
     }
 
@@ -322,6 +322,12 @@ public final class MainActivity extends Activity {
         if (audioOutputManager == null || audioEngine == null) return;
         int id = getSharedPreferences("audio", MODE_PRIVATE).getInt("output_id", -1);
         AudioDeviceInfo device = audioOutputManager.deviceById(id);
+        // Android assigns a new transient ID after a USB reconnection.
+        String savedName = getSharedPreferences("audio", MODE_PRIVATE).getString("output_name", "");
+        int savedType = getSharedPreferences("audio", MODE_PRIVATE).getInt("output_type", -1);
+        if (!savedName.isEmpty() && (device == null || device.getType() != savedType
+                || !savedName.contentEquals(device.getProductName())))
+            device = audioOutputManager.deviceByIdentity(savedType, savedName);
         if (device != null && audioEngine.setPreferredDevice(device))
             screen.setAudioStatus("ÁUDIO: " + device.getProductName() + " (ID " + device.getId() + ")");
     }
@@ -339,7 +345,8 @@ public final class MainActivity extends Activity {
                 .setItems(names.toArray(new String[0]), (dialog, which) -> {
                     AudioDeviceInfo device = audioOutputManager.deviceAt(which);
                     if (device != null && audioEngine != null && audioEngine.setPreferredDevice(device)) {
-                        getSharedPreferences("audio", MODE_PRIVATE).edit().putInt("output_id", device.getId()).apply();
+                        getSharedPreferences("audio", MODE_PRIVATE).edit().putInt("output_id", device.getId())
+                                .putInt("output_type", device.getType()).putString("output_name", device.getProductName().toString()).apply();
                         screen.setAudioStatus("ÁUDIO: " + names.get(which));
                     } else {
                         new AlertDialog.Builder(this).setTitle("SAÍDA DE ÁUDIO")
