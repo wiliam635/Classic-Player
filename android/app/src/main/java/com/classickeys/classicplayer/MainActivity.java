@@ -62,6 +62,9 @@ public final class MainActivity extends Activity {
     private MidiOutputPort midiInput;
     private int pendingLayer = -1;
     private int pendingEngine = 1;
+    private final java.util.concurrent.ExecutorService fontImporter = java.util.concurrent.Executors.newSingleThreadExecutor();
+    private final Object importLifecycleLock = new Object();
+    private volatile boolean closing;
     private final String[] sf2Uris = new String[6];
     private SoundFontLayer[] soundFontLayers;
     private LicenseManager licenseManager;
@@ -298,7 +301,14 @@ public final class MainActivity extends Activity {
 
     @Override protected void onDestroy() {
         if (padEngine != null) padEngine.stopImmediately();
-        if (audioEngine != null) audioEngine.close();
+        closing = true;
+        if (audioEngine != null) {
+            final PolySynthEngine retiringEngine = audioEngine;
+            retiringEngine.stop();
+            // Do not let a finishing import publish after native teardown.
+            synchronized (importLifecycleLock) { retiringEngine.close(); }
+        }
+        fontImporter.shutdown();
         super.onDestroy();
     }
 
@@ -745,8 +755,20 @@ public final class MainActivity extends Activity {
             try { getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION); }
             catch (SecurityException ignored) { }
             final int layer = pendingLayer;
+            pendingLayer = -1;
+            final PolySynthEngine importingEngine = audioEngine;
+            screen.setAudioStatus("ÁUDIO: importando SF2…");
+            fontImporter.execute(() -> {
+            if (closing) return;
             String cachedPath = cacheSoundFont(uri, layer);
-            if (cachedPath == null || audioEngine == null || !audioEngine.loadLayer(layer, cachedPath)) {
+            final boolean loaded;
+            synchronized (importLifecycleLock) {
+                loaded = cachedPath != null && importingEngine != null && !closing
+                        && importingEngine.loadLayer(layer, cachedPath);
+            }
+            runOnUiThread(() -> {
+            if (closing || isFinishing() || isDestroyed()) return;
+            if (!loaded) {
                 screen.setAudioStatus("ÁUDIO: falha ao abrir o arquivo SF2");
                 pendingLayer = -1;
                 return;
@@ -769,6 +791,8 @@ public final class MainActivity extends Activity {
             screen.setAudioStatus("ÁUDIO: SF2 carregado");
             pendingLayer = -1;
             openSoundFontEditor(layer);
+            });
+            });
         }
     }
 
