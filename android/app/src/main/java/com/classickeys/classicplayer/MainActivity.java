@@ -217,7 +217,7 @@ public final class MainActivity extends Activity {
         screen = new ClassicPlayerView(this);
         setContentView(screen);
         midiManager = (MidiManager) getSystemService(MIDI_SERVICE);
-        audioEngine = new PolySynthEngine();
+        audioEngine = new PolySynthEngine(this);
         audioEngine.setBufferFrames(getSharedPreferences("audio",MODE_PRIVATE).getInt("buffer_frames",512));
         licenseManager = new LicenseManager(this);
         audioOutputManager = new AudioOutputManager(this);
@@ -1321,7 +1321,9 @@ public final class MainActivity extends Activity {
                 button(canvas, "VOLTAR AO MIXER", 52, h*.79f, actionRight, h*.86f, false);
                 button(canvas, "BUFFER · "+audioEngine.bufferFrames()+" FRAMES",w*.48f,h*.59f,w-52,h*.66f,false);
                 text(canvas,audioEngine.outputStatus(),w*.48f,h*.71f,h*.018f,text);
-                button(canvas,"REINICIAR ÁUDIO",w*.48f,h*.76f,w-52,h*.83f,false);
+                text(canvas,audioEngine.outputMode(),w*.48f,h*.75f,h*.016f,text);
+                text(canvas,audioEngine.outputLatency(),w*.48f,h*.79f,h*.016f,text);
+                button(canvas,"REINICIAR ÁUDIO",w*.48f,h*.81f,w-52,h*.86f,false);
                 return;
             }
 
@@ -1402,7 +1404,7 @@ public final class MainActivity extends Activity {
             if (settings && tap) {
                 if(event.getX()>w*.48f&&event.getY()>h*.57f){
                     if(event.getY()<h*.67f)showAudioBufferChooser();
-                    else if(event.getY()>h*.75f&&event.getY()<h*.84f){audioEngine.stop();audioEngine.start();invalidate();}
+                    else if(event.getY()>h*.81f&&event.getY()<h*.87f){audioEngine.stop();audioEngine.start();invalidate();}
                     return true;
                 }
                 if (event.getY() > h * .28f && event.getY() < h * .40f && audioOutputManager != null) {

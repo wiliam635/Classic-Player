@@ -1,0 +1,125 @@
+#include <jni.h>
+#include <oboe/Oboe.h>
+#include <algorithm>
+#include <atomic>
+#include <cstdint>
+#include <memory>
+#include <mutex>
+
+// Shared by the offline regression renderer and the actual device callback.
+bool renderClassicPlayerPcm(int16_t* output, int frames,bool realtime);
+
+namespace {
+class OutputCallback final : public oboe::AudioStreamDataCallback,
+                             public oboe::AudioStreamErrorCallback {
+public:
+    std::atomic<int> error{0};
+    std::atomic<int> contentions{0};
+    int16_t lastLeft=0,lastRight=0;
+    bool faded=false;
+    oboe::DataCallbackResult onAudioReady(oboe::AudioStream*, void* data, int32_t frames) override {
+        auto* output=static_cast<int16_t*>(data);
+        // Consume MIDI at least every 128 frames, without Java array copies or
+        // a blocking write queue ahead of the hardware's own audio callback.
+        for(int offset=0;offset<frames;offset+=128){
+            const int count=std::min(128,frames-offset);
+            auto* block=output+offset*2;
+            if(!renderClassicPlayerPcm(block,count,true)){
+                ++contentions;
+                for(int i=0;i<count;++i){
+                    const float gain=1.0f-static_cast<float>(i+1)/count;
+                    block[i*2]=static_cast<int16_t>(lastLeft*gain);
+                    block[i*2+1]=static_cast<int16_t>(lastRight*gain);
+                }
+                faded=true;
+            }else if(faded){
+                for(int i=0;i<std::min(16,count);++i){block[i*2]=block[i*2]*(i+1)/16;block[i*2+1]=block[i*2+1]*(i+1)/16;}
+                faded=false;
+            }
+            lastLeft=block[(count-1)*2];lastRight=block[(count-1)*2+1];
+        }
+        return oboe::DataCallbackResult::Continue;
+    }
+    void onErrorAfterClose(oboe::AudioStream*,oboe::Result result) override {
+        error.store(static_cast<int>(result));
+    }
+};
+std::mutex outputMutex;
+std::shared_ptr<oboe::AudioStream> stream;
+std::shared_ptr<OutputCallback> callback;
+
+void closeOutput() {
+    if(stream){stream->requestStop();stream->close();stream.reset();}
+    callback.reset();
+}
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeStartOutput(JNIEnv*,jclass,jint deviceId,jint bufferFrames) {
+    std::lock_guard<std::mutex> lock(outputMutex);
+    closeOutput();
+    auto nextCallback=std::make_shared<OutputCallback>();
+    oboe::AudioStreamBuilder builder;
+    builder.setDirection(oboe::Direction::Output);
+    builder.setFormat(oboe::AudioFormat::I16);
+    builder.setChannelCount(2);
+    // DSP remains at 48 kHz. Oboe negotiates the hardware rate and performs
+    // conversion itself, avoiding the platform's high-latency resampling path.
+    builder.setSampleRate(48000);
+    builder.setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium);
+    builder.setFormatConversionAllowed(true);
+    builder.setChannelConversionAllowed(true);
+    builder.setPerformanceMode(oboe::PerformanceMode::LowLatency);
+    builder.setSharingMode(oboe::SharingMode::Exclusive);
+    builder.setUsage(oboe::Usage::Game);
+    builder.setContentType(oboe::ContentType::Music);
+    builder.setDeviceId(deviceId);
+    builder.setDataCallback(nextCallback);
+    builder.setErrorCallback(nextCallback);
+    auto result=builder.openStream(stream);
+    if(result!=oboe::Result::OK){stream.reset();return JNI_FALSE;}
+    // OpenSL ES cannot select an explicit USB device. Let the Java fallback
+    // preserve that selection rather than silently routing to the speaker.
+    if(deviceId!=0&&stream->getAudioApi()!=oboe::AudioApi::AAudio){closeOutput();return JNI_FALSE;}
+    callback=nextCallback;
+    stream->setBufferSizeInFrames(std::max(1,static_cast<int>(bufferFrames)));
+    result=stream->requestStart();
+    if(result!=oboe::Result::OK){closeOutput();return JNI_FALSE;}
+    return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetOutputDefaults(JNIEnv*,jclass,jint rate,jint burst) {
+    if(rate>0)oboe::DefaultStreamValues::SampleRate=rate;
+    if(burst>0)oboe::DefaultStreamValues::FramesPerBurst=burst;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeStopOutput(JNIEnv*,jclass) {
+    std::lock_guard<std::mutex> lock(outputMutex);closeOutput();
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeOutputInfo(JNIEnv* env,jclass) {
+    std::lock_guard<std::mutex> lock(outputMutex);
+    // rate, buffer, burst, device, API, performance, sharing, underruns, error.
+    jint values[10]={};
+    if(stream){
+        const auto xruns=stream->getXRunCount();
+        values[0]=stream->getSampleRate();values[1]=stream->getBufferSizeInFrames();
+        values[2]=stream->getFramesPerBurst();values[3]=stream->getDeviceId();
+        values[4]=static_cast<int>(stream->getAudioApi());
+        values[5]=static_cast<int>(stream->getPerformanceMode());
+        values[6]=static_cast<int>(stream->getSharingMode());
+        values[7]=xruns?xruns.value():-1;values[8]=callback?callback->error.load():0;
+        values[9]=callback?callback->contentions.load():0;
+    }
+    auto result=env->NewIntArray(10);if(result)env->SetIntArrayRegion(result,0,10,values);return result;
+}
+
+extern "C" JNIEXPORT jdouble JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeOutputLatency(JNIEnv*,jclass) {
+    std::lock_guard<std::mutex> lock(outputMutex);
+    if(!stream||!callback||callback->error.load()!=0)return -1;
+    auto result=stream->calculateLatencyMillis();return result?result.value():-1;
+}

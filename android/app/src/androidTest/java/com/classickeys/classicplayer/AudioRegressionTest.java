@@ -85,13 +85,20 @@ public class AudioRegressionTest {
         engine.setSustain(0,false);pcm(RATE*3);assertEquals(0,engine.activeVoices(0));
     }
 
-    @Test public void threeEnginesAudioTrackSurvivesBufferRestarts() throws Exception {
+    @Test public void threeEnginesNativeOutputSurvivesBufferRestarts() throws Exception {
         activate(1,0);activate(2,1);activate(1,2);
         for(int frames:new int[]{128,256,512,1024,2048,512}){
             engine.setBufferFrames(frames);engine.start();
             engine.noteOn(60,80,0);
             android.os.SystemClock.sleep(150);
             assertTrue(engine.outputStatus(),engine.isRunning());
+            int[] info=engine.outputInfo();
+            assertEquals("Native callback output must be exercised",48000,info[0]);
+            assertTrue("Output buffer must be negotiated",info[1]>0);
+            assertTrue("Device burst must be known",info[2]>0);
+            assertEquals("Android 10 must use AAudio",2,info[4]);
+            report("native-output-"+frames,"{\"info\":"+Arrays.toString(info)+",\"outputLatencyMs\":"+
+                engine.outputLatencyMillis()+"}");
             assertTrue("Renderer stopped producing audio",engine.masterPeak()>0);
             engine.noteOff(60,0);engine.stop();assertFalse(engine.isRunning());
         }

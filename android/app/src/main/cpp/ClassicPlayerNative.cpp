@@ -745,18 +745,17 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeActiveVoices(JNIEnv*,jc
     return count;
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
-        JNIEnv* env, jclass, jshortArray destination, jint frames)
+bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
 {
-    if (destination == nullptr || frames <= 0) return;
+    if (output == nullptr || frames <= 0) return false;
     frames = std::min(frames, kMaxFrames);
     const auto samples = frames * 2;
-    if (env->GetArrayLength(destination) < samples) return;
-    auto* output = env->GetShortArrayElements(destination, nullptr);
-    if (output == nullptr) return;
 
-    std::lock_guard<std::mutex> lock(synthMutex);
+    // The device callback must never wait behind an import or MIDI allocation.
+    // A brief contention is concealed by the output callback's fade; MIDI
+    // changes remain queued in native state for the next render quantum.
+    std::unique_lock<std::mutex> lock(synthMutex,std::defer_lock);
+    if(realtime){if(!lock.try_lock())return false;}else lock.lock();
     std::memset(output, 0, (size_t) samples * sizeof(short));
     std::array<float, kLayerCount> renderedPeaks {};
     std::array<float, kMaxFrames * 2> mix {};
@@ -778,7 +777,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
                 if(!voice.active||!voice.synth)continue;
                 for(int sample=0;sample<frames;++sample) {
                     if(voice.read>=N) {
-                        if(!voice.synth->isPlaying()){voice={};break;}
+                        if(!voice.synth->isPlaying()){voice.active=false;voice.read=N;break;}
                         voice.samples.fill(0); voice.synth->compute(voice.samples.data(),1<<23,1<<24,&controllers); voice.read=0;
                     }
                     const float value=(float)voice.samples[(size_t)voice.read++]/(float)(1<<24)*0.024f;
@@ -983,7 +982,19 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
     for (int layer = 0; layer < kLayerCount; ++layer)
         layerPeaks[(size_t) layer] = std::max(renderedPeaks[(size_t) layer], layerPeaks[(size_t) layer] * 0.88f);
     masterPeak = std::max(renderedMasterPeak, masterPeak * 0.88f);
-    env->ReleaseShortArrayElements(destination, output, 0);
+    return true;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(JNIEnv* env,jclass,jshortArray destination,jint frames)
+{
+    if(destination==nullptr||frames<=0)return;
+    frames=std::min(frames,kMaxFrames);
+    if(env->GetArrayLength(destination)<frames*2)return;
+    auto* output=env->GetShortArrayElements(destination,nullptr);
+    if(!output)return;
+    renderClassicPlayerPcm(output,frames,false);
+    env->ReleaseShortArrayElements(destination,output,0);
 }
 
 extern "C" JNIEXPORT jfloat JNICALL

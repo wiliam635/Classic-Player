@@ -4,23 +4,35 @@ import android.media.AudioAttributes;
 import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
 import android.media.AudioTrack;
+import android.media.AudioManager;
+import android.content.Context;
 import android.os.Build;
 import android.os.Process;
 
 /** Native SoundFont renderer used by all six Android mixer layers. */
 final class PolySynthEngine {
     private static final int RATE = 48000;
-    // 128 frames at 48 kHz is 2.67 ms. The previous 512-frame render block,
-    // combined with a doubled platform buffer, was noticeably slow on tablets.
-    // 256 frames is still low latency (5.3 ms at 48 kHz), but gives slower
-    // Android tablets enough time to render layered SoundFonts without gaps.
-    private static final int FRAMES = 256;
+    // Also use a 128-frame render quantum in the compatibility backend.
+    private static final int FRAMES = 128;
     private volatile AudioTrack track;
     private Thread renderThread;
     private volatile boolean running;
     private int bufferFrames = 512;
     private volatile AudioDeviceInfo preferredDevice;
     private volatile String outputError = "";
+    private volatile boolean nativeOutputActive;
+    private Thread outputMonitor;
+    private AudioManager audioManager;
+
+    PolySynthEngine() { }
+    PolySynthEngine(Context context) {
+        audioManager=(AudioManager)context.getSystemService(Context.AUDIO_SERVICE);
+        if(audioManager!=null)try {
+            int rate=Integer.parseInt(audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE));
+            int burst=Integer.parseInt(audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER));
+            nativeSetOutputDefaults(rate,burst);
+        }catch(NumberFormatException ignored){ }
+    }
 
     int bufferFrames() { return bufferFrames; }
     synchronized void setBufferFrames(int frames) {
@@ -31,6 +43,10 @@ final class PolySynthEngine {
         if(restart)start();
     }
     String outputStatus() {
+        if(nativeOutputActive){
+            int[] info=nativeOutputInfo();
+            return "Buffer real: "+info[1]+" frames · burst: "+info[2]+" · xruns: "+info[7];
+        }
         AudioTrack current=track;
         try { return current==null ? "Áudio parado "+outputError :
             "Buffer real: "+current.getBufferSizeInFrames()+" frames"+
@@ -38,6 +54,19 @@ final class PolySynthEngine {
         } catch(IllegalStateException e) { return "Reconectando áudio"; }
     }
     boolean isRunning() { return running; }
+    String outputMode() {
+        if(!nativeOutputActive)return "AudioTrack · modo compatível";
+        int[] info=nativeOutputInfo();
+        return (info[4]==2?"AAudio":"OpenSL ES")+" · "+(info[5]==12?"baixa latência":"modo padrão")+
+            " · "+(info[6]==0?"exclusivo":"compartilhado");
+    }
+    String outputLatency() {
+        double millis=outputLatencyMillis();
+        return millis>=0?String.format(java.util.Locale.US,"Saída estimada: %.1f ms (não inclui MIDI)",millis):
+            "Latência de saída: medição indisponível";
+    }
+    double outputLatencyMillis() { return nativeOutputActive?nativeOutputLatency():-1; }
+    int[] outputInfo() { return nativeOutputActive?nativeOutputInfo():new int[10]; }
 
     static { System.loadLibrary("classic_player_native"); }
 
@@ -80,11 +109,22 @@ final class PolySynthEngine {
     private static native float nativeLayerPeak(int layer);
     private static native float nativeMasterPeak();
     private static native int nativeActiveVoices(int layer);
+    private static native boolean nativeStartOutput(int deviceId,int bufferFrames);
+    private static native void nativeStopOutput();
+    private static native int[] nativeOutputInfo();
+    private static native double nativeOutputLatency();
+    private static native void nativeSetOutputDefaults(int sampleRate,int framesPerBurst);
     int activeVoices(int layer) { return nativeActiveVoices(layer); }
 
     synchronized void start() {
         if (running) return;
         stop();
+        outputError="";
+        if(nativeStartOutput(preferredDevice==null?0:preferredDevice.getId(),bufferFrames)){
+            nativeOutputActive=true;running=true;
+            outputMonitor=new Thread(this::monitorOutput,"classic-output-monitor");
+            outputMonitor.start();return;
+        }
         track = createTrack();
         outputError="";
         running = true;
@@ -116,11 +156,17 @@ final class PolySynthEngine {
 
     synchronized void stop() {
         running = false;
+        boolean interrupted=false;
+        if(outputMonitor!=null){
+            outputMonitor.interrupt();
+            while(outputMonitor.isAlive())try{outputMonitor.join();}catch(InterruptedException e){interrupted=true;}
+            outputMonitor=null;
+        }
+        if(nativeOutputActive){nativeStopOutput();nativeOutputActive=false;}
         // Unblock WRITE_BLOCKING before joining. Never release a track while
         // its writer is still alive, nor let an old writer join a new session.
         AudioTrack current=track;
         if(current!=null)try { current.pause(); } catch(IllegalStateException ignored) { }
-        boolean interrupted=false;
         if(renderThread!=null)while(renderThread.isAlive())try { renderThread.join(); }
             catch(InterruptedException e){interrupted=true;}
         renderThread = null;
@@ -157,11 +203,25 @@ final class PolySynthEngine {
     int presetCount(int layer) { return nativePresetCount(layer); }
     String presetName(int layer, int preset) { return nativePresetName(layer, preset); }
     boolean setPreset(int layer, int preset) { return nativeSetPreset(layer, preset); }
-    boolean setPreferredDevice(AudioDeviceInfo device) {
+    synchronized boolean setPreferredDevice(AudioDeviceInfo device) {
+        if(nativeOutputActive){
+            if(preferredDevice!=null&&device!=null&&preferredDevice.getId()==device.getId())return true;
+            stop();preferredDevice=device;start();
+            return running;
+        }
         preferredDevice=device;AudioTrack current=track;
         try{return current!=null&&current.setPreferredDevice(device);}catch(IllegalStateException e){return false;}
     }
-    AudioDeviceInfo routedDevice() { return track == null ? null : track.getRoutedDevice(); }
+    AudioDeviceInfo routedDevice() {
+        if(nativeOutputActive&&audioManager!=null){
+            int id=nativeOutputInfo()[3];
+            for(AudioDeviceInfo device:audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS))
+                if(device.getId()==id)return device;
+            return null;
+        }
+        AudioTrack current=track;
+        try{return current==null?null:current.getRoutedDevice();}catch(IllegalStateException e){return null;}
+    }
     void noteOn(int note, int velocity,int channel) { nativeNoteOn(note, velocity,channel); }
     void noteOff(int note,int channel) { nativeNoteOff(note,channel); }
     void control(int controller,int value,int channel){nativeControl(controller,value,channel);}
@@ -170,6 +230,26 @@ final class PolySynthEngine {
     float layerPeak(int layer) { return nativeLayerPeak(layer); }
     float masterPeak() { return nativeMasterPeak(); }
     void close() { stop(); nativeUnloadAll(); }
+
+    private void monitorOutput() {
+        try {
+            while(running){
+                Thread.sleep(100);
+                if(!running)break;
+                int error=nativeOutputInfo()[8];
+                if(error==0)continue;
+                // Recovery is outside the real-time callback. stop() joins
+                // this monitor before closing/replacing its stream.
+                android.util.Log.w("ClassicAudio","Native output disconnected: "+error);
+                nativeStopOutput();
+                if(!running)break;
+                int id=preferredDevice==null?0:preferredDevice.getId();
+                if(!nativeStartOutput(id,bufferFrames)&&!nativeStartOutput(0,bufferFrames)){
+                    outputError="Saída desconectada";running=false;break;
+                }
+            }
+        } catch(InterruptedException ignored){ }
+    }
 
     private void render() {
         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
