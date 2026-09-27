@@ -105,6 +105,7 @@ std::array<bool,16> sustainDown {};
 struct DxVoice
 {
     bool active = false;
+    uint64_t serial = 0;
     int note = -1, channel = 0;
     std::unique_ptr<Dx7Note> synth;
     std::array<int32_t, N> samples {};
@@ -112,6 +113,7 @@ struct DxVoice
 };
 struct DxLayer
 {
+    uint64_t serial = 0;
     std::array<std::array<uint8_t, 156>, 32> patches {};
     std::array<std::string, 32> names {};
     int count = 0;
@@ -263,7 +265,7 @@ void sendAllNotesOff()
     for(auto& channel:physicalKeys)channel.fill(false);
     for(auto& layer:routedNotes)for(auto& channel:layer)channel.fill(0);
     for (int layer=0;layer<kLayerCount;++layer) {
-        if(fonts[(size_t)layer]!=nullptr)tsf_channel_note_off_all(fonts[(size_t)layer],0);
+        if(fonts[(size_t)layer]!=nullptr)for(int ch=0;ch<16;++ch){tsf_channel_set_sustain(fonts[(size_t)layer],ch,0);tsf_channel_note_off_all(fonts[(size_t)layer],ch);}
         for(auto& voice:dxLayers[(size_t)layer].voices)if(voice.active&&voice.synth)voice.synth->keyup();
         // Panic must be immediate; a lost MIDI note-off must never leave an
         // oscillator running while changing screens/devices.
@@ -296,7 +298,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadLayer(
         tsf_close(loaded);
         return JNI_FALSE;
     }
-    tsf_channel_set_presetnumber(loaded, 0, 0, TSF_FALSE);
+    for(int ch=0;ch<16;++ch)tsf_channel_set_presetnumber(loaded, ch, 0, TSF_FALSE);
     // File I/O and sample allocation must not block the audio renderer.
     // Publish only a fully prepared font; failed imports preserve the old layer.
     std::lock_guard<std::mutex> lock(synthMutex);
@@ -564,8 +566,8 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetPreset(JNIEnv*, jcla
     std::lock_guard<std::mutex> lock(synthMutex);
     auto* font = fonts[(size_t) layer];
     if (font == nullptr || preset < 0 || preset >= tsf_get_presetcount(font)) return JNI_FALSE;
-    tsf_channel_note_off_all(font, 0);
-    return tsf_channel_set_presetindex(font, 0, preset) ? JNI_TRUE : JNI_FALSE;
+    for(int ch=0;ch<16;++ch){tsf_channel_note_off_all(font,ch);tsf_channel_set_presetindex(font,ch,preset);}
+    return JNI_TRUE;
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -585,17 +587,21 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOn(JNIEnv*, jclass,
         routedNotes[li][(size_t)midiChannel][(size_t)note]=routedNote+1;
         double priorAnalogPitch=69.0;bool hasPriorAnalog=false;
         if(layerMidiMode[li]!=0||(engineTypes[li]==EngineType::analog&&analogLayers[li].monophonic)){
-            if(engineTypes[li]==EngineType::sf2&&fonts[li]!=nullptr)for(int old=0;old<128;++old){int encoded=routedNotes[li][(size_t)midiChannel][(size_t)old];if(encoded!=0)tsf_channel_note_off(fonts[li],0,encoded-1);routedNotes[li][(size_t)midiChannel][(size_t)old]=0;}
+            if(engineTypes[li]==EngineType::sf2&&fonts[li]!=nullptr){tsf_channel_note_off_all(fonts[li],midiChannel);routedNotes[li][(size_t)midiChannel].fill(0);}
             for(auto& old:dxLayers[li].voices)old={};for(auto& old:hammondLayers[li].voices)old={};
             for(auto& old:analogLayers[li].voices)if(old.active){priorAnalogPitch=old.pitch;hasPriorAnalog=true;old={};}
             routedNotes[li][(size_t)midiChannel][(size_t)note]=routedNote+1;
         }
         if (engineTypes[li]==EngineType::sf2 && fonts[li]!=nullptr)
-            tsf_channel_note_on(fonts[li],0,routedNote,routedVelocity/127.0f);
+        {
+            tsf_channel_set_sustain(fonts[li],midiChannel,layerSustainEnabled[li]&&sustainDown[(size_t)midiChannel]);
+            tsf_channel_note_on(fonts[li],midiChannel,routedNote,routedVelocity/127.0f);
+        }
         else if(engineTypes[(size_t)layer]==EngineType::dx7) {
             auto& dx=dxLayers[(size_t)layer]; DxVoice* target=nullptr;
             for(auto& voice:dx.voices)if(!voice.active){target=&voice;break;}
-            if(target==nullptr)target=&dx.voices.front();
+            if(target==nullptr){target=&dx.voices.front();for(auto& voice:dx.voices)if(voice.serial<target->serial)target=&voice;}
+            target->serial=++dx.serial;
             target->active=true; target->note=routedNote; target->channel=midiChannel; target->read=N; target->samples.fill(0);
             target->synth=std::make_unique<Dx7Note>(tuning,nullptr);
             target->synth->init(dx.patches[(size_t)dx.selected].data(),routedNote,routedVelocity,1,&controllers);
@@ -650,6 +656,13 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOff(JNIEnv*, jclass
         const auto li=(size_t)layer;const auto type = engineTypes[li];
         const int encoded=routedNotes[li][(size_t)midiChannel][(size_t)note];
         if(encoded==0)continue;const int routedNote=encoded-1;
+        // TSF owns its pedal-held voices. Deliver every key-up, including
+        // repeated pitches; deferring here loses all but one retrigger.
+        if(type==EngineType::sf2&&fonts[li]!=nullptr){
+            tsf_channel_note_off(fonts[li],midiChannel,routedNote);
+            routedNotes[li][(size_t)midiChannel][(size_t)note]=0;
+            continue;
+        }
         if(layerSustainEnabled[li]&&sustainDown[(size_t)midiChannel]){
             if(type==EngineType::hammond)
                 for(auto& voice:hammondLayers[li].voices)
@@ -710,7 +723,8 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeControl(JNIEnv*, jclass
     }
     for (int layer=0;layer<kLayerCount;++layer)if(fonts[(size_t)layer]!=nullptr&&
         (layerMidiChannel[(size_t)layer]<0||layerMidiChannel[(size_t)layer]==midiChannel))
-        tsf_channel_midi_control(fonts[(size_t)layer],0,controller&0x7f,value&0x7f);
+        tsf_channel_midi_control(fonts[(size_t)layer],midiChannel,controller&0x7f,
+            (controller&0x7f)==64&&!layerSustainEnabled[(size_t)layer]?0:value&0x7f);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -718,6 +732,17 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeAllNotesOff(JNIEnv*, jc
 {
     std::lock_guard<std::mutex> lock(synthMutex);
     sendAllNotesOff();
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeActiveVoices(JNIEnv*,jclass,jint layer)
+{
+    if(layer<0||layer>=kLayerCount)return 0;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    int count=0;
+    if(engineTypes[layer]==EngineType::sf2&&fonts[layer])return tsf_active_voice_count(fonts[layer]);
+    if(engineTypes[layer]==EngineType::dx7)for(auto& voice:dxLayers[layer].voices)if(voice.active)++count;
+    return count;
 }
 
 extern "C" JNIEXPORT void JNICALL

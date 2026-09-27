@@ -15,9 +15,29 @@ final class PolySynthEngine {
     // 256 frames is still low latency (5.3 ms at 48 kHz), but gives slower
     // Android tablets enough time to render layered SoundFonts without gaps.
     private static final int FRAMES = 256;
-    private AudioTrack track;
+    private volatile AudioTrack track;
     private Thread renderThread;
     private volatile boolean running;
+    private int bufferFrames = 512;
+    private volatile AudioDeviceInfo preferredDevice;
+    private volatile String outputError = "";
+
+    int bufferFrames() { return bufferFrames; }
+    synchronized void setBufferFrames(int frames) {
+        if(frames!=128&&frames!=256&&frames!=512&&frames!=1024&&frames!=2048)
+            throw new IllegalArgumentException("Invalid buffer size");
+        boolean restart=running;
+        stop(); bufferFrames=frames;
+        if(restart)start();
+    }
+    String outputStatus() {
+        AudioTrack current=track;
+        try { return current==null ? "Áudio parado "+outputError :
+            "Buffer real: "+current.getBufferSizeInFrames()+" frames"+
+            (Build.VERSION.SDK_INT>=24?" · underruns: "+current.getUnderrunCount():"");
+        } catch(IllegalStateException e) { return "Reconectando áudio"; }
+    }
+    boolean isRunning() { return running; }
 
     static { System.loadLibrary("classic_player_native"); }
 
@@ -59,9 +79,21 @@ final class PolySynthEngine {
     private static native void nativeRender(short[] output, int frames);
     private static native float nativeLayerPeak(int layer);
     private static native float nativeMasterPeak();
+    private static native int nativeActiveVoices(int layer);
+    int activeVoices(int layer) { return nativeActiveVoices(layer); }
 
-    void start() {
+    synchronized void start() {
         if (running) return;
+        stop();
+        track = createTrack();
+        outputError="";
+        running = true;
+        renderThread = new Thread(this::render, "classic-sf2-audio");
+        renderThread.setPriority(Thread.MAX_PRIORITY);
+        renderThread.start();
+    }
+
+    private AudioTrack createTrack() {
         int min = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT);
         AudioTrack.Builder builder = new AudioTrack.Builder()
                 // MEDIA is routed to USB Audio Class interfaces by Android's
@@ -72,23 +104,27 @@ final class PolySynthEngine {
                 .setAudioFormat(new AudioFormat.Builder().setSampleRate(RATE)
                         .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                         .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
-                .setBufferSizeInBytes(Math.max(min, FRAMES * 4))
+                .setBufferSizeInBytes(Math.max(min, bufferFrames * 4))
                 .setTransferMode(AudioTrack.MODE_STREAM);
         if (Build.VERSION.SDK_INT >= 26)
             builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY);
-        track = builder.build();
-        running = true;
-        track.play();
-        renderThread = new Thread(this::render, "classic-sf2-audio");
-        renderThread.setPriority(Thread.MAX_PRIORITY);
-        renderThread.start();
+        AudioTrack result = builder.build();
+        if(preferredDevice!=null)result.setPreferredDevice(preferredDevice);
+        if(Build.VERSION.SDK_INT>=24)result.setBufferSizeInFrames(bufferFrames);
+        return result;
     }
 
-    void stop() {
+    synchronized void stop() {
         running = false;
-        if (renderThread != null) try { renderThread.join(500); } catch (InterruptedException ignored) { }
+        // Unblock WRITE_BLOCKING before joining. Never release a track while
+        // its writer is still alive, nor let an old writer join a new session.
+        AudioTrack current=track;
+        if(current!=null)try { current.pause(); } catch(IllegalStateException ignored) { }
+        boolean interrupted=false;
+        if(renderThread!=null)while(renderThread.isAlive())try { renderThread.join(); }
+            catch(InterruptedException e){interrupted=true;}
         renderThread = null;
-        if (track != null) { track.pause(); track.flush(); track.release(); track = null; }
+        if(interrupted)Thread.currentThread().interrupt();
     }
 
     boolean loadLayer(int layer, String absolutePath) { return absolutePath != null && nativeLoadLayer(layer, absolutePath); }
@@ -121,7 +157,10 @@ final class PolySynthEngine {
     int presetCount(int layer) { return nativePresetCount(layer); }
     String presetName(int layer, int preset) { return nativePresetName(layer, preset); }
     boolean setPreset(int layer, int preset) { return nativeSetPreset(layer, preset); }
-    boolean setPreferredDevice(AudioDeviceInfo device) { return track != null && device != null && track.setPreferredDevice(device); }
+    boolean setPreferredDevice(AudioDeviceInfo device) {
+        preferredDevice=device;AudioTrack current=track;
+        try{return current!=null&&current.setPreferredDevice(device);}catch(IllegalStateException e){return false;}
+    }
     AudioDeviceInfo routedDevice() { return track == null ? null : track.getRoutedDevice(); }
     void noteOn(int note, int velocity,int channel) { nativeNoteOn(note, velocity,channel); }
     void noteOff(int note,int channel) { nativeNoteOff(note,channel); }
@@ -135,21 +174,36 @@ final class PolySynthEngine {
     private void render() {
         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
         short[] output = new short[FRAMES * 2];
+        AudioTrack current=track;
+        int failures=0;
+        try {
+        current.play();
         while (running) {
             nativeRender(output, FRAMES);
-            AudioTrack current = track;
             if (current != null) {
                 int offset = 0;
                 while (running && offset < output.length) {
                     int written = current.write(output, offset, output.length - offset, AudioTrack.WRITE_BLOCKING);
                     if (written <= 0) {
+                        if(!running)break;
                         android.util.Log.e("ClassicAudio", "AudioTrack write failed: " + written);
-                        running = false;
+                        if(++failures>3)throw new IllegalStateException("AudioTrack error "+written);
+                        current.release(); current=null; track=null;
+                        if(!running)break;
+                        current=createTrack();track=current;current.play();
                         break;
                     }
+                    failures=0;
                     offset += written;
                 }
             }
+        }
+        } catch(RuntimeException e) {
+            outputError=e.toString();android.util.Log.e("ClassicAudio","Output stopped",e);
+        } finally {
+            running=false;
+            if(current!=null)current.release();
+            track=null;
         }
     }
 }

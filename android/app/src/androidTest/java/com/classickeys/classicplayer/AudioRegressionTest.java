@@ -53,6 +53,50 @@ public class AudioRegressionTest {
 
     @After public void cleanup() { if (engine != null) engine.close(); }
 
+    @Test public void sustainedRetriggersReleaseEveryVoice() throws Exception {
+        activate(1,0);activate(2,1);activate(1,2);
+        for(int cycle=0;cycle<4;cycle++){
+            engine.setSustain(0,true);
+            for(int n=0;n<300;n++){
+                int note=48+n%24;engine.noteOn(note,70,0);pcm(1024);engine.noteOff(note,0);
+                for(int layer=0;layer<3;layer++)assertTrue(engine.activeVoices(layer)<=128);
+            }
+            engine.setSustain(0,false);pcm(RATE*5);
+            for(int layer=0;layer<3;layer++)assertEquals("Leaked voices, layer "+layer,0,engine.activeVoices(layer));
+            engine.noteOn(72,100,0);assertTrue(rms(pcm(RATE/10))>.0001);engine.noteOff(72,0);pcm(RATE*3);
+        }
+    }
+
+    @Test public void fullSustainedPoolAcceptsNewKey() throws Exception {
+        activate(1,0);engine.setSustain(0,true);
+        for(int n=0;n<150;n++){engine.noteOn(60,60,0);pcm(256);engine.noteOff(60,0);}
+        assertEquals(128,engine.activeVoices(0));
+        engine.noteOn(84,100,0);engine.setSustain(0,false);pcm(RATE*3);
+        assertEquals("Newest held key must survive voice stealing",1,engine.activeVoices(0));
+        assertTrue(rms(pcm(RATE/10))>.0001);
+        engine.noteOff(84,0);pcm(RATE*3);assertEquals(0,engine.activeVoices(0));
+    }
+
+    @Test public void soundFontPedalIsIsolatedByMidiChannel() throws Exception {
+        activate(1,0);engine.setSustain(0,true);
+        engine.noteOn(60,90,0);engine.noteOn(60,90,1);pcm(256);
+        engine.noteOff(60,0);engine.noteOff(60,1);pcm(RATE*3);
+        assertEquals(1,engine.activeVoices(0));
+        engine.setSustain(0,false);pcm(RATE*3);assertEquals(0,engine.activeVoices(0));
+    }
+
+    @Test public void threeEnginesAudioTrackSurvivesBufferRestarts() throws Exception {
+        activate(1,0);activate(2,1);activate(1,2);
+        for(int frames:new int[]{128,256,512,1024,2048,512}){
+            engine.setBufferFrames(frames);engine.start();
+            engine.noteOn(60,80,0);
+            android.os.SystemClock.sleep(150);
+            assertTrue(engine.outputStatus(),engine.isRunning());
+            assertTrue("Renderer stopped producing audio",engine.masterPeak()>0);
+            engine.noteOff(60,0);engine.stop();assertFalse(engine.isRunning());
+        }
+    }
+
     private void activate(int type, int layer) {
         if (type == 1) assertTrue(engine.loadLayer(layer, sf2.getAbsolutePath()));
         if (type == 2) assertTrue(engine.loadDx7(layer, dx7.getAbsolutePath()));

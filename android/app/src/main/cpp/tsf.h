@@ -1595,7 +1595,17 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 					}
 				}
 				if (!voice)
-					continue;
+				{
+					// A full sustained pool must not reject every subsequent note.
+					// Recycle the oldest pedal-held voice, then the oldest held key.
+					// Never steal a region just started by this same note-on.
+					for (v = f->voices; v != vEnd; v++)
+						if (v->playIndex != voicePlayIndex && (!voice ||
+							(v->heldSustain && !voice->heldSustain) ||
+							(v->heldSustain == voice->heldSustain &&
+							 (unsigned int)(voicePlayIndex-v->playIndex) > (unsigned int)(voicePlayIndex-voice->playIndex)))) voice = v;
+					if (!voice) continue;
+				}
 				tsf_voice_kill(voice);
 			}
 			else

@@ -218,6 +218,7 @@ public final class MainActivity extends Activity {
         setContentView(screen);
         midiManager = (MidiManager) getSystemService(MIDI_SERVICE);
         audioEngine = new PolySynthEngine();
+        audioEngine.setBufferFrames(getSharedPreferences("audio",MODE_PRIVATE).getInt("buffer_frames",512));
         licenseManager = new LicenseManager(this);
         audioOutputManager = new AudioOutputManager(this);
         padEngine = new PadEngine(this);
@@ -340,6 +341,18 @@ public final class MainActivity extends Activity {
             device = audioOutputManager.deviceByIdentity(savedType, savedName);
         if (device != null && audioEngine.setPreferredDevice(device))
             screen.setAudioStatus("ÁUDIO: " + device.getProductName() + " (ID " + device.getId() + ")");
+    }
+
+    private void showAudioBufferChooser() {
+        final int[] frames={128,256,512,1024,2048};
+        String[] labels={"128 frames · 2,7 ms","256 frames · 5,3 ms","512 frames · 10,7 ms","1024 frames · 21,3 ms","2048 frames · 42,7 ms"};
+        int selected=2;for(int i=0;i<frames.length;i++)if(frames[i]==audioEngine.bufferFrames())selected=i;
+        new AlertDialog.Builder(this).setTitle("Buffer de áudio (não é a latência total)")
+            .setSingleChoiceItems(labels,selected,(dialog,which)->{
+                audioEngine.setBufferFrames(frames[which]);
+                getSharedPreferences("audio",MODE_PRIVATE).edit().putInt("buffer_frames",frames[which]).apply();
+                screen.invalidate();dialog.dismiss();
+            }).setNegativeButton("FECHAR",null).show();
     }
 
     private void showAudioOutputChooser() {
@@ -1306,6 +1319,9 @@ public final class MainActivity extends Activity {
                 button(canvas, "MIDI LEARN · VOLUME", 52, h*.59f, actionRight, h*.66f, pendingLearnTarget>=0);
                 button(canvas, "PARAR TODAS AS NOTAS", 52, h*.69f, actionRight, h*.76f, false);
                 button(canvas, "VOLTAR AO MIXER", 52, h*.79f, actionRight, h*.86f, false);
+                button(canvas, "BUFFER · "+audioEngine.bufferFrames()+" FRAMES",w*.48f,h*.59f,w-52,h*.66f,false);
+                text(canvas,audioEngine.outputStatus(),w*.48f,h*.71f,h*.018f,text);
+                button(canvas,"REINICIAR ÁUDIO",w*.48f,h*.76f,w-52,h*.83f,false);
                 return;
             }
 
@@ -1384,6 +1400,11 @@ public final class MainActivity extends Activity {
                 invalidate(); return true;
             }
             if (settings && tap) {
+                if(event.getX()>w*.48f&&event.getY()>h*.57f){
+                    if(event.getY()<h*.67f)showAudioBufferChooser();
+                    else if(event.getY()>h*.75f&&event.getY()<h*.84f){audioEngine.stop();audioEngine.start();invalidate();}
+                    return true;
+                }
                 if (event.getY() > h * .28f && event.getY() < h * .40f && audioOutputManager != null) {
                     showAudioOutputChooser();
                     return true;
