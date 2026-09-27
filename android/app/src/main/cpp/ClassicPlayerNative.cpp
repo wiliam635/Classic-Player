@@ -849,14 +849,16 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
             const float baseCutoff=25.0f*std::pow(700.0f,control[6]*.01f),resonance=std::min(.82f,control[7]*.008f),drive=control[16]*.06f;
             const float lfoStep=6.28318530718f*control[13]/kSampleRate;
             const float filterDecay=std::exp(-1.0f/(std::max(1.0f,decaySamples)*2.0f));
-            for(int sample=0;sample<frames;++sample){float value=0.0f;
-                for(auto& voice:analog.voices){if(!voice.active)continue;if(++voice.age>kInternalVoiceSafetySamples){voice={};continue;}
+            for(auto& voice:analog.voices){
+                if(!voice.active)continue;
+                for(int sample=0;sample<frames;++sample){
+                    if(++voice.age>kInternalVoiceSafetySamples){voice={};break;}
                     if(layerMidiMode[li]==2)for(int osc=0;osc<3;++osc)voice.increment[(size_t)osc]+=(voice.targetIncrement[(size_t)osc]-voice.increment[(size_t)osc])*.0008f;
                     if(voice.releasing)voice.envelope*=releaseFactor;
                     else if((float)voice.age<attackSamples)voice.envelope=std::min(1.0f,(float)voice.age/attackSamples);
                     else if((float)voice.age<attackSamples+decaySamples)voice.envelope=1.0f-(1.0f-sustain)*((float)voice.age-attackSamples)/decaySamples;
                     else voice.envelope=sustain;
-                    if(voice.envelope<.00015f){voice={};continue;}
+                    if(voice.envelope<.00015f){voice={};break;}
                     voice.lfoPhase+=lfoStep;if(voice.lfoPhase>=6.28318530718)voice.lfoPhase-=6.28318530718;
                     const float lfo=(float)std::sin(voice.lfoPhase),filterEnvelope=voice.filterEnvelope;
                     voice.filterEnvelope*=filterDecay;
@@ -868,10 +870,10 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
                     float cutoff=baseCutoff*std::pow(2.0f,(control[8]*.04f*filterEnvelope+(voice.note-60)*control[17]*.012f+control[15]*.06f*lfo+control[18]*.04f*analog.modWheel)/12.0f);
                     cutoff=std::clamp(cutoff,30.0f,18000.0f);const float alpha=std::clamp(6.2831853f*cutoff/kSampleRate,.0001f,.95f);
                     voice.filterState+=alpha*(mixed-voice.filterState*(1.0f+resonance));
-                    value+=voice.filterState*voice.envelope*.24f;
+                    scratch[(size_t)sample*2]+=voice.filterState*voice.envelope*.24f;
                 }
-                scratch[(size_t)sample*2]=value;scratch[(size_t)sample*2+1]=value;
             }
+            for(int sample=0;sample<frames;++sample) scratch[(size_t)sample*2+1]=scratch[(size_t)sample*2];
         }
         const float targetLayer = layerGains[(size_t) layer];
         const float targetMaster = masterGain;
