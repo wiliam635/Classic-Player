@@ -281,8 +281,6 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadLayer(
     const char* utf8Path = env->GetStringUTFChars(path, nullptr);
     if (utf8Path == nullptr) return JNI_FALSE;
 
-    std::lock_guard<std::mutex> lock(synthMutex);
-    releaseLayer(layer);
     auto* loaded = tsf_load_filename(utf8Path);
     env->ReleaseStringUTFChars(path, utf8Path);
     if (loaded == nullptr) return JNI_FALSE;
@@ -299,6 +297,10 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadLayer(
         return JNI_FALSE;
     }
     tsf_channel_set_presetnumber(loaded, 0, 0, TSF_FALSE);
+    // File I/O and sample allocation must not block the audio renderer.
+    // Publish only a fully prepared font; failed imports preserve the old layer.
+    std::lock_guard<std::mutex> lock(synthMutex);
+    releaseLayer(layer);
     fonts[(size_t) layer] = loaded;
     engineTypes[(size_t) layer] = EngineType::sf2;
     return JNI_TRUE;
@@ -646,7 +648,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOff(JNIEnv*, jclass
     physicalKeys[(size_t)midiChannel][(size_t)note] = false;
     for (int layer=0;layer<kLayerCount;++layer) {
         const auto li=(size_t)layer;const auto type = engineTypes[li];
-        const int encoded=routedNotes[li][(size_t)midiChannel][(size_t)note];routedNotes[li][(size_t)midiChannel][(size_t)note]=0;
+        const int encoded=routedNotes[li][(size_t)midiChannel][(size_t)note];
         if(encoded==0)continue;const int routedNote=encoded-1;
         if(layerSustainEnabled[li]&&sustainDown[(size_t)midiChannel]){
             if(type==EngineType::hammond)
@@ -654,6 +656,9 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOff(JNIEnv*, jclass
                     if(voice.active&&voice.note==routedNote&&voice.channel==midiChannel)voice.down=false;
             continue;
         }
+        // Retain routing while the pedal holds a released key, so pedal-up
+        // can deliver Note Off to the original transposed note and engine.
+        routedNotes[li][(size_t)midiChannel][(size_t)note]=0;
         // Each engine gets its own dispatch path. Do not let a loaded font or
         // another engine's state suppress the custom-engine Note Off.
         if (type == EngineType::sf2 && fonts[li] != nullptr)
@@ -661,9 +666,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOff(JNIEnv*, jclass
         if (type == EngineType::dx7)
             for (auto& voice: dxLayers[li].voices)
                 if (voice.active && voice.note == routedNote && voice.channel==midiChannel && voice.synth) voice.synth->keyup();
-        // Hammond and Moog are key-gated engines: physical release always
-        // closes their voice. Sustain is handled independently by engines
-        // that support it, never by leaving these voices latched.
+        // With no sustain hold, close the custom-engine envelope normally.
         if (type == EngineType::analog)
             for (auto& voice: analogLayers[(size_t)layer].voices)
                 if (voice.active && voice.note == routedNote && voice.channel==midiChannel) voice.releasing=true;

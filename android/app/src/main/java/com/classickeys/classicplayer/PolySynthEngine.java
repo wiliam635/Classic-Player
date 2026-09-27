@@ -137,7 +137,18 @@ final class PolySynthEngine {
         while (running) {
             nativeRender(output, FRAMES);
             AudioTrack current = track;
-            if (current != null) current.write(output, 0, output.length, AudioTrack.WRITE_BLOCKING);
+            if (current != null) {
+                int offset = 0;
+                while (running && offset < output.length) {
+                    int written = current.write(output, offset, output.length - offset, AudioTrack.WRITE_BLOCKING);
+                    if (written <= 0) {
+                        android.util.Log.e("ClassicAudio", "AudioTrack write failed: " + written);
+                        running = false;
+                        break;
+                    }
+                    offset += written;
+                }
+            }
         }
     }
 }
