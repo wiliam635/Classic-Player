@@ -746,18 +746,21 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeRender(
         if(engineTypes[(size_t)layer]==EngineType::sf2 && font!=nullptr) tsf_render_float(font, scratch.data(), frames, TSF_FALSE);
         else if(engineTypes[(size_t)layer]==EngineType::dx7) {
             auto& dx=dxLayers[(size_t)layer];
-            for(int sample=0;sample<frames;++sample) {
-                float value=0.0f;
-                for(auto& voice:dx.voices) {
-                    if(!voice.active||!voice.synth)continue;
+            // Traverse the voice pool once per block instead of once per
+            // sample. Mix in the same voice order and preserve MSFA's N-frame
+            // buffering, including envelope termination at compute boundaries.
+            for(auto& voice:dx.voices) {
+                if(!voice.active||!voice.synth)continue;
+                for(int sample=0;sample<frames;++sample) {
                     if(voice.read>=N) {
-                        if(!voice.synth->isPlaying()){voice={};continue;}
+                        if(!voice.synth->isPlaying()){voice={};break;}
                         voice.samples.fill(0); voice.synth->compute(voice.samples.data(),1<<23,1<<24,&controllers); voice.read=0;
                     }
-                    value+=(float)voice.samples[(size_t)voice.read++]/(float)(1<<24)*0.024f;
+                    const float value=(float)voice.samples[(size_t)voice.read++]/(float)(1<<24)*0.024f;
+                    scratch[(size_t)sample*2]+=value;
                 }
-                scratch[(size_t)sample*2]=value; scratch[(size_t)sample*2+1]=value;
             }
+            for(int sample=0;sample<frames;++sample) scratch[(size_t)sample*2+1]=scratch[(size_t)sample*2];
         }
         else if(engineTypes[(size_t)layer]==EngineType::hammond) {
             auto& organ=hammondLayers[(size_t)layer];
