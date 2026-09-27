@@ -27,7 +27,12 @@ public class AudioRegressionTest {
 
     @Before public void prepare() throws Exception {
         context = InstrumentationRegistry.getInstrumentation().getTargetContext();
-        reports = new File(context.getExternalFilesDir(null), "audio-regression");
+        // AGP pulls this directory BEFORE uninstalling the target APK. Ordinary
+        // external-files output disappears when connected tests clean up.
+        String additionalOutput = InstrumentationRegistry.getArguments().getString("additionalTestOutputDir");
+        reports = additionalOutput == null
+                ? new File(context.getExternalFilesDir(null), "audio-regression")
+                : new File(additionalOutput, "audio-regression");
         assertTrue(reports.isDirectory() || reports.mkdirs());
         engine = new PolySynthEngine();
         for (int i = 0; i < 6; i++) engine.clearLayer(i);
