@@ -1,8 +1,10 @@
 # Android audio regression
 
 Run **Android - emulator audio regression** manually in GitHub Actions on the
-branch containing this workflow. It is intentionally not a push trigger and does
-not publish an installer. It compiles an x86_64 test APK; production ABI defaults
+branch containing this workflow. GitHub only exposes manual dispatch after the
+workflow exists on the default branch. Until then, an empty commit containing
+`[run android tests]` on `codex/fix-user-refresh` runs this workflow. Other pushes
+skip its job. It does not publish an installer. It compiles an x86_64 test APK; production ABI defaults
 remain ARM. Test dependencies are confined to the instrumentation APK.
 
 The suite exercises the actual native renderer offline for SF2, DX7, Analog and

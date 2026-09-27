@@ -2,12 +2,15 @@ name: Android - emulator audio regression
 
 on:
   workflow_dispatch:
+  push:
+    branches: ['codex/fix-user-refresh']
 
 permissions:
   contents: read
 
 jobs:
   emulator:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[run android tests]')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
