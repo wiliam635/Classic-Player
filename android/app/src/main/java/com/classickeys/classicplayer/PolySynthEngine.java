@@ -45,11 +45,14 @@ final class PolySynthEngine {
     String outputStatus() {
         if(nativeOutputActive){
             int[] info=nativeOutputInfo();
-            return "Buffer "+info[1]+"/"+info[10]+"f · burst "+info[2]+"f · xruns "+info[7];
+            return String.format(java.util.Locale.US,
+                "Stream %.1f kHz · buffer %d/%d frames · burst %d · xruns %d · busy %d",
+                info[0]/1000.0,info[1],info[10],info[2],info[7],info[9]);
         }
         AudioTrack current=track;
         try { return current==null ? "Áudio parado "+outputError :
-            "Buffer real: "+current.getBufferSizeInFrames()+" frames"+
+            String.format(java.util.Locale.US,"%.1f kHz · buf %d f",
+                current.getSampleRate()/1000.0,current.getBufferSizeInFrames())+
             (Build.VERSION.SDK_INT>=24?" · underruns: "+current.getUnderrunCount():"");
         } catch(IllegalStateException e) { return "Reconectando áudio"; }
     }
@@ -62,7 +65,7 @@ final class PolySynthEngine {
     }
     String outputLatency() {
         double millis=outputLatencyMillis();
-        return millis>=0?String.format(java.util.Locale.US,"Saída estimada: %.1f ms (não inclui MIDI)",millis):
+        return millis>=0?String.format(java.util.Locale.US,"Saída Oboe estimada: %.1f ms · sem MIDI/loopback",millis):
             "Latência de saída: medição indisponível";
     }
     double outputLatencyMillis() { return nativeOutputActive?nativeOutputLatency():-1; }

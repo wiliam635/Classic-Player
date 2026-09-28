@@ -1,5 +1,6 @@
 #include <jni.h>
 #include <oboe/Oboe.h>
+#include <oboe/LatencyTuner.h>
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
@@ -15,6 +16,9 @@ class OutputCallback final : public oboe::AudioStreamDataCallback,
 public:
     std::atomic<int> error{0};
     std::atomic<int> contentions{0};
+    // Owned for the full stream lifetime. Oboe recommends tuning from the
+    // data callback; this avoids a Java/JNI hop or a control-thread race.
+    std::unique_ptr<oboe::LatencyTuner> latencyTuner;
     int16_t lastLeft=0,lastRight=0;
     bool faded=false;
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream*, void* data, int32_t frames) override {
@@ -38,6 +42,7 @@ public:
             }
             lastLeft=block[(count-1)*2];lastRight=block[(count-1)*2+1];
         }
+        if(latencyTuner)latencyTuner->tune();
         return oboe::DataCallbackResult::Continue;
     }
     void onErrorAfterClose(oboe::AudioStream*,oboe::Result result) override {
@@ -60,8 +65,8 @@ oboe::Result openOutputStream(jint deviceId, oboe::SharingMode sharingMode,
     builder.setDirection(oboe::Direction::Output);
     builder.setFormat(oboe::AudioFormat::I16);
     builder.setChannelCount(2);
-    // Keep the synth at 48 kHz and let Android's shared route convert for USB
-    // devices that expose a different native rate.
+    // The synth and callback stay at 48 kHz. Oboe's medium-quality SRC handles
+    // endpoints such as the CK61 that expose a 44.1 kHz USB stream.
     builder.setSampleRate(48000);
     builder.setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium);
     builder.setFormatConversionAllowed(true);
@@ -95,18 +100,25 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeStartOutput(JNIEnv*,jcl
     // preserve that selection rather than silently routing to the speaker.
     if(deviceId!=0&&stream->getAudioApi()!=oboe::AudioApi::AAudio){closeOutput();return JNI_FALSE;}
     callback=nextCallback;
-    // The UI value is a requested lower bound, not a latency measurement.
-    // Start with at least two *device* bursts (rounded up to a whole burst)
-    // as recommended for low-latency AAudio. Drivers can clamp this to their
-    // supported range; nativeOutputInfo reports the effective size afterward.
+    // The UI value is the requested minimum, not a latency measurement. AAudio
+    // can begin at one hardware burst; its LatencyTuner will grow by one burst
+    // only after an underrun. Keep the more conservative two-burst floor for
+    // legacy APIs, where Oboe cannot adapt the buffer size dynamically.
     const int32_t burst=stream->getFramesPerBurst();
     const int32_t capacity=stream->getBufferCapacityInFrames();
     int64_t target=std::max<int64_t>(1,bufferFrames);
     if(burst>0){
-        target=std::max<int64_t>(target,2LL*burst);
+        const int32_t minimumBursts=stream->getAudioApi()==oboe::AudioApi::AAudio?1:2;
+        target=std::max<int64_t>(target,static_cast<int64_t>(minimumBursts)*burst);
         target=((target+burst-1)/burst)*burst;
     }
     if(capacity>0)target=std::min<int64_t>(target,capacity);
+    if(burst>0&&capacity>0&&stream->getAudioApi()==oboe::AudioApi::AAudio){
+        nextCallback->latencyTuner=std::make_unique<oboe::LatencyTuner>(*stream,capacity);
+        nextCallback->latencyTuner->setMinimumBufferSize(static_cast<int32_t>(target));
+        nextCallback->latencyTuner->setBufferSizeIncrement(burst);
+        nextCallback->latencyTuner->requestReset();
+    }
     stream->setBufferSizeInFrames(static_cast<int32_t>(target));
     result=stream->requestStart();
     if(result!=oboe::Result::OK){closeOutput();return JNI_FALSE;}
