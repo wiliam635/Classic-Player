@@ -82,7 +82,19 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeStartOutput(JNIEnv*,jcl
     // preserve that selection rather than silently routing to the speaker.
     if(deviceId!=0&&stream->getAudioApi()!=oboe::AudioApi::AAudio){closeOutput();return JNI_FALSE;}
     callback=nextCallback;
-    stream->setBufferSizeInFrames(std::max(1,static_cast<int>(bufferFrames)));
+    // The UI value is a requested lower bound, not a latency measurement.
+    // Start with at least two *device* bursts (rounded up to a whole burst)
+    // as recommended for low-latency AAudio. Drivers can clamp this to their
+    // supported range; nativeOutputInfo reports the effective size afterward.
+    const int32_t burst=stream->getFramesPerBurst();
+    const int32_t capacity=stream->getBufferCapacityInFrames();
+    int64_t target=std::max<int64_t>(1,bufferFrames);
+    if(burst>0){
+        target=std::max<int64_t>(target,2LL*burst);
+        target=((target+burst-1)/burst)*burst;
+    }
+    if(capacity>0)target=std::min<int64_t>(target,capacity);
+    stream->setBufferSizeInFrames(static_cast<int32_t>(target));
     result=stream->requestStart();
     if(result!=oboe::Result::OK){closeOutput();return JNI_FALSE;}
     return JNI_TRUE;
@@ -102,8 +114,9 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeStopOutput(JNIEnv*,jcla
 extern "C" JNIEXPORT jintArray JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeOutputInfo(JNIEnv* env,jclass) {
     std::lock_guard<std::mutex> lock(outputMutex);
-    // rate, buffer, burst, device, API, performance, sharing, underruns, error.
-    jint values[10]={};
+    // rate, buffer, burst, device, API, performance, sharing, underruns, error,
+    // lock contentions, buffer capacity.
+    jint values[11]={};
     if(stream){
         const auto xruns=stream->getXRunCount();
         values[0]=stream->getSampleRate();values[1]=stream->getBufferSizeInFrames();
@@ -113,8 +126,9 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeOutputInfo(JNIEnv* env,
         values[6]=static_cast<int>(stream->getSharingMode());
         values[7]=xruns?xruns.value():-1;values[8]=callback?callback->error.load():0;
         values[9]=callback?callback->contentions.load():0;
+        values[10]=stream->getBufferCapacityInFrames();
     }
-    auto result=env->NewIntArray(10);if(result)env->SetIntArrayRegion(result,0,10,values);return result;
+    auto result=env->NewIntArray(11);if(result)env->SetIntArrayRegion(result,0,11,values);return result;
 }
 
 extern "C" JNIEXPORT jdouble JNICALL

@@ -96,6 +96,9 @@ public class AudioRegressionTest {
             assertEquals("Native callback output must be exercised",48000,info[0]);
             assertTrue("Output buffer must be negotiated",info[1]>0);
             assertTrue("Device burst must be known",info[2]>0);
+            assertTrue("Buffer capacity must be reported",info[10]>=info[2]);
+            assertTrue("Low-latency buffer must retain at least two device bursts when capacity allows",
+                info[1]>=Math.min(info[10],2*info[2]));
             assertEquals("Android 10 must use AAudio",2,info[4]);
             report("native-output-"+frames,"{\"info\":"+Arrays.toString(info)+",\"outputLatencyMs\":"+
                 engine.outputLatencyMillis()+"}");

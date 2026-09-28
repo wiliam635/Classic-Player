@@ -345,9 +345,10 @@ public final class MainActivity extends Activity {
 
     private void showAudioBufferChooser() {
         final int[] frames={128,256,512,1024,2048};
-        String[] labels={"128 frames · 2,7 ms","256 frames · 5,3 ms","512 frames · 10,7 ms","1024 frames · 21,3 ms","2048 frames · 42,7 ms"};
+        String[] labels={"Mínimo pedido · 128 frames","Mínimo pedido · 256 frames","Mínimo pedido · 512 frames","Mínimo pedido · 1024 frames","Mínimo pedido · 2048 frames"};
         int selected=2;for(int i=0;i<frames.length;i++)if(frames[i]==audioEngine.bufferFrames())selected=i;
-        new AlertDialog.Builder(this).setTitle("Buffer de áudio (não é a latência total)")
+        new AlertDialog.Builder(this).setTitle("Buffer alvo · ajustado pelo burst real")
+            .setMessage("O app pede pelo menos 2 bursts do dispositivo para reduzir falhas. O tamanho efetivo e a latência estimada aparecem em ÁUDIO/MIDI.")
             .setSingleChoiceItems(labels,selected,(dialog,which)->{
                 audioEngine.setBufferFrames(frames[which]);
                 getSharedPreferences("audio",MODE_PRIVATE).edit().putInt("buffer_frames",frames[which]).apply();

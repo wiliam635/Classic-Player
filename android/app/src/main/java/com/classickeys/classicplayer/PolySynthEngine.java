@@ -45,7 +45,7 @@ final class PolySynthEngine {
     String outputStatus() {
         if(nativeOutputActive){
             int[] info=nativeOutputInfo();
-            return "Buffer real: "+info[1]+" frames · burst: "+info[2]+" · xruns: "+info[7];
+            return "Buffer "+info[1]+"/"+info[10]+"f · burst "+info[2]+"f · xruns "+info[7];
         }
         AudioTrack current=track;
         try { return current==null ? "Áudio parado "+outputError :
@@ -66,7 +66,7 @@ final class PolySynthEngine {
             "Latência de saída: medição indisponível";
     }
     double outputLatencyMillis() { return nativeOutputActive?nativeOutputLatency():-1; }
-    int[] outputInfo() { return nativeOutputActive?nativeOutputInfo():new int[10]; }
+    int[] outputInfo() { return nativeOutputActive?nativeOutputInfo():new int[11]; }
 
     static { System.loadLibrary("classic_player_native"); }
 
