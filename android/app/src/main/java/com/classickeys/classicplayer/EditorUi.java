@@ -6,6 +6,7 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.LinearGradient;
 import android.graphics.Shader;
@@ -32,34 +33,49 @@ final class EditorUi {
     static Button button(Context c,String text,Runnable action){Button b=new Button(c);b.setText(text);b.setTextSize(10);b.setAllCaps(false);b.setSingleLine(true);b.setTextColor(TEXT);b.setMinHeight(dp(c,27));b.setMinimumHeight(dp(c,27));b.setPadding(dp(c,3),0,dp(c,3),0);b.setBackground(background(0xff1d2c35));b.setOnClickListener(v->action.run());return b;}
     static void addButton(LinearLayout row,String text,Runnable action){Button b=button(row.getContext(),text,action);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(row.getContext(),29),1);p.setMargins(2,1,2,1);row.addView(b,p);}
     static final class Panel {
+        final Activity activity;
         final Dialog dialog;
-        final LinearLayout body,footer,tabs;
+        final LinearLayout root,body,footer,tabs;
         final BoundedScrollView scroll;
+        final int subtitleHeight;
         Panel(Activity a,String title,String subtitle){
+            activity=a;subtitleHeight=subtitle==null?0:17;
             dialog=new Dialog(a);dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
-            LinearLayout root=column(a);root.setPadding(dp(a,7),dp(a,4),dp(a,7),dp(a,4));root.setBackground(background(PANEL));
+            root=column(a);root.setPadding(dp(a,7),dp(a,4),dp(a,7),dp(a,4));root.setBackground(background(PANEL));
             TextView heading=label(a,title,15);heading.setSingleLine(true);heading.setEllipsize(android.text.TextUtils.TruncateAt.END);root.addView(heading,new LinearLayout.LayoutParams(-1,dp(a,23)));
             if(subtitle!=null){TextView hint=label(a,subtitle,10);hint.setSingleLine(true);hint.setEllipsize(android.text.TextUtils.TruncateAt.END);hint.setTextColor(MUTED);root.addView(hint,new LinearLayout.LayoutParams(-1,dp(a,17)));}
             HorizontalScrollView tabScroller=new HorizontalScrollView(a);tabScroller.setHorizontalScrollBarEnabled(false);tabScroller.setFillViewport(true);
             tabs=new LinearLayout(a);tabs.setGravity(Gravity.CENTER);tabScroller.addView(tabs,new HorizontalScrollView.LayoutParams(-2,dp(a,28)));
             root.addView(tabScroller,new LinearLayout.LayoutParams(-1,dp(a,28)));
-            scroll=new BoundedScrollView(a);scroll.setVerticalScrollBarEnabled(true);scroll.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);body=column(a);body.setPadding(0,0,0,dp(a,8));scroll.addView(body,new ScrollView.LayoutParams(-1,-2));root.addView(scroll,new LinearLayout.LayoutParams(-1,-2));
+            scroll=new BoundedScrollView(a);scroll.setVerticalScrollBarEnabled(true);scroll.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);body=column(a);body.setPadding(0,0,0,dp(a,8));scroll.addView(body,new ScrollView.LayoutParams(-1,-2));root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
             footer=new LinearLayout(a);footer.setGravity(Gravity.END);root.addView(footer,new LinearLayout.LayoutParams(-1,dp(a,35)));
             dialog.setContentView(root);
         }
         void show(){
-            android.util.DisplayMetrics m=body.getResources().getDisplayMetrics();
-            // Keep the body inside the usable app area on short landscape
-            // screens; the footer stays fixed and never covers the last row.
-            scroll.maxHeight=Math.max(dp(body.getContext(),48),m.heightPixels-dp(body.getContext(),192));
-            dialog.show();android.view.Window w=dialog.getWindow();if(w!=null){
-                w.setBackgroundDrawableResource(android.R.color.transparent);
-                // Compact desktop-like panels; never impose a minimum wider
-                // than the display because editors must remain usable on a
-                // phone held in landscape.
-                int availableWidth=Math.min(m.widthPixels-dp(body.getContext(),24),Math.round(m.widthPixels*.94f));
-                w.setLayout(Math.max(1,Math.min(availableWidth,dp(body.getContext(),560))),ViewGroup.LayoutParams.WRAP_CONTENT);
-            }
+            dialog.show();
+            resize();
+            root.post(this::resize);
+        }
+        private void resize(){
+            if(!dialog.isShowing())return;
+            android.view.Window w=dialog.getWindow();if(w==null)return;
+            Context c=body.getContext();android.util.DisplayMetrics m=c.getResources().getDisplayMetrics();
+            Rect visible=new Rect();activity.getWindow().getDecorView().getWindowVisibleDisplayFrame(visible);
+            int screenWidth=visible.width()>0?visible.width():m.widthPixels;
+            int screenHeight=visible.height()>0?visible.height():m.heightPixels;
+            int width=Math.max(1,Math.min(Math.round(screenWidth*.94f),dp(c,980)));
+            int contentWidth=Math.max(1,width-dp(c,14));
+            body.measure(View.MeasureSpec.makeMeasureSpec(contentWidth,View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
+            // The scroll area gets only the space left after the heading,
+            // tabs and fixed footer. No editor control can hide behind it.
+            int chrome=dp(c,4+23+subtitleHeight+28+35+4);
+            int desired=body.getMeasuredHeight()+chrome;
+            int maxHeight=Math.max(dp(c,120),Math.round(screenHeight*.90f));
+            int height=Math.min(maxHeight,Math.max(dp(c,120),desired));
+            w.setBackgroundDrawableResource(android.R.color.transparent);
+            w.setLayout(width,height);
+            scroll.scrollTo(0,0);
         }
         void setTabs(String[] labels,int selected,Selection onSelect){
             tabs.removeAllViews();
@@ -70,23 +86,17 @@ final class EditorUi {
                 LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(tabs.getContext(),98),dp(tabs.getContext(),26));p.setMargins(1,1,1,1);tabs.addView(b,p);
             }
             tabs.setVisibility(labels.length==0?View.GONE:View.VISIBLE);
+            if(dialog.isShowing())body.post(this::resize);
         }
     }
     /** Lets short effect panels wrap their controls, while long editors scroll above the fixed footer. */
     static final class BoundedScrollView extends ScrollView {
-        int maxHeight;float downY;final int touchSlop;
+        float downY;final int touchSlop;
         BoundedScrollView(Context context){super(context);touchSlop=ViewConfiguration.get(context).getScaledTouchSlop();setFillViewport(false);setClipToPadding(true);setClipChildren(true);}
         @Override public boolean onInterceptTouchEvent(MotionEvent event){
             if(event.getActionMasked()==MotionEvent.ACTION_DOWN)downY=event.getY();
             else if(event.getActionMasked()==MotionEvent.ACTION_MOVE){float delta=downY-event.getY();if(Math.abs(delta)>touchSlop&&!canScrollVertically(delta>0?1:-1))return false;}
             return super.onInterceptTouchEvent(event);
-        }
-        @Override protected void onMeasure(int widthMeasureSpec,int heightMeasureSpec){
-            int parentLimit=MeasureSpec.getMode(heightMeasureSpec)==MeasureSpec.UNSPECIFIED
-                    ?Integer.MAX_VALUE:MeasureSpec.getSize(heightMeasureSpec);
-            int limit=Math.min(maxHeight>0?maxHeight:parentLimit,parentLimit);
-            int bounded=MeasureSpec.makeMeasureSpec(limit,MeasureSpec.AT_MOST);
-            super.onMeasure(widthMeasureSpec,bounded);
         }
     }
     static Spinner selector(LinearLayout parent,String caption,String[] values,int selected,Selection action){
