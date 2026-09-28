@@ -337,6 +337,7 @@ struct tsf
 	int presetNum;
 	int voiceNum;
 	int maxVoiceNum;
+	int voiceCapacity;
 	unsigned int voicePlayIndex;
 
 	enum TSFOutputMode outputmode;
@@ -1470,6 +1471,8 @@ TSFDEF tsf* tsf_copy(tsf* f)
 	TSF_MEMCPY(res, f, sizeof(tsf));
 	res->voices = TSF_NULL;
 	res->voiceNum = 0;
+	res->maxVoiceNum = 0;
+	res->voiceCapacity = 0;
 	res->channels = TSF_NULL;
 	(*res->refCount)++;
 	return res;
@@ -1539,14 +1542,20 @@ TSFDEF void tsf_set_volume(tsf* f, float global_volume)
 
 TSFDEF int tsf_set_max_voices(tsf* f, int max_voices)
 {
-	int i = f->voiceNum;
-	int newVoiceNum = (f->voiceNum > max_voices ? f->voiceNum : max_voices);
-	struct tsf_voice *newVoices = (struct tsf_voice*)TSF_REALLOC(f->voices, newVoiceNum * sizeof(struct tsf_voice));
-	if (!newVoices) return 0;
-	f->voices = newVoices;
-	f->voiceNum = f->maxVoiceNum = newVoiceNum;
-	for (; i < max_voices; i++)
-		f->voices[i].playingPreset = -1;
+	int i;
+	if (!f || max_voices < 1) return 0;
+	if (f->voiceCapacity < max_voices)
+	{
+		struct tsf_voice *newVoices = (struct tsf_voice*)TSF_REALLOC(f->voices, max_voices * sizeof(struct tsf_voice));
+		if (!newVoices) return 0;
+		f->voices = newVoices;
+		f->voiceCapacity = max_voices;
+	}
+	// Preallocated capacity can be reused when the app redistributes its shared
+	// voice budget. Kill truncated voices before shrinking the active range.
+	for (i = max_voices; i < f->voiceNum; i++) tsf_voice_kill(&f->voices[i]);
+	for (i = f->voiceNum; i < max_voices; i++) f->voices[i].playingPreset = -1;
+	f->voiceNum = f->maxVoiceNum = max_voices;
 	return 1;
 }
 
@@ -1612,10 +1621,11 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 			{
 				// Allocate more voices so we don't need to kill one off.
 				struct tsf_voice* newVoices;
-				f->voiceNum += 4;
-				newVoices = (struct tsf_voice*)TSF_REALLOC(f->voices, f->voiceNum * sizeof(struct tsf_voice));
+				int newVoiceNum = f->voiceNum + 4;
+				newVoices = (struct tsf_voice*)TSF_REALLOC(f->voices, newVoiceNum * sizeof(struct tsf_voice));
 				if (!newVoices) return 0;
 				f->voices = newVoices;
+				f->voiceNum = f->voiceCapacity = newVoiceNum;
 				voice = &f->voices[f->voiceNum - 4];
 				voice[1].playingPreset = voice[2].playingPreset = voice[3].playingPreset = -1;
 			}

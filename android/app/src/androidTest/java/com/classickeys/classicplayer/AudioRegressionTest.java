@@ -59,7 +59,7 @@ public class AudioRegressionTest {
             engine.setSustain(0,true);
             for(int n=0;n<300;n++){
                 int note=48+n%24;engine.noteOn(note,70,0);pcm(1024);engine.noteOff(note,0);
-                for(int layer=0;layer<3;layer++)assertTrue(engine.activeVoices(layer)<=128);
+                for(int layer=0;layer<3;layer++)assertTrue(engine.activeVoices(layer)<=engine.voiceBudget(layer));
             }
             engine.setSustain(0,false);pcm(RATE*5);
             for(int layer=0;layer<3;layer++)assertEquals("Leaked voices, layer "+layer,0,engine.activeVoices(layer));
@@ -69,8 +69,9 @@ public class AudioRegressionTest {
 
     @Test public void fullSustainedPoolAcceptsNewKey() throws Exception {
         activate(1,0);engine.setSustain(0,true);
-        for(int n=0;n<150;n++){engine.noteOn(60,60,0);pcm(256);engine.noteOff(60,0);}
-        assertEquals(128,engine.activeVoices(0));
+        assertEquals("A single active layer receives the full app budget",256,engine.voiceBudget(0));
+        for(int n=0;n<300;n++){engine.noteOn(60,60,0);pcm(256);engine.noteOff(60,0);}
+        assertEquals(256,engine.activeVoices(0));
         engine.noteOn(84,100,0);engine.setSustain(0,false);pcm(RATE*3);
         assertEquals("Newest held key must survive voice stealing",1,engine.activeVoices(0));
         assertTrue(rms(pcm(RATE/10))>.0001);
@@ -218,6 +219,47 @@ public class AudioRegressionTest {
         assertTrue("Stress test produced silence", rms(audio) > .0005);
         for (int note = 0; note < 128; note++) engine.noteOff(note, 0);
         pcm(RATE * 3);
+    }
+
+    @Test public void globalVoiceBudgetIsEvenlyDistributedAndRebalanced() throws Exception {
+        int[] types={1,2,3,4,1,2};
+        int budgetTotal=0;
+        for(int layer=0;layer<types.length;layer++){
+            activate(types[layer],layer);
+            int budget=engine.voiceBudget(layer);
+            assertEquals("Equal split with remainder assigned in layer order",layer<4?43:42,budget);
+            budgetTotal+=budget;
+        }
+        assertEquals(256,budgetTotal);
+
+        // Fill each pool with sustained, distinct notes, then assert that the
+        // actual renderer never exceeds its per-layer share.
+        engine.setSustain(0,true);
+        for(int note=0;note<64;note++){
+            engine.noteOn(note,90,0);
+            pcm(128);
+        }
+        int activeTotal=0;
+        for(int layer=0;layer<types.length;layer++){
+            int active=engine.activeVoices(layer);
+            assertTrue("Layer "+layer+" exceeded budget",active<=engine.voiceBudget(layer));
+            activeTotal+=active;
+        }
+        assertTrue("Combined active voice count exceeded app limit",activeTotal<=256);
+
+        engine.clearLayer(5);
+        budgetTotal=0;
+        for(int layer=0;layer<5;layer++){
+            int expected=layer==0?52:51;
+            assertEquals("Removing a layer redistributes the budget",expected,engine.voiceBudget(layer));
+            assertTrue("Active voices must be trimmed after redistribution",
+                    engine.activeVoices(layer)<=engine.voiceBudget(layer));
+            budgetTotal+=engine.voiceBudget(layer);
+        }
+        assertEquals(256,budgetTotal);
+        assertEquals(0,engine.voiceBudget(5));
+        engine.allNotesOff();
+        pcm(RATE*3);
     }
 
     @Test public void activityLaunchScreenshot() throws Exception {

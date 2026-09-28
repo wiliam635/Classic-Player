@@ -26,12 +26,14 @@ namespace
 constexpr int kLayerCount = 6;
 constexpr int kSampleRate = 48000;
 constexpr int kMaxFrames = 2048;
-constexpr size_t kVoicesPerLayer = 128;
+constexpr int kMaximumPolyphony = 256;
+constexpr size_t kVoicePoolCapacity = kMaximumPolyphony;
 constexpr int kHammondDelayFrames = 1204;
 
 std::array<tsf*, kLayerCount> fonts {};
 enum class EngineType : int { empty = 0, sf2 = 1, dx7 = 2, analog = 3, hammond = 4 };
 std::array<EngineType, kLayerCount> engineTypes {};
+std::array<int, kLayerCount> layerVoiceBudgets {};
 std::array<float, kLayerCount> layerGains { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
 std::array<float, kLayerCount> smoothedLayerGains { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
 std::array<float,kLayerCount> layerPan{},smoothedLayerPan{};
@@ -159,7 +161,7 @@ struct DxLayer
     std::array<std::string, 32> names {};
     int count = 0;
     int selected = 0;
-    std::array<DxVoice, kVoicesPerLayer> voices {};
+    std::array<DxVoice, kVoicePoolCapacity> voices {};
 };
 std::array<DxLayer, kLayerCount> dxLayers {};
 FmCore fmCore;
@@ -183,7 +185,7 @@ struct AnalogLayer {
     float oscillator1Semitones=0.0f;
     std::array<int,3> waves {1,1,0};
     std::array<bool,3> oscillatorEnabled {true,true,true};
-    std::array<AnalogVoice,kVoicesPerLayer> voices {};
+    std::array<AnalogVoice,kVoicePoolCapacity> voices {};
     float modWheel=0.0f;
     bool pinkNoise=false,monophonic=false;
 };
@@ -206,7 +208,7 @@ struct HammondLayer {
     std::array<float,9> bars{};
     std::array<float,9> smoothedBars{};
     float click=0.15f, leakage=0.12f, drive=0.12f, level=0.8f;
-    std::array<HammondVoice,kVoicesPerLayer> voices{};
+    std::array<HammondVoice,kVoicePoolCapacity> voices{};
     std::array<double,2> rotorPhase{};
     float crossover=0.0f,rotaryDepth=0.0f;
     std::array<std::array<float,kHammondDelayFrames>,2> rotaryDelay{};
@@ -214,6 +216,33 @@ struct HammondLayer {
     uint32_t noise=0x1341257u;
 };
 std::array<HammondLayer,kLayerCount> hammondLayers{};
+// The 256-voice ceiling is shared by all loaded layers. Recompute equal
+// per-layer quotas whenever a motor is added or removed. Remainder voices go
+// to the earliest occupied slots, so active-layer budgets sum to 256.
+void distributeLayerVoiceBudgets()
+{
+    int activeLayers=0;
+    for(const auto type:engineTypes)if(type!=EngineType::empty)++activeLayers;
+    const int base=activeLayers>0?kMaximumPolyphony/activeLayers:0;
+    const int remainder=activeLayers>0?kMaximumPolyphony%activeLayers:0;
+    int ordinal=0;
+    for(int layer=0;layer<kLayerCount;++layer){
+        const auto li=(size_t)layer;
+        if(engineTypes[li]==EngineType::empty){layerVoiceBudgets[li]=0;continue;}
+        const int budget=base+(ordinal<remainder?1:0);
+        ++ordinal;
+        layerVoiceBudgets[li]=budget;
+        if(engineTypes[li]==EngineType::sf2&&fonts[li]!=nullptr)
+            tsf_set_max_voices(fonts[li],budget);
+        // When another motor is added, trim any now-out-of-budget voices.
+        // These fixed pools are preallocated; no allocation occurs here.
+        for(int i=budget;i<kMaximumPolyphony;++i){
+            auto& dx=dxLayers[li].voices[(size_t)i];dx.active=false;dx.note=-1;dx.read=N;
+            analogLayers[li].voices[(size_t)i]={};
+            hammondLayers[li].voices[(size_t)i]={};
+        }
+    }
+}
 constexpr std::array<const char*,8> hammondNames { "Jimmy Gospel", "Jazz Ballad", "Rock Organ", "Percussive B3", "Full Drawbar", "Gospel Fullness", "Slow Leslie", "Fast Leslie" };
 constexpr std::array<std::array<float,9>,8> hammondBars {{
     {{.8f,.5f,1.f,.8f,.3f,.5f,.2f,.3f,.2f}}, {{.5f,.3f,1.f,.6f,.2f,.3f,.1f,.1f,0.f}},
@@ -332,20 +361,28 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadLayer(
     // a little headroom for layered chords and the final safety limiter.
     // Four more dB of headroom keeps dense layered chords clean.
     tsf_set_output(loaded, TSF_STEREO_INTERLEAVED, kSampleRate, -6.0f);
-    // Preallocate a separate 128-voice pool for each SF2 layer. A preset may
-    // trigger multiple sample regions per key, so this limits sample voices,
-    // not necessarily the number of held MIDI keys.
-    if (!tsf_set_max_voices(loaded, (int)kVoicesPerLayer)) {
+    // Preallocate the largest pool once. The active quota is distributed
+    // across loaded layers after publishing this font; SF2 voices count sample
+    // regions, so a layered preset may use more than one voice per MIDI key.
+    if (!tsf_set_max_voices(loaded, kMaximumPolyphony)) {
         tsf_close(loaded);
         return JNI_FALSE;
     }
-    for(int ch=0;ch<16;++ch)tsf_channel_set_presetnumber(loaded, ch, 0, TSF_FALSE);
+    // Materialize every channel before the real-time callback: TinySoundFont
+    // may allocate channel state on first use, which must never happen there.
+    for(int ch=0;ch<16;++ch){
+        if(!tsf_channel_set_presetindex(loaded,ch,0)){
+            tsf_close(loaded);
+            return JNI_FALSE;
+        }
+    }
     // File I/O and sample allocation must not block the audio renderer.
     // Publish only a fully prepared font; failed imports preserve the old layer.
     std::lock_guard<std::mutex> lock(synthMutex);
     releaseLayer(layer);
     fonts[(size_t) layer] = loaded;
     engineTypes[(size_t) layer] = EngineType::sf2;
+    distributeLayerVoiceBudgets();
     return JNI_TRUE;
 }
 
@@ -390,6 +427,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadDx7(
     // existing voice and never allocates or frees memory on the audio thread.
     for(auto& voice:dx.voices)voice.synth=std::make_unique<Dx7Note>(tuning,nullptr);
     engineTypes[(size_t)layer]=EngineType::dx7;
+    distributeLayerVoiceBudgets();
     return JNI_TRUE;
 }
 
@@ -426,7 +464,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetDx7Patch(JNIEnv*,jcl
 extern "C" JNIEXPORT void JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeActivateAnalog(JNIEnv*,jclass,jint layer)
 {
-    if(layer<0||layer>=kLayerCount)return; std::lock_guard<std::mutex> lock(synthMutex); releaseLayer(layer); engineTypes[(size_t)layer]=EngineType::analog;
+    if(layer<0||layer>=kLayerCount)return; std::lock_guard<std::mutex> lock(synthMutex); releaseLayer(layer); engineTypes[(size_t)layer]=EngineType::analog; distributeLayerVoiceBudgets();
 }
 extern "C" JNIEXPORT jint JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeAnalogPresetCount(JNIEnv*,jclass){return (jint)analogNames.size();}
@@ -457,7 +495,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetAnalogControls(JNIEn
 extern "C" JNIEXPORT void JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeActivateHammond(JNIEnv*,jclass,jint layer)
 {
-    if(layer<0||layer>=kLayerCount)return; std::lock_guard<std::mutex> lock(synthMutex); releaseLayer(layer); engineTypes[(size_t)layer]=EngineType::hammond;
+    if(layer<0||layer>=kLayerCount)return; std::lock_guard<std::mutex> lock(synthMutex); releaseLayer(layer); engineTypes[(size_t)layer]=EngineType::hammond; distributeLayerVoiceBudgets();
     auto& organ=hammondLayers[(size_t)layer]; organ.bars=hammondBars[0];
 }
 extern "C" JNIEXPORT jint JNICALL
@@ -492,6 +530,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeUnloadAll(JNIEnv*, jcla
         midiQueueRead=midiQueueWrite=midiQueueCount=0;
     }
     for (int layer = 0; layer < kLayerCount; ++layer) releaseLayer(layer);
+    distributeLayerVoiceBudgets();
     layerPeaks.fill(0.0f);
     for(auto& peak:publishedLayerPeaks)peak.store(0.0f,std::memory_order_relaxed);
     masterPeak = 0.0f;
@@ -500,7 +539,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeUnloadAll(JNIEnv*, jcla
 extern "C" JNIEXPORT void JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeClearLayer(JNIEnv*,jclass,jint layer)
 {
-    if(layer<0||layer>=kLayerCount)return;std::lock_guard<std::mutex> lock(synthMutex);releaseLayer(layer);
+    if(layer<0||layer>=kLayerCount)return;std::lock_guard<std::mutex> lock(synthMutex);releaseLayer(layer);distributeLayerVoiceBudgets();
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -627,6 +666,8 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
     physicalKeys[(size_t)midiChannel][(size_t)note] = true;
     for (int layer=0;layer<kLayerCount;++layer) {
         const auto li=(size_t)layer;
+        const int voiceBudget=layerVoiceBudgets[li];
+        if(voiceBudget<=0)continue;
         if(layerMidiChannel[li]>=0&&layerMidiChannel[li]!=midiChannel)continue;
         if(note<layerLowNote[li]||note>layerHighNote[li])continue;
         const int routedNote=std::clamp(note+layerOctave[li]*12,0,127);
@@ -649,8 +690,8 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
         }
         else if(engineTypes[(size_t)layer]==EngineType::dx7) {
             auto& dx=dxLayers[(size_t)layer]; DxVoice* target=nullptr;
-            for(auto& voice:dx.voices)if(!voice.active){target=&voice;break;}
-            if(target==nullptr){target=&dx.voices.front();for(auto& voice:dx.voices)if(voice.serial<target->serial)target=&voice;}
+            for(int i=0;i<voiceBudget;++i)if(!dx.voices[(size_t)i].active){target=&dx.voices[(size_t)i];break;}
+            if(target==nullptr){target=&dx.voices[0];for(int i=1;i<voiceBudget;++i){auto& voice=dx.voices[(size_t)i];if(voice.serial<target->serial)target=&voice;}}
             target->serial=++dx.serial;
             target->active=true; target->note=routedNote; target->channel=midiChannel; target->read=N; target->samples.fill(0);
             if(!target->synth){target->active=false;continue;}
@@ -658,7 +699,8 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
         }
         else if(engineTypes[(size_t)layer]==EngineType::analog) {
             auto& analog=analogLayers[(size_t)layer]; AnalogVoice* target=nullptr;
-            for(auto& voice:analog.voices)if(!voice.active){target=&voice;break;} if(target==nullptr)target=&analog.voices.front();
+            for(int i=0;i<voiceBudget;++i)if(!analog.voices[(size_t)i].active){target=&analog.voices[(size_t)i];break;}
+            if(target==nullptr){target=&analog.voices[0];for(int i=1;i<voiceBudget;++i){auto& voice=analog.voices[(size_t)i];if((voice.releasing&&!target->releasing)||(voice.releasing==target->releasing&&voice.age>target->age))target=&voice;}}
             *target={}; target->active=true; target->note=routedNote; target->channel=midiChannel;
             target->pitch=(layerMidiMode[li]==2&&hasPriorAnalog)?priorAnalogPitch:routedNote;
             const float semitones[3]={analog.oscillator1Semitones,analog.controls[3],analog.controls[4]};
@@ -667,15 +709,15 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
         else if(engineTypes[(size_t)layer]==EngineType::hammond) {
             auto& organ=hammondLayers[(size_t)layer];
             bool first=true;
-            for(auto& voice:organ.voices)if(voice.active){
+            for(int i=0;i<voiceBudget;++i){auto& voice=organ.voices[(size_t)i];if(voice.active){
                 if(voice.down)first=false;
                 if(voice.note==routedNote&&voice.channel==midiChannel)releaseHammondVoice(voice);
-            }
+            }}
             HammondVoice* target=nullptr;
-            for(auto& voice:organ.voices)if(!voice.active){target=&voice;break;}
+            for(int i=0;i<voiceBudget;++i)if(!organ.voices[(size_t)i].active){target=&organ.voices[(size_t)i];break;}
             if(target==nullptr){
                 target=&organ.voices.front();
-                for(auto& voice:organ.voices)if(voice.envelope<target->envelope)target=&voice;
+                for(int i=1;i<voiceBudget;++i){auto& voice=organ.voices[(size_t)i];if((voice.releasing&&!target->releasing)||(voice.releasing==target->releasing&&voice.envelope<target->envelope))target=&voice;}
             }
             *target={};target->active=target->down=true;target->note=routedNote;target->channel=midiChannel;
             const double base=440.0*std::pow(2.0,((double)routedNote-69.0)/12.0);
@@ -818,7 +860,17 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeActiveVoices(JNIEnv*,jc
     int count=0;
     if(engineTypes[layer]==EngineType::sf2&&fonts[layer])return tsf_active_voice_count(fonts[layer]);
     if(engineTypes[layer]==EngineType::dx7)for(auto& voice:dxLayers[layer].voices)if(voice.active)++count;
+    if(engineTypes[layer]==EngineType::analog)for(auto& voice:analogLayers[layer].voices)if(voice.active)++count;
+    if(engineTypes[layer]==EngineType::hammond)for(auto& voice:hammondLayers[layer].voices)if(voice.active)++count;
     return count;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeVoiceBudget(JNIEnv*,jclass,jint layer)
+{
+    if(layer<0||layer>=kLayerCount)return 0;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    return layerVoiceBudgets[(size_t)layer];
 }
 
 bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
@@ -852,7 +904,8 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
             // Traverse the voice pool once per block instead of once per
             // sample. Mix in the same voice order and preserve MSFA's N-frame
             // buffering, including envelope termination at compute boundaries.
-            for(auto& voice:dx.voices) {
+            for(int voiceIndex=0;voiceIndex<layerVoiceBudgets[li];++voiceIndex) {
+                auto& voice=dx.voices[(size_t)voiceIndex];
                 if(!voice.active||!voice.synth)continue;
                 for(int sample=0;sample<frames;++sample) {
                     if(voice.read>=N) {
@@ -884,7 +937,8 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
                 for(size_t d=0;d<organ.smoothedBars.size();++d)
                     organ.smoothedBars[d]+=(barTargets[d]-organ.smoothedBars[d])*barSmoothing;
                 float value=0.0f;
-                for(auto& voice:organ.voices){
+                for(int voiceIndex=0;voiceIndex<layerVoiceBudgets[li];++voiceIndex){
+                    auto& voice=organ.voices[(size_t)voiceIndex];
                     if(!voice.active)continue;
                     if(voice.releasing){
                         if(++voice.releaseAge>=releaseSamples){voice={};continue;}
@@ -952,7 +1006,8 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
             const float baseCutoff=25.0f*std::pow(700.0f,control[6]*.01f),resonance=std::min(.82f,control[7]*.008f),drive=control[16]*.06f;
             const float lfoStep=6.28318530718f*control[13]/kSampleRate;
             const float filterDecay=std::exp(-1.0f/(std::max(1.0f,decaySamples)*2.0f));
-            for(auto& voice:analog.voices){
+            for(int voiceIndex=0;voiceIndex<layerVoiceBudgets[li];++voiceIndex){
+                auto& voice=analog.voices[(size_t)voiceIndex];
                 if(!voice.active)continue;
                 for(int sample=0;sample<frames;++sample){
                     if(++voice.age>kInternalVoiceSafetySamples){voice={};break;}

@@ -112,12 +112,14 @@ final class PolySynthEngine {
     private static native float nativeLayerPeak(int layer);
     private static native float nativeMasterPeak();
     private static native int nativeActiveVoices(int layer);
+    private static native int nativeVoiceBudget(int layer);
     private static native boolean nativeStartOutput(int deviceId,int bufferFrames);
     private static native void nativeStopOutput();
     private static native int[] nativeOutputInfo();
     private static native double nativeOutputLatency();
     private static native void nativeSetOutputDefaults(int sampleRate,int framesPerBurst);
     int activeVoices(int layer) { return nativeActiveVoices(layer); }
+    int voiceBudget(int layer) { return nativeVoiceBudget(layer); }
 
     synchronized void start() {
         if (running) return;
