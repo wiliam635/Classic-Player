@@ -108,16 +108,15 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeStartOutput(JNIEnv*,jcl
     // preserve that selection rather than silently routing to the speaker.
     if(deviceId!=0&&stream->getAudioApi()!=oboe::AudioApi::AAudio){closeOutput();return JNI_FALSE;}
     callback=nextCallback;
-    // Start at one burst only when Android actually granted LowLatency. If the
-    // route was downgraded, two bursts avoid needlessly causing underruns; the
-    // UI value remains a requested minimum, not a latency measurement.
+    // Start at the selected size, rounded to the route's burst granularity.
+    // Never impose an extra two-burst floor just because Android selected its
+    // standard path: that made the user's 128/256/512 choices indistinguishable.
+    // LatencyTuner raises the buffer by one burst only if xruns are observed.
     const int32_t burst=stream->getFramesPerBurst();
     const int32_t capacity=stream->getBufferCapacityInFrames();
     int64_t target=std::max<int64_t>(1,bufferFrames);
     if(burst>0){
-        const int32_t minimumBursts=stream->getAudioApi()==oboe::AudioApi::AAudio &&
-            stream->getPerformanceMode()==oboe::PerformanceMode::LowLatency?1:2;
-        target=std::max<int64_t>(target,static_cast<int64_t>(minimumBursts)*burst);
+        target=std::max<int64_t>(target,static_cast<int64_t>(burst));
         target=((target+burst-1)/burst)*burst;
     }
     if(capacity>0)target=std::min<int64_t>(target,capacity);

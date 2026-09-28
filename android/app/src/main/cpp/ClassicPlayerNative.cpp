@@ -1,7 +1,9 @@
 #include <jni.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <memory>
@@ -59,13 +61,52 @@ std::array<std::array<float,kChorusFrames>,kLayerCount> layerChorusBuffer{};
 std::array<int,kLayerCount> layerChorusCursor{};
 int effectCursor = 0;
 std::array<float, kLayerCount> layerPeaks {};
+std::array<std::atomic<float>, kLayerCount> publishedLayerPeaks {
+    0.0f,0.0f,0.0f,0.0f,0.0f,0.0f
+};
 // Keep each engine in float until the final output conversion. Clipping a
 // SoundFont or a processed layer to PCM16 here cannot be undone by the master.
 std::array<float, kMaxFrames * 2> scratch {};
 float masterGain = 0.8f;
 float smoothedMasterGain = 0.8f;
 float masterPeak = 0.0f;
+std::atomic<float> publishedMasterPeak {0.0f};
 std::mutex synthMutex;
+
+enum class MidiCommandType : uint8_t { NoteOn, NoteOff, Control, AllNotesOff };
+struct MidiCommand { MidiCommandType type; int value1, value2, channel; };
+constexpr size_t kMidiQueueCapacity = 2048;
+std::array<MidiCommand, kMidiQueueCapacity> midiQueue {};
+size_t midiQueueRead = 0, midiQueueWrite = 0, midiQueueCount = 0;
+std::mutex midiQueueMutex;
+
+void enqueueMidiCommand(MidiCommand command)
+{
+    std::lock_guard<std::mutex> lock(midiQueueMutex);
+    // If a producer outruns audio, discard the stale backlog and panic before
+    // accepting the newest event. This is preferable to leaving a stuck note.
+    if (midiQueueCount >= kMidiQueueCapacity - 1) {
+        midiQueueRead = midiQueueWrite = midiQueueCount = 0;
+        midiQueue[midiQueueWrite++] = {MidiCommandType::AllNotesOff, 0, 0, 0};
+        ++midiQueueCount;
+    }
+    midiQueue[midiQueueWrite] = command;
+    midiQueueWrite = (midiQueueWrite + 1) % kMidiQueueCapacity;
+    ++midiQueueCount;
+}
+
+size_t takeMidiCommands(MidiCommand* destination, size_t capacity)
+{
+    std::unique_lock<std::mutex> lock(midiQueueMutex, std::try_to_lock);
+    if (!lock.owns_lock()) return 0;
+    const size_t count = std::min(capacity, midiQueueCount);
+    for (size_t i = 0; i < count; ++i) {
+        destination[i] = midiQueue[midiQueueRead];
+        midiQueueRead = (midiQueueRead + 1) % kMidiQueueCapacity;
+    }
+    midiQueueCount -= count;
+    return count;
+}
 
 void setBiquad(Biquad& f,float b0,float b1,float b2,float a0,float a1,float a2)
 {
@@ -345,6 +386,9 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadDx7(
             dx.names[(size_t)patch] = "Timbre DX7 " + std::to_string(patch + 1);
     }
     dx.count=32; dx.selected=0;
+    // Keep DX7 note objects alive in a fixed pool. Note On then only resets an
+    // existing voice and never allocates or frees memory on the audio thread.
+    for(auto& voice:dx.voices)voice.synth=std::make_unique<Dx7Note>(tuning,nullptr);
     engineTypes[(size_t)layer]=EngineType::dx7;
     return JNI_TRUE;
 }
@@ -375,7 +419,8 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetDx7Patch(JNIEnv*,jcl
 {
     if(layer<0||layer>=kLayerCount)return JNI_FALSE; std::lock_guard<std::mutex> lock(synthMutex);
     auto& dx=dxLayers[(size_t)layer]; if(patch<0||patch>=dx.count)return JNI_FALSE; dx.selected=patch;
-    for(auto& voice:dx.voices)voice={}; return JNI_TRUE;
+    for(auto& voice:dx.voices){voice.active=false;voice.note=-1;voice.read=N;if(voice.synth)voice.synth->keyup();}
+    return JNI_TRUE;
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -442,9 +487,15 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeUnloadAll(JNIEnv*, jclass)
 {
     std::lock_guard<std::mutex> lock(synthMutex);
+    {
+        std::lock_guard<std::mutex> queueLock(midiQueueMutex);
+        midiQueueRead=midiQueueWrite=midiQueueCount=0;
+    }
     for (int layer = 0; layer < kLayerCount; ++layer) releaseLayer(layer);
     layerPeaks.fill(0.0f);
+    for(auto& peak:publishedLayerPeaks)peak.store(0.0f,std::memory_order_relaxed);
     masterPeak = 0.0f;
+    publishedMasterPeak.store(0.0f,std::memory_order_relaxed);
 }
 extern "C" JNIEXPORT void JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeClearLayer(JNIEnv*,jclass,jint layer)
@@ -570,11 +621,9 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetPreset(JNIEnv*, jcla
     return JNI_TRUE;
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOn(JNIEnv*, jclass, jint note, jint velocity, jint midiChannel)
+static void applyNoteOn(jint note, jint velocity, jint midiChannel)
 {
     if (note < 0 || note > 127 || velocity <= 0 || midiChannel < 0 || midiChannel > 15) return;
-    std::lock_guard<std::mutex> lock(synthMutex);
     physicalKeys[(size_t)midiChannel][(size_t)note] = true;
     for (int layer=0;layer<kLayerCount;++layer) {
         const auto li=(size_t)layer;
@@ -588,7 +637,8 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOn(JNIEnv*, jclass,
         double priorAnalogPitch=69.0;bool hasPriorAnalog=false;
         if(layerMidiMode[li]!=0||(engineTypes[li]==EngineType::analog&&analogLayers[li].monophonic)){
             if(engineTypes[li]==EngineType::sf2&&fonts[li]!=nullptr){tsf_channel_note_off_all(fonts[li],midiChannel);routedNotes[li][(size_t)midiChannel].fill(0);}
-            for(auto& old:dxLayers[li].voices)old={};for(auto& old:hammondLayers[li].voices)old={};
+            for(auto& old:dxLayers[li].voices){old.active=false;old.note=-1;old.read=N;if(old.synth)old.synth->keyup();}
+            for(auto& old:hammondLayers[li].voices)old={};
             for(auto& old:analogLayers[li].voices)if(old.active){priorAnalogPitch=old.pitch;hasPriorAnalog=true;old={};}
             routedNotes[li][(size_t)midiChannel][(size_t)note]=routedNote+1;
         }
@@ -603,7 +653,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOn(JNIEnv*, jclass,
             if(target==nullptr){target=&dx.voices.front();for(auto& voice:dx.voices)if(voice.serial<target->serial)target=&voice;}
             target->serial=++dx.serial;
             target->active=true; target->note=routedNote; target->channel=midiChannel; target->read=N; target->samples.fill(0);
-            target->synth=std::make_unique<Dx7Note>(tuning,nullptr);
+            if(!target->synth){target->active=false;continue;}
             target->synth->init(dx.patches[(size_t)dx.selected].data(),routedNote,routedVelocity,1,&controllers);
         }
         else if(engineTypes[(size_t)layer]==EngineType::analog) {
@@ -647,10 +697,15 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOn(JNIEnv*, jclass,
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOff(JNIEnv*, jclass, jint note, jint midiChannel)
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOn(JNIEnv*,jclass,jint note,jint velocity,jint channel)
+{
+    if(note<0||note>127||velocity<=0||channel<0||channel>15)return;
+    enqueueMidiCommand({MidiCommandType::NoteOn,note,velocity,channel});
+}
+
+static void applyNoteOff(jint note, jint midiChannel)
 {
     if (note < 0 || note > 127 || midiChannel < 0 || midiChannel > 15) return;
-    std::lock_guard<std::mutex> lock(synthMutex);
     physicalKeys[(size_t)midiChannel][(size_t)note] = false;
     for (int layer=0;layer<kLayerCount;++layer) {
         const auto li=(size_t)layer;const auto type = engineTypes[li];
@@ -690,9 +745,14 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOff(JNIEnv*, jclass
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_classickeys_classicplayer_PolySynthEngine_nativeControl(JNIEnv*, jclass, jint controller, jint value, jint midiChannel)
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOff(JNIEnv*,jclass,jint note,jint channel)
 {
-    std::lock_guard<std::mutex> lock(synthMutex);
+    if(note<0||note>127||channel<0||channel>15)return;
+    enqueueMidiCommand({MidiCommandType::NoteOff,note,0,channel});
+}
+
+static void applyControl(jint controller, jint value, jint midiChannel)
+{
     if(midiChannel<0||midiChannel>15)return;
     if((controller&0x7f)==1){for(int layer=0;layer<kLayerCount;++layer){const auto li=(size_t)layer;if(engineTypes[li]==EngineType::analog&&(layerMidiChannel[li]<0||layerMidiChannel[li]==midiChannel))analogLayers[li].modWheel=std::clamp((float)(value&0x7f)/127.0f,0.0f,1.0f);}}
     if ((controller & 0x7f) == 64) {
@@ -728,10 +788,26 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeControl(JNIEnv*, jclass
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeControl(JNIEnv*,jclass,jint controller,jint value,jint channel)
+{
+    if(channel<0||channel>15)return;
+    enqueueMidiCommand({MidiCommandType::Control,controller,value,channel});
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeAllNotesOff(JNIEnv*, jclass)
 {
-    std::lock_guard<std::mutex> lock(synthMutex);
-    sendAllNotesOff();
+    enqueueMidiCommand({MidiCommandType::AllNotesOff,0,0,0});
+}
+
+static void applyMidiCommand(const MidiCommand& command)
+{
+    switch(command.type){
+        case MidiCommandType::NoteOn: applyNoteOn(command.value1,command.value2,command.channel); break;
+        case MidiCommandType::NoteOff: applyNoteOff(command.value1,command.channel); break;
+        case MidiCommandType::Control: applyControl(command.value1,command.value2,command.channel); break;
+        case MidiCommandType::AllNotesOff: sendAllNotesOff(); break;
+    }
 }
 
 extern "C" JNIEXPORT jint JNICALL
@@ -751,11 +827,14 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
     frames = std::min(frames, kMaxFrames);
     const auto samples = frames * 2;
 
-    // The device callback must never wait behind an import or MIDI allocation.
-    // A brief contention is concealed by the output callback's fade; MIDI
-    // changes remain queued in native state for the next render quantum.
+    // The callback never waits behind UI/settings operations. MIDI producers
+    // publish short commands separately; apply them only after the audio thread
+    // owns synth state, avoiding the old try-lock silence on every Note On/Off.
     std::unique_lock<std::mutex> lock(synthMutex,std::defer_lock);
     if(realtime){if(!lock.try_lock())return false;}else lock.lock();
+    std::array<MidiCommand,64> commands{};
+    const size_t commandCount=takeMidiCommands(commands.data(),commands.size());
+    for(size_t i=0;i<commandCount;++i)applyMidiCommand(commands[i]);
     std::memset(output, 0, (size_t) samples * sizeof(short));
     std::array<float, kLayerCount> renderedPeaks {};
     std::array<float, kMaxFrames * 2> mix {};
@@ -979,9 +1058,12 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
         output[sample] = (short)std::clamp((int)(limited * 32767.0f), -32768, 32767);
         renderedMasterPeak = std::max(renderedMasterPeak, std::abs((float) output[sample]) / 32768.0f);
     }
-    for (int layer = 0; layer < kLayerCount; ++layer)
+    for (int layer = 0; layer < kLayerCount; ++layer) {
         layerPeaks[(size_t) layer] = std::max(renderedPeaks[(size_t) layer], layerPeaks[(size_t) layer] * 0.88f);
+        publishedLayerPeaks[(size_t)layer].store(layerPeaks[(size_t)layer],std::memory_order_relaxed);
+    }
     masterPeak = std::max(renderedMasterPeak, masterPeak * 0.88f);
+    publishedMasterPeak.store(masterPeak,std::memory_order_relaxed);
     return true;
 }
 
@@ -1001,13 +1083,11 @@ extern "C" JNIEXPORT jfloat JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeLayerPeak(JNIEnv*, jclass, jint layer)
 {
     if (layer < 0 || layer >= kLayerCount) return 0.0f;
-    std::lock_guard<std::mutex> lock(synthMutex);
-    return layerPeaks[(size_t) layer];
+    return publishedLayerPeaks[(size_t)layer].load(std::memory_order_relaxed);
 }
 
 extern "C" JNIEXPORT jfloat JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeMasterPeak(JNIEnv*, jclass)
 {
-    std::lock_guard<std::mutex> lock(synthMutex);
-    return masterPeak;
+    return publishedMasterPeak.load(std::memory_order_relaxed);
 }

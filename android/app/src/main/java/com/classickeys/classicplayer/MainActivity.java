@@ -345,15 +345,18 @@ public final class MainActivity extends Activity {
 
     private void showAudioBufferChooser() {
         final int[] frames={128,256,512,1024,2048};
-        String[] labels={"Mínimo pedido · 128 frames","Mínimo pedido · 256 frames","Mínimo pedido · 512 frames","Mínimo pedido · 1024 frames","Mínimo pedido · 2048 frames"};
+        String[] labels={"128 frames","256 frames","512 frames","1024 frames","2048 frames"};
         int selected=2;for(int i=0;i<frames.length;i++)if(frames[i]==audioEngine.bufferFrames())selected=i;
         new AlertDialog.Builder(this).setTitle("BUFFER DE SAÍDA")
-            .setMessage("O app tenta obter baixa latência. Se o Android conceder esse modo, começa com um burst e aumenta se houver underruns; se não, usa dois bursts para reduzir falhas. O valor escolhido é um mínimo pedido, não uma promessa de latência. Confira o modo e o buffer efetivos em ÁUDIO/MIDI.")
             .setSingleChoiceItems(labels,selected,(dialog,which)->{
                 audioEngine.setBufferFrames(frames[which]);
                 getSharedPreferences("audio",MODE_PRIVATE).edit().putInt("buffer_frames",frames[which]).apply();
                 screen.invalidate();dialog.dismiss();
-            }).setNegativeButton("FECHAR",null).show();
+            }).setNeutralButton("SOBRE",(dialog,which)->new AlertDialog.Builder(this)
+                .setTitle("BUFFER DE SAÍDA")
+                .setMessage("Escolha o tamanho inicial pedido. O Android pode arredondá-lo para múltiplos do burst da rota; o tamanho efetivo aparece em ÁUDIO/MIDI. O ajuste automático só aumenta o buffer se houver underruns.")
+                .setPositiveButton("FECHAR",null).show())
+            .setNegativeButton("CANCELAR",null).show();
     }
 
     private void showAudioOutputChooser() {
