@@ -337,6 +337,10 @@ void Dx7Note::compute(int32_t *buf, int32_t lfo_val, int32_t lfo_delay, const Co
 }
 
 void Dx7Note::keyup() {
+    // Voice objects are preallocated with the layer, before init() has set
+    // up their envelopes. Ignore stray note-off/patch-change calls until a
+    // real note has initialized this voice.
+    if (!initialised_) return;
     for (int op = 0; op < 6; op++) {
         env_[op].keydown(false);
     }

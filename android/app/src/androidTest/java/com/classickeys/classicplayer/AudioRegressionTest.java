@@ -320,6 +320,13 @@ public class AudioRegressionTest {
         activate(1,1);
         activate(1,2);
         activate(2,3);
+        // The production UI selects the default patch immediately after
+        // loading DX7. This must be safe before the first note initializes
+        // the preallocated DX7 voice envelopes.
+        assertTrue("Selecting the first DX7 patch before any note must be safe", engine.setDx7Patch(3,0));
+        // Exercise the monophonic/legato cleanup path on the first note too;
+        // it also walks the preallocated but still inactive voices.
+        engine.setLayerRouting(3,-1,1,0,127,0,true,0);
         assertEquals(75,engine.voiceBudget(0));
         assertEquals(75,engine.voiceBudget(1));
         assertEquals(74,engine.voiceBudget(2));

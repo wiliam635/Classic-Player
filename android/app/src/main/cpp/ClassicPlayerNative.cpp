@@ -560,7 +560,13 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetDx7Patch(JNIEnv*,jcl
 {
     if(layer<0||layer>=kLayerCount)return JNI_FALSE; std::lock_guard<std::mutex> lock(synthMutex);
     auto& dx=dxLayers[(size_t)layer]; if(patch<0||patch>=dx.count)return JNI_FALSE; dx.selected=patch;
-    for(auto& voice:dx.voices){voice.active=false;voice.note=-1;voice.read=N;if(voice.synth)voice.synth->keyup();}
+    for(auto& voice:dx.voices){
+        // The DX7 pool is allocated before any note is played. A fresh
+        // Dx7Note has uninitialized envelopes, so keyup() is only valid for
+        // voices whose note-on has initialized those envelopes.
+        if(voice.active&&voice.synth)voice.synth->keyup();
+        voice.active=false;voice.note=-1;voice.read=N;
+    }
     return JNI_TRUE;
 }
 
@@ -781,7 +787,10 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
         double priorAnalogPitch=69.0;bool hasPriorAnalog=false;
         if(layerMidiMode[li]!=0||(engineTypes[li]==EngineType::analog&&analogLayers[li].monophonic)){
             if(engineTypes[li]==EngineType::sf2&&fonts[li]!=nullptr){tsf_channel_note_off_all(fonts[li],midiChannel);routedNotes[li][(size_t)midiChannel].fill(0);}
-            for(auto& old:dxLayers[li].voices){old.active=false;old.note=-1;old.read=N;if(old.synth)old.synth->keyup();}
+            for(auto& old:dxLayers[li].voices){
+                if(old.active&&old.synth)old.synth->keyup();
+                old.active=false;old.note=-1;old.read=N;
+            }
             for(auto& old:hammondLayers[li].voices)old={};
             for(auto& old:analogLayers[li].voices)if(old.active){priorAnalogPitch=old.pitch;hasPriorAnalog=true;old={};}
             routedNotes[li][(size_t)midiChannel][(size_t)note]=routedNote+1;
