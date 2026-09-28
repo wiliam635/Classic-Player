@@ -73,7 +73,9 @@ oboe::Result openOutputStream(jint deviceId, oboe::SharingMode sharingMode,
     builder.setChannelConversionAllowed(true);
     builder.setPerformanceMode(oboe::PerformanceMode::LowLatency);
     builder.setSharingMode(sharingMode);
-    builder.setUsage(oboe::Usage::Game);
+    // Treat the synth as media/music. Some Android vendor policies route GAME
+    // usage to the built-in speaker even when a USB output device was requested.
+    builder.setUsage(oboe::Usage::Media);
     builder.setContentType(oboe::ContentType::Music);
     if(deviceId>0)builder.setDeviceId(deviceId);
     builder.setDataCallback(dataCallback);
@@ -92,11 +94,15 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeStartOutput(JNIEnv*,jcl
     // detect that and explicitly retry Shared/LowLatency before accepting the
     // downgraded stream. This matters for both built-in and USB outputs.
     auto result=openOutputStream(deviceId,oboe::SharingMode::Exclusive,nextCallback,stream);
+    bool retryShared=result!=oboe::Result::OK;
     if(result==oboe::Result::OK &&
-       stream->getPerformanceMode()!=oboe::PerformanceMode::LowLatency){
+       (stream->getPerformanceMode()!=oboe::PerformanceMode::LowLatency ||
+        (deviceId>0&&stream->getDeviceId()!=deviceId))){
+        // Some USB endpoints only accept explicit routing in shared mode.
+        retryShared=true;
         stream->close();stream.reset();
-        result=openOutputStream(deviceId,oboe::SharingMode::Shared,nextCallback,stream);
-    }else if(result!=oboe::Result::OK){
+    }
+    if(retryShared){
         if(stream){stream->close();stream.reset();}
         result=openOutputStream(deviceId,oboe::SharingMode::Shared,nextCallback,stream);
     }
@@ -104,6 +110,9 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeStartOutput(JNIEnv*,jcl
         if(stream){stream->close();stream.reset();}
         return JNI_FALSE;
     }
+    // Never report a successful explicit selection if Android silently opened
+    // the default output instead of the requested USB endpoint.
+    if(deviceId>0&&stream->getDeviceId()!=deviceId){closeOutput();return JNI_FALSE;}
     // OpenSL ES cannot select an explicit USB device. Let the Java fallback
     // preserve that selection rather than silently routing to the speaker.
     if(deviceId!=0&&stream->getAudioApi()!=oboe::AudioApi::AAudio){closeOutput();return JNI_FALSE;}

@@ -262,6 +262,22 @@ public class AudioRegressionTest {
         pcm(RATE*3);
     }
 
+    @Test public void twoSoundFontsThenDx7LayerLoadsAndRenders() throws Exception {
+        activate(1,0);
+        activate(1,1);
+        activate(2,2);
+        assertEquals(86,engine.voiceBudget(0));
+        assertEquals(85,engine.voiceBudget(1));
+        assertEquals(85,engine.voiceBudget(2));
+        assertEquals(1,engine.engineType(0));
+        assertEquals(1,engine.engineType(1));
+        assertEquals(2,engine.engineType(2));
+        engine.noteOn(60,100,0);
+        assertTrue("SF2 + DX7 stack produced silence",rms(pcm(RATE/4))>.0005);
+        engine.noteOff(60,0);
+        pcm(RATE*3);
+    }
+
     @Test public void activityLaunchScreenshot() throws Exception {
         android.app.Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
         android.app.Activity activity = instrumentation.startActivitySync(

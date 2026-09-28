@@ -131,6 +131,10 @@ final class PolySynthEngine {
             outputMonitor.start();return;
         }
         track = createTrack();
+        if(track==null){
+            outputError=preferredDevice==null?"Falha ao abrir saída de áudio":"Interface de áudio indisponível";
+            return;
+        }
         outputError="";
         running = true;
         renderThread = new Thread(this::render, "classic-sf2-audio");
@@ -154,7 +158,10 @@ final class PolySynthEngine {
         if (Build.VERSION.SDK_INT >= 26)
             builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY);
         AudioTrack result = builder.build();
-        if(preferredDevice!=null)result.setPreferredDevice(preferredDevice);
+        if(result.getState()!=AudioTrack.STATE_INITIALIZED){result.release();return null;}
+        if(preferredDevice!=null&&!result.setPreferredDevice(preferredDevice)){
+            result.release();return null;
+        }
         if(Build.VERSION.SDK_INT>=24)result.setBufferSizeInFrames(bufferFrames);
         return result;
     }
@@ -211,11 +218,22 @@ final class PolySynthEngine {
     synchronized boolean setPreferredDevice(AudioDeviceInfo device) {
         if(nativeOutputActive){
             if(preferredDevice!=null&&device!=null&&preferredDevice.getId()==device.getId())return true;
+            AudioDeviceInfo previous=preferredDevice;
             stop();preferredDevice=device;start();
-            return running;
+            if(running)return true;
+            preferredDevice=previous;
+            start();
+            return false;
         }
-        preferredDevice=device;AudioTrack current=track;
-        try{return current!=null&&current.setPreferredDevice(device);}catch(IllegalStateException e){return false;}
+        AudioDeviceInfo previous=preferredDevice;
+        preferredDevice=device;
+        AudioTrack current=track;
+        try{
+            if(current==null){preferredDevice=previous;return false;}
+            if(current.setPreferredDevice(device))return true;
+        }catch(IllegalStateException ignored){ }
+        preferredDevice=previous;
+        return false;
     }
     AudioDeviceInfo routedDevice() {
         if(nativeOutputActive&&audioManager!=null){

@@ -231,9 +231,25 @@ void distributeLayerVoiceBudgets()
         if(engineTypes[li]==EngineType::empty){layerVoiceBudgets[li]=0;continue;}
         const int budget=base+(ordinal<remainder?1:0);
         ++ordinal;
-        layerVoiceBudgets[li]=budget;
+        int effectiveBudget=budget;
+        if(engineTypes[li]==EngineType::dx7){
+            // DX7 note objects are large enough that eagerly allocating 256
+            // for every DX7 layer wastes memory on Android. Allocate only this
+            // layer's shared quota, and degrade safely if the device is tight.
+            auto& voices=dxLayers[li].voices;
+            for(int i=0;i<budget;++i){
+                if(voices[(size_t)i].synth)continue;
+                try{voices[(size_t)i].synth=std::make_unique<Dx7Note>(tuning,nullptr);}
+                catch(...){effectiveBudget=i;break;}
+            }
+            for(int i=effectiveBudget;i<kMaximumPolyphony;++i){
+                auto& voice=voices[(size_t)i];
+                voice.active=false;voice.note=-1;voice.read=N;voice.synth.reset();
+            }
+        }
+        layerVoiceBudgets[li]=effectiveBudget;
         if(engineTypes[li]==EngineType::sf2&&fonts[li]!=nullptr)
-            tsf_set_max_voices(fonts[li],budget);
+            tsf_set_max_voices(fonts[li],effectiveBudget);
         // When another motor is added, trim any now-out-of-budget voices.
         // These fixed pools are preallocated; no allocation occurs here.
         for(int i=budget;i<kMaximumPolyphony;++i){
@@ -413,6 +429,22 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadDx7(
     if (start < 0) return JNI_FALSE;
     std::lock_guard<std::mutex> lock(synthMutex);
     initialiseDx();
+    int activeLayers=1, ordinal=0;
+    for(int i=0;i<kLayerCount;++i){
+        if(i==layer)continue;
+        if(engineTypes[(size_t)i]!=EngineType::empty){++activeLayers;if(i<layer)++ordinal;}
+    }
+    const int budget=kMaximumPolyphony/activeLayers+
+            (ordinal<kMaximumPolyphony%activeLayers?1:0);
+    std::array<std::unique_ptr<Dx7Note>,kVoicePoolCapacity> preparedVoices{};
+    try{
+        for(int i=0;i<budget;++i)
+            preparedVoices[(size_t)i]=std::make_unique<Dx7Note>(tuning,nullptr);
+    }catch(...){
+        // Do not let a native allocation exception cross JNI and terminate the
+        // app; preserve the previous layer if this device cannot fit the pool.
+        return JNI_FALSE;
+    }
     releaseLayer(layer);
     auto& dx = dxLayers[(size_t)layer];
     for (int patch=0;patch<32;++patch) {
@@ -423,9 +455,9 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadDx7(
             dx.names[(size_t)patch] = "Timbre DX7 " + std::to_string(patch + 1);
     }
     dx.count=32; dx.selected=0;
-    // Keep DX7 note objects alive in a fixed pool. Note On then only resets an
-    // existing voice and never allocates or frees memory on the audio thread.
-    for(auto& voice:dx.voices)voice.synth=std::make_unique<Dx7Note>(tuning,nullptr);
+    // Keep exactly this layer's voice quota prepared before publishing it.
+    // Note On only resets an existing object and never allocates on audio thread.
+    for(int i=0;i<budget;++i)dx.voices[(size_t)i].synth=std::move(preparedVoices[(size_t)i]);
     engineTypes[(size_t)layer]=EngineType::dx7;
     distributeLayerVoiceBudgets();
     return JNI_TRUE;
