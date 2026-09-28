@@ -6,8 +6,9 @@ import android.media.AudioManager;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
-/** Enumerates Android output routes so the future Audio/MIDI page can expose a chooser. */
+/** Enumerates Android output routes and identifies USB audio endpoints. */
 final class AudioOutputManager {
     private final AudioManager audio;
     AudioOutputManager(Context context) { audio = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE); }
@@ -34,8 +35,31 @@ final class AudioOutputManager {
     AudioDeviceInfo deviceByIdentity(int type, String name) {
         if (audio == null || name.isEmpty()) return null;
         for (AudioDeviceInfo device : audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS))
-            if (device.getType() == type && name.contentEquals(device.getProductName())) return device;
+            if (device.getType() == type && device.getProductName() != null
+                    && name.contentEquals(device.getProductName())) return device;
         return null;
+    }
+    AudioDeviceInfo automaticUsbOutput() {
+        if (audio == null) return null;
+        AudioDeviceInfo onlyUsbOutput = null;
+        AudioDeviceInfo yamahaOutput = null;
+        int usbOutputCount = 0;
+        for (AudioDeviceInfo device : audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+            if (!isUsbAudioOutput(device)) continue;
+            usbOutputCount++;
+            onlyUsbOutput = device;
+            String name = device.getProductName() == null ? ""
+                    : device.getProductName().toString().toLowerCase(Locale.ROOT);
+            if (name.contains("yamaha") || name.contains("ck series") || name.contains("ck61"))
+                yamahaOutput = device;
+        }
+        // Prefer the CK61 even if another USB DAC is connected. If the device
+        // does not identify itself, only auto-select when there is no ambiguity.
+        return yamahaOutput != null ? yamahaOutput : usbOutputCount == 1 ? onlyUsbOutput : null;
+    }
+    private static boolean isUsbAudioOutput(AudioDeviceInfo device) {
+        return device.getType() == AudioDeviceInfo.TYPE_USB_DEVICE
+                || device.getType() == AudioDeviceInfo.TYPE_USB_HEADSET;
     }
     private String typeName(int type) {
         switch (type) {

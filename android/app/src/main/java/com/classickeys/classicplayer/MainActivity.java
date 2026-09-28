@@ -331,16 +331,47 @@ public final class MainActivity extends Activity {
 
     private void restorePreferredAudioDevice() {
         if (audioOutputManager == null || audioEngine == null) return;
-        int id = getSharedPreferences("audio", MODE_PRIVATE).getInt("output_id", -1);
+        android.content.SharedPreferences preferences = getSharedPreferences("audio", MODE_PRIVATE);
+        int id = preferences.getInt("output_id", -1);
         AudioDeviceInfo device = audioOutputManager.deviceById(id);
         // Android assigns a new transient ID after a USB reconnection.
-        String savedName = getSharedPreferences("audio", MODE_PRIVATE).getString("output_name", "");
-        int savedType = getSharedPreferences("audio", MODE_PRIVATE).getInt("output_type", -1);
+        String savedName = preferences.getString("output_name", "");
+        int savedType = preferences.getInt("output_type", -1);
+        String currentName = device == null || device.getProductName() == null
+                ? "" : device.getProductName().toString();
         if (!savedName.isEmpty() && (device == null || device.getType() != savedType
-                || !savedName.contentEquals(device.getProductName())))
+                || !savedName.equals(currentName)))
             device = audioOutputManager.deviceByIdentity(savedType, savedName);
-        if (device != null && audioEngine.setPreferredDevice(device))
-            screen.setAudioStatus("ÁUDIO: " + device.getProductName() + " (ID " + device.getId() + ")");
+        boolean automaticUsbSelection = false;
+        // Prefer a connected CK61 over a legacy/default tablet route. Keep an
+        // endpoint explicitly selected in this version unless it disappeared.
+        if (!preferences.getBoolean("output_user_selected", false) || device == null) {
+            AudioDeviceInfo usbOutput = audioOutputManager.automaticUsbOutput();
+            if (usbOutput != null) {
+                device = usbOutput;
+                automaticUsbSelection = true;
+            }
+        }
+        if (device == null) return;
+
+        String outputName = device.getProductName() == null
+                ? "Saída USB" : device.getProductName().toString();
+        if (audioEngine.setPreferredDevice(device)) {
+            if (automaticUsbSelection) {
+                // Remember the automatically selected USB route like an
+                // explicit choice, so connecting another output cannot steal it.
+                preferences.edit().putInt("output_id", device.getId())
+                        .putInt("output_type", device.getType())
+                        .putString("output_name", outputName)
+                        .putBoolean("output_user_selected", false).apply();
+            }
+            screen.setAudioStatus("ÁUDIO: " + outputName + " (ID " + device.getId() + ")");
+        } else if (device.getType() == AudioDeviceInfo.TYPE_USB_DEVICE
+                || device.getType() == AudioDeviceInfo.TYPE_USB_HEADSET) {
+            screen.setAudioStatus("ÁUDIO USB detectado · falha ao abrir: " + outputName);
+            android.util.Log.w("ClassicAudio", "Could not route audio to USB device "
+                    + outputName + " (ID " + device.getId() + ")");
+        }
     }
 
     private void showAudioBufferChooser() {
@@ -373,7 +404,8 @@ public final class MainActivity extends Activity {
                     AudioDeviceInfo device = audioOutputManager.deviceAt(which);
                     if (device != null && audioEngine != null && audioEngine.setPreferredDevice(device)) {
                         getSharedPreferences("audio", MODE_PRIVATE).edit().putInt("output_id", device.getId())
-                                .putInt("output_type", device.getType()).putString("output_name", device.getProductName().toString()).apply();
+                                .putInt("output_type", device.getType()).putString("output_name", device.getProductName().toString())
+                                .putBoolean("output_user_selected", true).apply();
                         screen.setAudioStatus("ÁUDIO: " + names.get(which));
                     } else {
                         new AlertDialog.Builder(this).setTitle("SAÍDA DE ÁUDIO")
