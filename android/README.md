@@ -21,6 +21,12 @@ As layers também aceitam bancos Yamaha DX7 SysEx de 32 vozes (`.syx`) usando o 
 
 O APK será instalado em Android 6 ou superior. Para MIDI USB, use um adaptador OTG quando o dispositivo exigir.
 
+## Latência de áudio
+
+A partir da versão 1.0.3, a saída tenta usar um callback nativo Oboe/AAudio com baixa latência e modo exclusivo. Quando o dispositivo não oferece essa rota, o app mantém a saída compatível via AudioTrack. O tamanho escolhido (por exemplo, 128 frames) é um pedido: o Android ou a interface USB podem conceder um buffer maior. A tela Áudio/MIDI mostra o buffer e o burst efetivos, o modo de saída, underruns e a latência estimada somente da saída (sem incluir o percurso MIDI). Uma meta de 5 ms de tecla a som exige medição física no conjunto tablet, CK61 e cabo; não é garantida pela configuração de 128 frames.
+
+O Oboe 1.9.3 é obtido da fonte oficial durante a compilação, com verificação SHA-256. Sua licença Apache 2.0 está incluída em `app/src/main/assets/licenses/Oboe-LICENSE.txt`.
+
 ## Limitações atuais
 
 - SF2, DX7 e Classic Keys Analog já são motores de áudio reais. Hammond, Drum Pads e Pads Contínuos ainda precisam ser portados para o renderizador Android.

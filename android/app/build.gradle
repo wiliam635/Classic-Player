@@ -11,8 +11,8 @@ android {
         applicationId 'com.classickeys.classicplayer'
         minSdk 23 // Android 6.0
         targetSdk 35
-        versionCode 102
-        versionName '1.0.2'
+        versionCode 103
+        versionName '1.0.3'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         ndk {
             // Most Android 6+ tablets in use today are 64-bit ARM. Keeping this
