@@ -46,8 +46,9 @@ final class PolySynthEngine {
         if(nativeOutputActive){
             int[] info=nativeOutputInfo();
             return String.format(java.util.Locale.US,
-                "Stream %.1f kHz · buffer %d/%d frames · burst %d · xruns %d · busy %d",
-                info[0]/1000.0,info[1],info[10],info[2],info[7],info[9]);
+                "Stream %.1f kHz · buffer %d/%d frames · burst %d · xruns %d · busy %d · callback %.1f/%.1f ms",
+                info[0]/1000.0,info[1],info[10],info[2],info[7],info[9],
+                info[11]/1000.0,info[0]>0?info[12]*1000.0/info[0]:0.0);
         }
         AudioTrack current=track;
         try { return current==null ? "Áudio parado "+outputError :
@@ -69,7 +70,7 @@ final class PolySynthEngine {
             "Latência de saída: medição indisponível";
     }
     double outputLatencyMillis() { return nativeOutputActive?nativeOutputLatency():-1; }
-    int[] outputInfo() { return nativeOutputActive?nativeOutputInfo():new int[11]; }
+    int[] outputInfo() { return nativeOutputActive?nativeOutputInfo():new int[13]; }
 
     static { System.loadLibrary("classic_player_native"); }
 

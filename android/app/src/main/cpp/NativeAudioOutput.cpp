@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <time.h>
 
 // Shared by the offline regression renderer and the actual device callback.
 bool renderClassicPlayerPcm(int16_t* output, int frames,bool realtime);
@@ -16,12 +17,16 @@ class OutputCallback final : public oboe::AudioStreamDataCallback,
 public:
     std::atomic<int> error{0};
     std::atomic<int> contentions{0};
+    std::atomic<int> callbackMicros{0};
+    std::atomic<int> callbackFrames{0};
     // Owned for the full stream lifetime. Oboe recommends tuning from the
     // data callback; this avoids a Java/JNI hop or a control-thread race.
     std::unique_ptr<oboe::LatencyTuner> latencyTuner;
     int16_t lastLeft=0,lastRight=0;
     bool faded=false;
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream*, void* data, int32_t frames) override {
+        timespec started{};
+        clock_gettime(CLOCK_MONOTONIC, &started);
         auto* output=static_cast<int16_t*>(data);
         // Consume MIDI at least every 128 frames, without Java array copies or
         // a blocking write queue ahead of the hardware's own audio callback.
@@ -43,6 +48,13 @@ public:
             lastLeft=block[(count-1)*2];lastRight=block[(count-1)*2+1];
         }
         if(latencyTuner)latencyTuner->tune();
+        timespec finished{};
+        clock_gettime(CLOCK_MONOTONIC, &finished);
+        const int64_t elapsedNanos=(finished.tv_sec-started.tv_sec)*1000000000LL+
+                (finished.tv_nsec-started.tv_nsec);
+        callbackMicros.store(static_cast<int>(std::max<int64_t>(0,elapsedNanos/1000)),
+                             std::memory_order_relaxed);
+        callbackFrames.store(frames,std::memory_order_relaxed);
         return oboe::DataCallbackResult::Continue;
     }
     void onErrorAfterClose(oboe::AudioStream*,oboe::Result result) override {
@@ -156,8 +168,9 @@ extern "C" JNIEXPORT jintArray JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeOutputInfo(JNIEnv* env,jclass) {
     std::lock_guard<std::mutex> lock(outputMutex);
     // rate, buffer, burst, device, API, performance, sharing, underruns, error,
-    // lock contentions, buffer capacity.
-    jint values[11]={};
+    // lock contentions, buffer capacity, latest callback duration in micros,
+    // and callback frame count for comparing work time to its route deadline.
+    jint values[13]={};
     if(stream){
         const auto xruns=stream->getXRunCount();
         values[0]=stream->getSampleRate();values[1]=stream->getBufferSizeInFrames();
@@ -168,8 +181,12 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeOutputInfo(JNIEnv* env,
         values[7]=xruns?xruns.value():-1;values[8]=callback?callback->error.load():0;
         values[9]=callback?callback->contentions.load():0;
         values[10]=stream->getBufferCapacityInFrames();
+        if(callback){
+            values[11]=callback->callbackMicros.load(std::memory_order_relaxed);
+            values[12]=callback->callbackFrames.load(std::memory_order_relaxed);
+        }
     }
-    auto result=env->NewIntArray(11);if(result)env->SetIntArrayRegion(result,0,11,values);return result;
+    auto result=env->NewIntArray(13);if(result)env->SetIntArrayRegion(result,0,13,values);return result;
 }
 
 extern "C" JNIEXPORT jdouble JNICALL
