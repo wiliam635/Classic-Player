@@ -522,7 +522,7 @@ public final class MainActivity extends Activity {
             screen.setAudioStatus("ÁUDIO: falha ao abrir banco DX7 interno"); return;
         }
         if (audioEngine == null || !audioEngine.loadDx7(layer, target.getAbsolutePath())) {
-            screen.setAudioStatus("ÁUDIO: banco DX7 interno inválido"); return;
+            screen.setAudioStatus("ÁUDIO: falha ao preparar DX7 (formato ou memória)"); return;
         }
         deactivatePadLayer(layer);
         screen.setLayerName(layer, displayName); screen.setEngineName(layer, "DX7");
@@ -789,7 +789,7 @@ public final class MainActivity extends Activity {
             Uri uri=data.getData(); final int layer=pendingLayer;
             String cachedPath=cacheDocument(uri,layer,"syx");
             if(cachedPath==null||audioEngine==null||!audioEngine.loadDx7(layer,cachedPath)){
-                screen.setAudioStatus("ÁUDIO: banco DX7 inválido"); pendingLayer=-1; return;
+                screen.setAudioStatus("ÁUDIO: falha ao preparar DX7 (formato ou memória)"); pendingLayer=-1; return;
             }
             deactivatePadLayer(layer);
             String name=uri.getLastPathSegment()==null?"Banco DX7":uri.getLastPathSegment();

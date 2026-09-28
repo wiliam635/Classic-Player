@@ -457,52 +457,81 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadDx7(
     if (layer < 0 || layer >= kLayerCount || path == nullptr) return JNI_FALSE;
     const char* utf8Path = env->GetStringUTFChars(path, nullptr);
     if (utf8Path == nullptr) return JNI_FALSE;
-    std::ifstream input(utf8Path, std::ios::binary);
-    env->ReleaseStringUTFChars(path, utf8Path);
-    if (!input) return JNI_FALSE;
-    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(input)), {});
-    // A DX7 32-voice bank is normally a 4104-byte SysEx message, but files
-    // exported by different editors may contain a leading header, multiple
-    // messages, or a trailing checksum/F7.  Locate the bulk-data header and
-    // only require the 4096 bytes that contain the 32 packed voices.
-    int start = -1;
-    for (int i=0; i+6 <= (int)bytes.size(); ++i) {
-        if (bytes[(size_t)i] == 0xf0 && bytes[(size_t)i+1] == 0x43 &&
-            bytes[(size_t)i+3] == 0x09 && bytes[(size_t)i+4] == 0x20 &&
-            bytes[(size_t)i+5] == 0x00 && i + 6 + 32 * 128 <= (int)bytes.size()) {
-            start = i + 6;
-            break;
+    struct UtfCharsGuard {
+        JNIEnv* env;
+        jstring path;
+        const char* chars;
+        void release() {
+            if (chars != nullptr) {
+                env->ReleaseStringUTFChars(path, chars);
+                chars = nullptr;
+            }
         }
-    }
-    if (start < 0) return JNI_FALSE;
-    std::lock_guard<std::mutex> lock(synthMutex);
-    initialiseDx();
-    const int budget=calculateLayerVoiceBudgets(layer,EngineType::dx7)[(size_t)layer];
-    std::array<std::unique_ptr<Dx7Note>,kVoicePoolCapacity> preparedVoices{};
-    try{
+        ~UtfCharsGuard() { release(); }
+    } pathGuard{env, path, utf8Path};
+    try {
+        std::ifstream input(pathGuard.chars, std::ios::binary);
+        pathGuard.release();
+        if (!input) return JNI_FALSE;
+        input.seekg(0, std::ios::end);
+        const std::streamoff fileSize=input.tellg();
+        // SysEx voice banks are tiny; reject malformed/unrelated multi-megabyte
+        // files before copying them into memory alongside resident SF2 samples.
+        constexpr std::streamoff kMaxDx7FileBytes=16*1024*1024;
+        if(fileSize<=0||fileSize>kMaxDx7FileBytes)return JNI_FALSE;
+        input.seekg(0, std::ios::beg);
+        std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(input)), {});
+        // A DX7 32-voice bank is normally a 4104-byte SysEx message, but files
+        // exported by different editors may contain a leading header, multiple
+        // messages, or a trailing checksum/F7. Locate the bulk-data header and
+        // only require the 4096 bytes containing the 32 packed voices.
+        int start = -1;
+        for (int i=0; i+6 <= (int)bytes.size(); ++i) {
+            if (bytes[(size_t)i] == 0xf0 && bytes[(size_t)i+1] == 0x43 &&
+                bytes[(size_t)i+3] == 0x09 && bytes[(size_t)i+4] == 0x20 &&
+                bytes[(size_t)i+5] == 0x00 && i + 6 + 32 * 128 <= (int)bytes.size()) {
+                start = i + 6;
+                break;
+            }
+        }
+        if (start < 0) return JNI_FALSE;
+
+        // Build every allocation-prone part before replacing the current
+        // layer. Low-memory Android devices may have several large SF2 sample
+        // banks resident; no C++ allocation failure may escape through JNI
+        // and abort the entire app.
+        std::array<std::array<uint8_t,156>,32> preparedPatches{};
+        std::array<std::string,32> preparedNames{};
+        for (int patch=0; patch<32; ++patch) {
+            const auto* packed=bytes.data()+start+patch*128;
+            expandDxPatch(packed,preparedPatches[(size_t)patch]);
+            preparedNames[(size_t)patch]=dxName(packed+118,10);
+            if (preparedNames[(size_t)patch].empty())
+                preparedNames[(size_t)patch]="Timbre DX7 " + std::to_string(patch+1);
+        }
+
+        std::lock_guard<std::mutex> lock(synthMutex);
+        initialiseDx();
+        const int budget=calculateLayerVoiceBudgets(layer,EngineType::dx7)[(size_t)layer];
+        std::array<std::unique_ptr<Dx7Note>,kVoicePoolCapacity> preparedVoices{};
         for(int i=0;i<budget;++i)
             preparedVoices[(size_t)i]=std::make_unique<Dx7Note>(tuning,nullptr);
-    }catch(...){
-        // Do not let a native allocation exception cross JNI and terminate the
-        // app; preserve the previous layer if this device cannot fit the pool.
+        releaseLayer(layer);
+        auto& dx = dxLayers[(size_t)layer];
+        dx.patches=std::move(preparedPatches);
+        dx.names=std::move(preparedNames);
+        dx.count=32; dx.selected=0;
+        // Keep exactly this layer's voice quota prepared before publishing it.
+        // Note On only resets an existing object and never allocates on audio thread.
+        for(int i=0;i<budget;++i)dx.voices[(size_t)i].synth=std::move(preparedVoices[(size_t)i]);
+        engineTypes[(size_t)layer]=EngineType::dx7;
+        distributeLayerVoiceBudgets();
+        return JNI_TRUE;
+    } catch (...) {
+        // In particular, contain std::bad_alloc from the DX7 patch/name/voice
+        // setup when multiple high-memory SF2 banks are already loaded.
         return JNI_FALSE;
     }
-    releaseLayer(layer);
-    auto& dx = dxLayers[(size_t)layer];
-    for (int patch=0;patch<32;++patch) {
-        const auto* packed=bytes.data()+start+patch*128;
-        expandDxPatch(packed,dx.patches[(size_t)patch]);
-        dx.names[(size_t)patch]=dxName(packed+118,10);
-        if (dx.names[(size_t)patch].empty())
-            dx.names[(size_t)patch] = "Timbre DX7 " + std::to_string(patch + 1);
-    }
-    dx.count=32; dx.selected=0;
-    // Keep exactly this layer's voice quota prepared before publishing it.
-    // Note On only resets an existing object and never allocates on audio thread.
-    for(int i=0;i<budget;++i)dx.voices[(size_t)i].synth=std::move(preparedVoices[(size_t)i]);
-    engineTypes[(size_t)layer]=EngineType::dx7;
-    distributeLayerVoiceBudgets();
-    return JNI_TRUE;
 }
 
 extern "C" JNIEXPORT jint JNICALL

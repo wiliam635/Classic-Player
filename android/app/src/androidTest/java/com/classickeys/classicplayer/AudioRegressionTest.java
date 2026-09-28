@@ -315,6 +315,25 @@ public class AudioRegressionTest {
         pcm(RATE*3);
     }
 
+    @Test public void threeSoundFontsThenFourthDx7LayerLoadsAndRenders() throws Exception {
+        activate(1,0);
+        activate(1,1);
+        activate(1,2);
+        activate(2,3);
+        assertEquals(75,engine.voiceBudget(0));
+        assertEquals(75,engine.voiceBudget(1));
+        assertEquals(74,engine.voiceBudget(2));
+        assertEquals(32,engine.voiceBudget(3));
+        assertEquals(1,engine.engineType(0));
+        assertEquals(1,engine.engineType(1));
+        assertEquals(1,engine.engineType(2));
+        assertEquals(2,engine.engineType(3));
+        engine.noteOn(60,100,0);
+        assertTrue("Three SF2 layers plus DX7 must keep rendering",rms(pcm(RATE/4))>.0005);
+        engine.noteOff(60,0);
+        pcm(RATE*3);
+    }
+
     @Test public void activityLaunchScreenshot() throws Exception {
         android.app.Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
         android.app.Activity activity = instrumentation.startActivitySync(
