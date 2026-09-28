@@ -224,8 +224,8 @@ public class AudioRegressionTest {
     @Test public void globalVoiceBudgetCapsSynthLayersAndRedistributesToSoundFonts() throws Exception {
         int[] types={1,2,3,4,1,2};
         int budgetTotal=0;
+        for(int layer=0;layer<types.length;layer++)activate(types[layer],layer);
         for(int layer=0;layer<types.length;layer++){
-            activate(types[layer],layer);
             int budget=engine.voiceBudget(layer);
             int expected=types[layer]==1?64:32;
             assertEquals("DX7, Hammond and Moog-style layers are capped; SoundFonts receive the remainder",
