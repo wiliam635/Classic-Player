@@ -87,28 +87,36 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeStartOutput(JNIEnv*,jcl
     std::lock_guard<std::mutex> lock(outputMutex);
     closeOutput();
     auto nextCallback=std::make_shared<OutputCallback>();
-    // Try direct low-latency access first. Many class-compliant USB outputs
-    // (including keyboards) reject exclusive mode, so retry the same device
-    // through Android's shared low-latency route before falling back to Java.
+    // Try exclusive low-latency first. Some Android routes silently downgrade
+    // a successful exclusive request to Shared/None instead of failing open;
+    // detect that and explicitly retry Shared/LowLatency before accepting the
+    // downgraded stream. This matters for both built-in and USB outputs.
     auto result=openOutputStream(deviceId,oboe::SharingMode::Exclusive,nextCallback,stream);
-    if(result!=oboe::Result::OK){
+    if(result==oboe::Result::OK &&
+       stream->getPerformanceMode()!=oboe::PerformanceMode::LowLatency){
+        stream->close();stream.reset();
+        result=openOutputStream(deviceId,oboe::SharingMode::Shared,nextCallback,stream);
+    }else if(result!=oboe::Result::OK){
         if(stream){stream->close();stream.reset();}
         result=openOutputStream(deviceId,oboe::SharingMode::Shared,nextCallback,stream);
     }
-    if(result!=oboe::Result::OK){stream.reset();return JNI_FALSE;}
+    if(result!=oboe::Result::OK){
+        if(stream){stream->close();stream.reset();}
+        return JNI_FALSE;
+    }
     // OpenSL ES cannot select an explicit USB device. Let the Java fallback
     // preserve that selection rather than silently routing to the speaker.
     if(deviceId!=0&&stream->getAudioApi()!=oboe::AudioApi::AAudio){closeOutput();return JNI_FALSE;}
     callback=nextCallback;
-    // The UI value is the requested minimum, not a latency measurement. AAudio
-    // can begin at one hardware burst; its LatencyTuner will grow by one burst
-    // only after an underrun. Keep the more conservative two-burst floor for
-    // legacy APIs, where Oboe cannot adapt the buffer size dynamically.
+    // Start at one burst only when Android actually granted LowLatency. If the
+    // route was downgraded, two bursts avoid needlessly causing underruns; the
+    // UI value remains a requested minimum, not a latency measurement.
     const int32_t burst=stream->getFramesPerBurst();
     const int32_t capacity=stream->getBufferCapacityInFrames();
     int64_t target=std::max<int64_t>(1,bufferFrames);
     if(burst>0){
-        const int32_t minimumBursts=stream->getAudioApi()==oboe::AudioApi::AAudio?1:2;
+        const int32_t minimumBursts=stream->getAudioApi()==oboe::AudioApi::AAudio &&
+            stream->getPerformanceMode()==oboe::PerformanceMode::LowLatency?1:2;
         target=std::max<int64_t>(target,static_cast<int64_t>(minimumBursts)*burst);
         target=((target+burst-1)/burst)*burst;
     }
