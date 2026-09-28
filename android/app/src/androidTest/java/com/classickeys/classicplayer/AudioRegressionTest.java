@@ -221,13 +221,15 @@ public class AudioRegressionTest {
         pcm(RATE * 3);
     }
 
-    @Test public void globalVoiceBudgetIsEvenlyDistributedAndRebalanced() throws Exception {
+    @Test public void globalVoiceBudgetCapsSynthLayersAndRedistributesToSoundFonts() throws Exception {
         int[] types={1,2,3,4,1,2};
         int budgetTotal=0;
         for(int layer=0;layer<types.length;layer++){
             activate(types[layer],layer);
             int budget=engine.voiceBudget(layer);
-            assertEquals("Equal split with remainder assigned in layer order",layer<4?43:42,budget);
+            int expected=types[layer]==1?64:32;
+            assertEquals("DX7, Hammond and Moog-style layers are capped; SoundFonts receive the remainder",
+                    expected,budget);
             budgetTotal+=budget;
         }
         assertEquals(256,budgetTotal);
@@ -250,7 +252,7 @@ public class AudioRegressionTest {
         engine.clearLayer(5);
         budgetTotal=0;
         for(int layer=0;layer<5;layer++){
-            int expected=layer==0?52:51;
+            int expected=(layer==0||layer==4)?80:32;
             assertEquals("Removing a layer redistributes the budget",expected,engine.voiceBudget(layer));
             assertTrue("Active voices must be trimmed after redistribution",
                     engine.activeVoices(layer)<=engine.voiceBudget(layer));
@@ -266,9 +268,9 @@ public class AudioRegressionTest {
         activate(1,0);
         activate(1,1);
         activate(2,2);
-        assertEquals(86,engine.voiceBudget(0));
-        assertEquals(85,engine.voiceBudget(1));
-        assertEquals(85,engine.voiceBudget(2));
+        assertEquals(112,engine.voiceBudget(0));
+        assertEquals(112,engine.voiceBudget(1));
+        assertEquals(32,engine.voiceBudget(2));
         assertEquals(1,engine.engineType(0));
         assertEquals(1,engine.engineType(1));
         assertEquals(2,engine.engineType(2));

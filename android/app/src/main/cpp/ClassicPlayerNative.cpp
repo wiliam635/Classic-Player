@@ -216,21 +216,69 @@ struct HammondLayer {
     uint32_t noise=0x1341257u;
 };
 std::array<HammondLayer,kLayerCount> hammondLayers{};
-// The 256-voice ceiling is shared by all loaded layers. Recompute equal
-// per-layer quotas whenever a motor is added or removed. Remainder voices go
-// to the earliest occupied slots, so active-layer budgets sum to 256.
+constexpr int kLowPolyphonyEngineLimit = 32;
+
+std::array<int,kLayerCount> calculateLayerVoiceBudgets(
+        int overrideLayer = -1, EngineType overrideType = EngineType::empty)
+{
+    std::array<int,kLayerCount> budgets{};
+    std::array<bool,kLayerCount> eligible{};
+    int eligibleLayers=0;
+    for(int layer=0;layer<kLayerCount;++layer){
+        const EngineType type=layer==overrideLayer?overrideType:engineTypes[(size_t)layer];
+        eligible[(size_t)layer]=type!=EngineType::empty;
+        if(eligible[(size_t)layer])++eligibleLayers;
+    }
+
+    // Divide the 256-voice app pool fairly, but cap the DX7, Hammond and
+    // Minimoog-style analog engines at 32 voices each. Recompute the split
+    // after applying caps so SoundFont layers can use the released capacity.
+    int remainingVoices=kMaximumPolyphony;
+    while(eligibleLayers>0){
+        const int base=remainingVoices/eligibleLayers;
+        const int remainder=remainingVoices%eligibleLayers;
+        bool cappedAny=false;
+        int ordinal=0;
+        for(int layer=0;layer<kLayerCount;++layer){
+            const auto li=(size_t)layer;
+            if(!eligible[li])continue;
+            const EngineType type=layer==overrideLayer?overrideType:engineTypes[li];
+            const int fairShare=base+(ordinal<remainder?1:0);
+            ++ordinal;
+            const bool limited=type==EngineType::dx7||type==EngineType::analog||type==EngineType::hammond;
+            if(limited&&fairShare>kLowPolyphonyEngineLimit){
+                budgets[li]=kLowPolyphonyEngineLimit;
+                eligible[li]=false;
+                --eligibleLayers;
+                remainingVoices-=kLowPolyphonyEngineLimit;
+                cappedAny=true;
+            }
+        }
+        if(eligibleLayers==0)break;
+        if(cappedAny)continue;
+
+        ordinal=0;
+        for(int layer=0;layer<kLayerCount;++layer){
+            const auto li=(size_t)layer;
+            if(!eligible[li])continue;
+            budgets[li]=base+(ordinal<remainder?1:0);
+            ++ordinal;
+        }
+        break;
+    }
+    return budgets;
+}
+
+// The 256-voice ceiling is shared by all loaded layers. Recompute fair
+// per-layer quotas whenever a motor is added or removed. DX7, Hammond and
+// Moog-style analog layers are capped at 32; their unused share is redistributed.
 void distributeLayerVoiceBudgets()
 {
-    int activeLayers=0;
-    for(const auto type:engineTypes)if(type!=EngineType::empty)++activeLayers;
-    const int base=activeLayers>0?kMaximumPolyphony/activeLayers:0;
-    const int remainder=activeLayers>0?kMaximumPolyphony%activeLayers:0;
-    int ordinal=0;
+    const auto budgets=calculateLayerVoiceBudgets();
     for(int layer=0;layer<kLayerCount;++layer){
         const auto li=(size_t)layer;
+        const int budget=budgets[li];
         if(engineTypes[li]==EngineType::empty){layerVoiceBudgets[li]=0;continue;}
-        const int budget=base+(ordinal<remainder?1:0);
-        ++ordinal;
         int effectiveBudget=budget;
         if(engineTypes[li]==EngineType::dx7){
             // DX7 note objects are large enough that eagerly allocating 256
@@ -429,13 +477,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadDx7(
     if (start < 0) return JNI_FALSE;
     std::lock_guard<std::mutex> lock(synthMutex);
     initialiseDx();
-    int activeLayers=1, ordinal=0;
-    for(int i=0;i<kLayerCount;++i){
-        if(i==layer)continue;
-        if(engineTypes[(size_t)i]!=EngineType::empty){++activeLayers;if(i<layer)++ordinal;}
-    }
-    const int budget=kMaximumPolyphony/activeLayers+
-            (ordinal<kMaximumPolyphony%activeLayers?1:0);
+    const int budget=calculateLayerVoiceBudgets(layer,EngineType::dx7)[(size_t)layer];
     std::array<std::unique_ptr<Dx7Note>,kVoicePoolCapacity> preparedVoices{};
     try{
         for(int i=0;i<budget;++i)
