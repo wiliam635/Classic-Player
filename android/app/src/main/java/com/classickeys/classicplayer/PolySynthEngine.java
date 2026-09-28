@@ -244,8 +244,11 @@ final class PolySynthEngine {
                 nativeStopOutput();
                 if(!running)break;
                 int id=preferredDevice==null?0:preferredDevice.getId();
-                if(!nativeStartOutput(id,bufferFrames)&&!nativeStartOutput(0,bufferFrames)){
-                    outputError="Saída desconectada";running=false;break;
+                if(!nativeStartOutput(id,bufferFrames)){
+                    // Keep an explicitly selected USB keyboard/interface as
+                    // the route; never silently jump back to the tablet.
+                    outputError=preferredDevice==null?"Saída desconectada":"Interface USB desconectada";
+                    nativeOutputActive=false;running=false;break;
                 }
             }
         } catch(InterruptedException ignored){ }

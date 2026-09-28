@@ -52,6 +52,29 @@ void closeOutput() {
     if(stream){stream->requestStop();stream->close();stream.reset();}
     callback.reset();
 }
+
+oboe::Result openOutputStream(jint deviceId, oboe::SharingMode sharingMode,
+                              const std::shared_ptr<OutputCallback>& dataCallback,
+                              std::shared_ptr<oboe::AudioStream>& openedStream) {
+    oboe::AudioStreamBuilder builder;
+    builder.setDirection(oboe::Direction::Output);
+    builder.setFormat(oboe::AudioFormat::I16);
+    builder.setChannelCount(2);
+    // Keep the synth at 48 kHz and let Android's shared route convert for USB
+    // devices that expose a different native rate.
+    builder.setSampleRate(48000);
+    builder.setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium);
+    builder.setFormatConversionAllowed(true);
+    builder.setChannelConversionAllowed(true);
+    builder.setPerformanceMode(oboe::PerformanceMode::LowLatency);
+    builder.setSharingMode(sharingMode);
+    builder.setUsage(oboe::Usage::Game);
+    builder.setContentType(oboe::ContentType::Music);
+    if(deviceId>0)builder.setDeviceId(deviceId);
+    builder.setDataCallback(dataCallback);
+    builder.setErrorCallback(dataCallback);
+    return builder.openStream(openedStream);
+}
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -59,24 +82,14 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeStartOutput(JNIEnv*,jcl
     std::lock_guard<std::mutex> lock(outputMutex);
     closeOutput();
     auto nextCallback=std::make_shared<OutputCallback>();
-    oboe::AudioStreamBuilder builder;
-    builder.setDirection(oboe::Direction::Output);
-    builder.setFormat(oboe::AudioFormat::I16);
-    builder.setChannelCount(2);
-    // DSP remains at 48 kHz. Oboe negotiates the hardware rate and performs
-    // conversion itself, avoiding the platform's high-latency resampling path.
-    builder.setSampleRate(48000);
-    builder.setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium);
-    builder.setFormatConversionAllowed(true);
-    builder.setChannelConversionAllowed(true);
-    builder.setPerformanceMode(oboe::PerformanceMode::LowLatency);
-    builder.setSharingMode(oboe::SharingMode::Exclusive);
-    builder.setUsage(oboe::Usage::Game);
-    builder.setContentType(oboe::ContentType::Music);
-    builder.setDeviceId(deviceId);
-    builder.setDataCallback(nextCallback);
-    builder.setErrorCallback(nextCallback);
-    auto result=builder.openStream(stream);
+    // Try direct low-latency access first. Many class-compliant USB outputs
+    // (including keyboards) reject exclusive mode, so retry the same device
+    // through Android's shared low-latency route before falling back to Java.
+    auto result=openOutputStream(deviceId,oboe::SharingMode::Exclusive,nextCallback,stream);
+    if(result!=oboe::Result::OK){
+        if(stream){stream->close();stream.reset();}
+        result=openOutputStream(deviceId,oboe::SharingMode::Shared,nextCallback,stream);
+    }
     if(result!=oboe::Result::OK){stream.reset();return JNI_FALSE;}
     // OpenSL ES cannot select an explicit USB device. Let the Java fallback
     // preserve that selection rather than silently routing to the speaker.

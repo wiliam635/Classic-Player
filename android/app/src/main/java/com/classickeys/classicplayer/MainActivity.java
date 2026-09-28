@@ -347,7 +347,7 @@ public final class MainActivity extends Activity {
         final int[] frames={128,256,512,1024,2048};
         String[] labels={"Mínimo pedido · 128 frames","Mínimo pedido · 256 frames","Mínimo pedido · 512 frames","Mínimo pedido · 1024 frames","Mínimo pedido · 2048 frames"};
         int selected=2;for(int i=0;i<frames.length;i++)if(frames[i]==audioEngine.bufferFrames())selected=i;
-        new AlertDialog.Builder(this).setTitle("Buffer alvo · ajustado pelo burst real")
+        new AlertDialog.Builder(this).setTitle("BUFFER DE SAÍDA")
             .setMessage("O app pede pelo menos 2 bursts do dispositivo para reduzir falhas. O tamanho efetivo e a latência estimada aparecem em ÁUDIO/MIDI.")
             .setSingleChoiceItems(labels,selected,(dialog,which)->{
                 audioEngine.setBufferFrames(frames[which]);
@@ -1320,7 +1320,7 @@ public final class MainActivity extends Activity {
                 button(canvas, "MIDI LEARN · VOLUME", 52, h*.59f, actionRight, h*.66f, pendingLearnTarget>=0);
                 button(canvas, "PARAR TODAS AS NOTAS", 52, h*.69f, actionRight, h*.76f, false);
                 button(canvas, "VOLTAR AO MIXER", 52, h*.79f, actionRight, h*.86f, false);
-                button(canvas, "BUFFER · "+audioEngine.bufferFrames()+" FRAMES",w*.48f,h*.59f,w-52,h*.66f,false);
+                button(canvas, "AJUSTAR BUFFER · "+audioEngine.bufferFrames()+" FRAMES",w*.48f,h*.59f,w-52,h*.66f,false);
                 text(canvas,audioEngine.outputStatus(),w*.48f,h*.71f,h*.018f,text);
                 text(canvas,audioEngine.outputMode(),w*.48f,h*.75f,h*.016f,text);
                 text(canvas,audioEngine.outputLatency(),w*.48f,h*.79f,h*.016f,text);
