@@ -22,8 +22,9 @@ Download **Android-emulator-audio-report**, including on failed runs:
   automatic proof of clicks or DSP overload.
 - `mixer.png` and `logcat.txt` help diagnose launch/layout/native crashes.
 
-The SF2 fixture is a small original generated sine sample, not a representative
-large piano bank. DX7 uses the existing bundled bank. A failure in pedal release
+The SF2 fixtures are small original generated sine samples, including a paired
+SoundFont 2.04 `sm24` precision test; they are not representative large piano
+banks. DX7 uses the existing bundled bank. A failure in pedal release
 is expected until the identified routed-note bookkeeping defect is fixed; do not
 weaken the assertion to make the report green. The suite establishes a baseline
 without changing synthesis, sustain or polyphony settings in the shipping app.

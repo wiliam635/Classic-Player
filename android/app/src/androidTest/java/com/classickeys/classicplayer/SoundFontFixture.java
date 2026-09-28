@@ -39,10 +39,21 @@ final class SoundFontFixture {
         u32(out, 48000); out.write(60); out.write(0); u16(out, 0); u16(out, 1);
     }
     static void write(File file) throws IOException {
+        write(file, false, 0);
+    }
+    static void write24(File file, int lowerByte) throws IOException {
+        write(file, true, lowerByte);
+    }
+    private static void write(File file, boolean use24BitSamples, int lowerByte) throws IOException {
         int length = 2048;
         ByteArrayOutputStream samples = new ByteArrayOutputStream();
         for (int i = 0; i < length; i++) u16(samples, (int)(12000 * Math.sin(2 * Math.PI * 11 * i / length)));
         for (int i = 0; i < 46; i++) u16(samples, 0);
+        ByteArrayOutputStream lowBytes = new ByteArrayOutputStream();
+        if (use24BitSamples) {
+            for (int i = 0; i < length; i++) lowBytes.write(lowerByte & 255);
+            for (int i = 0; i < 46; i++) lowBytes.write(0);
+        }
         ByteArrayOutputStream phdr = new ByteArrayOutputStream();
         preset(phdr, "Regression sine", 0); preset(phdr, "EOP", 1);
         ByteArrayOutputStream inst = new ByteArrayOutputStream();
@@ -50,10 +61,12 @@ final class SoundFontFixture {
         ByteArrayOutputStream shdr = new ByteArrayOutputStream();
         sample(shdr, "Sine", length); sample(shdr, "EOS", 0);
         ByteArrayOutputStream body = new ByteArrayOutputStream(); text(body, "sfbk");
-        body.write(list("INFO", chunk("ifil", new byte[]{2, 0, 1, 0}),
+        body.write(list("INFO", chunk("ifil", use24BitSamples ? new byte[]{2, 0, 4, 0} : new byte[]{2, 0, 1, 0}),
                 chunk("isng", "EMU8000\0".getBytes(StandardCharsets.US_ASCII)),
                 chunk("INAM", "Regression\0".getBytes(StandardCharsets.US_ASCII))));
-        body.write(list("sdta", chunk("smpl", samples.toByteArray())));
+        body.write(use24BitSamples
+                ? list("sdta", chunk("smpl", samples.toByteArray()), chunk("sm24", lowBytes.toByteArray()))
+                : list("sdta", chunk("smpl", samples.toByteArray())));
         body.write(list("pdta", chunk("phdr", phdr.toByteArray()),
                 chunk("pbag", new byte[]{0,0,0,0, 1,0,0,0}), chunk("pmod", new byte[10]),
                 chunk("pgen", new byte[]{41,0,0,0, 0,0,0,0}), chunk("inst", inst.toByteArray()),

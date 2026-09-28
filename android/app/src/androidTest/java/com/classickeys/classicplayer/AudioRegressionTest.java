@@ -183,6 +183,41 @@ public class AudioRegressionTest {
                 + ",\"loadMs\":" + elapsed / 1e6 + "}");
     }
 
+    @Test public void soundFont24BitLowBytesAffectRenderedPcm() throws Exception {
+        File lowZero = new File(context.getCacheDir(), "regression-24bit-low-zero.sf2");
+        File lowFull = new File(context.getCacheDir(), "regression-24bit-low-full.sf2");
+        SoundFontFixture.write24(lowZero, 0);
+        SoundFontFixture.write24(lowFull, 255);
+
+        short[] zeroOutput = renderSoundFont(lowZero);
+        short[] fullOutput = renderSoundFont(lowFull);
+        int differingSamples = 0;
+        for (int i = 0; i < zeroOutput.length; i++) {
+            if (zeroOutput[i] != fullOutput[i]) differingSamples++;
+        }
+        assertTrue("SF2.04 sm24 low bytes were ignored", differingSamples > 0);
+        report("sf2-24bit", "{\"lowByteVariants\":2,\"differingPcmSamples\":" + differingSamples + "}");
+    }
+
+    private short[] renderSoundFont(File font) throws Exception {
+        engine.allNotesOff();
+        engine.clearLayer(0);
+        assertTrue("Could not load test SoundFont " + font.getName(), engine.loadLayer(0, font.getAbsolutePath()));
+        engine.setMaster(1.0f);
+        engine.setMasterEffects(0, 0);
+        engine.setLayerGain(0, 1.0f);
+        engine.setLayerEnvelope(0, .005f, .05f);
+        engine.setLayerTone(0, 100, 0, 0, 0);
+        engine.setLayerEq(0, 0, 0, 0, 220, 1200, 4200, .707f, 1, .707f, 20, 20000);
+        engine.setLayerRouting(0, -1, 0, 0, 127, 0, true, 0);
+        assertTrue(engine.setPreset(0, 0));
+        engine.noteOn(60, 127, 0);
+        short[] output = pcm(4096);
+        engine.noteOff(60, 0);
+        pcm(RATE * 2);
+        return output;
+    }
+
     @Test public void failedSoundFontImportPreservesLayer() throws Exception {
         activate(1, 0);
         assertFalse(engine.loadLayer(0, new File(context.getCacheDir(), "missing-font.sf2").getAbsolutePath()));
