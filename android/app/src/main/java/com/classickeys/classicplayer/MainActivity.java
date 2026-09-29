@@ -143,10 +143,11 @@ public final class MainActivity extends Activity {
             if(pendingLayerLearn>=0&&pendingLayerLearnTarget>=0){
                 int layer=pendingLayerLearn,target=pendingLayerLearnTarget;
                 pendingLayerLearn=-1;pendingLayerLearnTarget=-1;
-                getSharedPreferences("midi_learn",MODE_PRIVATE).edit().putInt("layer_"+layer+"_"+target,first).apply();
+                boolean relative=(second==1||second==127);
+                getSharedPreferences("midi_learn",MODE_PRIVATE).edit().putInt("layer_"+layer+"_"+target,first).putBoolean("layer_"+layer+"_"+target+"_relative",relative).apply();
                 Button learnedButton=pendingLayerLearnButton;pendingLayerLearnButton=null;
                 runOnUiThread(()->{if(learnedButton!=null)learnedButton.setText("CC "+first);});
-                screen.setMidiStatus("MIDI: layer "+(layer+1)+" CC "+first+" aprendido");return;
+                screen.setMidiStatus("MIDI: layer "+(layer+1)+" CC "+first+(relative?" relativo":" absoluto")+" aprendido");return;
             }
             if(pendingPadCcLearn>=0&&first!=64){
                 getSharedPreferences("pads",MODE_PRIVATE).edit().putInt(pendingPadCcLearn==12?"pad_stop_cc":"pad_cc_"+pendingPadCcLearn,first).apply();
@@ -210,15 +211,24 @@ public final class MainActivity extends Activity {
     }
 
     private void applyLayerMidiLearn(int layer,int target,int value){
+        if(android.os.Looper.myLooper()!=Looper.getMainLooper()){
+            mainHandler.post(()->applyLayerMidiLearn(layer,target,value));return;
+        }
+        SharedPreferences mappings=getSharedPreferences("midi_learn",MODE_PRIVATE);
+        boolean relative=target!=4&&mappings.getBoolean("layer_"+layer+"_"+target+"_relative",false);
+        float step=relative?(value>0&&value<64?value:value>64?-(128-value):0)/127f:0;
         switch(target){
-            case 0:screen.setLearnedVolume(layer,value/127f);break;
-            case 1:screen.setLayerTone(layer,value*100f/127f,screen.layerReverb[layer],screen.layerCompMix[layer],screen.layerChorus[layer]);break;
-            case 2:screen.setLayerTone(layer,screen.layerCutoff[layer],value/127f,screen.layerCompMix[layer],screen.layerChorus[layer]);break;
-            case 3:screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],value/127f,screen.layerChorus[layer]);break;
+            case 0:screen.setLearnedVolume(layer,relative?clamp01(screen.layerVolumes[layer]+step):value/127f);break;
+            case 1:screen.setLayerTone(layer,relative?clamp100(screen.layerCutoff[layer]+step*100):value*100f/127f,screen.layerReverb[layer],screen.layerCompMix[layer],screen.layerChorus[layer]);break;
+            case 2:screen.setLayerTone(layer,screen.layerCutoff[layer],relative?clamp01(screen.layerReverb[layer]+step):value/127f,screen.layerCompMix[layer],screen.layerChorus[layer]);break;
+            case 3:screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],relative?clamp01(screen.layerCompMix[layer]+step):value/127f,screen.layerChorus[layer]);break;
             case 4:setLayerMuted(layer,value>=64);break;
         }
-        screen.setMidiStatus("MIDI: CC aplicado à layer "+(layer+1));
+        screen.setMidiStatus("MIDI: CC "+(relative?"relativo":"aplicado")+" à layer "+(layer+1)+" · valor "+value);
     }
+
+    private static float clamp01(float value){return Math.max(0f,Math.min(1f,value));}
+    private static float clamp100(float value){return Math.max(0f,Math.min(100f,value));}
 
     private void panicMidiState() {
         for (int channel = 0; channel < 16; channel++)
@@ -912,8 +922,11 @@ public final class MainActivity extends Activity {
                     SharedPreferences pads=getSharedPreferences("pads",MODE_PRIVATE);e.putFloat(root+"_pad_fade",pads.getFloat("crossfade_seconds",1f)).putInt(root+"_pad_stop_cc",pads.getInt("pad_stop_cc",-1));for(int pad=0;pad<12;pad++){e.putString(root+"_drum_pad_"+pad,pads.getString(padSampleKey(false,pad),null)).putString(root+"_continuous_pad_"+pad,pads.getString(padSampleKey(true,pad),null)).putString(root+"_drum_pad_name_"+pad,pads.getString(padNameKey(false,pad),null)).putString(root+"_continuous_pad_name_"+pad,pads.getString(padNameKey(true,pad),null)).putInt(root+"_pad_note_"+pad,pads.getInt("pad_note_"+pad,36+pad)).putInt(root+"_pad_cc_"+pad,pads.getInt("pad_cc_"+pad,-1));}
                     e.putInt(root+"_version",8).putFloat(root+"_reverb",screen.masterReverb).putFloat(root+"_chorus",screen.masterChorus);
                     SharedPreferences midiLearn=getSharedPreferences("midi_learn",MODE_PRIVATE);
-                    for(int layer=0;layer<6;layer++)for(int target=0;target<5;target++)
-                        e.putInt(root+"_learn_"+layer+"_"+target,midiLearn.getInt("layer_"+layer+"_"+target,-1));
+                    for(int layer=0;layer<6;layer++)for(int target=0;target<5;target++){
+                        String key="layer_"+layer+"_"+target;
+                        e.putInt(root+"_learn_"+layer+"_"+target,midiLearn.getInt(key,-1))
+                                .putBoolean(root+"_learn_relative_"+layer+"_"+target,midiLearn.getBoolean(key+"_relative",false));
+                    }
                     for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";
                         e.putFloat(p+"attack",screen.layerAttack[layer]).putFloat(p+"release",screen.layerRelease[layer]).putFloat(p+"eqLow",screen.eqLow[layer]).putFloat(p+"eqMid",screen.eqMid[layer]).putFloat(p+"eqHigh",screen.eqHigh[layer])
                          .putFloat(p+"eqLowFreq",screen.eqLowFreq[layer]).putFloat(p+"eqMidFreq",screen.eqMidFreq[layer]).putFloat(p+"eqHighFreq",screen.eqHighFreq[layer]).putFloat(p+"eqLowQ",screen.eqLowQ[layer]).putFloat(p+"eqMidQ",screen.eqMidQ[layer]).putFloat(p+"eqHighQ",screen.eqHighQ[layer]).putFloat(p+"eqHighPass",screen.eqHighPass[layer]).putFloat(p+"eqLowPass",screen.eqLowPass[layer])
@@ -942,6 +955,7 @@ public final class MainActivity extends Activity {
             for(int layer=0;layer<6;layer++)for(int target=0;target<5;target++){
                 int cc=live.getInt(root+"_learn_"+layer+"_"+target,-1);String key="layer_"+layer+"_"+target;
                 if(cc<0)learned.remove(key);else learned.putInt(key,cc);
+                learned.putBoolean(key+"_relative",cc>=0&&live.getBoolean(root+"_learn_relative_"+layer+"_"+target,false));
             }learned.apply();}
         for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";e.putInt("engine_"+layer,live.getInt(p+"engine",0)).putString("sf2_"+layer,live.getString(p+"sf2",null)).putString("dx7_"+layer,live.getString(p+"dx7",null)).putString("name_"+layer,live.getString(p+"name",null)).putInt("preset_"+layer,live.getInt(p+"preset",0)).putInt("dx7_patch_"+layer,live.getInt(p+"dx7_patch",0)).putInt("analog_preset_"+layer,live.getInt(p+"analog",0)).putInt("hammond_preset_"+layer,live.getInt(p+"hammond",0))
             .putFloat("control_volume_"+layer,live.getFloat(p+"volume",screen.layerVolumes[layer])).putFloat("control_pan_"+layer,live.getFloat(p+"pan",0)).putBoolean("muted_"+layer,live.getBoolean(p+"muted",false)).putBoolean("solo_"+layer,live.getBoolean(p+"solo",false))
@@ -1447,7 +1461,7 @@ public final class MainActivity extends Activity {
             json.put("routeChannel",screen.routeChannel[layer]).put("routeOctave",screen.routeOctave[layer]).put("routeVelocity",screen.routeVelocity[layer]).put("routeMode",screen.routeMode[layer]).put("routeSustain",screen.routeSustain[layer]);
             json.put("hammondLeslie",screen.hammondLeslie[layer]).put("hammondPercussion",screen.hammondPercussion[layer]);for(int i=0;i<9;i++)json.put("hammondBar"+i,screen.hammondBars[layer][i]);for(int i=0;i<4;i++)json.put("hammondExtra"+i,screen.hammondExtras[layer][i]);
             json.put("analogPink",screen.analogPinkNoise[layer]).put("analogMono",screen.analogMonophonic[layer]).put("analogOsc1Tune",screen.analogOsc1Tune[layer]);for(int i=0;i<19;i++)json.put("analogControl"+i,screen.analogControls[layer][i]);for(int i=0;i<3;i++)json.put("analogWave"+i,screen.analogWaves[layer][i]).put("analogEnabled"+i,screen.analogOscillatorEnabled[layer][i]);
-            JSONObject learn=new JSONObject();SharedPreferences cc=getSharedPreferences("midi_learn",MODE_PRIVATE);for(int i=0;i<5;i++)learn.put("cc"+i,cc.getInt("layer_"+layer+"_"+i,-1));json.put("midiLearn",learn);
+            JSONObject learn=new JSONObject();SharedPreferences cc=getSharedPreferences("midi_learn",MODE_PRIVATE);for(int i=0;i<5;i++){String key="layer_"+layer+"_"+i;learn.put("cc"+i,cc.getInt(key,-1)).put("relative"+i,cc.getBoolean(key+"_relative",false));}json.put("midiLearn",learn);
             pendingLayerPresetJson=json.toString(2);pendingLayerPresetLayer=layer;Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/json").putExtra(Intent.EXTRA_TITLE,"Classic Player Layer "+(layer+1)+".json");startActivityForResult(intent,722);
         }catch(Exception ignored){new AlertDialog.Builder(this).setMessage("Não foi possível preparar o preset da layer.").setPositiveButton("OK",null).show();}
     }
@@ -1481,7 +1495,7 @@ public final class MainActivity extends Activity {
         boolean requestedMute=json.optBoolean("mute",false);screen.solo[layer]=json.optBoolean("solo",false);prefs.edit().putBoolean("solo_"+layer,screen.solo[layer]).apply();
         if(engine.equals("HAMMOND")){screen.hammondLeslie[layer]=json.optInt("hammondLeslie",screen.hammondLeslie[layer]);screen.hammondPercussion[layer]=json.optInt("hammondPercussion",screen.hammondPercussion[layer]);for(int i=0;i<9;i++)screen.hammondBars[layer][i]=json.optInt("hammondBar"+i,screen.hammondBars[layer][i]);for(int i=0;i<4;i++)screen.hammondExtras[layer][i]=(float)json.optDouble("hammondExtra"+i,screen.hammondExtras[layer][i]);screen.persistHammond(layer);screen.applyHammond(layer);}
         if(engine.equals("ANALOG")){screen.setAnalogOsc1Tune(layer,(float)json.optDouble("analogOsc1Tune",screen.analogOsc1Tune[layer]));for(int i=0;i<19;i++)screen.setAnalogControl(layer,i,(float)json.optDouble("analogControl"+i,screen.analogControls[layer][i]));for(int i=0;i<3;i++){screen.setAnalogWave(layer,i,json.optInt("analogWave"+i,screen.analogWaves[layer][i]));screen.setAnalogOption(layer,i,json.optBoolean("analogEnabled"+i,screen.analogOscillatorEnabled[layer][i]));}screen.setAnalogOption(layer,3,json.optBoolean("analogPink",screen.analogPinkNoise[layer]));screen.setAnalogOption(layer,4,json.optBoolean("analogMono",screen.analogMonophonic[layer]));}
-        JSONObject learn=json.optJSONObject("midiLearn");if(learn!=null){SharedPreferences.Editor cc=getSharedPreferences("midi_learn",MODE_PRIVATE).edit();for(int i=0;i<5;i++){int value=learn.optInt("cc"+i,-1);if(value<0)cc.remove("layer_"+layer+"_"+i);else cc.putInt("layer_"+layer+"_"+i,value);}cc.apply();}
+        JSONObject learn=json.optJSONObject("midiLearn");if(learn!=null){SharedPreferences.Editor cc=getSharedPreferences("midi_learn",MODE_PRIVATE).edit();for(int i=0;i<5;i++){String key="layer_"+layer+"_"+i;int value=learn.optInt("cc"+i,-1);if(value<0)cc.remove(key);else cc.putInt(key,value);cc.putBoolean(key+"_relative",value>=0&&learn.optBoolean("relative"+i,false));}cc.apply();}
         setLayerMuted(layer,requestedMute);screen.applyLayerGains();screen.invalidate();
     }
 
