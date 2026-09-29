@@ -576,6 +576,12 @@ public final class MainActivity extends Activity {
         final String engine = screen.engineName(layer);
         EditorUi.Panel panel=new EditorUi.Panel(this,"LAYER "+(layer+1)+" · "+engine,"Escolha o que deseja ajustar.");
         String[] actions={"EDITAR MOTOR ATUAL","TROCAR MOTOR","LIMPAR LAYER"};for(int i=0;i<actions.length;i+=2){LinearLayout row=EditorUi.gridRow(panel.body);for(int j=i;j<Math.min(i+2,actions.length);j++){final int action=j;Button b=EditorUi.button(this,actions[action],()->{panel.dialog.dismiss();if(action==1){panicAndChooseLayerSource(layer);return;}if(action==2){clearLayer(layer);return;}openLayerEditor(layer);});row.addView(b,new LinearLayout.LayoutParams(0,EditorUi.dp(this,30),1));}}
+        LinearLayout move=EditorUi.gridRow(panel.body);
+        Button left=EditorUi.button(this,"← MOVER LAYER",()->{screen.moveLayer(layer,-1);panel.dialog.dismiss();});
+        Button right=EditorUi.button(this,"MOVER LAYER →",()->{screen.moveLayer(layer,1);panel.dialog.dismiss();});
+        left.setEnabled(screen.canMoveLayer(layer,-1));right.setEnabled(screen.canMoveLayer(layer,1));
+        move.addView(left,new LinearLayout.LayoutParams(0,EditorUi.dp(this,30),1));
+        move.addView(right,new LinearLayout.LayoutParams(0,EditorUi.dp(this,30),1));
         EditorUi.addButton(panel.footer,"FECHAR",panel.dialog::dismiss);panel.show();
     }
 
@@ -865,6 +871,7 @@ public final class MainActivity extends Activity {
                         for(int osc=0;osc<3;osc++)e.putInt(p+"analogWave"+osc,screen.analogWaves[layer][osc]).putBoolean(p+"analogEnabled"+osc,screen.analogOscillatorEnabled[layer][osc]);
                         e.putBoolean(p+"analogPink",screen.analogPinkNoise[layer]).putBoolean(p+"analogMono",screen.analogMonophonic[layer]);
                     }
+                    for(int position=0;position<6;position++)e.putInt(root+"_layer_order_"+position,screen.layerOrder[position]);
                     String name=input.getText().toString().trim();if(name.isEmpty())name="PROGRAMA "+(slot+1);e.putBoolean(root+"_valid",true).putString(root+"_name",name).apply();screen.setLiveName(slot,name);
                 }).setNegativeButton("CANCELAR",null).show();
     }
@@ -890,6 +897,7 @@ public final class MainActivity extends Activity {
             for(int osc=0;osc<3;osc++)e.putInt("analog_wave_"+layer+"_"+osc,live.getInt(p+"analogWave"+osc,screen.analogWaves[layer][osc])).putBoolean("analog_enabled_"+layer+"_"+osc,live.getBoolean(p+"analogEnabled"+osc,screen.analogOscillatorEnabled[layer][osc]));
             e.putBoolean("analog_pink_"+layer,live.getBoolean(p+"analogPink",screen.analogPinkNoise[layer])).putBoolean("analog_mono_"+layer,live.getBoolean(p+"analogMono",screen.analogMonophonic[layer]));
         }
+        for(int position=0;position<6;position++)e.putInt("layer_order_"+position,live.getInt(root+"_layer_order_"+position,screen.layerOrder[position]));
         e.apply();screen.masterVolume=live.getFloat(root+"_master",screen.masterVolume);SharedPreferences.Editor pads=getSharedPreferences("pads",MODE_PRIVATE).edit().putFloat("crossfade_seconds",live.getFloat(root+"_pad_fade",1f)).putInt("pad_stop_cc",live.getInt(root+"_pad_stop_cc",-1));for(int pad=0;pad<12;pad++){String path=live.getString(root+"_pad_"+pad,null);if(path==null)pads.remove("pad_"+pad);else pads.putString("pad_"+pad,path);pads.putInt("pad_note_"+pad,live.getInt(root+"_pad_note_"+pad,36+pad)).putInt("pad_cc_"+pad,live.getInt(root+"_pad_cc_"+pad,-1));}pads.apply();recreate();
     }
 
@@ -1388,6 +1396,7 @@ public final class MainActivity extends Activity {
         private int selected = 0;
         private boolean savingLiveSlot;
         private int liveBank;
+        private final int[] layerOrder={0,1,2,3,4,5};
         private final float[] layerVolumes = {0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f};
         private final float[] layerPan={0,0,0,0,0,0};
         private final float[] layerAttack = {0.005f,0.005f,0.005f,0.005f,0.005f,0.005f};
@@ -1418,7 +1427,35 @@ public final class MainActivity extends Activity {
         private final String[] presetNames = {"", "", "", "", "", ""};
         private final String[] engineNames = {"VAZIA", "VAZIA", "VAZIA", "VAZIA", "VAZIA", "VAZIA"};
 
-        ClassicPlayerView(Context context) { super(context); paint.setTypeface(android.graphics.Typeface.create("sans", 1)); loadLayerPreferences();loadLiveNames(); }
+        ClassicPlayerView(Context context) { super(context); paint.setTypeface(android.graphics.Typeface.create("sans", 1)); loadLayerOrder();loadLayerPreferences();loadLiveNames(); }
+        private void loadLayerOrder(){
+            SharedPreferences prefs=getSharedPreferences("layers",MODE_PRIVATE);boolean[] seen=new boolean[6];
+            for(int position=0;position<layerOrder.length;position++){
+                int layer=prefs.getInt("layer_order_"+position,position);
+                if(layer<0||layer>=layerOrder.length||seen[layer]){
+                    for(int i=0;i<layerOrder.length;i++)layerOrder[i]=i;
+                    return;
+                }
+                seen[layer]=true;layerOrder[position]=layer;
+            }
+        }
+        private int orderPosition(int layer){for(int i=0;i<layerOrder.length;i++)if(layerOrder[i]==layer)return i;return -1;}
+        boolean canMoveLayer(int layer,int direction){
+            int position=orderPosition(layer);
+            if(position<0||"VAZIA".equals(engineNames[layer]))return false;
+            for(int i=position+direction;i>=0&&i<layerOrder.length;i+=direction)
+                if(!"VAZIA".equals(engineNames[layerOrder[i]]))return true;
+            return false;
+        }
+        void moveLayer(int layer,int direction){
+            if(!canMoveLayer(layer,direction))return;
+            int position=orderPosition(layer),other=position+direction;
+            while("VAZIA".equals(engineNames[layerOrder[other]]))other+=direction;
+            int moved=layerOrder[position];layerOrder[position]=layerOrder[other];layerOrder[other]=moved;
+            SharedPreferences.Editor prefs=getSharedPreferences("layers",MODE_PRIVATE).edit();
+            for(int i=0;i<layerOrder.length;i++)prefs.putInt("layer_order_"+i,layerOrder[i]);
+            prefs.apply();invalidate();
+        }
         private void loadLayerPreferences(){SharedPreferences p=getSharedPreferences("layers",MODE_PRIVATE);for(int i=0;i<6;i++){
             setAnalogPresetValues(i,p.getInt("analog_preset_"+i,0));
             for(int c=0;c<19;c++)analogControls[i][c]=p.getFloat("analog_control_"+i+"_"+c,analogControls[i][c]);
@@ -1543,7 +1580,8 @@ public final class MainActivity extends Activity {
             paint.setColor(Color.rgb(5,13,19)); canvas.drawRoundRect(x - 7, top, x + 7, bottom, 5, 5, paint);
             paint.setColor(Color.rgb(46, 66, 79)); canvas.drawRoundRect(x - 2, top + 4, x + 2, bottom - 4, 2, 2, paint);
             float knobY = bottom - (bottom - top) * value;
-            float thumbHalfWidth=Math.min(cardW*.24f,getWidth()*.0275f);
+            // Desktop fader grip is narrow even on the wider pad strips.
+            float thumbHalfWidth=Math.min(cardW*.24f,getHeight()*.016f);
             paint.setColor(Color.rgb(210,219,223)); canvas.drawRoundRect(x-thumbHalfWidth, knobY-12, x+thumbHalfWidth, knobY+12, 4, 4, paint);
             paint.setColor(Color.rgb(95,107,113));
             for (int line = -6; line <= 6; line += 4) canvas.drawRect(x-thumbHalfWidth*.83f, knobY+line, x+thumbHalfWidth*.83f, knobY+line+1.5f, paint);
@@ -1653,7 +1691,7 @@ public final class MainActivity extends Activity {
             return count;
         }
         private int activeLayerAt(int position) {
-            for (int i = 0; i < engineNames.length; i++) {
+            for (int i : layerOrder) {
                 if (!"VAZIA".equals(engineNames[i]) && position-- == 0) return i;
             }
             return -1;
