@@ -60,6 +60,15 @@ public class MidiLearnRegressionTest {
         assertEquals(127,messages.get(1).data2);
     }
 
+    @Test public void parserResetPreventsStaleRunningStatusAcrossConnections() {
+        accept(new byte[]{(byte)0xb4,72}, 1);
+        parser.reset();
+        accept(new byte[]{1,72,2}, 2);
+        assertTrue(messages.isEmpty());
+        accept(new byte[]{(byte)0xb4,72,3}, 3);
+        assertEquals(1,messages.size());assertEquals(3,messages.get(0).data2);
+    }
+
     @Test public void noteOnOffAndRunningStatusAreParsedAcrossCalls() {
         accept(new byte[]{(byte)0x94,60}, 10);
         accept(new byte[]{100,60,0,61,127,61,0}, 11);
