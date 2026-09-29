@@ -850,13 +850,13 @@ public final class MainActivity extends Activity {
     private void showPadEditorScreen(final int layer, final boolean continuous) {
         final int padCount=continuous?12:8;
         final int padColumns=continuous?3:2;
-        final EditorUi.Panel panel=new EditorUi.Panel(this,(continuous?"PADS CONTÍNUOS":"DRUM PADS")+" · LAYER "+(layer+1),padCount+" pads · toque para tocar · LOAD substitui o áudio");
+        final EditorUi.Panel panel=new EditorUi.Panel(this,(continuous?"PADS CONTÍNUOS":"DRUM PADS")+" · LAYER "+(layer+1),padCount+" pads · toque para tocar · LOAD à esquerda · LIMPAR à direita");
         String[] tabs=continuous?new String[]{"PADS","MIDI","CROSSFADE / EQ"}:new String[]{"PADS","MIDI","CONFIGURAÇÕES"};
         class PadNav{void show(int page){panel.setTabs(tabs,page,this::show);panel.body.removeAllViews();
             if(page==0){
                 for(int rowIndex=0;rowIndex<4;rowIndex++){LinearLayout row=EditorUi.gridRow(panel.body);for(int col=0;col<padColumns;col++){final int pad=rowIndex*padColumns+col;LinearLayout cell=EditorUi.column(MainActivity.this);cell.setPadding(EditorUi.dp(MainActivity.this,2),EditorUi.dp(MainActivity.this,2),EditorUi.dp(MainActivity.this,2),EditorUi.dp(MainActivity.this,2));
                     boolean loaded=padEngine.loaded(pad,continuous);String padName=padEngine.name(pad,continuous);Button trigger=EditorUi.button(MainActivity.this,loaded?padName:"PAD "+(pad+1),()->{if(padEngine.loaded(pad,continuous))padEngine.trigger(pad,continuous);else openPadPicker(pad,continuous);});if(loaded)stylePadTrigger(trigger,pad);row.addView(cell,new LinearLayout.LayoutParams(0,-2,1));cell.addView(trigger,new LinearLayout.LayoutParams(-1,EditorUi.dp(MainActivity.this,36)));
-                    LinearLayout controls=EditorUi.gridRow(cell);Button load=EditorUi.button(MainActivity.this,"LOAD",()->openPadPicker(pad,continuous));Button learn=EditorUi.button(MainActivity.this,"LEARN",()->beginPadMappingLearn(pad,continuous));controls.addView(load,new LinearLayout.LayoutParams(0,EditorUi.dp(MainActivity.this,27),1));controls.addView(learn,new LinearLayout.LayoutParams(0,EditorUi.dp(MainActivity.this,27),1));
+                    LinearLayout controls=EditorUi.gridRow(cell);Button load=EditorUi.button(MainActivity.this,"LOAD",()->openPadPicker(pad,continuous));Button clear=EditorUi.button(MainActivity.this,"LIMPAR",()->{clearPadAudio(pad,continuous);trigger.setText("PAD "+(pad+1));trigger.setBackground(EditorUi.background(0xff1d2c35));trigger.setTextColor(EditorUi.TEXT);});controls.addView(load,new LinearLayout.LayoutParams(0,EditorUi.dp(MainActivity.this,27),1));controls.addView(clear,new LinearLayout.LayoutParams(0,EditorUi.dp(MainActivity.this,27),1));
                 }}
                 if(continuous){
                     LinearLayout actions=EditorUi.gridRow(panel.body);EditorUi.addButton(actions,"STOP",()->padEngine.stopAll(true));
@@ -885,6 +885,20 @@ public final class MainActivity extends Activity {
         states.addState(new int[]{android.R.attr.state_pressed},EditorUi.background(0xffffd84a));
         states.addState(new int[]{},EditorUi.background(padColour(pad)));
         button.setBackground(states);button.setTextColor(Color.rgb(21,25,29));
+    }
+    private void clearPadAudio(int pad,boolean continuous){
+        if(pad<0||pad>=12)return;
+        SharedPreferences prefs=getSharedPreferences("pads",MODE_PRIVATE);
+        String key=padSampleKey(continuous,pad),path=prefs.getString(key,null);
+        prefs.edit().remove(key).remove(padNameKey(continuous,pad)).apply();
+        if(padEngine!=null)padEngine.load(pad,null,continuous,null);
+        if(path!=null)try{
+            File cached=new File(path).getCanonicalFile();
+            File expected=new File(new File(new File(getFilesDir(),"pads"),continuous?"continuous":"drum"),"pad-"+pad+".audio").getCanonicalFile();
+            if(cached.equals(expected))cached.delete();
+        }catch(IOException ignored){}
+        screen.invalidate();
+        screen.setAudioStatus("ÁUDIO: PAD "+(pad+1)+" limpo");
     }
     private void beginPadMappingLearn(int pad,boolean continuous){if(continuous){if(pendingPadCcLearn==pad)pendingPadCcLearn=-1;else{pendingPadCcLearn=pad;pendingPadMidiLearn=-1;}}else{if(pendingPadMidiLearn==pad)pendingPadMidiLearn=-1;else{pendingPadMidiLearn=pad;pendingPadCcLearn=-1;}}screen.setMidiStatus("MIDI: toque agora o pad/controlador que deseja aprender");}
     private void addPadCrossfadeControl(LinearLayout body){
