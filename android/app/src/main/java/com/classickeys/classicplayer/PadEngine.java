@@ -18,6 +18,8 @@ final class PadEngine {
     private final String[][] names=new String[2][12];
     private final float[][] levels=new float[2][12];
     private final int[][] fadeGeneration=new int[2][12];
+    private final boolean[] drumReady=new boolean[12];
+    private final boolean[] drumPending=new boolean[12];
     private final boolean[] enabled={true,true};
     private final int[] active={-1,-1};
     private final float[] layerGain={1f,1f},pan={0f,0f};
@@ -31,11 +33,12 @@ final class PadEngine {
         int bank=bank(continuous);enabled[bank]=value;
         main.post(()->{
             if(!value){for(int i=0;i<players[bank].length;i++)release(bank,i);active[bank]=-1;}
+            else if(!continuous)for(int i=0;i<8;i++)prepareDrum(i);
         });
     }
     private static int bank(boolean continuous){return continuous?1:0;}
     void load(int pad,String path,boolean continuous){load(pad,path,continuous,null);}
-    void load(int pad,String path,boolean continuous,String displayName){if(pad<0||pad>=12)return;int bank=bank(continuous);release(bank,pad);paths[bank][pad]=path;names[bank][pad]=displayName;}
+    void load(int pad,String path,boolean continuous,String displayName){if(pad<0||pad>=12)return;int bank=bank(continuous);main.post(()->{release(bank,pad);paths[bank][pad]=path;names[bank][pad]=displayName;if(!continuous)prepareDrum(pad);});}
     boolean loaded(int pad,boolean continuous){int bank=bank(continuous);String path=pad>=0&&pad<12?paths[bank][pad]:null;return path!=null&&new File(path).isFile();}
     String name(int pad,boolean continuous){int bank=bank(continuous);if(!loaded(pad,continuous))return "VAZIO";String name=names[bank][pad];return name==null||name.isEmpty()?"PAD "+(pad+1):name;}
     void setFadeSeconds(float seconds){fadeMs=Math.max(20,Math.min(10000,(long)(seconds*1000)));}
@@ -49,24 +52,40 @@ final class PadEngine {
     }
 
     void trigger(int pad,boolean continuous){if(pad<0||pad>=12)return;main.post(()->triggerOnMain(pad,continuous));}
+    private void prepareDrum(int pad){
+        if(!enabled[0]||pad>=8||players[0][pad]!=null||!loaded(pad,false))return;
+        try{
+            MediaPlayer player=new MediaPlayer();
+            player.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());
+            player.setDataSource(paths[0][pad]);
+            players[0][pad]=player;
+            player.setOnPreparedListener(ready->{
+                if(players[0][pad]!=ready)return;
+                drumReady[pad]=true;attachEq(0,pad,ready);setPlayerVolume(0,pad);
+                if(drumPending[pad]){drumPending[pad]=false;playDrum(pad);}
+            });
+            player.setOnCompletionListener(done->{
+                if(players[0][pad]==done){levels[0][pad]=0f;if(active[0]==pad)active[0]=-1;}
+            });
+            player.setOnErrorListener((failed,what,extra)->{if(players[0][pad]==failed)release(0,pad);return true;});
+            player.prepareAsync();
+        }catch(Exception ignored){release(0,pad);}
+    }
+    private void playDrum(int pad){
+        MediaPlayer player=players[0][pad];
+        if(player==null||!drumReady[pad]){drumPending[pad]=true;prepareDrum(pad);return;}
+        try{
+            player.seekTo(0);levels[0][pad]=1f;active[0]=pad;setPlayerVolume(0,pad);player.start();
+        }catch(RuntimeException ignored){release(0,pad);drumPending[pad]=true;prepareDrum(pad);}
+    }
     private void triggerOnMain(int pad,boolean continuous){
         final int bank=bank(continuous);
         final String path=paths[bank][pad];
         if(!enabled[bank]||!loaded(pad,continuous))return;
+        if(!continuous){playDrum(pad);return;}
         if(continuous){
             if(active[bank]==pad&&players[bank][pad]!=null)return;
             for(int i=0;i<players[bank].length;i++)if(i!=pad&&players[bank][i]!=null)fadeTo(bank,i,0f,fadeMs,true);
-        }else{
-            // Retrigger an already-playing one-shot by rewinding its decoder.
-            // Releasing and constructing a MediaPlayer for every tap can drop
-            // rapid repeats on slower tablet decoders.
-            MediaPlayer current=players[bank][pad];
-            if(current!=null){
-                try{
-                    current.seekTo(0);levels[bank][pad]=1f;active[bank]=pad;
-                    setPlayerVolume(bank,pad);current.start();return;
-                }catch(RuntimeException ignored){release(bank,pad);}
-            }
         }
         try{
             MediaPlayer player=new MediaPlayer();player.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());
@@ -129,7 +148,7 @@ final class PadEngine {
         try{player.setVolume(left,right);}catch(IllegalStateException ignored){}
     }
     private void release(int bank,int pad){
-        fadeGeneration[bank][pad]++;MediaPlayer player=players[bank][pad];players[bank][pad]=null;levels[bank][pad]=0;Equalizer eq=equalizers[bank][pad];equalizers[bank][pad]=null;if(eq!=null){try{eq.setEnabled(false);}catch(RuntimeException ignored){}try{eq.release();}catch(RuntimeException ignored){}}
+        fadeGeneration[bank][pad]++;MediaPlayer player=players[bank][pad];players[bank][pad]=null;levels[bank][pad]=0;if(bank==0){drumReady[pad]=false;drumPending[pad]=false;}Equalizer eq=equalizers[bank][pad];equalizers[bank][pad]=null;if(eq!=null){try{eq.setEnabled(false);}catch(RuntimeException ignored){}try{eq.release();}catch(RuntimeException ignored){}}
         if(active[bank]==pad)active[bank]=-1;
         if(player!=null){try{player.stop();}catch(Exception ignored){}try{player.release();}catch(Exception ignored){}}
     }

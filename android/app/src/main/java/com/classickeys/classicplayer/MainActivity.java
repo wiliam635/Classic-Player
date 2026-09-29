@@ -1987,7 +1987,7 @@ public final class MainActivity extends Activity {
                         float gridLeft=cardX+12,gridRight=cardX+cardW*.78f;
                         float gridTop=h*.17f+h*.185f,gridBottom=h*.17f+h*.72f-h*(continuous?.12f:.06f);
                         if(tap&&continuous&&event.getX()>=gridLeft&&event.getX()<=gridRight&&event.getY()>=h*.17f+h*.72f-h*.085f&&event.getY()<=h*.17f+h*.72f-h*.027f){padEngine.stopAll(true);invalidate();return true;}
-                        if(tap&&event.getX()>=gridLeft&&event.getX()<=gridRight&&event.getY()>=gridTop&&event.getY()<=gridBottom){
+                        if(action==MotionEvent.ACTION_DOWN&&event.getX()>=gridLeft&&event.getX()<=gridRight&&event.getY()>=gridTop&&event.getY()<=gridBottom){
                             float cellW=(gridRight-gridLeft-(columns-1)*6)/columns,cellH=(gridBottom-gridTop-3*8)/4;
                             int column=(int)((event.getX()-gridLeft)/(cellW+6)),row=(int)((event.getY()-gridTop)/(cellH+8));
                             int pad=row*columns+column;
