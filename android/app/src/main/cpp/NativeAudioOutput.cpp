@@ -28,10 +28,12 @@ public:
         timespec started{};
         clock_gettime(CLOCK_MONOTONIC, &started);
         auto* output=static_cast<int16_t*>(data);
-        // Consume MIDI at least every 128 frames, without Java array copies or
-        // a blocking write queue ahead of the hardware's own audio callback.
-        for(int offset=0;offset<frames;offset+=128){
-            const int count=std::min(128,frames-offset);
+        // Keep MIDI response within 256 frames (5.3 ms at 48 kHz), while
+        // avoiding repeated DSP setup for every 128 frames. In particular,
+        // USB callbacks can contain 882/960 frames and were doing 7/8 setups.
+        constexpr int kRenderQuantum=256;
+        for(int offset=0;offset<frames;offset+=kRenderQuantum){
+            const int count=std::min(kRenderQuantum,frames-offset);
             auto* block=output+offset*2;
             if(!renderClassicPlayerPcm(block,count,true)){
                 ++contentions;

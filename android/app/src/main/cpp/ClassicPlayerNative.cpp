@@ -1002,11 +1002,15 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
     std::array<MidiCommand,64> commands{};
     const size_t commandCount=takeMidiCommands(commands.data(),commands.size());
     for(size_t i=0;i<commandCount;++i)applyMidiCommand(commands[i]);
-    std::memset(output, 0, (size_t) samples * sizeof(short));
     std::array<float, kLayerCount> renderedPeaks {};
-    std::array<float, kMaxFrames * 2> mix {};
-    std::array<float, kMaxFrames * 2> reverbSend {};
-    std::array<float,kMaxFrames> hammondSide{};
+    // These arrays have room for the largest supported callback, but the
+    // current block is normally much shorter. Clear only the region used by
+    // this block; clearing all 2048 frames for each USB sub-block wasted CPU.
+    std::array<float, kMaxFrames * 2> mix;
+    std::array<float, kMaxFrames * 2> reverbSend;
+    std::array<float,kMaxFrames> hammondSide;
+    std::fill_n(mix.data(),samples,0.0f);
+    std::fill_n(reverbSend.data(),samples,0.0f);
     for (int layer = 0; layer < kLayerCount; ++layer)
     {
         const auto li=(size_t)layer;
