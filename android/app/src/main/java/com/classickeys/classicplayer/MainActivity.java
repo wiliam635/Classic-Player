@@ -557,10 +557,20 @@ public final class MainActivity extends Activity {
         EditorUi.addButton(panel.footer,"CANCELAR",panel.dialog::dismiss);panel.show();
     }
 
+    private void openLayerEditor(int layer) {
+        if (screen.muted[layer]) { screen.setAudioStatus("DESMUTE A LAYER "+(layer+1)+" PARA EDITAR O MOTOR"); return; }
+        String engine=screen.engineName(layer);
+        if(engine.equals("DX7"))openDx7Editor(layer);
+        else if(engine.equals("ANALOG"))openAnalogEditor(layer);
+        else if(engine.equals("HAMMOND"))openHammondEditor(layer);
+        else if(engine.contains("PADS"))openPadEditor(layer,engine.startsWith("CONT"));
+        else openSoundFontEditor(layer);
+    }
+
     private void showLayerActions(final int layer) {
         final String engine = screen.engineName(layer);
         EditorUi.Panel panel=new EditorUi.Panel(this,"LAYER "+(layer+1)+" · "+engine,"Escolha o que deseja ajustar.");
-        String[] actions={"EDITAR MOTOR ATUAL","TROCAR MOTOR","LIMPAR LAYER"};for(int i=0;i<actions.length;i+=2){LinearLayout row=EditorUi.gridRow(panel.body);for(int j=i;j<Math.min(i+2,actions.length);j++){final int action=j;Button b=EditorUi.button(this,actions[action],()->{panel.dialog.dismiss();if(action==1){panicAndChooseLayerSource(layer);return;}if(action==2){clearLayer(layer);return;}if(screen.muted[layer]){screen.setAudioStatus("DESMUTE A LAYER "+(layer+1)+" PARA EDITAR O MOTOR");return;}if(engine.equals("DX7"))openDx7Editor(layer);else if(engine.equals("ANALOG"))openAnalogEditor(layer);else if(engine.equals("HAMMOND"))openHammondEditor(layer);else if(engine.contains("PADS"))openPadEditor(layer,engine.startsWith("CONT"));else openSoundFontEditor(layer);});row.addView(b,new LinearLayout.LayoutParams(0,EditorUi.dp(this,30),1));}}
+        String[] actions={"EDITAR MOTOR ATUAL","TROCAR MOTOR","LIMPAR LAYER"};for(int i=0;i<actions.length;i+=2){LinearLayout row=EditorUi.gridRow(panel.body);for(int j=i;j<Math.min(i+2,actions.length);j++){final int action=j;Button b=EditorUi.button(this,actions[action],()->{panel.dialog.dismiss();if(action==1){panicAndChooseLayerSource(layer);return;}if(action==2){clearLayer(layer);return;}openLayerEditor(layer);});row.addView(b,new LinearLayout.LayoutParams(0,EditorUi.dp(this,30),1));}}
         EditorUi.addButton(panel.footer,"FECHAR",panel.dialog::dismiss);panel.show();
     }
 
@@ -1098,7 +1108,7 @@ public final class MainActivity extends Activity {
     private void showPresetEditor(final int layer,String title,String subtitle,String[] items,int selected,
                                   PresetSelection selection,String secondaryLabel,Runnable secondaryAction) {
         EditorUi.Panel panel=new EditorUi.Panel(this,title,subtitle);
-        final String[] tabNames=screen.engineName(layer).equals("ANALOG")?new String[]{"OSCILADORES","FILTRO / ADSR","CONTROLES","EFEITOS","MIDI"}:new String[]{"MOTOR","CONTROLES","EFEITOS","MIDI"};
+        final String[] tabNames=screen.engineName(layer).equals("ANALOG")?new String[]{"OSCILADORES","FILTRO / ADSR","CONTROLES","EFEITOS","MIDI"}:new String[]{"LAYER","CONTROLES","EFEITOS","MIDI"};
         class PageNav { void show(int page){panel.setTabs(tabNames,page,this::show);renderLayerEditorPage(layer,panel,page,items,selected,selection,secondaryLabel,secondaryAction);} }
         PageNav nav=new PageNav();nav.show(0);
         EditorUi.addButton(panel.footer,"FECHAR",panel.dialog::dismiss);
@@ -1121,6 +1131,20 @@ public final class MainActivity extends Activity {
             if("HAMMOND".equals(engine))buildHammondControls(layer,body);
             if(analog)buildAnalogOscillatorControls(layer,body);
             LinearLayout presets=EditorUi.gridRow(body);EditorUi.addButton(presets,"EXPORTAR PRESET…",()->exportLayerPreset(layer));EditorUi.addButton(presets,"IMPORTAR PRESET…",()->importLayerPreset(layer));
+            if (!analog && ("SF2".equals(engine) || "DX7".equals(engine))) {
+                TextView routing=EditorUi.label(this,"MIDI · MODO, CANAL E FAIXA",10);routing.setTextColor(EditorUi.MUTED);body.addView(routing);
+                buildRoutingControls(layer,body);
+                TextView quick=EditorUi.label(this,"CONTROLES DA LAYER",10);quick.setTextColor(EditorUi.MUTED);body.addView(quick);
+                LinearLayout row=EditorUi.knobRow(body);
+                EditorUi.knob(row,"VOLUME",screen.layerVolumes[layer]*100f,0,100," %",v->screen.setLearnedVolume(layer,v/100f));
+                EditorUi.knob(row,"ATTACK ms",screen.layerAttack[layer]*1000f,.1f,100," ms",v->screen.setLayerEnvelope(layer,v/1000f,screen.layerRelease[layer]));
+                EditorUi.knob(row,"RELEASE ms",screen.layerRelease[layer]*1000f,1,100," ms",v->screen.setLayerEnvelope(layer,screen.layerAttack[layer],v/1000f));
+                row=EditorUi.knobRow(body);
+                EditorUi.knob(row,"CUTOFF",screen.layerCutoff[layer],0,100," %",v->screen.setLayerTone(layer,v,screen.layerReverb[layer],screen.layerCompMix[layer],screen.layerChorus[layer]));
+                EditorUi.knob(row,"REVERB",screen.layerReverb[layer]*100f,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],v/100f,screen.layerCompMix[layer],screen.layerChorus[layer]));
+                EditorUi.knob(row,"COMP",screen.layerCompMix[layer]*100f,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],v/100f,screen.layerChorus[layer]));
+                row=EditorUi.gridRow(body);EditorUi.addButton(row,"EDITAR REVERB",()->showEffectEditor(layer,"REVERB"));EditorUi.addButton(row,"EDITAR COMP",()->showEffectEditor(layer,"COMP"));EditorUi.addButton(row,"EDITAR EQ",()->showEffectEditor(layer,"EQ"));
+            }
         }else if(analog&&page==1){
             buildAnalogFilterControls(layer,body);
         }else if(page==controlsPage){
@@ -1537,6 +1561,8 @@ public final class MainActivity extends Activity {
             paint.setColor(midiSignal ? Color.rgb(40, 220, 110) : Color.rgb(70, 90, 95));
             canvas.drawCircle(w * .595f, h * .05f, h * .011f, paint);
             midiSignal = false;
+            if (!liveSet && !settings && firstEmptyLayer() >= 0)
+                button(canvas, "+ LAYER", w*.65f, h*.101f, w*.75f, h*.139f, false);
             // Keep all navigation inside the header so it never covers Layer 6.
             button(canvas, "MIXER", w*.755f, h*.101f, w*.83f, h*.139f, !liveSet && !settings);
             button(canvas, "LIVE SET", w*.835f, h*.101f, w*.91f, h*.139f, liveSet);
@@ -1583,21 +1609,44 @@ public final class MainActivity extends Activity {
             button(canvas, savingLiveSlot?"CANCELAR SALVAMENTO":"SALVAR SLOT", margin, h*.915f, margin+260, h*.975f, savingLiveSlot);
         }
 
+        private int activeLayerCount() {
+            int count = 0;
+            for (String engine : engineNames) if (!"VAZIA".equals(engine)) count++;
+            return count;
+        }
+        private int activeLayerAt(int position) {
+            for (int i = 0; i < engineNames.length; i++) {
+                if (!"VAZIA".equals(engineNames[i]) && position-- == 0) return i;
+            }
+            return -1;
+        }
+        private int firstEmptyLayer() {
+            for (int i = 0; i < engineNames.length; i++) if ("VAZIA".equals(engineNames[i])) return i;
+            return -1;
+        }
+        private float mixerCardWidth(float w) {
+            return Math.min(w * .12f, (w - 36f - 60f - 105f) / 6f);
+        }
         private void drawMixer(Canvas canvas, float w, float h, int textColour, int teal, int panel) {
             final float left = 18, top = h * .17f, gap = 10;
-            final float cardW = (w - left * 2 - gap * 6 - 105) / 6f;
+            final float cardW = mixerCardWidth(w);
             final float cardH = h * .72f;
-            text(canvas, "6 LAYERS · ADICIONE UM MOTOR EM CADA SLOT", left, h * .16f, h * .024f, Color.rgb(180,195,200));
-            for (int i = 0; i < 6; i++) {
-                float x = left + i * (cardW + gap);
+            int activeCount = activeLayerCount();
+            text(canvas, "MIXER · " + activeCount + " / 6 LAYERS", left, h * .16f, h * .024f, Color.rgb(180,195,200));
+            if (activeCount == 0)
+                text(canvas, "TOQUE EM + LAYER PARA ADICIONAR UM MOTOR", left + 12, h * .36f, h * .024f, Color.rgb(180,195,200));
+            for (int position = 0; position < activeCount; position++) {
+                int i = activeLayerAt(position);
+                float x = left + position * (cardW + gap);
                 box(canvas, x, top, x + cardW, top + cardH, Color.rgb(49, 69, 82), true);
                 text(canvas, "LAYER " + (i + 1), x + 12, top + h * .045f, h * .022f, textColour);
                 text(canvas, engineNames[i], x+12, top+h*.065f, h*.012f, teal);
                 button(canvas, "M", x + cardW*.54f, top+h*.016f, x+cardW*.70f, top+h*.063f, muted[i]);
                 button(canvas, "S", x + cardW*.74f, top+h*.016f, x+cardW*.90f, top+h*.063f, solo[i]);
                 String source = presetNames[i].isEmpty() ? layerNames[i] : presetNames[i];
-                text(canvas, source, x + 12, top + h * .086f, h * .015f, Color.rgb(180,195,200));
-                button(canvas, engineNames[i].equals("VAZIA") ? "ADICIONAR MOTOR" : "EDITAR " + engineNames[i], x+12, top+h*.098f, x+cardW-12, top+h*.15f, false);
+                fittedText(canvas, source, x + 12, x + cardW - 12, top + h * .086f, h * .015f, Color.rgb(180,195,200));
+                button(canvas, "EDITAR", x+12, top+h*.098f, x+cardW*.72f, top+h*.15f, false);
+                button(canvas, "⋯", x+cardW*.74f, top+h*.098f, x+cardW-12, top+h*.15f, false);
                 float railTop = top + h * .205f, railBottom = top + cardH - h * .09f;
                 drawMeter(canvas, x+cardW*.12f, railTop, cardW*.105f, railBottom,
                         audioEngine == null ? 0f : audioEngine.layerPeak(i));
@@ -1612,13 +1661,17 @@ public final class MainActivity extends Activity {
                 text(canvas, faderLabel(layerVolumes[i]), x + cardW*.55f, top + cardH - h*.027f, h*.016f, textColour);
                 paint.setTextAlign(Paint.Align.LEFT);
             }
-            float masterX = left + 6*(cardW+gap);
+            float masterX = w - left - 105;
             box(canvas, masterX, top, masterX+105, top+cardH, Color.rgb(49,69,82), true);
             paint.setTextAlign(Paint.Align.CENTER); text(canvas, "MASTER", masterX+52, top+h*.05f, h*.019f, textColour); paint.setTextAlign(Paint.Align.LEFT);
             float masterTop = top+h*.12f, masterBottom = top+cardH-h*.09f;
             drawMeter(canvas, masterX+15, masterTop, 13, masterBottom, audioEngine == null ? 0f : audioEngine.masterPeak());
             drawFader(canvas, masterX+60, masterTop, masterBottom, 105, masterVolume);
             paint.setTextAlign(Paint.Align.CENTER); text(canvas, faderLabel(masterVolume), masterX+55, top+cardH-h*.027f, h*.016f, textColour); paint.setTextAlign(Paint.Align.LEFT);
+            paint.setColor(Color.rgb(49,69,82)); canvas.drawRect(left, h*.91f, w-left, h*.912f, paint);
+            button(canvas, "ÁUDIO / MIDI", left, h*.925f, w*.13f, h*.975f, false);
+            button(canvas, "MIDI LEARN", w*.14f, h*.925f, w*.26f, h*.975f, pendingLearnTarget>=0);
+            button(canvas, "PANIC", w*.88f, h*.925f, w-left, h*.975f, false);
             postInvalidateDelayed(70);
         }
 
@@ -1628,6 +1681,12 @@ public final class MainActivity extends Activity {
             final boolean dragging = action == MotionEvent.ACTION_DOWN
                     || action == MotionEvent.ACTION_MOVE || tap;
             final float w = getWidth(), h = getHeight();
+            if (tap && !liveSet && !settings && event.getY() > h*.09f && event.getY() < h*.145f
+                    && event.getX() >= w*.65f && event.getX() < w*.75f) {
+                int empty = firstEmptyLayer();
+                if (empty >= 0) chooseLayerSource(empty);
+                return true;
+            }
             if (tap && event.getY() > h*.09f && event.getY() < h*.145f && event.getX() > w*.75f) {
                 if (event.getX() < w*.832f) { liveSet = false; settings = false; }
                 else if (event.getX() < w*.912f) { liveSet = true; settings = false; }
@@ -1663,27 +1722,36 @@ public final class MainActivity extends Activity {
             }
             if(liveSet&&tap&&event.getY()>h*.14f&&event.getY()<h*.22f){liveBank=Math.max(0,Math.min(7,(int)(event.getX()/(w/8f))));selected=0;loadLiveNames();return true;}
             if(liveSet&&tap&&event.getY()>h*.90f&&event.getX()<300){savingLiveSlot=!savingLiveSlot;invalidate();return true;}
+            if (!liveSet && !settings && tap && event.getY() >= h*.925f && event.getY() <= h*.975f) {
+                if (event.getX() >= 18 && event.getX() <= w*.13f) { settings = true; invalidate(); return true; }
+                if (event.getX() >= w*.14f && event.getX() <= w*.26f) { showMidiLearnChooser(); return true; }
+                if (event.getX() >= w*.88f && event.getX() <= w-18) { panicMidiState(); invalidate(); return true; }
+            }
             if (!liveSet && dragging && event.getY() > h * .17f && event.getY() < h * .87f) {
-                float cardW = (w - 36 - 60 - 105) / 6f;
-                float masterX = 18 + 6*(cardW+10);
-                if (event.getX() >= masterX) {
+                float cardW = mixerCardWidth(w);
+                float masterX = w - 18 - 105;
+                if (event.getX() >= masterX && event.getX() <= masterX+105) {
                     float railTop = h*.17f+h*.12f, railBottom = h*.17f+h*.72f-h*.09f;
-                    masterVolume = Math.max(0f, Math.min(1f, (railBottom - event.getY()) / (railBottom - railTop)));
-                    if (audioEngine != null) audioEngine.setMaster(faderGain(masterVolume));
-                    if (padEngine != null) padEngine.setMaster(faderGain(masterVolume));
-                    invalidate(); return true;
+                    if (event.getY() >= railTop-h*.035f && event.getY() <= railBottom+h*.035f) {
+                        masterVolume = Math.max(0f, Math.min(1f, (railBottom - event.getY()) / (railBottom - railTop)));
+                        if (audioEngine != null) audioEngine.setMaster(faderGain(masterVolume));
+                        if (padEngine != null) padEngine.setMaster(faderGain(masterVolume));
+                        invalidate(); return true;
+                    }
                 }
-                int layer = (int) ((event.getX() - 18) / (cardW + 10));
-                if (layer >= 0 && layer < 6) {
-                    float cardX = 18 + layer*(cardW+10);
+                int position = event.getX() >= 18 ? (int) ((event.getX() - 18) / (cardW + 10)) : -1;
+                int layer = position >= 0 && position < activeLayerCount() ? activeLayerAt(position) : -1;
+                if (layer >= 0) {
+                    float cardX = 18 + position*(cardW+10);
+                    if (event.getX() > cardX + cardW) return true;
                     if (tap && event.getY() >= h*.17f+h*.016f && event.getY() <= h*.17f+h*.063f) {
                         if (event.getX() >= cardX+cardW*.54f && event.getX() <= cardX+cardW*.70f) { setLayerMuted(layer,!muted[layer]); return true; }
                         else if (event.getX() >= cardX+cardW*.74f && event.getX() <= cardX+cardW*.90f) solo[layer] = !solo[layer];
                         applyLayerGains(); invalidate(); return true;
                     }
                     if (tap && event.getY() >= h*.17f+h*.098f && event.getY() <= h*.17f+h*.16f) {
-                        if (engineNames[layer].equals("VAZIA")) chooseLayerSource(layer);
-                        else showLayerActions(layer);
+                        if(event.getX() >= cardX+cardW*.74f)showLayerActions(layer);
+                        else openLayerEditor(layer);
                         return true;
                     }
                     float railTop = h*.17f+h*.205f, railBottom = h*.17f+h*.72f-h*.09f;
