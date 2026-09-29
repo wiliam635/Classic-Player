@@ -6,6 +6,7 @@ android {
     namespace 'com.classickeys.classicplayer'
     compileSdk 35
     ndkVersion '26.3.11579264'
+    buildFeatures { buildConfig true }
 
     defaultConfig {
         applicationId 'com.classickeys.classicplayer'
