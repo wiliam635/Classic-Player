@@ -1928,7 +1928,7 @@ public final class MainActivity extends Activity {
                             int column=(int)((event.getX()-gridLeft)/(cellW+6)),row=(int)((event.getY()-gridTop)/(cellH+8));
                             int pad=row*columns+column;
                             if(column<columns&&row<4&&pad<(continuous?12:8)&&event.getX()<=gridLeft+column*(cellW+6)+cellW&&event.getY()<=gridTop+row*(cellH+8)+cellH){
-                                if(padEngine.loaded(pad,continuous)){padEngine.trigger(pad,continuous);flashingPadLayer=i;flashingPad=pad;padFlashExpires=android.os.SystemClock.uptimeMillis()+180;postInvalidateDelayed(190);}else openPadPicker(pad,continuous);
+                                if(padEngine.loaded(pad,continuous)){padEngine.trigger(pad,continuous);flashingPadLayer=layer;flashingPad=pad;padFlashExpires=android.os.SystemClock.uptimeMillis()+180;postInvalidateDelayed(190);}else openPadPicker(pad,continuous);
                                 invalidate();return true;
                             }
                         }
