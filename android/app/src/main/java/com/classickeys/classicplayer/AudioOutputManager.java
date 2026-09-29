@@ -41,30 +41,28 @@ final class AudioOutputManager {
     }
     AudioDeviceInfo automaticUsbOutput() {
         if (audio == null) return null;
-        AudioDeviceInfo onlyUsbOutput = null;
+        AudioDeviceInfo firstUsbOutput = null;
         AudioDeviceInfo yamahaOutput = null;
-        int usbOutputCount = 0;
         for (AudioDeviceInfo device : audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
             if (!isUsbAudioOutput(device)) continue;
-            usbOutputCount++;
-            onlyUsbOutput = device;
+            if (firstUsbOutput == null) firstUsbOutput = device;
             String name = device.getProductName() == null ? ""
                     : device.getProductName().toString().toLowerCase(Locale.ROOT);
             if (name.contains("yamaha") || name.contains("ck series") || name.contains("ck61"))
                 yamahaOutput = device;
         }
-        // Prefer the CK61 even if another USB DAC is connected. If the device
-        // does not identify itself, only auto-select when there is no ambiguity.
-        return yamahaOutput != null ? yamahaOutput : usbOutputCount == 1 ? onlyUsbOutput : null;
+        return yamahaOutput != null ? yamahaOutput : firstUsbOutput;
     }
     private static boolean isUsbAudioOutput(AudioDeviceInfo device) {
         return device.getType() == AudioDeviceInfo.TYPE_USB_DEVICE
-                || device.getType() == AudioDeviceInfo.TYPE_USB_HEADSET;
+                || device.getType() == AudioDeviceInfo.TYPE_USB_HEADSET
+                || device.getType() == AudioDeviceInfo.TYPE_USB_ACCESSORY;
     }
     private String typeName(int type) {
         switch (type) {
             case AudioDeviceInfo.TYPE_USB_DEVICE: return "USB";
             case AudioDeviceInfo.TYPE_USB_HEADSET: return "USB headset";
+            case AudioDeviceInfo.TYPE_USB_ACCESSORY: return "USB accessory";
             case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP: return "Bluetooth";
             case AudioDeviceInfo.TYPE_WIRED_HEADPHONES: return "Fones";
             case AudioDeviceInfo.TYPE_WIRED_HEADSET: return "Headset";

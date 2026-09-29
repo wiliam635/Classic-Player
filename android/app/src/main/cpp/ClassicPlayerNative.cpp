@@ -739,8 +739,17 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerReverb(JNIEnv*,
 {
     if(layer<0||layer>=kLayerCount)return;std::lock_guard<std::mutex> lock(synthMutex);const auto i=(size_t)layer;
     layerReverbSize[i]=std::clamp((float)size,0.0f,100.0f);layerReverbDamping[i]=std::clamp((float)damping,0.0f,100.0f);layerReverbWidth[i]=std::clamp((float)width,0.0f,100.0f);
-    float sizeSum=0.0f,dampSum=0.0f,widthSum=0.0f;for(int n=0;n<kLayerCount;++n){sizeSum+=layerReverbSize[(size_t)n];dampSum+=layerReverbDamping[(size_t)n];widthSum+=layerReverbWidth[(size_t)n];}
-    reverbDelayMs=20.0f+(sizeSum/kLayerCount)*1.05f;reverbFeedback=0.24f+(dampSum/kLayerCount)*0.0034f;reverbStereoWidth=widthSum/(kLayerCount*100.0f);
+    float weight=0.0f,sizeSum=0.0f,dampSum=0.0f,widthSum=0.0f;
+    for(int n=0;n<kLayerCount;++n){
+        const float send=layerReverbSend[(size_t)n];
+        if(send<=0.0f)continue;
+        weight+=send;sizeSum+=layerReverbSize[(size_t)n]*send;
+        dampSum+=layerReverbDamping[(size_t)n]*send;widthSum+=layerReverbWidth[(size_t)n]*send;
+    }
+    if(weight<=0.0f){weight=1.0f;sizeSum=layerReverbSize[i];dampSum=layerReverbDamping[i];widthSum=layerReverbWidth[i];}
+    reverbDelayMs=20.0f+(sizeSum/weight)*1.05f;
+    reverbFeedback=0.24f+(dampSum/weight)*0.0034f;
+    reverbStereoWidth=widthSum/(weight*100.0f);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -1241,7 +1250,7 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
         const float chorus = reverbBuffer[(size_t)((effectCursor + (int)reverbBuffer.size() - 960 + (sample & 3) * 24) % (int)reverbBuffer.size())];
         const float dry = mix[(size_t)sample];
         const float send=reverbSend[(size_t)sample]+dry*reverbMix;
-        const float effected = dry + delayed * 0.32f + (chorus - dry) * chorusMix * 0.22f;
+        const float effected = dry + delayed * 0.55f + (chorus - dry) * chorusMix * 0.22f;
         reverbBuffer[(size_t)effectCursor] = send + delayed * reverbFeedback;
         effectCursor = (effectCursor + 1) % (int)reverbBuffer.size();
         const float limited = std::tanh(effected * 0.62f);
