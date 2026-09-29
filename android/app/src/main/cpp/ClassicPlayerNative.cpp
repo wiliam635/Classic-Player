@@ -46,21 +46,22 @@ std::array<float, kLayerCount> layerRelease { 0.25f,0.25f,0.25f,0.25f,0.25f,0.25
 std::array<float,kLayerCount> layerCutoff {100,100,100,100,100,100},layerReverbSend {},layerCompressorMix {},layerChorusMix {};
 std::array<float,kLayerCount> layerReverbSize {55,55,55,55,55,55},layerReverbDamping {45,45,45,45,45,45},layerReverbWidth {100,100,100,100,100,100};
 std::array<float,kLayerCount> compressorAttack {0.01f,0.01f,0.01f,0.01f,0.01f,0.01f},compressorRelease {0.12f,0.12f,0.12f,0.12f,0.12f,0.12f},compressorMakeupDb {};
-std::array<float,kLayerCount> lowPassState {},compressorEnvelope {};
+std::array<std::array<float,2>,kLayerCount> lowPassState {};
+std::array<float,kLayerCount> compressorEnvelope {};
 std::array<float, kLayerCount> eqLow {}, eqMid {}, eqHigh {};
 std::array<float,kLayerCount> eqLowFrequency {220,220,220,220,220,220},eqMidFrequency {1200,1200,1200,1200,1200,1200},eqHighFrequency {4200,4200,4200,4200,4200,4200};
 std::array<float,kLayerCount> eqLowQ {.707f,.707f,.707f,.707f,.707f,.707f},eqMidQ {1,1,1,1,1,1},eqHighQ {.707f,.707f,.707f,.707f,.707f,.707f};
 std::array<float,kLayerCount> eqHighPassHz {20,20,20,20,20,20},eqLowPassHz {20000,20000,20000,20000,20000,20000};
 struct Biquad { float b0=1,b1=0,b2=0,a1=0,a2=0,z1=0,z2=0; };
-std::array<std::array<Biquad,5>,kLayerCount> layerEqFilters{};
+std::array<std::array<std::array<Biquad,5>,2>,kLayerCount> layerEqFilters{};
 std::array<float, kLayerCount> compressorThreshold {0.126f,0.126f,0.126f,0.126f,0.126f,0.126f};
 std::array<float, kLayerCount> compressorRatio {4.f,4.f,4.f,4.f,4.f,4.f};
 float reverbMix = 0.0f, chorusMix = 0.0f;
 float reverbDelayMs = 72.0f,reverbFeedback = 0.48f,reverbStereoWidth = 1.0f;
 std::array<float, kSampleRate * 2> reverbBuffer {};
 constexpr int kChorusFrames=2048;
-std::array<std::array<float,kChorusFrames>,kLayerCount> layerChorusBuffer{};
-std::array<int,kLayerCount> layerChorusCursor{};
+std::array<std::array<std::array<float,kChorusFrames>,2>,kLayerCount> layerChorusBuffer{};
+std::array<std::array<int,2>,kLayerCount> layerChorusCursor{};
 int effectCursor = 0;
 std::array<float, kLayerCount> layerPeaks {};
 std::array<std::atomic<float>, kLayerCount> publishedLayerPeaks {
@@ -132,9 +133,13 @@ void configureLowPass(Biquad& f,float frequency)
 }
 void updateLayerEq(int layer)
 {
-    const auto i=(size_t)layer;configurePeaking(layerEqFilters[i][0],eqLowFrequency[i],eqLow[i],eqLowQ[i]);
-    configurePeaking(layerEqFilters[i][1],eqMidFrequency[i],eqMid[i],eqMidQ[i]);configurePeaking(layerEqFilters[i][2],eqHighFrequency[i],eqHigh[i],eqHighQ[i]);
-    configureHighPass(layerEqFilters[i][3],eqHighPassHz[i]);configureLowPass(layerEqFilters[i][4],eqLowPassHz[i]);
+    const auto i=(size_t)layer;
+    for(auto& channel:layerEqFilters[i]){
+        configurePeaking(channel[0],eqLowFrequency[i],eqLow[i],eqLowQ[i]);
+        configurePeaking(channel[1],eqMidFrequency[i],eqMid[i],eqMidQ[i]);
+        configurePeaking(channel[2],eqHighFrequency[i],eqHigh[i],eqHighQ[i]);
+        configureHighPass(channel[3],eqHighPassHz[i]);configureLowPass(channel[4],eqLowPassHz[i]);
+    }
 }
 float processBiquad(Biquad& f,float input)
 {
@@ -690,8 +695,11 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerEnvelope(JNIEnv
 {
     if (layer < 0 || layer >= kLayerCount) return;
     std::lock_guard<std::mutex> lock(synthMutex);
-    layerAttack[(size_t)layer] = std::clamp((float)attack, 0.001f, 2.0f);
+    layerAttack[(size_t)layer] = std::clamp((float)attack, 0.0001f, 2.0f);
     layerRelease[(size_t)layer] = std::clamp((float)release, 0.001f, 5.0f);
+    if(fonts[(size_t)layer]!=nullptr)for(int channel=0;channel<16;++channel)
+        tsf_channel_set_amp_envelope_offsets(fonts[(size_t)layer],channel,
+                layerAttack[(size_t)layer]-0.005f,layerRelease[(size_t)layer]-0.05f);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -1167,46 +1175,54 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
         const bool fixedPan=panStep==0.0f;
         const float panAngle=(std::clamp(layerPan[li],-1.0f,1.0f)+1.0f)*0.7853981634f;
         const float fixedLeft=std::cos(panAngle),fixedRight=std::sin(panAngle);
-        for (int sample = 0; sample < samples; ++sample)
+        for (int frame = 0; frame < frames; ++frame)
         {
-            if ((sample & 1) == 0) {
-                const float input = scratch[(size_t)sample];
-                const auto eqIndex=(size_t)layer;float shaped=input;
-                for(auto& filter:layerEqFilters[eqIndex])shaped=processBiquad(filter,shaped);
-                lowPassState[(size_t)layer]+=(shaped-lowPassState[(size_t)layer])*cutoffAlpha;
-                shaped=lowPassState[(size_t)layer];
-                const float magnitude=std::abs(shaped),threshold=compressorThreshold[(size_t)layer];
-                const float detector=magnitude>compressorEnvelope[li]?attackDetector:releaseDetector;
-                compressorEnvelope[(size_t)layer]=detector*compressorEnvelope[(size_t)layer]+(1.0f-detector)*magnitude;
-                const float envelope=std::max(0.000001f,compressorEnvelope[(size_t)layer]);
-                const float compressed=envelope>threshold?shaped*(threshold+(envelope-threshold)/compressorRatio[(size_t)layer])/envelope:shaped;
-                shaped=shaped+(compressed-shaped)*layerCompressorMix[(size_t)layer];
-                shaped*=makeupGain;
-                const int cursor=layerChorusCursor[(size_t)layer];
-                const float dryShaped=shaped;
+            std::array<float,2> shaped{scratch[(size_t)frame*2],scratch[(size_t)frame*2+1]};
+            for(int channel=0;channel<2;++channel){
+                for(auto& filter:layerEqFilters[li][(size_t)channel])
+                    shaped[(size_t)channel]=processBiquad(filter,shaped[(size_t)channel]);
+                lowPassState[li][(size_t)channel]+=(shaped[(size_t)channel]-lowPassState[li][(size_t)channel])*cutoffAlpha;
+                shaped[(size_t)channel]=lowPassState[li][(size_t)channel];
+            }
+            // Link the compressor detector across both channels, but retain
+            // independent stereo signal paths for EQ, filtering and chorus.
+            const float magnitude=std::max(std::abs(shaped[0]),std::abs(shaped[1]));
+            const float threshold=compressorThreshold[li];
+            const float detector=magnitude>compressorEnvelope[li]?attackDetector:releaseDetector;
+            compressorEnvelope[li]=detector*compressorEnvelope[li]+(1.0f-detector)*magnitude;
+            const float envelope=std::max(0.000001f,compressorEnvelope[li]);
+            const float compressionGain=envelope>threshold
+                    ?(threshold+(envelope-threshold)/compressorRatio[li])/envelope:1.0f;
+            const float side=engineTypes[li]==EngineType::hammond?hammondSide[(size_t)frame]:0.0f;
+            for(int channel=0;channel<2;++channel){
+                float& value=shaped[(size_t)channel];
+                const float compressed=value*compressionGain;
+                value=(value+(compressed-value)*layerCompressorMix[li])*makeupGain;
+                const float dryShaped=value;
+                const int cursor=layerChorusCursor[li][(size_t)channel];
                 if(layerChorusMix[li]>0.0f) {
                     const float lfo=std::sin(cursor*0.006135923f);
                     const int chorusDelay=std::clamp((int)(720.0f+lfo*300.0f),1,kChorusFrames-1);
                     const int chorusRead=(cursor+kChorusFrames-chorusDelay)%kChorusFrames;
-                    shaped+=(layerChorusBuffer[li][(size_t)chorusRead]-shaped)*layerChorusMix[li];
+                    value+=(layerChorusBuffer[li][(size_t)channel][(size_t)chorusRead]-value)*layerChorusMix[li];
                 }
-                layerChorusBuffer[(size_t)layer][(size_t)cursor]=dryShaped;
-                layerChorusCursor[(size_t)layer]=(cursor+1)%kChorusFrames;
-                const float side=engineTypes[li]==EngineType::hammond?hammondSide[(size_t)(sample/2)]:0.0f;
-                scratch[(size_t)sample]=shaped+side;
-                scratch[(size_t)sample+1]=shaped-side;
+                layerChorusBuffer[li][(size_t)channel][(size_t)cursor]=dryShaped;
+                layerChorusCursor[li][(size_t)channel]=(cursor+1)%kChorusFrames;
+                scratch[(size_t)frame*2+(size_t)channel]=value+(channel==0?side:-side);
             }
-            const int frame = sample / 2;
             const float gain = (smoothedLayerGains[(size_t)layer] + layerStep * frame) *
                     (smoothedMasterGain + masterStep * frame);
             const float pan=fixedPan?layerPan[li]:std::clamp(smoothedLayerPan[li]+panStep*frame,-1.0f,1.0f);
-            const float sideGain=fixedPan?(sample%2==0?fixedLeft:fixedRight):
-                    (sample%2==0?std::cos((pan+1.0f)*0.7853981634f):std::sin((pan+1.0f)*0.7853981634f));
-            const float layerSample=scratch[(size_t)sample] * gain * sideGain;
-            mix[(size_t)sample] += layerSample;
-            reverbSend[(size_t)sample]+=layerSample*layerReverbSend[(size_t)layer];
-            renderedPeaks[(size_t) layer] = std::max(renderedPeaks[(size_t) layer],
-                    std::abs(scratch[(size_t) sample] * gain));
+            const float leftPan=fixedPan?fixedLeft:std::cos((pan+1.0f)*0.7853981634f);
+            const float rightPan=fixedPan?fixedRight:std::sin((pan+1.0f)*0.7853981634f);
+            for(int channel=0;channel<2;++channel){
+                const size_t sample=(size_t)frame*2+(size_t)channel;
+                const float sideGain=channel==0?leftPan:rightPan;
+                const float layerSample=scratch[sample]*gain*sideGain;
+                mix[sample]+=layerSample;
+                reverbSend[sample]+=layerSample*layerReverbSend[li];
+                renderedPeaks[li]=std::max(renderedPeaks[li],std::abs(scratch[sample]*gain));
+            }
         }
         smoothedLayerGains[(size_t)layer] = targetLayer;
         smoothedLayerPan[(size_t)layer]=layerPan[(size_t)layer];

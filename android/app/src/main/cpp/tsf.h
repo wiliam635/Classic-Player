@@ -233,6 +233,8 @@ TSFDEF void tsf_channel_sounds_off_all(tsf* f, int channel); //end immediately
 // Apply a MIDI control change to the channel (not all controllers are supported!)
 //    (tsf_channel_midi_control returns 0 on allocation failure of new channel, otherwise 1)
 TSFDEF int tsf_channel_midi_control(tsf* f, int channel, int controller, int control_value);
+// Add editor envelope offsets in seconds to each region's native SF2 amp envelope.
+TSFDEF int tsf_channel_set_amp_envelope_offsets(tsf* f, int channel, float attack_offset, float release_offset);
 
 // Get current values set on the channels
 TSFDEF int tsf_channel_get_preset_index(tsf* f, int channel);
@@ -480,7 +482,7 @@ struct tsf_voice
 struct tsf_channel
 {
 	unsigned short presetIndex, bank, pitchWheel, midiPan, midiVolume, midiExpression, midiRPN, midiData : 14, sustain : 1;
-	float panOffset, gainDB, pitchRange, tuning;
+	float panOffset, gainDB, pitchRange, tuning, ampAttackOffset, ampReleaseOffset;
 };
 
 struct tsf_channels
@@ -1725,8 +1727,18 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 		voice->loopStart = (doLoop ? region->loop_start : 0);
 		voice->loopEnd = (doLoop ? region->loop_end : 0);
 
-		// Setup envelopes.
-		tsf_voice_envelope_setup(&voice->ampenv, &region->ampenv, key, midiVelocity, TSF_TRUE, f->outSampleRate);
+		// Keep the SoundFont's own envelope as the base; layer controls only add
+		// their offset, so the default 5 ms / 50 ms editor values are neutral.
+		struct tsf_envelope ampParameters = region->ampenv;
+		if (f->channels && voice->playingChannel >= 0 && voice->playingChannel < f->channels->channelNum)
+		{
+			const struct tsf_channel* channel = &f->channels->channels[voice->playingChannel];
+			ampParameters.attack += channel->ampAttackOffset;
+			ampParameters.release += channel->ampReleaseOffset;
+			if (ampParameters.attack < 0.0f) ampParameters.attack = 0.0f;
+			if (ampParameters.release < 0.0f) ampParameters.release = 0.0f;
+		}
+		tsf_voice_envelope_setup(&voice->ampenv, &ampParameters, key, midiVelocity, TSF_TRUE, f->outSampleRate);
 		tsf_voice_envelope_setup(&voice->modenv, &region->modenv, key, midiVelocity, TSF_FALSE, f->outSampleRate);
 
 		// Setup lowpass filter.
@@ -1875,6 +1887,7 @@ static struct tsf_channel* tsf_channel_init(tsf* f, int channel)
 		c->gainDB = 0.0f;
 		c->pitchRange = 2.0f;
 		c->tuning = 0.0f;
+		c->ampAttackOffset = c->ampReleaseOffset = 0.0f;
 	}
 	return &f->channels->channels[channel];
 }
@@ -2116,6 +2129,15 @@ TCMC_SET_DATA:
 	if      (c->midiRPN == 0) tsf_channel_set_pitchrange(f, channel, (c->midiData >> 7) + 0.01f * (c->midiData & 0x7F));
 	else if (c->midiRPN == 1) tsf_channel_set_tuning(f, channel, (int)c->tuning + ((float)c->midiData - 8192.0f) / 8192.0f); //fine tune
 	else if (c->midiRPN == 2 && controller == 6) tsf_channel_set_tuning(f, channel, ((float)control_value - 64.0f) + (c->tuning - (int)c->tuning)); //coarse tune
+	return 1;
+}
+
+TSFDEF int tsf_channel_set_amp_envelope_offsets(tsf* f, int channel, float attack_offset, float release_offset)
+{
+	struct tsf_channel* c = tsf_channel_init(f, channel);
+	if (!c) return 0;
+	c->ampAttackOffset = attack_offset;
+	c->ampReleaseOffset = release_offset;
 	return 1;
 }
 
