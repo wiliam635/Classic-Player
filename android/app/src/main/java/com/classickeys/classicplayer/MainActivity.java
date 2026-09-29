@@ -52,6 +52,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 
 /**
  * First Android surface for Classic Player. The audio monitor runs alongside
@@ -95,6 +96,19 @@ public final class MainActivity extends Activity {
     private Button pendingLayerLearnButton;
     private final boolean[][][] learnedMuteCcDown = new boolean[6][16][128];
     private final EditorUi.Knob[][] layerMidiKnobs = new EditorUi.Knob[6][4];
+    private static final class MidiLearnCandidate {
+        final int cc,channel;int min,max,last,count;
+        MidiLearnCandidate(int cc,int channel,int value){this.cc=cc;this.channel=channel;min=max=last=value;count=1;}
+        void add(int value){min=Math.min(min,value);max=Math.max(max,value);last=value;count++;}
+        String label(){return "CC "+cc+" · CH "+(channel+1)+" · "+min+"–"+max+" ("+count+")";}
+    }
+    private final Object midiLearnCaptureLock=new Object();
+    private final LinkedHashMap<Integer,MidiLearnCandidate> midiLearnCandidates=new LinkedHashMap<>();
+    private static final long MIDI_LEARN_QUIET_MS=650;
+    private final Runnable finishLayerLearnCapture=this::finishLayerLearnCapture;
+    private boolean midiDiagnosticsEnabled;
+    private int selectedMidiDeviceId=-1,selectedMidiPort=-1;
+    private String selectedMidiName="nenhum",selectedMidiPortName="—";
     private volatile int pendingPadMidiLearn=-1,pendingPadCcLearn=-1;
     private int padLayerIndex=-1;
     private String pendingEffectPresetJson;
@@ -103,8 +117,7 @@ public final class MainActivity extends Activity {
     private String pendingLayerPresetJson;
     private int pendingLayerPresetLayer=-1;
     private int midiIndex;
-    private int midiRunningStatus;
-    private int midiFirstData = -1;
+    private final MidiByteParser midiByteParser=new MidiByteParser();
     private boolean isPadEngine(int layer){return screen!=null&&layer>=0&&layer<6&&screen.engineNames[layer].contains("PADS");}
     // Keep the same per-channel key state used by the desktop engines. It is
     // essential for distinguishing a real release from a sustain-pedal change.
@@ -114,25 +127,10 @@ public final class MainActivity extends Activity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final MidiReceiver midiReceiver = new MidiReceiver() {
         @Override public synchronized void onSend(byte[] data, int offset, int count, long timestamp) {
-            final int end = offset + count;
-            for (int i = offset; i < end; i++) {
-                int value = data[i] & 0xff;
-                if (value >= 0xf8) continue; // MIDI realtime may appear between data bytes.
-                if ((value & 0x80) != 0) {
-                    if (value < 0xf0) midiRunningStatus = value;
-                    else midiRunningStatus = 0;
-                    midiFirstData = -1;
-                    continue;
-                }
-                if (midiRunningStatus == 0) continue;
-                int type = midiRunningStatus & 0xf0;
-                int required = (type == 0xc0 || type == 0xd0) ? 1 : 2;
-                if (required == 1) continue; // Program/pressure do not drive a note here.
-                if (midiFirstData < 0) { midiFirstData = value & 0x7f; continue; }
-                int first = midiFirstData;
-                midiFirstData = -1;
-                processMidiMessage(type, midiRunningStatus & 0x0f, first, value & 0x7f);
-            }
+            midiByteParser.accept(data,offset,count,timestamp,(status,data1,data2,time)->{
+                logMidiMessage(status,data1,data2,time);
+                processMidiMessage(status&0xf0,status&0x0f,data1,data2);
+            });
         }
         @Override public void onFlush() { panicMidiState(); }
     };
@@ -154,15 +152,7 @@ public final class MainActivity extends Activity {
                 return;
             }
             if(pendingLayerLearn>=0&&pendingLayerLearnTarget>=0){
-                int layer=pendingLayerLearn,target=pendingLayerLearnTarget;
-                pendingLayerLearn=-1;pendingLayerLearnTarget=-1;
-                String key=layerLearnKey(layer,target);
-                getSharedPreferences("midi_learn",MODE_PRIVATE).edit().putInt(key,first).putInt(key+"_channel",channel).putBoolean(key+"_relative",false).apply();
-                if(target==4)learnedMuteCcDown[layer][channel][first]=second>=64;
-                Button learnedButton=pendingLayerLearnButton;pendingLayerLearnButton=null;
-                String label=layerLearnLabel(layer,target,first,channel);
-                runOnUiThread(()->{if(learnedButton!=null)learnedButton.setText(label);});
-                screen.setMidiStatus("MIDI: layer "+(layer+1)+" CC "+first+" · canal "+(channel+1)+" aprendido");return;
+                collectLayerLearnCandidate(first,channel,second);return;
             }
             if(pendingPadCcLearn>=0&&first!=64){
                 getSharedPreferences("pads",MODE_PRIVATE).edit().putInt(pendingPadCcLearn==12?"pad_stop_cc":"pad_cc_"+pendingPadCcLearn,first).apply();
@@ -177,10 +167,8 @@ public final class MainActivity extends Activity {
             SharedPreferences layerLearn=getSharedPreferences("midi_learn",MODE_PRIVATE);
             boolean learnedLayerControl=false;
             for(int layer=0;layer<6;layer++)for(int target=0;target<5;target++){
-                String key=layerLearnKey(layer,target);
-                if(layerLearn.getInt(key,-1)!=first)continue;
-                int learnedChannel=layerLearn.getInt(key+"_channel",-1);
-                if(learnedChannel>=0&&learnedChannel!=channel)continue;
+                MidiLearnMapping mapping=MidiLearnMapping.load(layerLearn,layer,target);
+                if(!mapping.matches(first,channel))continue;
                 if(target==4){
                     boolean pressed=second>=64;
                     boolean wasPressed=learnedMuteCcDown[layer][channel][first];
@@ -226,37 +214,87 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private void logMidiMessage(int status,int data1,int data2,long receiverTimestamp){
+        if(!BuildConfig.DEBUG||!midiDiagnosticsEnabled)return;
+        int type=status&0xf0,channel=(status&0x0f)+1;
+        String kind=type==0x80?"NOTE_OFF":type==0x90?"NOTE_ON":type==0xa0?"POLY_PRESSURE":type==0xb0?"CC":type==0xc0?"PROGRAM":type==0xd0?"PRESSURE":type==0xe0?"PITCH_BEND":"OTHER";
+        String datum=type==0xb0?"cc="+data1:type==0x80||type==0x90||type==0xa0?"note="+data1:"data1="+data1;
+        String learn=pendingLayerLearn>=0&&pendingLayerLearnTarget>=0?"layer="+(pendingLayerLearn+1)+" target="+new String[]{"volume","cutoff","reverb","comp","mute"}[Math.min(pendingLayerLearnTarget,4)]:"idle";
+        long clock=receiverTimestamp>=0?receiverTimestamp:android.os.SystemClock.elapsedRealtimeNanos();
+        android.util.Log.d("ClassicMidi","device='"+selectedMidiName+"' id="+selectedMidiDeviceId+" port="+selectedMidiPort+"('"+selectedMidiPortName+") status=0x"+Integer.toHexString(status)+" type="+kind+" ch="+channel+" "+datum+" value="+data2+" timestampNs="+clock+" learn="+learn);
+    }
+
+    private void collectLayerLearnCandidate(int cc,int channel,int value){
+        int candidateKey=channel*128+cc;
+        synchronized(midiLearnCaptureLock){
+            MidiLearnCandidate candidate=midiLearnCandidates.get(candidateKey);
+            if(candidate==null)midiLearnCandidates.put(candidateKey,new MidiLearnCandidate(cc,channel,value));else candidate.add(value);
+        }
+        mainHandler.removeCallbacks(finishLayerLearnCapture);
+        mainHandler.postDelayed(finishLayerLearnCapture,MIDI_LEARN_QUIET_MS);
+        screen.setMidiStatus("MIDI Learn: capturando CC/canal; mova apenas o controle desejado");
+    }
+
+    private void finishLayerLearnCapture(){
+        final ArrayList<MidiLearnCandidate> candidates;
+        synchronized(midiLearnCaptureLock){candidates=new ArrayList<>(midiLearnCandidates.values());midiLearnCandidates.clear();}
+        if(candidates.isEmpty()||pendingLayerLearn<0||pendingLayerLearnTarget<0)return;
+        final int layer=pendingLayerLearn,target=pendingLayerLearnTarget;
+        final Button button=pendingLayerLearnButton;
+        pendingLayerLearn=-1;pendingLayerLearnTarget=-1;pendingLayerLearnButton=null;
+        if(button!=null)button.setText(layerLearnLabel(layer,target));
+        if(candidates.size()==1){saveLayerLearnCandidate(layer,target,candidates.get(0),button);return;}
+        String[] choices=new String[candidates.size()];for(int i=0;i<choices.length;i++)choices[i]=candidates.get(i).label();
+        String details="Foram recebidos vários pares CC/canal. Escolha o evento que mudou ao mover o controle pretendido.";
+        new AlertDialog.Builder(this).setTitle("ESCOLHER CC APRENDIDO").setMessage(details).setItems(choices,(dialog,index)->saveLayerLearnCandidate(layer,target,candidates.get(index),button))
+                .setNegativeButton("CANCELAR",(dialog,which)->screen.setMidiStatus("MIDI Learn cancelado · mapeamento anterior preservado"))
+                .setOnCancelListener(dialog->screen.setMidiStatus("MIDI Learn cancelado · mapeamento anterior preservado")).show();
+    }
+
+    private void saveLayerLearnCandidate(int layer,int target,MidiLearnCandidate candidate,Button button){
+        SharedPreferences preferences=getSharedPreferences("midi_learn",MODE_PRIVATE);
+        MidiLearnMapping.save(preferences,layer,target,candidate.cc,candidate.channel);
+        if(target==4)learnedMuteCcDown[layer][candidate.channel][candidate.cc]=candidate.last>=64;
+        if(button!=null)button.setText(layerLearnLabel(layer,target));
+        screen.setMidiStatus("MIDI: layer "+(layer+1)+" "+candidate.label()+" aprendido");
+    }
+
+    private void resetLayerLearnCapture(){
+        mainHandler.removeCallbacks(finishLayerLearnCapture);
+        synchronized(midiLearnCaptureLock){midiLearnCandidates.clear();}
+    }
+
     private void applyLayerMidiLearn(int layer,int target,int value){
         if(android.os.Looper.myLooper()!=Looper.getMainLooper()){
             mainHandler.post(()->applyLayerMidiLearn(layer,target,value));return;
         }
+        float normalized=MidiLearnMapping.normalizedValue(value);
         switch(target){
-            case 0:screen.setLearnedVolume(layer,value/127f);break;
-            case 1:screen.setLayerTone(layer,value*100f/127f,screen.layerReverb[layer],screen.layerCompMix[layer],screen.layerChorus[layer]);break;
-            case 2:screen.setLayerTone(layer,screen.layerCutoff[layer],value/127f,screen.layerCompMix[layer],screen.layerChorus[layer]);break;
-            case 3:screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],value/127f,screen.layerChorus[layer]);break;
+            case 0:screen.setLearnedVolume(layer,normalized);break;
+            case 1:screen.setLayerTone(layer,normalized*100f,screen.layerReverb[layer],screen.layerCompMix[layer],screen.layerChorus[layer]);break;
+            case 2:screen.setLayerTone(layer,screen.layerCutoff[layer],normalized,screen.layerCompMix[layer],screen.layerChorus[layer]);break;
+            case 3:screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],normalized,screen.layerChorus[layer]);break;
         }
         if(target>=0&&target<4&&layerMidiKnobs[layer][target]!=null)
-            layerMidiKnobs[layer][target].setValue(value*100f/127f);
+            layerMidiKnobs[layer][target].setValue(normalized*100f);
         screen.setMidiStatus("MIDI: CC aplicado à layer "+(layer+1)+" · valor "+value);
     }
 
-    private static String layerLearnKey(int layer,int target){return "layer_"+layer+"_"+target;}
+    private static String layerLearnKey(int layer,int target){return MidiLearnMapping.key(layer,target);}
     private String layerLearnLabel(int layer,int target){
-        SharedPreferences prefs=getSharedPreferences("midi_learn",MODE_PRIVATE);String key=layerLearnKey(layer,target);
-        return layerLearnLabel(layer,target,prefs.getInt(key,-1),prefs.getInt(key+"_channel",-1));
+        return MidiLearnMapping.load(getSharedPreferences("midi_learn",MODE_PRIVATE),layer,target).label();
     }
-    private String layerLearnLabel(int layer,int target,int cc,int channel){return cc<0?"LEARN":"CC "+cc+(channel<0?"":" CH"+(channel+1));}
     private void toggleLayerMidiLearn(int layer,int target,Button button){
         if(pendingLayerLearn==layer&&pendingLayerLearnTarget==target){
-            pendingLayerLearn=-1;pendingLayerLearnTarget=-1;pendingLayerLearnButton=null;button.setText(layerLearnLabel(layer,target));screen.setMidiStatus("MIDI: Learn cancelado");return;
+            resetLayerLearnCapture();pendingLayerLearn=-1;pendingLayerLearnTarget=-1;pendingLayerLearnButton=null;button.setText(layerLearnLabel(layer,target));screen.setMidiStatus("MIDI: Learn cancelado");return;
         }
         if(pendingLayerLearnButton!=null)pendingLayerLearnButton.setText(layerLearnLabel(pendingLayerLearn,pendingLayerLearnTarget));
-        pendingLayerLearn=layer;pendingLayerLearnTarget=target;pendingLayerLearnButton=button;button.setText("MOVA CC");
+        resetLayerLearnCapture();pendingLayerLearn=layer;pendingLayerLearnTarget=target;pendingLayerLearnButton=button;button.setText("MOVA CC");
         screen.setMidiStatus(midiInput==null?"MIDI: aguardando entrada MIDI; verifique o controlador":"MIDI: mova o controle CC para aprender");
     }
     private void clearLayerMidiLearn(int layer,int target,Button button){
-        String key=layerLearnKey(layer,target);getSharedPreferences("midi_learn",MODE_PRIVATE).edit().remove(key).remove(key+"_channel").remove(key+"_relative").apply();
+        MidiLearnMapping.clear(getSharedPreferences("midi_learn",MODE_PRIVATE),layer,target);
+        if(pendingLayerLearn==layer&&pendingLayerLearnTarget==target)resetLayerLearnCapture();
         if(target==4)for(int channel=0;channel<16;channel++)java.util.Arrays.fill(learnedMuteCcDown[layer][channel],false);
         if(pendingLayerLearn==layer&&pendingLayerLearnTarget==target){pendingLayerLearn=-1;pendingLayerLearnTarget=-1;pendingLayerLearnButton=null;}
         button.setText("LEARN");screen.setMidiStatus("MIDI Learn apagado");
@@ -278,6 +316,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        midiDiagnosticsEnabled=BuildConfig.DEBUG&&getSharedPreferences("midi_diagnostics",MODE_PRIVATE).getBoolean("enabled",false);
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         final Window window = getWindow();
         window.setFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
@@ -384,6 +423,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override public void onPause() {
+        resetLayerLearnCapture();
         AudioManager audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
         if (audioManager != null) audioManager.unregisterAudioDeviceCallback(audioDeviceCallback);
         if (midiManager != null) midiManager.unregisterDeviceCallback(midiCallback);
@@ -421,7 +461,12 @@ public final class MainActivity extends Activity {
                 "MIDI: " + count + (count == 1 ? " entrada" : " entradas"));
         AudioDeviceInfo routed = audioEngine == null ? null : audioEngine.routedDevice();
         screen.setAudioStatus(routed == null ? "ÁUDIO: saída do sistema" : "ÁUDIO: " + routed.getProductName());
-        if (count > 0 && midiDevice == null) openMidi(devices[Math.min(midiIndex, count - 1)]);
+        if (count > 0 && midiDevice == null) {
+            String preferred=getSharedPreferences("midi_device",MODE_PRIVATE).getString("identity","");int selected=-1;
+            if(!preferred.isEmpty())for(int i=0;i<count;i++)if(preferred.equals(midiDeviceIdentity(devices[i]))){selected=i;break;}
+            if(selected<0)selected=Math.min(midiIndex,count-1);
+            midiIndex=selected;openMidi(devices[selected]);
+        }
     }
 
     private MidiDeviceInfo[] midiInputDevices(){
@@ -530,24 +575,31 @@ public final class MainActivity extends Activity {
     private void openMidi(MidiDeviceInfo info) {
         if (midiManager == null) return;
         closeMidi();
+        String identity=midiDeviceIdentity(info);SharedPreferences saved=getSharedPreferences("midi_device",MODE_PRIVATE);
+        int preferredPort=identity.equals(saved.getString("identity",""))?saved.getInt("port",-1):-1;
+        MidiDeviceInfo.PortInfo selected=null;
+        for(MidiDeviceInfo.PortInfo port:info.getPorts())if(port.getType()==MidiDeviceInfo.PortInfo.TYPE_OUTPUT){if(selected==null)selected=port;if(port.getPortNumber()==preferredPort){selected=port;break;}}
+        if(selected==null){screen.setMidiStatus("MIDI: dispositivo sem porta de saída");return;}
+        final MidiDeviceInfo.PortInfo inputPort=selected;
+        selectedMidiDeviceId=info.getId();selectedMidiName=identity;selectedMidiPort=selected.getPortNumber();selectedMidiPortName=selected.getName();
+        saved.edit().putString("identity",identity).putInt("port",selectedMidiPort).apply();
         midiManager.openDevice(info, device -> {
             if(device==null){screen.setMidiStatus("MIDI: falha ao abrir entrada");return;}
             midiDevice = device;
-            MidiDeviceInfo.PortInfo[] ports = info.getPorts();
-            for (MidiDeviceInfo.PortInfo port : ports) {
-                if (port.getType() == MidiDeviceInfo.PortInfo.TYPE_OUTPUT) {
-                    midiInput = device.openOutputPort(port.getPortNumber());
-                    if (midiInput != null){midiInput.connect(midiReceiver);screen.setMidiStatus("MIDI: entrada conectada · "+info.getId());}
-                    else screen.setMidiStatus("MIDI: porta indisponível · "+info.getId());
-                    break;
-                }
-            }
+            midiInput = device.openOutputPort(inputPort.getPortNumber());
+            if (midiInput != null){midiInput.connect(midiReceiver);screen.setMidiStatus("MIDI: "+selectedMidiName+" · porta "+selectedMidiPort+" conectada");}
+            else screen.setMidiStatus("MIDI: porta indisponível · "+selectedMidiName+" #"+selectedMidiPort);
         }, mainHandler);
+    }
+    private static String midiDeviceIdentity(MidiDeviceInfo info){
+        android.os.Bundle properties=info.getProperties();String name=properties.getString(MidiDeviceInfo.PROPERTY_NAME,"Dispositivo MIDI");
+        String manufacturer=properties.getString(MidiDeviceInfo.PROPERTY_MANUFACTURER,"");String product=properties.getString(MidiDeviceInfo.PROPERTY_PRODUCT,"");
+        return manufacturer.isEmpty()&&product.isEmpty()?name:name+" / "+manufacturer+" / "+product;
     }
     private void showMidiDeviceChooser(){
         if(midiManager==null)return;MidiDeviceInfo[] devices=midiInputDevices();
         if(devices.length==0){new AlertDialog.Builder(this).setTitle("CONTROLADOR MIDI").setMessage("O Android não disponibilizou nenhuma entrada MIDI. Uma interface de áudio USB pode aparecer separadamente sem oferecer uma porta MIDI.").setPositiveButton("OK",null).show();return;}
-        String[] names=new String[devices.length];for(int i=0;i<devices.length;i++){String name=devices[i].getProperties().getString(MidiDeviceInfo.PROPERTY_NAME);names[i]=(name==null?"Dispositivo MIDI":name)+" (ID "+devices[i].getId()+")";}
+        String[] names=new String[devices.length];for(int i=0;i<devices.length;i++)names[i]=midiDeviceIdentity(devices[i])+" (ID "+devices[i].getId()+")";
         new AlertDialog.Builder(this).setTitle("ESCOLHER CONTROLADOR MIDI").setItems(names,(d,which)->{midiIndex=which;openMidi(devices[which]);screen.setMidiStatus("MIDI USB: "+names[which]);}).setNegativeButton("CANCELAR",null).show();
     }
 
@@ -558,8 +610,7 @@ public final class MainActivity extends Activity {
 
     private void closeMidiInput() {
         panicMidiState();
-        midiRunningStatus = 0;
-        midiFirstData = -1;
+        midiByteParser.reset();
         if (midiInput != null) { try { midiInput.close(); } catch (IOException ignored) {} midiInput = null; }
     }
 
@@ -1349,7 +1400,7 @@ public final class MainActivity extends Activity {
             row=EditorUi.gridRow(body);EditorUi.addButton(row,"CHORUS…",()->showEffectEditor(layer,"CHORUS"));EditorUi.addButton(row,"EQ…",()->showEffectEditor(layer,"EQ"));
         }else if(page==midiPage){
             buildRoutingControls(layer,body);
-            TextView heading=EditorUi.label(this,"MIDI LEARN · clique LEARN e mova o controle no teclado",10);heading.setTextColor(EditorUi.MUTED);heading.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);body.addView(heading,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,26)));
+            TextView heading=EditorUi.label(this,"MIDI LEARN · mapeamento por layer/alvo (CC + canal) · mova um controle por vez",10);heading.setTextColor(EditorUi.MUTED);heading.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);body.addView(heading,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,26)));
             String[] targets={"VOLUME","CUTOFF","REVERB","COMP","MUTE"};
             for(int target=0;target<targets.length;target++){
                 final int t=target;LinearLayout line=EditorUi.gridRow(body);TextView label=EditorUi.label(this,targets[t],9);label.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);line.addView(label,new LinearLayout.LayoutParams(0,EditorUi.dp(this,29),1));
@@ -1368,6 +1419,12 @@ public final class MainActivity extends Activity {
         String[] velocity={"LINEAR","SUAVE","FORTE"};EditorUi.selectorCell(row,"VELOCIDADE",velocity,screen.routeVelocity[l],i->screen.setLayerRouting(l,screen.routeChannel[l],screen.routeOctave[l],i,screen.routeSustain[l]));
         EditorUi.selectorCell(row,"SUSTAIN",new String[]{"LIGADO","DESLIGADO"},screen.routeSustain[l]?0:1,i->screen.setLayerRouting(l,screen.routeChannel[l],screen.routeOctave[l],screen.routeVelocity[l],i==0));
         row=EditorUi.gridRow(body);TextView device=EditorUi.label(this,screen.midiStatus,9);device.setTextColor(EditorUi.MUTED);device.setGravity(Gravity.CENTER_VERTICAL|Gravity.START);row.addView(device,new LinearLayout.LayoutParams(0,EditorUi.dp(this,32),2));EditorUi.addButton(row,"ESCOLHER ENTRADA MIDI",this::showMidiDeviceChooser);
+        TextView selected=EditorUi.label(this,"ENTRADA: "+selectedMidiName+" · porta "+selectedMidiPort+" ("+selectedMidiPortName+")",9);selected.setGravity(Gravity.CENTER_VERTICAL|Gravity.START);selected.setSingleLine(true);selected.setEllipsize(android.text.TextUtils.TruncateAt.END);selected.setTextColor(EditorUi.MUTED);body.addView(selected,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,23)));
+        if(BuildConfig.DEBUG){
+            LinearLayout diagnostics=EditorUi.gridRow(body);Button toggle=EditorUi.button(this,"DIAGNÓSTICO MIDI: "+(midiDiagnosticsEnabled?"ON":"OFF"),()->{});
+            toggle.setOnClickListener(v->{midiDiagnosticsEnabled=!midiDiagnosticsEnabled;getSharedPreferences("midi_diagnostics",MODE_PRIVATE).edit().putBoolean("enabled",midiDiagnosticsEnabled).apply();toggle.setText("DIAGNÓSTICO MIDI: "+(midiDiagnosticsEnabled?"ON":"OFF"));screen.setMidiStatus(midiDiagnosticsEnabled?"MIDI diagnostic logging ON · Logcat tag ClassicMidi":"MIDI diagnostic logging OFF");});
+            diagnostics.addView(toggle,new LinearLayout.LayoutParams(0,EditorUi.dp(this,29),1));
+        }
     }
 
     private void buildHammondControls(int layer,LinearLayout body){
