@@ -73,7 +73,7 @@ public final class MainActivity extends Activity {
     private LicenseManager licenseManager;
     private AudioOutputManager audioOutputManager;
     private final AudioDeviceCallback audioDeviceCallback = new AudioDeviceCallback() {
-        @Override public void onAudioDevicesAdded(AudioDeviceInfo[] added) { refreshMidiDevices(); restorePreferredAudioDevice(); }
+        @Override public void onAudioDevicesAdded(AudioDeviceInfo[] added) { refreshMidiDevices(); restorePreferredAudioDevice(); if(screen!=null)screen.postDelayed(MainActivity.this::restorePreferredAudioDevice,1000); }
         @Override public void onAudioDevicesRemoved(AudioDeviceInfo[] removed) { refreshMidiDevices(); restorePreferredAudioDevice(); }
     };
     private PadEngine padEngine;
@@ -207,7 +207,7 @@ public final class MainActivity extends Activity {
         if (audioEngine != null) audioEngine.allNotesOff();
     }
     private final MidiManager.DeviceCallback midiCallback = new MidiManager.DeviceCallback() {
-        @Override public void onDeviceAdded(MidiDeviceInfo device) { refreshMidiDevices(); }
+        @Override public void onDeviceAdded(MidiDeviceInfo device) { refreshMidiDevices(); if(screen!=null)screen.postDelayed(MainActivity.this::restorePreferredAudioDevice,1000); }
         @Override public void onDeviceRemoved(MidiDeviceInfo device) { refreshMidiDevices(); }
     };
 
@@ -294,6 +294,7 @@ public final class MainActivity extends Activity {
         hideSystemBars();
         if (audioEngine != null) audioEngine.start();
         restorePreferredAudioDevice();
+        if(screen!=null)screen.postDelayed(this::restorePreferredAudioDevice,1000);
         AudioManager audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
         if (audioManager != null) audioManager.registerAudioDeviceCallback(audioDeviceCallback, null);
         if (midiManager != null) midiManager.registerDeviceCallback(midiCallback, null);
@@ -364,7 +365,11 @@ public final class MainActivity extends Activity {
                 automaticUsbSelection = true;
             }
         }
-        if (device == null) return;
+        if (device == null) {
+            AudioDeviceInfo routed=audioEngine.routedDevice();
+            screen.setAudioStatus(routed==null?"ÁUDIO: saída do sistema":"ÁUDIO: "+routed.getProductName());
+            return;
+        }
 
         String outputName = device.getProductName() == null
                 ? "Saída USB" : device.getProductName().toString();
@@ -1025,7 +1030,7 @@ public final class MainActivity extends Activity {
                     .putInt("engine_" + layer, 1)
                     .apply();
             sf2Uris[layer] = cachedPath;
-            screen.setAudioStatus("ÁUDIO: SF2 carregado");
+        restorePreferredAudioDevice();
             pendingLayer = -1;
             openSoundFontEditor(layer);
             });
@@ -1243,12 +1248,12 @@ public final class MainActivity extends Activity {
     private void showEffectEditor(final int layer,String effect){
         final EditorUi.Panel panel=new EditorUi.Panel(this,effect+" · LAYER "+(layer+1),"Ajustes compactos · todos os valores afetam esta layer.");
         final String[] tabNames={"AJUSTAR","PRESETS","ARQUIVO"};
-        class EffectNav { void show(int page){panel.setTabs(tabNames,page,this::show);renderEffectEditorPage(layer,effect,panel,page);} }
+        class EffectNav { void show(int page){panel.setTabs(tabNames,page,this::show);renderEffectEditorPage(layer,effect,panel,page,()->show(0));} }
         new EffectNav().show(0);
         EditorUi.addButton(panel.footer,"VOLTAR À LAYER",panel.dialog::dismiss);panel.show();
     }
 
-    private void renderEffectEditorPage(final int layer,final String effect,EditorUi.Panel panel,int page){
+    private void renderEffectEditorPage(final int layer,final String effect,EditorUi.Panel panel,int page,Runnable showAdjustments){
         LinearLayout body=panel.body;body.removeAllViews();
         if(page==2){
             TextView tip=EditorUi.label(this,"Presets portáteis do Android · formato JSON",10);tip.setTextColor(EditorUi.MUTED);body.addView(tip,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,22)));
@@ -1260,7 +1265,7 @@ public final class MainActivity extends Activity {
                 for(int i=0;i<names.length;i+=2){LinearLayout row=EditorUi.gridRow(body);for(int j=i;j<Math.min(i+2,names.length);j++){final int preset=j;EditorUi.addButton(row,names[j],()->applyReverbPreset(layer,values[preset]));}}
             }else if(effect.equals("COMP")){
                 String[] names={"Piano Natural","Piano Presença","Worship Suave","Worship Sustentado"};float[][] values={{-9,2.5f,17,238,1,45},{-18,3.5f,7,180,4,55},{-14,2,25,260,2,50},{-22,4,35,360,4.5f,65}};
-                for(int i=0;i<names.length;i+=2){LinearLayout row=EditorUi.gridRow(body);for(int j=i;j<Math.min(i+2,names.length);j++){final int preset=j;EditorUi.addButton(row,names[j],()->applyCompressorPreset(layer,values[preset]));}}
+                for(int i=0;i<names.length;i+=2){LinearLayout row=EditorUi.gridRow(body);for(int j=i;j<Math.min(i+2,names.length);j++){final int preset=j;EditorUi.addButton(row,names[j],()->{applyCompressorPreset(layer,values[preset]);showAdjustments.run();android.widget.Toast.makeText(this,"Compressor: "+names[preset],android.widget.Toast.LENGTH_SHORT).show();});}}
             }else{
                 TextView info=EditorUi.label(this,"O EQ é paramétrico; salve seus ajustes como preset para reutilizar.",10);info.setTextColor(EditorUi.MUTED);body.addView(info,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,40)));
                 LinearLayout row=EditorUi.gridRow(body);EditorUi.addButton(row,"SALVAR EQ…",()->exportEffectPreset(layer,effect));EditorUi.addButton(row,"CARREGAR EQ…",()->importEffectPreset(layer,effect));
@@ -1492,6 +1497,16 @@ public final class MainActivity extends Activity {
             if (!visible.equals(value) && visible.length() > 1) visible = visible.substring(0, visible.length() - 1) + "…";
             canvas.drawText(visible, left, y, paint);
         }
+        private void fittedCenteredText(Canvas canvas,String value,float left,float right,float y,float size,int colour){
+            if(value==null||value.isEmpty()||right<=left)return;
+            paint.setStyle(Paint.Style.FILL);paint.setColor(colour);paint.setTextSize(size);
+            float width=right-left;
+            if(paint.measureText(value)>width)paint.setTextSize(Math.max(size*.65f,size*width/paint.measureText(value)));
+            String visible=value;
+            while(visible.length()>1&&paint.measureText(visible)>width)visible=visible.substring(0,visible.length()-1);
+            if(!visible.equals(value)&&visible.length()>1)visible=visible.substring(0,visible.length()-1)+"…";
+            paint.setTextAlign(Paint.Align.CENTER);canvas.drawText(visible,(left+right)*.5f,y,paint);paint.setTextAlign(Paint.Align.LEFT);
+        }
         private void box(Canvas canvas, float left, float top, float right, float bottom, int colour, boolean outline) {
             paint.setColor(colour); paint.setStyle(outline ? Paint.Style.STROKE : Paint.Style.FILL); paint.setStrokeWidth(2f);
             canvas.drawRoundRect(left, top, right, bottom, 10f, 10f, paint);
@@ -1528,9 +1543,10 @@ public final class MainActivity extends Activity {
             paint.setColor(Color.rgb(5,13,19)); canvas.drawRoundRect(x - 7, top, x + 7, bottom, 5, 5, paint);
             paint.setColor(Color.rgb(46, 66, 79)); canvas.drawRoundRect(x - 2, top + 4, x + 2, bottom - 4, 2, 2, paint);
             float knobY = bottom - (bottom - top) * value;
-            paint.setColor(Color.rgb(210,219,223)); canvas.drawRoundRect(x-cardW*.24f, knobY-12, x+cardW*.24f, knobY+12, 4, 4, paint);
+            float thumbHalfWidth=Math.min(cardW*.24f,getWidth()*.0275f);
+            paint.setColor(Color.rgb(210,219,223)); canvas.drawRoundRect(x-thumbHalfWidth, knobY-12, x+thumbHalfWidth, knobY+12, 4, 4, paint);
             paint.setColor(Color.rgb(95,107,113));
-            for (int line = -6; line <= 6; line += 4) canvas.drawRect(x-cardW*.20f, knobY+line, x+cardW*.20f, knobY+line+1.5f, paint);
+            for (int line = -6; line <= 6; line += 4) canvas.drawRect(x-thumbHalfWidth*.83f, knobY+line, x+thumbHalfWidth*.83f, knobY+line+1.5f, paint);
         }
         // The physical position follows the desktop mixer: unity is at 80%,
         // with extra travel for +3/+6 dB and finer control below 0 dB.
@@ -1692,10 +1708,8 @@ public final class MainActivity extends Activity {
                     for(int pad=0;pad<count;pad++){
                         int column=pad%columns,row=pad/columns;
                         float px=gridLeft+column*(cellW+6),py=gridTop+row*(cellH+8);
-                        box(canvas,px,py,px+cellW,py+cellH,padEngine.loaded(pad)?Color.rgb(123,137,137):Color.rgb(64,80,90),true);
-                        paint.setTextAlign(Paint.Align.CENTER);
-                        fittedText(canvas,padEngine.loaded(pad)?padEngine.name(pad):"PAD "+(pad+1),px+4,px+cellW-4,py+cellH*.58f,h*.015f,textColour);
-                        paint.setTextAlign(Paint.Align.LEFT);
+                        box(canvas,px,py,px+cellW,py+cellH,padEngine.loaded(pad)?Color.rgb(96,111,119):Color.rgb(49,63,73),false);
+                        fittedCenteredText(canvas,padEngine.loaded(pad)?padEngine.name(pad):"PAD "+(pad+1),px+8,px+cellW-8,py+cellH*.55f,h*.015f,textColour);
                     }
                     if(continuous)button(canvas,"STOP",gridLeft,top+cardH-h*.085f,gridRight,top+cardH-h*.027f,false);
                     float railTop=top+h*.185f,railBottom=top+cardH-h*.09f;
