@@ -92,6 +92,7 @@ public final class MainActivity extends Activity {
     private boolean continuousPadActive;
     private int pendingLearnTarget = -1;
     private volatile int pendingLayerLearn = -1,pendingLayerLearnTarget = -1;
+    private Button pendingLayerLearnButton;
     private volatile int pendingPadMidiLearn=-1,pendingPadCcLearn=-1;
     private int padLayerIndex=-1;
     private String pendingEffectPresetJson;
@@ -137,10 +138,14 @@ public final class MainActivity extends Activity {
     private void processMidiMessage(int type, int channel, int first, int second) {
         if (audioEngine == null) return;
         if (type == 0xb0) {
+            screen.setMidiSignal();
+            screen.setLastMidiControl(first,channel,second);
             if(pendingLayerLearn>=0&&pendingLayerLearnTarget>=0){
                 int layer=pendingLayerLearn,target=pendingLayerLearnTarget;
                 pendingLayerLearn=-1;pendingLayerLearnTarget=-1;
                 getSharedPreferences("midi_learn",MODE_PRIVATE).edit().putInt("layer_"+layer+"_"+target,first).apply();
+                Button learnedButton=pendingLayerLearnButton;pendingLayerLearnButton=null;
+                runOnUiThread(()->{if(learnedButton!=null)learnedButton.setText("CC "+first);});
                 screen.setMidiStatus("MIDI: layer "+(layer+1)+" CC "+first+" aprendido");return;
             }
             if(pendingPadCcLearn>=0&&first!=64){
@@ -223,7 +228,10 @@ public final class MainActivity extends Activity {
     }
     private final MidiManager.DeviceCallback midiCallback = new MidiManager.DeviceCallback() {
         @Override public void onDeviceAdded(MidiDeviceInfo device) { refreshMidiDevices(); if(screen!=null)screen.postDelayed(MainActivity.this::restorePreferredAudioDevice,1000); }
-        @Override public void onDeviceRemoved(MidiDeviceInfo device) { refreshMidiDevices(); }
+        @Override public void onDeviceRemoved(MidiDeviceInfo device) {
+            if(midiDevice!=null&&midiDevice.getInfo().getId()==device.getId())closeMidi();
+            refreshMidiDevices();
+        }
     };
 
     @Override public void onCreate(Bundle state) {
@@ -365,12 +373,22 @@ public final class MainActivity extends Activity {
 
     private void refreshMidiDevices() {
         if (screen == null) return;
-        int count = midiManager == null ? 0 : midiManager.getDevices().length;
-        screen.setMidiStatus(count == 0 ? "MIDI USB: nenhum dispositivo" :
-                "MIDI USB: " + count + (count == 1 ? " dispositivo" : " dispositivos"));
+        MidiDeviceInfo[] devices=midiInputDevices();
+        int count=devices.length;
+        screen.setMidiStatus(count == 0 ? "MIDI: nenhuma entrada disponível" :
+                "MIDI: " + count + (count == 1 ? " entrada" : " entradas"));
         AudioDeviceInfo routed = audioEngine == null ? null : audioEngine.routedDevice();
         screen.setAudioStatus(routed == null ? "ÁUDIO: saída do sistema" : "ÁUDIO: " + routed.getProductName());
-        if (count > 0 && midiDevice == null) openMidi(midiManager.getDevices()[Math.min(midiIndex, count - 1)]);
+        if (count > 0 && midiDevice == null) openMidi(devices[Math.min(midiIndex, count - 1)]);
+    }
+
+    private MidiDeviceInfo[] midiInputDevices(){
+        if(midiManager==null)return new MidiDeviceInfo[0];
+        java.util.ArrayList<MidiDeviceInfo> available=new java.util.ArrayList<>();
+        for(MidiDeviceInfo device:midiManager.getDevices())
+            for(MidiDeviceInfo.PortInfo port:device.getPorts())
+                if(port.getType()==MidiDeviceInfo.PortInfo.TYPE_OUTPUT){available.add(device);break;}
+        return available.toArray(new MidiDeviceInfo[0]);
     }
 
     private void restorePreferredAudioDevice() {
@@ -471,20 +489,22 @@ public final class MainActivity extends Activity {
         if (midiManager == null) return;
         closeMidi();
         midiManager.openDevice(info, device -> {
+            if(device==null){screen.setMidiStatus("MIDI: falha ao abrir entrada");return;}
             midiDevice = device;
             MidiDeviceInfo.PortInfo[] ports = info.getPorts();
             for (MidiDeviceInfo.PortInfo port : ports) {
                 if (port.getType() == MidiDeviceInfo.PortInfo.TYPE_OUTPUT) {
                     midiInput = device.openOutputPort(port.getPortNumber());
-                    if (midiInput != null) midiInput.connect(midiReceiver);
+                    if (midiInput != null){midiInput.connect(midiReceiver);screen.setMidiStatus("MIDI: entrada conectada · "+info.getId());}
+                    else screen.setMidiStatus("MIDI: porta indisponível · "+info.getId());
                     break;
                 }
             }
         }, mainHandler);
     }
     private void showMidiDeviceChooser(){
-        if(midiManager==null)return;MidiDeviceInfo[] devices=midiManager.getDevices();
-        if(devices.length==0){new AlertDialog.Builder(this).setTitle("CONTROLADOR MIDI").setMessage("Nenhum controlador MIDI USB foi encontrado.").setPositiveButton("OK",null).show();return;}
+        if(midiManager==null)return;MidiDeviceInfo[] devices=midiInputDevices();
+        if(devices.length==0){new AlertDialog.Builder(this).setTitle("CONTROLADOR MIDI").setMessage("O Android não disponibilizou nenhuma entrada MIDI. Uma interface de áudio USB pode aparecer separadamente sem oferecer uma porta MIDI.").setPositiveButton("OK",null).show();return;}
         String[] names=new String[devices.length];for(int i=0;i<devices.length;i++){String name=devices[i].getProperties().getString(MidiDeviceInfo.PROPERTY_NAME);names[i]=(name==null?"Dispositivo MIDI":name)+" (ID "+devices[i].getId()+")";}
         new AlertDialog.Builder(this).setTitle("ESCOLHER CONTROLADOR MIDI").setItems(names,(d,which)->{midiIndex=which;openMidi(devices[which]);screen.setMidiStatus("MIDI USB: "+names[which]);}).setNegativeButton("CANCELAR",null).show();
     }
@@ -1271,7 +1291,7 @@ public final class MainActivity extends Activity {
             String[] targets={"VOLUME","CUTOFF","REVERB","COMP","MUTE"};
             for(int target=0;target<targets.length;target++){
                 final int t=target;LinearLayout line=EditorUi.gridRow(body);TextView label=EditorUi.label(this,targets[t],9);label.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);line.addView(label,new LinearLayout.LayoutParams(0,EditorUi.dp(this,29),1));
-                int cc=getSharedPreferences("midi_learn",MODE_PRIVATE).getInt("layer_"+layer+"_"+t,-1);final Button[] learn={null};learn[0]=EditorUi.button(this,pendingLayerLearn==layer&&pendingLayerLearnTarget==t?"CANCELAR LEARN":cc<0?"LEARN":"CC "+cc,()->{if(pendingLayerLearn==layer&&pendingLayerLearnTarget==t){pendingLayerLearn=-1;pendingLayerLearnTarget=-1;learn[0].setText(cc<0?"LEARN":"CC "+cc);screen.setMidiStatus("MIDI: learn cancelado");}else{pendingLayerLearn=layer;pendingLayerLearnTarget=t;learn[0].setText("CANCELAR LEARN");screen.setMidiStatus("MIDI: mova o controle para aprender");}});line.addView(learn[0],new LinearLayout.LayoutParams(0,EditorUi.dp(this,29),1));
+                int cc=getSharedPreferences("midi_learn",MODE_PRIVATE).getInt("layer_"+layer+"_"+t,-1);final Button[] learn={null};learn[0]=EditorUi.button(this,pendingLayerLearn==layer&&pendingLayerLearnTarget==t?"CANCELAR LEARN":cc<0?"LEARN":"CC "+cc,()->{if(pendingLayerLearn==layer&&pendingLayerLearnTarget==t){pendingLayerLearn=-1;pendingLayerLearnTarget=-1;pendingLayerLearnButton=null;learn[0].setText(cc<0?"LEARN":"CC "+cc);screen.setMidiStatus("MIDI: learn cancelado");}else{pendingLayerLearn=layer;pendingLayerLearnTarget=t;pendingLayerLearnButton=learn[0];learn[0].setText("CANCELAR LEARN");screen.setMidiStatus(midiInput==null?"MIDI: aguardando entrada MIDI; verifique o controlador":"MIDI: mova o controle para aprender");}});line.addView(learn[0],new LinearLayout.LayoutParams(0,EditorUi.dp(this,29),1));
                 EditorUi.addButton(line,"LIMPAR",()->{getSharedPreferences("midi_learn",MODE_PRIVATE).edit().remove("layer_"+layer+"_"+t).apply();if(pendingLayerLearn==layer&&pendingLayerLearnTarget==t){pendingLayerLearn=-1;pendingLayerLearnTarget=-1;}learn[0].setText("LEARN");screen.setMidiStatus("MIDI Learn apagado");});
             }
         }
@@ -1473,6 +1493,7 @@ public final class MainActivity extends Activity {
         private String account = "";
         private boolean midiSignal;
         private int lastNoteOff = -1;
+        private String lastMidiControl = "";
         // Desktop builds open directly on the mixer; keep the same workflow on Android.
         private boolean liveSet = false;
         private boolean settings = false;
@@ -1564,6 +1585,7 @@ public final class MainActivity extends Activity {
         void setAccount(String value) { account = value == null ? "" : value; postInvalidate(); }
         void setMidiSignal() { midiSignal = true; postInvalidateDelayed(180); }
         void setLastNoteOff(int note) { lastNoteOff = note; postInvalidate(); }
+        void setLastMidiControl(int cc,int channel,int value){lastMidiControl="CC "+cc+" · CH "+(channel+1)+" · "+value;postInvalidate();}
         void setLayerName(int layer, String name) { if (layer >= 0 && layer < layerNames.length) { layerNames[layer] = name; postInvalidate(); } }
         void setPresetName(int layer, String name) { if (layer >= 0 && layer < presetNames.length) { presetNames[layer] = name == null ? "" : name; postInvalidate(); } }
         void setEngineName(int layer, String name) { if (layer >= 0 && layer < engineNames.length) { engineNames[layer] = name == null ? "VAZIA" : name; postInvalidate(); } }
@@ -1721,7 +1743,8 @@ public final class MainActivity extends Activity {
                     w * .38f, w * .57f, h * .078f, h * .052f, text);
             float statusLeft = w * .61f, statusRight = w * .99f;
             fittedText(canvas, midiStatus, statusLeft, statusRight, h * .05f, h * .018f, Color.rgb(180, 195, 200));
-            if (lastNoteOff >= 0) fittedText(canvas, "NOTE OFF " + lastNoteOff, statusLeft, statusRight, h * .069f, h * .013f, Color.rgb(80, 190, 174));
+            if (!lastMidiControl.isEmpty()) fittedText(canvas,lastMidiControl,statusLeft,statusRight,h*.069f,h*.013f,Color.rgb(80,190,174));
+            else if (lastNoteOff >= 0) fittedText(canvas, "NOTE OFF " + lastNoteOff, statusLeft, statusRight, h * .069f, h * .013f, Color.rgb(80, 190, 174));
             fittedText(canvas, audioStatus, statusLeft, statusRight, h * .087f, h * .015f, Color.rgb(180, 195, 200));
             paint.setColor(midiSignal ? Color.rgb(40, 220, 110) : Color.rgb(70, 90, 95));
             canvas.drawCircle(w * .595f, h * .05f, h * .011f, paint);
@@ -1875,8 +1898,6 @@ public final class MainActivity extends Activity {
             drawFader(canvas, masterX+60, masterTop, masterBottom, 105, masterVolume);
             paint.setTextAlign(Paint.Align.CENTER); text(canvas, faderLabel(masterVolume), masterX+55, top+cardH-h*.027f, h*.016f, textColour); paint.setTextAlign(Paint.Align.LEFT);
             paint.setColor(Color.rgb(49,69,82)); canvas.drawRect(left, h*.91f, w-left, h*.912f, paint);
-            button(canvas, "ÁUDIO / MIDI", left, h*.925f, w*.13f, h*.975f, false);
-            button(canvas, "MIDI LEARN", w*.14f, h*.925f, w*.26f, h*.975f, pendingLearnTarget>=0);
             button(canvas, "PANIC", w*.88f, h*.925f, w-left, h*.975f, false);
             postInvalidateDelayed(70);
         }
@@ -1929,8 +1950,6 @@ public final class MainActivity extends Activity {
             if(liveSet&&tap&&event.getY()>h*.14f&&event.getY()<h*.22f){liveBank=Math.max(0,Math.min(7,(int)(event.getX()/(w/8f))));selected=0;loadLiveNames();return true;}
             if(liveSet&&tap&&event.getY()>h*.90f&&event.getX()<300){savingLiveSlot=!savingLiveSlot;invalidate();return true;}
             if (!liveSet && !settings && tap && event.getY() >= h*.925f && event.getY() <= h*.975f) {
-                if (event.getX() >= 18 && event.getX() <= w*.13f) { settings = true; invalidate(); return true; }
-                if (event.getX() >= w*.14f && event.getX() <= w*.26f) { showMidiLearnChooser(); return true; }
                 if (event.getX() >= w*.88f && event.getX() <= w-18) { panicMidiState(); invalidate(); return true; }
             }
             if (!liveSet && dragging && event.getY() > h * .17f && event.getY() < h * .87f) {
