@@ -18,6 +18,7 @@ final class PadEngine {
     private final float[] levels=new float[12];
     private final int[] fadeGeneration=new int[12];
     private boolean continuous;
+    private volatile boolean enabled=true;
     private int active=-1;
     private float layerGain=1f,masterGain=1f,pan=0f;
     private long fadeMs=1000;
@@ -25,6 +26,12 @@ final class PadEngine {
 
     PadEngine(Context context){this.context=context.getApplicationContext();}
     void setContinuous(boolean value){continuous=value;}
+    void setEnabled(boolean value){
+        enabled=value;
+        main.post(()->{
+            if(!value){for(int i=0;i<players.length;i++)release(i);active=-1;}
+        });
+    }
     void load(int pad,String path){if(pad<0||pad>=12)return;release(pad);paths[pad]=path;}
     boolean loaded(int pad){return pad>=0&&pad<12&&paths[pad]!=null&&new File(paths[pad]).isFile();}
     String name(int pad){return loaded(pad)?new File(paths[pad]).getName():"VAZIO";}
@@ -40,7 +47,7 @@ final class PadEngine {
 
     void trigger(int pad){if(pad<0||pad>=12)return;main.post(()->triggerOnMain(pad));}
     private void triggerOnMain(int pad){
-        if(!loaded(pad))return;
+        if(!enabled||!loaded(pad))return;
         if(continuous){
             if(active==pad&&players[pad]!=null)return;
             for(int i=0;i<players.length;i++)if(i!=pad&&players[i]!=null)fadeTo(i,0f,fadeMs,true);

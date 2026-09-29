@@ -382,6 +382,9 @@ void clearDxLayer(int layer) { dxLayers[(size_t)layer] = {}; }
 
 void releaseLayer(const int layer)
 {
+    // A layer unload is also a hard note boundary. Clear per-layer key routing
+    // so a later Note Off cannot affect a newly restored motor on the same key.
+    for(auto& channel:routedNotes[(size_t)layer])channel.fill(0);
     if (fonts[(size_t) layer] != nullptr)
     {
         tsf_close(fonts[(size_t) layer]);
