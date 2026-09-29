@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.database.Cursor;
 import android.content.pm.ActivityInfo;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -25,6 +26,7 @@ import android.os.Looper;
 import android.content.Intent;
 import android.net.Uri;
 import android.provider.Settings;
+import android.provider.OpenableColumns;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
@@ -259,7 +261,7 @@ public final class MainActivity extends Activity {
                 padLayerActive=true;continuousPadActive=engine==6;padLayerIndex=i;padEngine.setContinuous(continuousPadActive);padEngine.setEnabled(!muted);audioEngine.clearLayer(i);screen.setLayerName(i,engine==6?"Pads contínuos":"Drum Pads");screen.setEngineName(i,engine==6?"CONT. PADS":"DRUM PADS");screen.setPresetName(i,(muted?"MUTE · ":"")+"12 pads · notas MIDI 36–47");continue;
             }
             sf2Uris[i] = prefs.getString("sf2_" + i, null);
-            String name = prefs.getString("name_" + i, null);
+            String name = displaySafeSoundFontName(prefs.getString("name_" + i, null));
             if (sf2Uris[i] != null) {
                 Uri saved = Uri.parse(sf2Uris[i]);
                 soundFontLayers[i].load(saved, name);
@@ -974,7 +976,7 @@ public final class MainActivity extends Activity {
             }
             prepareLayerMotorReplacement(layer);
             deactivatePadLayer(layer);
-            String name = uri.getLastPathSegment() == null ? "SF2 carregado" : uri.getLastPathSegment();
+            String name = soundFontDisplayName(uri);
             screen.setLayerName(layer, name);
             screen.setEngineName(layer, "SF2");
             String firstPreset = audioEngine.presetCount(layer) > 0 ? audioEngine.presetName(layer, 0) : "Preset 1";
@@ -1003,6 +1005,29 @@ public final class MainActivity extends Activity {
         if (existing.isFile()) return existing.getAbsolutePath();
         try { return cacheSoundFont(Uri.parse(stored), layer); }
         catch (Exception ignored) { return null; }
+    }
+
+    /** Use the document provider's human-readable filename instead of opaque URI IDs (e.g. msf:27442). */
+    private String soundFontDisplayName(Uri uri) {
+        String name = null;
+        if (uri != null) {
+            try (Cursor cursor = getContentResolver().query(uri,
+                    new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst()) {
+                    int column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                    if (column >= 0) name = cursor.getString(column);
+                }
+            } catch (Exception ignored) { }
+            if (name == null || name.trim().isEmpty()) name = uri.getLastPathSegment();
+        }
+        return displaySafeSoundFontName(name);
+    }
+
+    private String displaySafeSoundFontName(String name) {
+        if (name == null || name.trim().isEmpty() || name.matches("(?i)msf:\\d+")) {
+            return "SoundFont carregado";
+        }
+        return name;
     }
 
     private String cacheSoundFont(Uri source, int layer) {
@@ -1402,6 +1427,25 @@ public final class MainActivity extends Activity {
             paint.setStyle(Paint.Style.FILL); paint.setColor(colour); paint.setTextSize(size);
             canvas.drawText(value, x, y, paint);
         }
+        private void fittedText(Canvas canvas, String value, float left, float right, float y, float size, int colour) {
+            if (value == null || value.isEmpty() || right <= left) return;
+            paint.setStyle(Paint.Style.FILL); paint.setColor(colour); paint.setTextAlign(Paint.Align.LEFT);
+            float fittedSize = size;
+            paint.setTextSize(fittedSize);
+            float maxWidth = right - left;
+            float measured = paint.measureText(value);
+            if (measured > maxWidth) {
+                fittedSize *= maxWidth / measured;
+                fittedSize = Math.max(size * .72f, fittedSize);
+                paint.setTextSize(fittedSize);
+            }
+            String visible = value;
+            while (visible.length() > 1 && paint.measureText(visible) > maxWidth) {
+                visible = visible.substring(0, visible.length() - 1);
+            }
+            if (!visible.equals(value) && visible.length() > 1) visible = visible.substring(0, visible.length() - 1) + "…";
+            canvas.drawText(visible, left, y, paint);
+        }
         private void box(Canvas canvas, float left, float top, float right, float bottom, int colour, boolean outline) {
             paint.setColor(colour); paint.setStyle(outline ? Paint.Style.STROKE : Paint.Style.FILL); paint.setStrokeWidth(2f);
             canvas.drawRoundRect(left, top, right, bottom, 10f, 10f, paint);
@@ -1486,16 +1530,17 @@ public final class MainActivity extends Activity {
             text(canvas, "CLASSIC PLAYER", 94, h * .095f, h * .047f, text);
             if (!account.isEmpty()) text(canvas, account, 94, h * .125f, h * .015f, Color.rgb(19,184,173));
             text(canvas, liveSet ? "LIVE SET" : settings ? "ÁUDIO / MIDI" : "MIXER", w * .43f, h * .078f, h * .052f, text);
-            text(canvas, midiStatus, w * .76f, h * .055f, h * .022f, Color.rgb(180, 195, 200));
-            if (lastNoteOff >= 0) text(canvas, "NOTE OFF " + lastNoteOff, w * .76f, h * .078f, h * .014f, Color.rgb(80, 190, 174));
-            text(canvas, audioStatus, w * .76f, h * .085f, h * .018f, Color.rgb(180, 195, 200));
+            float statusLeft = w * .61f, statusRight = w * .99f;
+            fittedText(canvas, midiStatus, statusLeft, statusRight, h * .05f, h * .018f, Color.rgb(180, 195, 200));
+            if (lastNoteOff >= 0) fittedText(canvas, "NOTE OFF " + lastNoteOff, statusLeft, statusRight, h * .069f, h * .013f, Color.rgb(80, 190, 174));
+            fittedText(canvas, audioStatus, statusLeft, statusRight, h * .087f, h * .015f, Color.rgb(180, 195, 200));
             paint.setColor(midiSignal ? Color.rgb(40, 220, 110) : Color.rgb(70, 90, 95));
-            canvas.drawCircle(w * .735f, h * .055f, h * .012f, paint);
+            canvas.drawCircle(w * .595f, h * .05f, h * .011f, paint);
             midiSignal = false;
             // Keep all navigation inside the header so it never covers Layer 6.
-            button(canvas, "MIXER", w*.755f, h*.096f, w*.83f, h*.137f, !liveSet && !settings);
-            button(canvas, "LIVE SET", w*.835f, h*.096f, w*.91f, h*.137f, liveSet);
-            button(canvas, "ÁUDIO/MIDI", w*.915f, h*.096f, w*.995f, h*.137f, settings);
+            button(canvas, "MIXER", w*.755f, h*.101f, w*.83f, h*.139f, !liveSet && !settings);
+            button(canvas, "LIVE SET", w*.835f, h*.101f, w*.91f, h*.139f, liveSet);
+            button(canvas, "ÁUDIO/MIDI", w*.915f, h*.101f, w*.995f, h*.139f, settings);
 
             if (settings) {
                 box(canvas, 28, h * .17f, w - 28, h * .86f, panel, true);
