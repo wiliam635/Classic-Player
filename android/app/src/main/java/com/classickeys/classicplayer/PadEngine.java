@@ -15,6 +15,7 @@ final class PadEngine {
     private final MediaPlayer[][] players=new MediaPlayer[2][12];
     private final Equalizer[][] equalizers=new Equalizer[2][12];
     private final String[][] paths=new String[2][12];
+    private final String[][] names=new String[2][12];
     private final float[][] levels=new float[2][12];
     private final int[][] fadeGeneration=new int[2][12];
     private final boolean[] enabled={true,true};
@@ -33,9 +34,10 @@ final class PadEngine {
         });
     }
     private static int bank(boolean continuous){return continuous?1:0;}
-    void load(int pad,String path,boolean continuous){if(pad<0||pad>=12)return;int bank=bank(continuous);release(bank,pad);paths[bank][pad]=path;}
+    void load(int pad,String path,boolean continuous){load(pad,path,continuous,null);}
+    void load(int pad,String path,boolean continuous,String displayName){if(pad<0||pad>=12)return;int bank=bank(continuous);release(bank,pad);paths[bank][pad]=path;names[bank][pad]=displayName;}
     boolean loaded(int pad,boolean continuous){int bank=bank(continuous);String path=pad>=0&&pad<12?paths[bank][pad]:null;return path!=null&&new File(path).isFile();}
-    String name(int pad,boolean continuous){int bank=bank(continuous);return loaded(pad,continuous)?new File(paths[bank][pad]).getName():"VAZIO";}
+    String name(int pad,boolean continuous){int bank=bank(continuous);if(!loaded(pad,continuous))return "VAZIO";String name=names[bank][pad];return name==null||name.isEmpty()?"PAD "+(pad+1):name;}
     void setFadeSeconds(float seconds){fadeMs=Math.max(20,Math.min(10000,(long)(seconds*1000)));}
     float fadeSeconds(){return fadeMs/1000f;}
     void setGain(float gain,boolean continuous){layerGain[bank(continuous)]=clamp(gain);main.post(this::refreshVolumes);}
