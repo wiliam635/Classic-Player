@@ -117,12 +117,13 @@ final class EditorUi {
     }
     static LinearLayout gridRow(LinearLayout parent){LinearLayout row=new LinearLayout(parent.getContext());row.setGravity(Gravity.CENTER_VERTICAL);parent.addView(row,new LinearLayout.LayoutParams(-1,-2));return row;}
     static LinearLayout knobRow(LinearLayout parent){LinearLayout row=new LinearLayout(parent.getContext());row.setGravity(Gravity.CENTER);row.setPadding(0,dp(parent.getContext(),2),0,dp(parent.getContext(),2));parent.addView(row,new LinearLayout.LayoutParams(-1,-2));return row;}
-    static void knob(LinearLayout row,String label,float value,float min,float max,String unit,Change action){row.addView(new Knob(row.getContext(),label,value,min,max,unit,action),new LinearLayout.LayoutParams(0,dp(row.getContext(),58),1));}
+    static Knob knob(LinearLayout row,String label,float value,float min,float max,String unit,Change action){Knob knob=new Knob(row.getContext(),label,value,min,max,unit,action);row.addView(knob,new LinearLayout.LayoutParams(0,dp(row.getContext(),58),1));return knob;}
     static final class Knob extends View {
         final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);final String label,unit;final float min,max;final Change action;
         float value,downX,downY,start;int pointer=-1,dragAxis;final int touchSlop;
         Knob(Context c,String label,float value,float min,float max,String unit,Change action){super(c);this.label=label;this.min=min;this.max=max;this.unit=unit;this.value=Math.max(min,Math.min(max,value));this.action=action;touchSlop=ViewConfiguration.get(c).getScaledTouchSlop();setFocusable(true);describe();}
         void describe(){setContentDescription(label+" "+format()+". Arraste na horizontal para ajustar; na vertical para rolar a tela.");}
+        void setValue(float next){value=Math.max(min,Math.min(max,next));describe();invalidate();}
         String format(){return String.format(Locale.ROOT,"%.1f%s",value,unit);}
         @Override protected void onDraw(Canvas c){
             float w=getWidth(),h=getHeight(),cx=w/2,cy=h*.45f,r=Math.min(w*.26f,h*.22f);p.setShader(null);p.setStyle(Paint.Style.FILL);p.setColor(TEXT);p.setTextAlign(Paint.Align.CENTER);p.setTextSize(dp(getContext(),8));c.drawText(label,cx,dp(getContext(),10),p);
