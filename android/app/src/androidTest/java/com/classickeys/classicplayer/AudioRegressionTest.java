@@ -139,8 +139,11 @@ public class AudioRegressionTest {
         assertTrue("Loading DX7 must not stop the existing output",engine.isRunning());
         assertEquals(2,engine.engineType(1));
         engine.noteOn(64,100,0);
-        android.os.SystemClock.sleep(100);
+        android.os.SystemClock.sleep(2200);
         assertTrue("Mixed SF2/DX7 output must remain active",engine.masterPeak()>0);
+        if(engine.outputMode().startsWith("AudioTrack · Android Media"))
+            assertTrue("Audio screen must report the render deadline and peak",
+                engine.outputDspStatus().contains("DSP pico/2s"));
     }
 
     private void activate(int type, int layer) {

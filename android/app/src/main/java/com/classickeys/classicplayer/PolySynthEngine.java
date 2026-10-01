@@ -24,6 +24,9 @@ final class PolySynthEngine {
     private volatile boolean nativeOutputActive;
     private Thread outputMonitor;
     private AudioManager audioManager;
+    private volatile int renderPeakMicros;
+    private volatile int renderSlowBlocks;
+    private volatile int renderMeasuredBlocks;
 
     PolySynthEngine() { }
     PolySynthEngine(Context context) {
@@ -84,6 +87,13 @@ final class PolySynthEngine {
                 current.getSampleRate()/1000.0,bufferFrames,activeFrames,capacityFrames)+
             (Build.VERSION.SDK_INT>=24?" · underruns: "+current.getUnderrunCount():"");
         } catch(IllegalStateException e) { return "Reconectando áudio"; }
+    }
+    String outputDspStatus() {
+        if(nativeOutputActive)return "DSP: saída nativa · acompanhe xruns acima";
+        if(renderMeasuredBlocks==0)return "DSP: medindo blocos de áudio...";
+        return String.format(java.util.Locale.US,
+            "DSP pico/2s %.2f/%.2f ms · blocos lentos %d/%d",
+            renderPeakMicros/1000.0,FRAMES*1000.0/RATE,renderSlowBlocks,renderMeasuredBlocks);
     }
     boolean isRunning() { return running; }
     String outputMode() {
@@ -172,6 +182,7 @@ final class PolySynthEngine {
         }
         nativeOutputActive=false;
         outputError="";
+        renderPeakMicros=0;renderSlowBlocks=0;renderMeasuredBlocks=0;
         running = true;
         renderThread = new Thread(this::render, "classic-sf2-audio");
         renderThread.setPriority(Thread.MAX_PRIORITY);
@@ -332,10 +343,22 @@ final class PolySynthEngine {
         short[] output = new short[FRAMES * 2];
         AudioTrack current=track;
         int failures=0;
+        long windowStarted=System.nanoTime();
+        int windowPeak=0,windowSlow=0,windowBlocks=0;
+        final long blockDeadlineNanos=FRAMES*1000000000L/RATE;
         try {
         current.play();
         while (running) {
+            long renderStarted=System.nanoTime();
             nativeRender(output, FRAMES);
+            long renderElapsed=System.nanoTime()-renderStarted;
+            windowPeak=Math.max(windowPeak,(int)Math.min(Integer.MAX_VALUE,renderElapsed/1000));
+            if(renderElapsed>blockDeadlineNanos)windowSlow++;
+            windowBlocks++;
+            if(renderStarted-windowStarted>=2000000000L){
+                renderPeakMicros=windowPeak;renderSlowBlocks=windowSlow;renderMeasuredBlocks=windowBlocks;
+                windowStarted=renderStarted;windowPeak=0;windowSlow=0;windowBlocks=0;
+            }
             if (current != null) {
                 int offset = 0;
                 while (running && offset < output.length) {

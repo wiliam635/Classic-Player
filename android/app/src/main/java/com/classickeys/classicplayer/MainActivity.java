@@ -543,6 +543,12 @@ public final class MainActivity extends Activity {
             .setNegativeButton("CANCELAR",null).show();
     }
 
+    private String routedAudioLabel() {
+        AudioDeviceInfo routed=audioEngine==null?null:audioEngine.routedDevice();
+        return routed==null?"ÁUDIO: rota de saída não confirmada"
+                :"ÁUDIO: "+routed.getProductName()+" (ID "+routed.getId()+")";
+    }
+
     private void showAudioOutputChooser() {
         if (audioOutputManager == null) return;
         java.util.List<String> names = audioOutputManager.outputs();
@@ -1878,16 +1884,17 @@ public final class MainActivity extends Activity {
             if (settings) {
                 box(canvas, 28, h * .17f, w - 28, h * .86f, panel, true);
                 text(canvas, "ÁUDIO / MIDI", 52, h * .25f, h * .04f, text);
-                text(canvas, audioStatus, 52, h * .34f, h * .026f, Color.rgb(180,195,200));
+                text(canvas, routedAudioLabel(), 52, h * .34f, h * .026f, Color.rgb(180,195,200));
                 text(canvas, midiStatus, 52, h * .42f, h * .026f, Color.rgb(180,195,200));
                 text(canvas, "Toque nas linhas acima para alternar a saída e o controlador.", 52, h * .54f, h * .022f, Color.rgb(180,195,200));
+                text(canvas,audioEngine.outputMode(),w*.48f,h*.56f,h*.016f,text);
                 float actionRight = Math.min(w - 52, 430);
                 button(canvas, "MIDI LEARN · VOLUME", 52, h*.59f, actionRight, h*.66f, pendingLearnTarget>=0);
                 button(canvas, "PARAR TODAS AS NOTAS", 52, h*.69f, actionRight, h*.76f, false);
                 button(canvas, "VOLTAR AO MIXER", 52, h*.79f, actionRight, h*.86f, false);
                 button(canvas, "AJUSTAR BUFFER · "+audioEngine.bufferFrames()+" FRAMES",w*.48f,h*.59f,w-52,h*.66f,false);
-                text(canvas,audioEngine.outputStatus(),w*.48f,h*.71f,h*.018f,text);
-                text(canvas,audioEngine.outputMode(),w*.48f,h*.75f,h*.016f,text);
+                fittedText(canvas,audioEngine.outputStatus(),w*.48f,w-52,h*.71f,h*.018f,text);
+                text(canvas,audioEngine.outputDspStatus(),w*.48f,h*.75f,h*.016f,text);
                 text(canvas,audioEngine.outputLatency(),w*.48f,h*.79f,h*.016f,text);
                 button(canvas,"REINICIAR ÁUDIO",w*.48f,h*.81f,w-52,h*.86f,false);
                 return;

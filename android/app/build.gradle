@@ -12,7 +12,7 @@ android {
         applicationId 'com.classickeys.classicplayer'
         minSdk 23 // Android 6.0
         targetSdk 35
-        versionCode 108
+        versionCode 109
         versionName '1.0'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         ndk {
