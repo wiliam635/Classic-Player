@@ -325,6 +325,7 @@ public final class MainActivity extends Activity {
         setContentView(screen);
         midiManager = (MidiManager) getSystemService(MIDI_SERVICE);
         audioEngine = new PolySynthEngine(this);
+        audioEngine.setOboePreferred(getSharedPreferences("audio",MODE_PRIVATE).getBoolean("oboe_preferred",false));
         audioEngine.setBufferFrames(getSharedPreferences("audio",MODE_PRIVATE).getInt("buffer_frames",512));
         audioEngine.setMaster(screen.faderGain(screen.masterVolume));
         audioEngine.setMasterEffects(screen.masterReverb,screen.masterChorus);
@@ -540,6 +541,18 @@ public final class MainActivity extends Activity {
                 .setTitle("BUFFER DE SAÍDA")
                 .setMessage("Este ajuste altera o buffer de fila do AudioTrack, não a taxa de amostragem nem a latência total. O Android pode limitar valores menores ao mínimo da interface. Em ÁUDIO/MIDI, confira pedido, tamanho ativo e capacidade para ver o que foi aplicado. 4800 frames equivalem a cerca de 109 ms em 44,1 kHz e aumentam a latência.")
                 .setPositiveButton("FECHAR",null).show())
+            .setNegativeButton("CANCELAR",null).show();
+    }
+
+    private void showAudioBackendChooser() {
+        String[] choices={"AudioTrack · rota estável", "Oboe · teste de baixa latência"};
+        new AlertDialog.Builder(this).setTitle("MOTOR DE SAÍDA · OBOE EXPERIMENTAL")
+            .setSingleChoiceItems(choices,audioEngine.oboePreferred()?1:0,(dialog,which)->{
+                boolean useOboe=which==1;
+                audioEngine.setOboePreferred(useOboe);
+                getSharedPreferences("audio",MODE_PRIVATE).edit().putBoolean("oboe_preferred",useOboe).apply();
+                screen.invalidate();dialog.dismiss();
+            })
             .setNegativeButton("CANCELAR",null).show();
     }
 
@@ -1887,7 +1900,7 @@ public final class MainActivity extends Activity {
                 text(canvas, routedAudioLabel(), 52, h * .34f, h * .026f, Color.rgb(180,195,200));
                 text(canvas, midiStatus, 52, h * .42f, h * .026f, Color.rgb(180,195,200));
                 text(canvas, "Toque nas linhas acima para alternar a saída e o controlador.", 52, h * .54f, h * .022f, Color.rgb(180,195,200));
-                text(canvas,audioEngine.outputMode(),w*.48f,h*.56f,h*.016f,text);
+                button(canvas,"SAÍDA · "+audioEngine.outputMode(),w*.48f,h*.50f,w-52,h*.575f,false);
                 float actionRight = Math.min(w - 52, 430);
                 button(canvas, "MIDI LEARN · VOLUME", 52, h*.59f, actionRight, h*.66f, pendingLearnTarget>=0);
                 button(canvas, "PARAR TODAS AS NOTAS", 52, h*.69f, actionRight, h*.76f, false);
@@ -2047,8 +2060,9 @@ public final class MainActivity extends Activity {
                 invalidate(); return true;
             }
             if (settings && tap) {
-                if(event.getX()>w*.48f&&event.getY()>h*.57f){
-                    if(event.getY()<h*.67f)showAudioBufferChooser();
+                if(event.getX()>w*.48f&&event.getY()>h*.50f){
+                    if(event.getY()<h*.585f)showAudioBackendChooser();
+                    else if(event.getY()<h*.67f)showAudioBufferChooser();
                     else if(event.getY()>h*.81f&&event.getY()<h*.87f){audioEngine.stop();audioEngine.start();invalidate();}
                     return true;
                 }

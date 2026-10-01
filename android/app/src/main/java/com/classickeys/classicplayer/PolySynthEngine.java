@@ -22,6 +22,7 @@ final class PolySynthEngine {
     private volatile AudioDeviceInfo preferredDevice;
     private volatile String outputError = "";
     private volatile boolean nativeOutputActive;
+    private volatile boolean oboePreferred;
     private Thread outputMonitor;
     private AudioManager audioManager;
     private volatile int renderPeakMicros;
@@ -38,6 +39,14 @@ final class PolySynthEngine {
     }
 
     int bufferFrames() { return bufferFrames; }
+    boolean oboePreferred() { return oboePreferred; }
+    synchronized void setOboePreferred(boolean preferred) {
+        if(oboePreferred==preferred)return;
+        boolean restart=running;
+        stop();
+        oboePreferred=preferred;
+        if(restart)start();
+    }
     int activeBufferFrames() {
         if(nativeOutputActive)return nativeOutputInfo()[1];
         AudioTrack current=track;
@@ -97,15 +106,17 @@ final class PolySynthEngine {
     }
     boolean isRunning() { return running; }
     String outputMode() {
-        if(!nativeOutputActive)return "AudioTrack · Android Media · PCM 16-bit";
+        if(!nativeOutputActive)return "AudioTrack · Android Media · PCM 16-bit"+
+            (oboePreferred?" · Oboe indisponível nesta rota":"");
         int[] info=nativeOutputInfo();
-        return (info[4]==2?"AAudio":"OpenSL ES")+" · "+(info[5]==12?"baixa latência":"modo padrão")+
+        return "Oboe / "+(info[4]==2?"AAudio":"OpenSL ES")+" · "+(info[5]==12?"baixa latência":"modo padrão")+
             " · "+(info[6]==0?"exclusivo":"compartilhado");
     }
     String outputLatency() {
         double millis=outputLatencyMillis();
         return nativeOutputActive
-            ?String.format(java.util.Locale.US,"Saída nativa estimada: %.1f ms · sem MIDI/loopback",millis)
+            ?millis<0?"Latência Oboe indisponível · medir com loopback"
+                :String.format(java.util.Locale.US,"Saída nativa estimada: %.1f ms · sem MIDI/loopback",millis)
             :String.format(java.util.Locale.US,"Limite da fila: %.1f ms · latência total depende da interface",
                 activeBufferFrames()*1000.0/RATE);
     }
@@ -166,8 +177,13 @@ final class PolySynthEngine {
         if (running) return;
         stop();
         outputError="";
-        // Match the stable v0.3.4 route first: Android's AudioTrack MEDIA
-        // policy honors the preferred USB output and handles device routing.
+        if(oboePreferred&&nativeStartOutput(preferredDevice==null?0:preferredDevice.getId(),bufferFrames)){
+            nativeOutputActive=true;running=true;
+            outputMonitor=new Thread(this::monitorOutput,"classic-output-monitor");
+            outputMonitor.start();return;
+        }
+        // Keep the stable v0.3.4 AudioTrack MEDIA route as the default. In
+        // the explicit Oboe experiment, fall back only if native output fails.
         track = createTrack();
         if(track==null){
             // Retain Oboe as a compatibility fallback for devices where the

@@ -146,6 +146,23 @@ public class AudioRegressionTest {
                 engine.outputDspStatus().contains("DSP pico/2s"));
     }
 
+    @Test public void oboeExperimentCanReturnToStableAudioTrack() throws Exception {
+        activate(1,0);
+        engine.setBufferFrames(512);
+        engine.setOboePreferred(true);
+        engine.start();
+        android.os.SystemClock.sleep(300);
+        assertTrue("Oboe or explicit AudioTrack fallback must keep audio running: "+engine.outputStatus(),engine.isRunning());
+        assertTrue("The selected backend must be identifiable",engine.outputMode().startsWith("Oboe /")
+                ||engine.outputMode().contains("Oboe indisponível"));
+        engine.noteOn(60,90,0);
+        android.os.SystemClock.sleep(150);
+        assertTrue("Output stopped after a note",engine.isRunning());
+        engine.setOboePreferred(false);
+        assertTrue("AudioTrack must restart after returning from Oboe",engine.isRunning());
+        assertTrue("Stable route must be restored",engine.outputMode().startsWith("AudioTrack"));
+    }
+
     private void activate(int type, int layer) {
         if (type == 1) assertTrue(engine.loadLayer(layer, sf2.getAbsolutePath()));
         if (type == 2) assertTrue(engine.loadDx7(layer, dx7.getAbsolutePath()));
