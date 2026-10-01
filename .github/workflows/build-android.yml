@@ -35,6 +35,6 @@ jobs:
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
-          name: Classic-Player-Android-debug
+          name: Classic-Keys-1.0-Android-debug
           if-no-files-found: error
           path: android/app/build/outputs/apk/debug/app-debug.apk
