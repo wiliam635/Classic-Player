@@ -86,19 +86,27 @@ public class AudioRegressionTest {
         engine.setSustain(0,false);pcm(RATE*3);assertEquals(0,engine.activeVoices(0));
     }
 
-    @Test public void threeEnginesOutputSurvivesBufferRestarts() throws Exception {
+    @Test public void threeEnginesOutputSurvivesLiveBufferChanges() throws Exception {
         activate(1,0);activate(2,1);activate(1,2);
+        int smallestTrackBuffer=-1,largestTrackBuffer=-1;
+        engine.start();
         for(int frames:new int[]{128,256,512,1024,2048,4800,512}){
-            engine.setBufferFrames(frames);engine.start();
+            engine.setBufferFrames(frames);
             engine.noteOn(60,80,0);
             android.os.SystemClock.sleep(150);
             assertTrue(engine.outputStatus(),engine.isRunning());
             int[] info=engine.outputInfo();
             assertTrue("Expected Android Media AudioTrack primary or native fallback",
                 engine.outputMode().startsWith("AudioTrack · Android Media") || info[0]==44100);
+            assertTrue("Selected buffer must be shown",engine.outputStatus().contains("pedido "+frames));
             if(engine.outputMode().startsWith("AudioTrack · Android Media")) {
                 assertTrue("AudioTrack must honor the synth sample rate",
                     engine.outputStatus().startsWith("44.1 kHz"));
+                int active=engine.activeBufferFrames(),capacity=engine.bufferCapacityFrames();
+                assertTrue("AudioTrack must report an active buffer",active>0);
+                assertTrue("Active buffer cannot exceed capacity",capacity>=active);
+                if(frames==128)smallestTrackBuffer=active;
+                if(frames==4800)largestTrackBuffer=active;
             } else {
                 assertEquals("Fallback callback must use the synth sample rate",44100,info[0]);
                 assertTrue("Peak callback duration must include the most recent callback",info[13]>=info[11]);
@@ -112,8 +120,12 @@ public class AudioRegressionTest {
                 engine.outputStatus()+"\",\"info\":"+Arrays.toString(info)+",\"outputLatencyMs\":"+
                 engine.outputLatencyMillis()+"}");
             assertTrue("Renderer stopped producing audio",engine.masterPeak()>0);
-            engine.noteOff(60,0);engine.stop();assertFalse(engine.isRunning());
+            engine.noteOff(60,0);
         }
+        if(smallestTrackBuffer>0&&largestTrackBuffer>0)
+            assertTrue("Maximum buffer must differ from minimum on AudioTrack",
+                largestTrackBuffer>smallestTrackBuffer);
+        engine.stop();assertFalse(engine.isRunning());
     }
 
     private void activate(int type, int layer) {

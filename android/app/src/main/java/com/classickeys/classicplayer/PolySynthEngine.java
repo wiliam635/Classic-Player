@@ -17,7 +17,8 @@ final class PolySynthEngine {
     private volatile AudioTrack track;
     private Thread renderThread;
     private volatile boolean running;
-    private int bufferFrames = 512;
+    private static final int MAX_BUFFER_FRAMES = 4800;
+    private volatile int bufferFrames = 512;
     private volatile AudioDeviceInfo preferredDevice;
     private volatile String outputError = "";
     private volatile boolean nativeOutputActive;
@@ -34,11 +35,36 @@ final class PolySynthEngine {
     }
 
     int bufferFrames() { return bufferFrames; }
+    int activeBufferFrames() {
+        if(nativeOutputActive)return nativeOutputInfo()[1];
+        AudioTrack current=track;
+        try{return current==null?0:current.getBufferSizeInFrames();}
+        catch(IllegalStateException e){return 0;}
+    }
+    int bufferCapacityFrames() {
+        if(nativeOutputActive)return nativeOutputInfo()[10];
+        AudioTrack current=track;
+        try{return current==null?0:Build.VERSION.SDK_INT>=24
+            ?current.getBufferCapacityInFrames():current.getBufferSizeInFrames();}
+        catch(IllegalStateException e){return 0;}
+    }
     synchronized void setBufferFrames(int frames) {
         if(frames!=128&&frames!=256&&frames!=512&&frames!=1024&&frames!=2048&&frames!=4800)
             throw new IllegalArgumentException("Invalid buffer size");
+        if(bufferFrames==frames&&(!running||nativeOutputActive))return;
+        bufferFrames=frames;
+        AudioTrack current=track;
+        if(running&&!nativeOutputActive&&current!=null&&Build.VERSION.SDK_INT>=24){
+            try {
+                int applied=current.setBufferSizeInFrames(frames);
+                if(applied>0)return;
+                android.util.Log.w("ClassicAudio","AudioTrack rejected buffer request "+frames+" (error "+applied+")");
+            } catch(IllegalStateException e) {
+                android.util.Log.w("ClassicAudio","AudioTrack buffer change requires restart",e);
+            }
+        }
         boolean restart=running;
-        stop(); bufferFrames=frames;
+        stop();
         if(restart)start();
     }
     String outputStatus() {
@@ -50,9 +76,12 @@ final class PolySynthEngine {
                 info[11]/1000.0,info[13]/1000.0,info[0]>0?info[12]*1000.0/info[0]:0.0);
         }
         AudioTrack current=track;
-        try { return current==null ? "Áudio parado "+outputError :
-            String.format(java.util.Locale.US,"%.1f kHz · buf %d f",
-                current.getSampleRate()/1000.0,current.getBufferSizeInFrames())+
+        try {
+            if(current==null)return "Áudio parado "+outputError;
+            int activeFrames=activeBufferFrames();
+            int capacityFrames=bufferCapacityFrames();
+            return String.format(java.util.Locale.US,"%.1f kHz · pedido %d · ativo %d/%d frames",
+                current.getSampleRate()/1000.0,bufferFrames,activeFrames,capacityFrames)+
             (Build.VERSION.SDK_INT>=24?" · underruns: "+current.getUnderrunCount():"");
         } catch(IllegalStateException e) { return "Reconectando áudio"; }
     }
@@ -67,7 +96,8 @@ final class PolySynthEngine {
         double millis=outputLatencyMillis();
         return nativeOutputActive
             ?String.format(java.util.Locale.US,"Saída nativa estimada: %.1f ms · sem MIDI/loopback",millis)
-            :"AudioTrack · latência real depende da interface e do Android";
+            :String.format(java.util.Locale.US,"Limite da fila: %.1f ms · latência total depende da interface",
+                activeBufferFrames()*1000.0/RATE);
     }
     double outputLatencyMillis() { return nativeOutputActive?nativeOutputLatency():-1; }
     int[] outputInfo() { return nativeOutputActive?nativeOutputInfo():new int[14]; }
@@ -160,7 +190,10 @@ final class PolySynthEngine {
                 .setAudioFormat(new AudioFormat.Builder().setSampleRate(RATE)
                         .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                         .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
-                .setBufferSizeInBytes(Math.max(min, bufferFrames * 4))
+                // Reserve enough capacity for the largest choice. The live
+                // buffer limit below controls how much audio may queue.
+                .setBufferSizeInBytes(Math.max(min,
+                    (Build.VERSION.SDK_INT>=24?MAX_BUFFER_FRAMES:bufferFrames)*4))
                 .setTransferMode(AudioTrack.MODE_STREAM);
         if (Build.VERSION.SDK_INT >= 26)
             builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY);
@@ -169,12 +202,13 @@ final class PolySynthEngine {
         if(preferredDevice!=null&&!result.setPreferredDevice(preferredDevice)){
             result.release();return null;
         }
-        // Never shrink below Android's minimum buffer, even if a smaller
-        // value was selected; this keeps the working system route from
-        // underrunning on USB interfaces with larger hardware periods.
+        // getMinBufferSize() is the minimum capacity for creating a track,
+        // not the minimum write queue. Let Android report the effective
+        // value for each requested buffer size.
         if(Build.VERSION.SDK_INT>=24){
-            int minimumFrames=(min+3)/4;
-            result.setBufferSizeInFrames(Math.max(bufferFrames,minimumFrames));
+            int appliedFrames=result.setBufferSizeInFrames(bufferFrames);
+            if(appliedFrames<0)android.util.Log.w("ClassicAudio",
+                "AudioTrack rejected buffer request "+bufferFrames+" frames (error "+appliedFrames+")");
         }
         return result;
     }
@@ -243,7 +277,10 @@ final class PolySynthEngine {
         AudioTrack current=track;
         try{
             if(current==null){preferredDevice=previous;return false;}
-            if(current.setPreferredDevice(device))return true;
+            if(current.setPreferredDevice(device)){
+                if(Build.VERSION.SDK_INT>=24)current.setBufferSizeInFrames(bufferFrames);
+                return true;
+            }
         }catch(IllegalStateException ignored){ }
         preferredDevice=previous;
         return false;
