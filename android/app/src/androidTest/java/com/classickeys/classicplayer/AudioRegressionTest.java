@@ -181,7 +181,7 @@ public class AudioRegressionTest {
         if (type == 3) engine.activateAnalog(layer);
         if (type == 4) engine.activateHammond(layer);
         engine.setLayerGain(layer, .5f);
-        engine.setLayerEnvelope(layer, .005f, .05f);
+        engine.setLayerEnvelope(layer, type == 1 ? 0f : .005f, type == 1 ? 0f : .05f);
         engine.setLayerTone(layer, 100, 0, 0, 0);
         engine.setLayerEq(layer, 0, 0, 0, 220, 1200, 4200, .707f, 1, .707f, 20, 20000);
         engine.setLayerRouting(layer, -1, 0, 0, 127, 0, true, 0);
@@ -273,7 +273,7 @@ public class AudioRegressionTest {
         engine.setMaster(1.0f);
         engine.setMasterEffects(0, 0);
         engine.setLayerGain(0, 1.0f);
-        engine.setLayerEnvelope(0, .005f, .05f);
+        engine.setLayerEnvelope(0, 0f, 0f);
         engine.setLayerTone(0, 100, 0, 0, 0);
         engine.setLayerEq(0, 0, 0, 0, 220, 1200, 4200, .707f, 1, .707f, 20, 20000);
         engine.setLayerRouting(0, -1, 0, 0, 127, 0, true, 0);
@@ -304,21 +304,30 @@ public class AudioRegressionTest {
     @Test public void neutralProcessedSoundFontKeepsPresetToneAndEnvelope() throws Exception {
         activate(1, 0);
         engine.setLayerGain(0, 1.0f);
-        engine.setLayerEnvelope(0, .005f, .05f);
+        // A zero additive offset means the exact per-region SF2 envelope, not
+        // a zero-duration envelope and not a subtraction from the SF2 values.
+        engine.setLayerEnvelope(0, 0f, 0f);
         engine.setLayerTone(0, 100, 0, 0, 0);
         engine.setLayerEq(0, 0, 0, 0, 220, 1200, 4200, .707f, 1, .707f, 20, 20000);
         engine.setLayerCompressor(0, .126f, 4, 10, 120, 0);
         engine.setSf2OriginalSound(0, true);
         engine.noteOn(60, 100, 0);
-        double original = rms(pcm(RATE / 10));
+        short[] originalAttack = pcm(RATE / 10);
         engine.noteOff(60, 0);
+        short[] originalRelease = pcm(RATE / 2);
+        engine.allNotesOff();
         pcm(RATE);
         engine.setSf2OriginalSound(0, false);
         engine.noteOn(60, 100, 0);
-        double neutralProcessed = rms(pcm(RATE / 10));
+        short[] neutralAttack = pcm(RATE / 10);
         engine.noteOff(60, 0);
-        assertTrue("Neutral layer processing changed the SF2 preset level or tone",
+        short[] neutralRelease = pcm(RATE / 2);
+        double original = rms(originalAttack), neutralProcessed = rms(neutralAttack);
+        assertTrue("Zero SF2 offsets changed the preset tone or attack envelope",
                 Math.abs(original-neutralProcessed) < original*.02);
+        double originalTail = rms(originalRelease), neutralTail = rms(neutralRelease);
+        assertTrue("Zero SF2 offsets shortened the preset's own release envelope",
+                Math.abs(originalTail-neutralTail) < Math.max(originalTail*.02, .00001));
     }
 
     @Test public void failedSoundFontImportPreservesLayer() throws Exception {

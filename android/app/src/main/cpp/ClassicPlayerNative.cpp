@@ -43,8 +43,8 @@ std::array<int,kLayerCount> layerMidiChannel { -1,-1,-1,-1,-1,-1 }, layerOctave 
 std::array<int,kLayerCount> layerMidiMode {};
 std::array<bool,kLayerCount> layerSustainEnabled {true,true,true,true,true,true};
 std::array<std::array<std::array<int,128>,16>,kLayerCount> routedNotes {};
-// These controls are offsets to the envelope stored in each SF2 region.
-// Their neutral positions must leave the SoundFont envelope untouched.
+// SF2 editor values are additive seconds. Zero means use each region's exact
+// SoundFont envelope; never infer a fake 5/50 ms envelope for the preset.
 std::array<float, kLayerCount> layerAttack { 0.005f,0.005f,0.005f,0.005f,0.005f,0.005f };
 std::array<float, kLayerCount> layerRelease { 0.05f,0.05f,0.05f,0.05f,0.05f,0.05f };
 std::array<float,kLayerCount> layerCutoff {100,100,100,100,100,100},layerReverbSend {},layerCompressorMix {},layerChorusMix {};
@@ -455,6 +455,9 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadLayer(
     // File I/O and sample allocation must not block the audio renderer.
     // Publish only a fully prepared font; failed imports preserve the old layer.
     std::lock_guard<std::mutex> lock(synthMutex);
+    layerAttack[(size_t)layer]=0.0f;
+    layerRelease[(size_t)layer]=0.0f;
+    for(int ch=0;ch<16;++ch)tsf_channel_set_amp_envelope_offsets(loaded,ch,0.0f,0.0f);
     releaseLayer(layer);
     fonts[(size_t) layer] = loaded;
     engineTypes[(size_t) layer] = EngineType::sf2;
@@ -702,12 +705,12 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerEnvelope(JNIEnv
 {
     if (layer < 0 || layer >= kLayerCount) return;
     std::lock_guard<std::mutex> lock(synthMutex);
-    layerAttack[(size_t)layer] = std::clamp((float)attack, 0.0001f, 2.0f);
-    layerRelease[(size_t)layer] = std::clamp((float)release, 0.001f, 5.0f);
+    layerAttack[(size_t)layer] = std::clamp((float)attack, 0.0f, 2.0f);
+    layerRelease[(size_t)layer] = std::clamp((float)release, 0.0f, 5.0f);
     if(fonts[(size_t)layer]!=nullptr)for(int channel=0;channel<16;++channel)
         tsf_channel_set_amp_envelope_offsets(fonts[(size_t)layer],channel,
-                sf2OriginalSound[(size_t)layer]?0.0f:layerAttack[(size_t)layer]-0.005f,
-                sf2OriginalSound[(size_t)layer]?0.0f:layerRelease[(size_t)layer]-0.05f);
+                sf2OriginalSound[(size_t)layer]?0.0f:layerAttack[(size_t)layer],
+                sf2OriginalSound[(size_t)layer]?0.0f:layerRelease[(size_t)layer]);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -719,8 +722,8 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetSf2OriginalSound(JNI
     sf2OriginalSound[i]=original==JNI_TRUE;
     if(fonts[i]!=nullptr)for(int channel=0;channel<16;++channel)
         tsf_channel_set_amp_envelope_offsets(fonts[i],channel,
-                sf2OriginalSound[i]?0.0f:layerAttack[i]-0.005f,
-                sf2OriginalSound[i]?0.0f:layerRelease[i]-0.05f);
+                sf2OriginalSound[i]?0.0f:layerAttack[i],
+                sf2OriginalSound[i]?0.0f:layerRelease[i]);
 }
 
 extern "C" JNIEXPORT void JNICALL
