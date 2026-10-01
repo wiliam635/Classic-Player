@@ -161,6 +161,7 @@ final class PolySynthEngine {
     private static native void nativeSetLayerGain(int layer, float value);
     private static native void nativeSetLayerPan(int layer,float value);
     private static native void nativeSetLayerEnvelope(int layer, float attack, float release);
+    private static native void nativeSetSf2OriginalSound(int layer, boolean original);
     private static native void nativeSetLayerTone(int layer,float cutoff,float reverb,float compMix,float chorus);
     private static native void nativeSetLayerEq(int layer,float lowDb,float midDb,float highDb,float lowFrequency,float midFrequency,float highFrequency,float lowQ,float midQ,float highQ,float highPassHz,float lowPassHz);
     private static native void nativeSetLayerCompressor(int layer,float threshold,float ratio,float attackMs,float releaseMs,float makeupDb);
@@ -294,6 +295,7 @@ final class PolySynthEngine {
     void setLayerGain(int layer, float value) { nativeSetLayerGain(layer, value); }
     void setLayerPan(int layer,float value){nativeSetLayerPan(layer,value);}
     void setLayerEnvelope(int layer, float attack, float release) { nativeSetLayerEnvelope(layer, attack, release); }
+    void setSf2OriginalSound(int layer, boolean original) { nativeSetSf2OriginalSound(layer, original); }
     void setLayerTone(int layer,float cutoff,float reverb,float compMix,float chorus){nativeSetLayerTone(layer,cutoff,reverb,compMix,chorus);}
     void setLayerEq(int layer,float low,float mid,float high,float lowFrequency,float midFrequency,float highFrequency,float lowQ,float midQ,float highQ,float highPassHz,float lowPassHz){nativeSetLayerEq(layer,low,mid,high,lowFrequency,midFrequency,highFrequency,lowQ,midQ,highQ,highPassHz,lowPassHz);}
     void setLayerCompressor(int layer,float threshold,float ratio,float attack,float release,float makeup){nativeSetLayerCompressor(layer,threshold,ratio,attack,release,makeup);}

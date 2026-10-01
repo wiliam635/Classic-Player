@@ -33,6 +33,8 @@ constexpr int kHammondDelayFrames = 1204;
 std::array<tsf*, kLayerCount> fonts {};
 enum class EngineType : int { empty = 0, sf2 = 1, dx7 = 2, analog = 3, hammond = 4 };
 std::array<EngineType, kLayerCount> engineTypes {};
+// Audition SoundFonts without layer processing or envelope overrides.
+std::array<bool, kLayerCount> sf2OriginalSound {true,true,true,true,true,true};
 std::array<int, kLayerCount> layerVoiceBudgets {};
 std::array<float, kLayerCount> layerGains { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
 std::array<float, kLayerCount> smoothedLayerGains { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
@@ -702,7 +704,21 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerEnvelope(JNIEnv
     layerRelease[(size_t)layer] = std::clamp((float)release, 0.001f, 5.0f);
     if(fonts[(size_t)layer]!=nullptr)for(int channel=0;channel<16;++channel)
         tsf_channel_set_amp_envelope_offsets(fonts[(size_t)layer],channel,
-                layerAttack[(size_t)layer]-0.005f,layerRelease[(size_t)layer]-0.05f);
+                sf2OriginalSound[(size_t)layer]?0.0f:layerAttack[(size_t)layer]-0.005f,
+                sf2OriginalSound[(size_t)layer]?0.0f:layerRelease[(size_t)layer]-0.05f);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetSf2OriginalSound(JNIEnv*, jclass, jint layer, jboolean original)
+{
+    if(layer<0||layer>=kLayerCount)return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    const auto i=(size_t)layer;
+    sf2OriginalSound[i]=original==JNI_TRUE;
+    if(fonts[i]!=nullptr)for(int channel=0;channel<16;++channel)
+        tsf_channel_set_amp_envelope_offsets(fonts[i],channel,
+                sf2OriginalSound[i]?0.0f:layerAttack[i]-0.005f,
+                sf2OriginalSound[i]?0.0f:layerRelease[i]-0.05f);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -1036,6 +1052,7 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
         const auto li=(size_t)layer;
         auto* font = fonts[(size_t) layer];
         if (engineTypes[(size_t)layer]==EngineType::empty) continue;
+        const bool originalSf2=engineTypes[li]==EngineType::sf2&&sf2OriginalSound[li];
         std::memset(scratch.data(), 0, (size_t) samples * sizeof(float));
         if(engineTypes[(size_t)layer]==EngineType::sf2 && font!=nullptr) tsf_render_float(font, scratch.data(), frames, TSF_FALSE);
         else if(engineTypes[(size_t)layer]==EngineType::dx7) {
@@ -1190,11 +1207,13 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
         for (int frame = 0; frame < frames; ++frame)
         {
             std::array<float,2> shaped{scratch[(size_t)frame*2],scratch[(size_t)frame*2+1]};
-            for(int channel=0;channel<2;++channel){
-                for(auto& filter:layerEqFilters[li][(size_t)channel])
-                    shaped[(size_t)channel]=processBiquad(filter,shaped[(size_t)channel]);
-                lowPassState[li][(size_t)channel]+=(shaped[(size_t)channel]-lowPassState[li][(size_t)channel])*cutoffAlpha;
-                shaped[(size_t)channel]=lowPassState[li][(size_t)channel];
+            if(!originalSf2){
+                for(int channel=0;channel<2;++channel){
+                    for(auto& filter:layerEqFilters[li][(size_t)channel])
+                        shaped[(size_t)channel]=processBiquad(filter,shaped[(size_t)channel]);
+                    lowPassState[li][(size_t)channel]+=(shaped[(size_t)channel]-lowPassState[li][(size_t)channel])*cutoffAlpha;
+                    shaped[(size_t)channel]=lowPassState[li][(size_t)channel];
+                }
             }
             // Link the compressor detector across both channels, but retain
             // independent stereo signal paths for EQ, filtering and chorus.
@@ -1209,10 +1228,10 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
             for(int channel=0;channel<2;++channel){
                 float& value=shaped[(size_t)channel];
                 const float compressed=value*compressionGain;
-                value=(value+(compressed-value)*layerCompressorMix[li])*makeupGain;
+                value=originalSf2?value:(value+(compressed-value)*layerCompressorMix[li])*makeupGain;
                 const float dryShaped=value;
                 const int cursor=layerChorusCursor[li][(size_t)channel];
-                if(layerChorusMix[li]>0.0f) {
+                if(!originalSf2&&layerChorusMix[li]>0.0f) {
                     const float lfo=std::sin(cursor*0.006135923f);
                     const int chorusDelay=std::clamp((int)(720.0f+lfo*300.0f),1,kChorusFrames-1);
                     const int chorusRead=(cursor+kChorusFrames-chorusDelay)%kChorusFrames;
@@ -1225,14 +1244,16 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
             const float gain = (smoothedLayerGains[(size_t)layer] + layerStep * frame) *
                     (smoothedMasterGain + masterStep * frame);
             const float pan=fixedPan?layerPan[li]:std::clamp(smoothedLayerPan[li]+panStep*frame,-1.0f,1.0f);
-            const float leftPan=fixedPan?fixedLeft:std::cos((pan+1.0f)*0.7853981634f);
-            const float rightPan=fixedPan?fixedRight:std::sin((pan+1.0f)*0.7853981634f);
+            // TSF already supplies stereo. Unity at center preserves the source
+            // instead of applying the -3 dB constant-power law for mono synths.
+            const float leftPan=originalSf2?std::min(1.0f,1.0f-pan):(fixedPan?fixedLeft:std::cos((pan+1.0f)*0.7853981634f));
+            const float rightPan=originalSf2?std::min(1.0f,1.0f+pan):(fixedPan?fixedRight:std::sin((pan+1.0f)*0.7853981634f));
             for(int channel=0;channel<2;++channel){
                 const size_t sample=(size_t)frame*2+(size_t)channel;
                 const float sideGain=channel==0?leftPan:rightPan;
                 const float layerSample=scratch[sample]*gain*sideGain;
                 mix[sample]+=layerSample;
-                reverbSend[sample]+=layerSample*layerReverbSend[li];
+                if(!originalSf2)reverbSend[sample]+=layerSample*layerReverbSend[li];
                 renderedPeaks[li]=std::max(renderedPeaks[li],std::abs(scratch[sample]*gain));
             }
         }

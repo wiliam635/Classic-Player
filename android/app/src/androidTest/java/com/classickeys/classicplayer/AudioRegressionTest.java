@@ -279,6 +279,22 @@ public class AudioRegressionTest {
         return output;
     }
 
+    @Test public void originalSoundFontBypassesSavedLayerCutoff() throws Exception {
+        activate(1, 0);
+        engine.setLayerGain(0, 1.0f);
+        engine.setLayerTone(0, 0, 0, 1, 0);
+        engine.setSf2OriginalSound(0, true);
+        engine.noteOn(60, 100, 0);
+        double original = rms(pcm(RATE / 20));
+        engine.noteOff(60, 0);
+        pcm(RATE);
+        engine.setSf2OriginalSound(0, false);
+        engine.noteOn(60, 100, 0);
+        double processed = rms(pcm(RATE / 20));
+        engine.noteOff(60, 0);
+        assertTrue("Original SF2 should bypass an old layer cutoff", original > processed * 2);
+    }
+
     @Test public void failedSoundFontImportPreservesLayer() throws Exception {
         activate(1, 0);
         assertFalse(engine.loadLayer(0, new File(context.getCacheDir(), "missing-font.sf2").getAbsolutePath()));
