@@ -28,7 +28,7 @@ public:
         timespec started{};
         clock_gettime(CLOCK_MONOTONIC, &started);
         auto* output=static_cast<int16_t*>(data);
-        // Keep MIDI response within 256 frames (5.3 ms at 48 kHz), while
+        // Keep MIDI response within 256 frames (5.8 ms at 44.1 kHz), while
         // avoiding repeated DSP setup for every 128 frames. In particular,
         // USB callbacks can contain 882/960 frames and were doing 7/8 setups.
         constexpr int kRenderQuantum=256;
@@ -79,9 +79,9 @@ oboe::Result openOutputStream(jint deviceId, oboe::SharingMode sharingMode,
     builder.setDirection(oboe::Direction::Output);
     builder.setFormat(oboe::AudioFormat::I16);
     builder.setChannelCount(2);
-    // The synth and callback stay at 48 kHz. Oboe's medium-quality SRC handles
-    // endpoints such as the CK61 that expose a 44.1 kHz USB stream.
-    builder.setSampleRate(48000);
+    // Match the synth and AudioTrack fallback at 44.1 kHz to avoid unnecessary
+    // SRC work on USB routes such as the CK61.
+    builder.setSampleRate(44100);
     builder.setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium);
     builder.setFormatConversionAllowed(true);
     builder.setChannelConversionAllowed(true);
@@ -157,6 +157,8 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeStartOutput(JNIEnv*,jcl
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetOutputDefaults(JNIEnv*,jclass,jint rate,jint burst) {
+    // Keep Oboe's defaults aligned with the actual native renderer, rather than
+    // Android's hardware-preferred rate (often 48 kHz).
     if(rate>0)oboe::DefaultStreamValues::SampleRate=rate;
     if(burst>0)oboe::DefaultStreamValues::FramesPerBurst=burst;
 }

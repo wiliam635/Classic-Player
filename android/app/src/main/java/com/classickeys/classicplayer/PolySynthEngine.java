@@ -11,7 +11,7 @@ import android.os.Process;
 
 /** Native SoundFont renderer used by all six Android mixer layers. */
 final class PolySynthEngine {
-    private static final int RATE = 48000;
+    private static final int RATE = 44100;
     // Also use a 128-frame render quantum in the compatibility backend.
     private static final int FRAMES = 128;
     private volatile AudioTrack track;
@@ -28,9 +28,8 @@ final class PolySynthEngine {
     PolySynthEngine(Context context) {
         audioManager=(AudioManager)context.getSystemService(Context.AUDIO_SERVICE);
         if(audioManager!=null)try {
-            int rate=Integer.parseInt(audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE));
             int burst=Integer.parseInt(audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER));
-            nativeSetOutputDefaults(rate,burst);
+            nativeSetOutputDefaults(RATE,burst);
         }catch(NumberFormatException ignored){ }
     }
 

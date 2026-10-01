@@ -19,7 +19,7 @@ import static org.junit.Assert.*;
  * is started: emulator timings are diagnostic, not tablet latency guarantees. */
 @RunWith(AndroidJUnit4.class)
 public class AudioRegressionTest {
-    private static final int RATE = 48000, BLOCK = 256;
+    private static final int RATE = 44100, BLOCK = 256;
     private PolySynthEngine engine;
     private Context context;
     private File reports, sf2, dx7;
@@ -94,7 +94,7 @@ public class AudioRegressionTest {
             android.os.SystemClock.sleep(150);
             assertTrue(engine.outputStatus(),engine.isRunning());
             int[] info=engine.outputInfo();
-            assertEquals("Native callback output must be exercised",48000,info[0]);
+            assertEquals("Native callback output must be exercised",44100,info[0]);
             assertTrue("Output buffer must be negotiated",info[1]>0);
             assertTrue("Device burst must be known",info[2]>0);
             assertTrue("Buffer capacity must be reported",info[10]>=info[2]);

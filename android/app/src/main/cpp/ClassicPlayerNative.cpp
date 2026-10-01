@@ -24,7 +24,7 @@
 namespace
 {
 constexpr int kLayerCount = 6;
-constexpr int kSampleRate = 48000;
+constexpr int kSampleRate = 44100;
 constexpr int kMaxFrames = 2048;
 constexpr int kMaximumPolyphony = 256;
 constexpr size_t kVoicePoolCapacity = kMaximumPolyphony;
