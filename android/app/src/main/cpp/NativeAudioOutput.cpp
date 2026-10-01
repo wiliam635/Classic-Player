@@ -91,7 +91,10 @@ oboe::Result openOutputStream(jint deviceId, oboe::SharingMode sharingMode,
     // Match the synth and AudioTrack fallback at 44.1 kHz to avoid unnecessary
     // SRC work on USB routes such as the CK61.
     builder.setSampleRate(44100);
-    builder.setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium);
+    // When a USB route or Android mixer runs at a rate other than the SF2
+    // engine's 44.1 kHz, preserve the piano's upper harmonics. This affects
+    // only Oboe's own resampler; it is a no-op when no conversion is needed.
+    builder.setSampleRateConversionQuality(oboe::SampleRateConversionQuality::High);
     builder.setFormatConversionAllowed(true);
     builder.setChannelConversionAllowed(true);
     builder.setPerformanceMode(oboe::PerformanceMode::LowLatency);
