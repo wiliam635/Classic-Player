@@ -158,6 +158,12 @@ public class AudioRegressionTest {
         engine.noteOn(60,90,0);
         android.os.SystemClock.sleep(150);
         assertTrue("Output stopped after a note",engine.isRunning());
+        for(boolean nativeRate:new boolean[]{false,true}){
+            engine.setNativeRatePreferred(nativeRate);
+            assertTrue("Changing Oboe's SRC mode must keep output running",engine.isRunning());
+            assertTrue("Sample-rate mode must not change the 44.1 kHz synth pitch reference",
+                    engine.outputStatus().contains("44.1 kHz"));
+        }
         engine.setOboePreferred(false);
         assertTrue("AudioTrack must restart after returning from Oboe",engine.isRunning());
         assertTrue("Stable route must be restored",engine.outputMode().startsWith("AudioTrack"));

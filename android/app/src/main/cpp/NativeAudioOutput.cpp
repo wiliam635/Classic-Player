@@ -77,7 +77,7 @@ void closeOutput() {
     callback.reset();
 }
 
-oboe::Result openOutputStream(jint deviceId, oboe::SharingMode sharingMode,
+oboe::Result openOutputStream(jint deviceId, oboe::SharingMode sharingMode, bool nativeRate,
                               const std::shared_ptr<OutputCallback>& dataCallback,
                               std::shared_ptr<oboe::AudioStream>& openedStream) {
     oboe::AudioStreamBuilder builder;
@@ -88,13 +88,14 @@ oboe::Result openOutputStream(jint deviceId, oboe::SharingMode sharingMode,
     // AAudio's capacity is fixed at open; setBufferSizeInFrames() cannot grow
     // beyond it later, which previously capped this USB route at 1,792 frames.
     builder.setBufferCapacityInFrames(4800);
-    // Match the synth and AudioTrack fallback at 44.1 kHz to avoid unnecessary
-    // SRC work on USB routes such as the CK61.
+    // The synth renders at 44.1 kHz in both modes, so this client-side rate
+    // must remain fixed to prevent pitch changes. In native-rate mode Oboe
+    // opens the device endpoint at its optimal/native rate and converts the
+    // 44.1 kHz renderer stream with its high-quality SRC.
     builder.setSampleRate(44100);
-    // When a USB route or Android mixer runs at a rate other than the SF2
-    // engine's 44.1 kHz, preserve the piano's upper harmonics. This affects
-    // only Oboe's own resampler; it is a no-op when no conversion is needed.
-    builder.setSampleRateConversionQuality(oboe::SampleRateConversionQuality::High);
+    builder.setSampleRateConversionQuality(nativeRate
+        ? oboe::SampleRateConversionQuality::High
+        : oboe::SampleRateConversionQuality::None);
     builder.setFormatConversionAllowed(true);
     builder.setChannelConversionAllowed(true);
     builder.setPerformanceMode(oboe::PerformanceMode::LowLatency);
@@ -111,7 +112,7 @@ oboe::Result openOutputStream(jint deviceId, oboe::SharingMode sharingMode,
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_classickeys_classicplayer_PolySynthEngine_nativeStartOutput(JNIEnv*,jclass,jint deviceId,jint bufferFrames) {
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeStartOutput(JNIEnv*,jclass,jint deviceId,jint bufferFrames,jboolean nativeRate) {
     std::lock_guard<std::mutex> lock(outputMutex);
     closeOutput();
     auto nextCallback=std::make_shared<OutputCallback>();
@@ -119,7 +120,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeStartOutput(JNIEnv*,jcl
     // a successful exclusive request to Shared/None instead of failing open;
     // detect that and explicitly retry Shared/LowLatency before accepting the
     // downgraded stream. This matters for both built-in and USB outputs.
-    auto result=openOutputStream(deviceId,oboe::SharingMode::Exclusive,nextCallback,stream);
+    auto result=openOutputStream(deviceId,oboe::SharingMode::Exclusive,nativeRate==JNI_TRUE,nextCallback,stream);
     bool retryShared=result!=oboe::Result::OK;
     if(result==oboe::Result::OK &&
        (stream->getPerformanceMode()!=oboe::PerformanceMode::LowLatency ||
@@ -130,7 +131,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeStartOutput(JNIEnv*,jcl
     }
     if(retryShared){
         if(stream){stream->close();stream.reset();}
-        result=openOutputStream(deviceId,oboe::SharingMode::Shared,nextCallback,stream);
+        result=openOutputStream(deviceId,oboe::SharingMode::Shared,nativeRate==JNI_TRUE,nextCallback,stream);
     }
     if(result!=oboe::Result::OK){
         if(stream){stream->close();stream.reset();}

@@ -23,6 +23,8 @@ final class PolySynthEngine {
     private volatile String outputError = "";
     private volatile boolean nativeOutputActive;
     private volatile boolean oboePreferred;
+    // Engine remains at 44.1 kHz; this toggles Oboe's native-endpoint SRC mode.
+    private volatile boolean nativeRatePreferred = true;
     private Thread outputMonitor;
     private AudioManager audioManager;
     private volatile int renderPeakMicros;
@@ -40,6 +42,14 @@ final class PolySynthEngine {
 
     int bufferFrames() { return bufferFrames; }
     boolean oboePreferred() { return oboePreferred; }
+    boolean nativeRatePreferred() { return nativeRatePreferred; }
+    synchronized void setNativeRatePreferred(boolean preferred) {
+        if(nativeRatePreferred==preferred)return;
+        boolean restart=running&&nativeOutputActive;
+        if(restart)stop();
+        nativeRatePreferred=preferred;
+        if(restart)start();
+    }
     synchronized void setOboePreferred(boolean preferred) {
         if(oboePreferred==preferred)return;
         boolean restart=running;
@@ -83,7 +93,7 @@ final class PolySynthEngine {
         if(nativeOutputActive){
             int[] info=nativeOutputInfo();
             return String.format(java.util.Locale.US,
-                "Stream %.1f kHz · buffer %d/%d (pedido %d) · burst %d · xruns %d · busy %d · cb %.1f/max %.1f/prazo %.1f ms",
+                "Motor %.1f kHz · taxa "+(nativeRatePreferred?"nativa via SRC Oboe":"44,1 fixa")+" · buffer %d/%d (pedido %d) · burst %d · xruns %d · busy %d · cb %.1f/max %.1f/prazo %.1f ms",
                 info[0]/1000.0,info[1],info[10],bufferFrames,info[2],info[7],info[9],
                 info[11]/1000.0,info[13]/1000.0,info[0]>0?info[12]*1000.0/info[0]:0.0);
         }
@@ -94,11 +104,15 @@ final class PolySynthEngine {
             int capacityFrames=bufferCapacityFrames();
             return String.format(java.util.Locale.US,"%.1f kHz · pedido %d · ativo %d/%d frames",
                 current.getSampleRate()/1000.0,bufferFrames,activeFrames,capacityFrames)+
+            (nativeRatePreferred?(oboePreferred?" · Oboe indisponível; usando 44,1 kHz":" · taxa nativa requer Oboe"):
+                " · 44,1 kHz fixos")+
             (Build.VERSION.SDK_INT>=24?" · underruns: "+current.getUnderrunCount():"");
         } catch(IllegalStateException e) { return "Reconectando áudio"; }
     }
     String outputDspStatus() {
-        if(nativeOutputActive)return "DSP: saída nativa · acompanhe xruns acima";
+        if(nativeOutputActive)return nativeRatePreferred
+            ?"DSP: Oboe SRC alta qualidade · motor 44,1 kHz · acompanhe xruns acima"
+            :"DSP: Oboe SRC desligado · motor e fluxo 44,1 kHz";
         if(renderMeasuredBlocks==0)return "DSP: medindo blocos de áudio...";
         return String.format(java.util.Locale.US,
             "DSP pico/2s %.2f/%.2f ms · blocos lentos %d/%d",
@@ -165,7 +179,7 @@ final class PolySynthEngine {
     private static native float nativeMasterPeak();
     private static native int nativeActiveVoices(int layer);
     private static native int nativeVoiceBudget(int layer);
-    private static native boolean nativeStartOutput(int deviceId,int bufferFrames);
+    private static native boolean nativeStartOutput(int deviceId,int bufferFrames,boolean nativeRate);
     private static native void nativeStopOutput();
     private static native int[] nativeOutputInfo();
     private static native double nativeOutputLatency();
@@ -177,7 +191,7 @@ final class PolySynthEngine {
         if (running) return;
         stop();
         outputError="";
-        if(oboePreferred&&nativeStartOutput(preferredDevice==null?0:preferredDevice.getId(),bufferFrames)){
+        if(oboePreferred&&nativeStartOutput(preferredDevice==null?0:preferredDevice.getId(),bufferFrames,nativeRatePreferred)){
             nativeOutputActive=true;running=true;
             outputMonitor=new Thread(this::monitorOutput,"classic-output-monitor");
             outputMonitor.start();return;
@@ -188,7 +202,7 @@ final class PolySynthEngine {
         if(track==null){
             // Retain Oboe as a compatibility fallback for devices where the
             // framework cannot initialize AudioTrack in the requested format.
-            if(nativeStartOutput(preferredDevice==null?0:preferredDevice.getId(),bufferFrames)){
+            if(nativeStartOutput(preferredDevice==null?0:preferredDevice.getId(),bufferFrames,nativeRatePreferred)){
                 nativeOutputActive=true;running=true;
                 outputMonitor=new Thread(this::monitorOutput,"classic-output-monitor");
                 outputMonitor.start();return;
@@ -344,7 +358,7 @@ final class PolySynthEngine {
                 nativeStopOutput();
                 if(!running)break;
                 int id=preferredDevice==null?0:preferredDevice.getId();
-                if(!nativeStartOutput(id,bufferFrames)){
+                if(!nativeStartOutput(id,bufferFrames,nativeRatePreferred)){
                     // Keep an explicitly selected USB keyboard/interface as
                     // the route; never silently jump back to the tablet.
                     outputError=preferredDevice==null?"Saída desconectada":"Interface USB desconectada";

@@ -1242,10 +1242,10 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
     smoothedMasterGain = masterGain;
     float renderedMasterPeak = 0.0f;
     for (int sample = 0; sample < samples; ++sample) {
-        // Soft limiting prevents the harsh integer clipping heard when several
-        // SF2 regions or layers peak at the same time.
-        // Leave extra headroom before the soft limiter so several active
-        // layers do not hit the limiter hard and sound distorted.
+        // Keep the mix linear through normal piano dynamics. The previous
+        // tanh(effect * 0.62) applied continuous gain reduction to every
+        // sample, flattening the SF2 attack even when the mix was nowhere near
+        // clipping. Only bend the last 5% of headroom as a safety guard.
         const int baseDelay=(int)(reverbDelayMs*kSampleRate/1000.0f);
         const int delay=baseDelay+((sample&1)!=0?(int)(reverbStereoWidth*kSampleRate*.018f):0);
         const int read = (effectCursor + (int)reverbBuffer.size() - delay + (int)reverbBuffer.size()) % (int)reverbBuffer.size();
@@ -1256,7 +1256,11 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
         const float effected = dry + delayed * 0.55f + (chorus - dry) * chorusMix * 0.22f;
         reverbBuffer[(size_t)effectCursor] = send + delayed * reverbFeedback;
         effectCursor = (effectCursor + 1) % (int)reverbBuffer.size();
-        const float limited = std::tanh(effected * 0.62f);
+        constexpr float kPeakGuardStart=0.95f;
+        const float magnitude=std::abs(effected);
+        const float limited=magnitude<=kPeakGuardStart?effected:
+                std::copysign(kPeakGuardStart+(1.0f-kPeakGuardStart)*
+                    (1.0f-std::exp(-(magnitude-kPeakGuardStart)/(1.0f-kPeakGuardStart))),effected);
         output[sample] = (short)std::clamp((int)(limited * 32767.0f), -32768, 32767);
         renderedMasterPeak = std::max(renderedMasterPeak, std::abs((float) output[sample]) / 32768.0f);
     }

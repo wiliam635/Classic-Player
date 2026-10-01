@@ -325,6 +325,7 @@ public final class MainActivity extends Activity {
         setContentView(screen);
         midiManager = (MidiManager) getSystemService(MIDI_SERVICE);
         audioEngine = new PolySynthEngine(this);
+        audioEngine.setNativeRatePreferred(getSharedPreferences("audio",MODE_PRIVATE).getBoolean("native_rate",true));
         audioEngine.setOboePreferred(getSharedPreferences("audio",MODE_PRIVATE).getBoolean("oboe_preferred",false));
         audioEngine.setBufferFrames(getSharedPreferences("audio",MODE_PRIVATE).getInt("buffer_frames",512));
         audioEngine.setMaster(screen.faderGain(screen.masterVolume));
@@ -554,6 +555,19 @@ public final class MainActivity extends Activity {
                 screen.invalidate();dialog.dismiss();
             })
             .setNegativeButton("CANCELAR",null).show();
+    }
+
+    private void showAudioSampleRateChooser() {
+        String[] choices={"Taxa nativa do dispositivo · menor latência (Oboe SRC)","44.100 Hz fixos · motor e fluxo"};
+        int selected=audioEngine.nativeRatePreferred()?0:1;
+        new AlertDialog.Builder(this).setTitle("TAXA DE AMOSTRAGEM")
+            .setMessage("O motor SF2 continua calculando em 44,1 kHz nos dois modos. Na opção nativa, o Oboe converte com alta qualidade para a taxa ideal da saída, sem mudar a afinação. Ela requer Oboe; o AudioTrack de compatibilidade permanece em 44,1 kHz.")
+            .setSingleChoiceItems(choices,selected,(dialog,which)->{
+                boolean nativeRate=which==0;
+                audioEngine.setNativeRatePreferred(nativeRate);
+                getSharedPreferences("audio",MODE_PRIVATE).edit().putBoolean("native_rate",nativeRate).apply();
+                screen.invalidate();dialog.dismiss();
+            }).setNegativeButton("FECHAR",null).show();
     }
 
     private String routedAudioLabel() {
@@ -1900,15 +1914,16 @@ public final class MainActivity extends Activity {
                 text(canvas, routedAudioLabel(), 52, h * .34f, h * .026f, Color.rgb(180,195,200));
                 text(canvas, midiStatus, 52, h * .42f, h * .026f, Color.rgb(180,195,200));
                 text(canvas, "Toque nas linhas acima para alternar a saída e o controlador.", 52, h * .54f, h * .022f, Color.rgb(180,195,200));
-                button(canvas,"SAÍDA · "+audioEngine.outputMode(),w*.48f,h*.50f,w-52,h*.575f,false);
+                button(canvas,"MOTOR · "+audioEngine.outputMode(),w*.48f,h*.50f,w-52,h*.555f,false);
                 float actionRight = Math.min(w - 52, 430);
                 button(canvas, "MIDI LEARN · VOLUME", 52, h*.59f, actionRight, h*.66f, pendingLearnTarget>=0);
                 button(canvas, "PARAR TODAS AS NOTAS", 52, h*.69f, actionRight, h*.76f, false);
                 button(canvas, "VOLTAR AO MIXER", 52, h*.79f, actionRight, h*.86f, false);
-                button(canvas, "AJUSTAR BUFFER · "+audioEngine.bufferFrames()+" FRAMES",w*.48f,h*.59f,w-52,h*.66f,false);
-                fittedText(canvas,audioEngine.outputStatus(),w*.48f,w-52,h*.71f,h*.018f,text);
-                text(canvas,audioEngine.outputDspStatus(),w*.48f,h*.75f,h*.016f,text);
-                text(canvas,audioEngine.outputLatency(),w*.48f,h*.79f,h*.016f,text);
+                button(canvas,"TAXA · "+(audioEngine.nativeRatePreferred()?"NATIVA":"44,1 kHz"),w*.48f,h*.56f,w-52,h*.615f,false);
+                button(canvas, "AJUSTAR BUFFER · "+audioEngine.bufferFrames()+" FRAMES",w*.48f,h*.62f,w-52,h*.675f,false);
+                fittedText(canvas,audioEngine.outputStatus(),w*.48f,w-52,h*.70f,h*.017f,text);
+                fittedText(canvas,audioEngine.outputDspStatus(),w*.48f,w-52,h*.74f,h*.015f,text);
+                fittedText(canvas,audioEngine.outputLatency(),w*.48f,w-52,h*.78f,h*.015f,text);
                 button(canvas,"REINICIAR ÁUDIO",w*.48f,h*.81f,w-52,h*.86f,false);
                 return;
             }
@@ -2061,8 +2076,9 @@ public final class MainActivity extends Activity {
             }
             if (settings && tap) {
                 if(event.getX()>w*.48f&&event.getY()>h*.50f){
-                    if(event.getY()<h*.585f)showAudioBackendChooser();
-                    else if(event.getY()<h*.67f)showAudioBufferChooser();
+                    if(event.getY()<h*.555f)showAudioBackendChooser();
+                    else if(event.getY()<h*.615f)showAudioSampleRateChooser();
+                    else if(event.getY()<h*.685f)showAudioBufferChooser();
                     else if(event.getY()>h*.81f&&event.getY()<h*.87f){audioEngine.stop();audioEngine.start();invalidate();}
                     return true;
                 }
