@@ -1262,8 +1262,11 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
             const float pan=fixedPan?layerPan[li]:std::clamp(smoothedLayerPan[li]+panStep*frame,-1.0f,1.0f);
             // TSF already supplies stereo. Unity at center preserves the source
             // instead of applying the -3 dB constant-power law for mono synths.
-            const float leftPan=originalSf2?std::min(1.0f,1.0f-pan):(fixedPan?fixedLeft:std::cos((pan+1.0f)*0.7853981634f));
-            const float rightPan=originalSf2?std::min(1.0f,1.0f+pan):(fixedPan?fixedRight:std::sin((pan+1.0f)*0.7853981634f));
+            // TSF supplies stereo in both SF2 modes. Processing must not
+            // silently add a -3 dB center-pan attenuation to its dry signal.
+            const bool stereoSf2=engineTypes[li]==EngineType::sf2;
+            const float leftPan=stereoSf2?std::min(1.0f,1.0f-pan):(fixedPan?fixedLeft:std::cos((pan+1.0f)*0.7853981634f));
+            const float rightPan=stereoSf2?std::min(1.0f,1.0f+pan):(fixedPan?fixedRight:std::sin((pan+1.0f)*0.7853981634f));
             for(int channel=0;channel<2;++channel){
                 const size_t sample=(size_t)frame*2+(size_t)channel;
                 const float sideGain=channel==0?leftPan:rightPan;
