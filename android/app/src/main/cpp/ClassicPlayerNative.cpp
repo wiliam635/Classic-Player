@@ -172,7 +172,7 @@ std::array<DxLayer, kLayerCount> dxLayers {};
 FmCore fmCore;
 Controllers controllers;
 std::shared_ptr<TuningState> tuning;
-bool dxReady = false;
+std::once_flag dxInitOnce;
 
 // A hard safety limit prevents a malformed/missing MIDI Note Off from leaving
 // an oscillator active forever. Normal Note Off still stops it immediately.
@@ -348,13 +348,13 @@ float analogWave(int type,double phase)
 
 void initialiseDx()
 {
-    if (dxReady) return;
-    Exp2::init(); Sin::init(); Freqlut::init(kSampleRate); Env::init_sr(kSampleRate);
-    PitchEnv::init(kSampleRate); Porta::init_sr(kSampleRate);
-    tuning = createStandardTuning();
-    controllers.core = &fmCore;
-    controllers.refresh();
-    dxReady = true;
+    std::call_once(dxInitOnce, [] {
+        Exp2::init(); Sin::init(); Freqlut::init(kSampleRate); Env::init_sr(kSampleRate);
+        PitchEnv::init(kSampleRate); Porta::init_sr(kSampleRate);
+        tuning = createStandardTuning();
+        controllers.core = &fmCore;
+        controllers.refresh();
+    });
 }
 
 std::string dxName(const uint8_t* data, int size)
@@ -518,12 +518,15 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadDx7(
                 preparedNames[(size_t)patch]="Timbre DX7 " + std::to_string(patch+1);
         }
 
-        std::lock_guard<std::mutex> lock(synthMutex);
+        // The DX7 tables and voice objects can take longer than one audio
+        // buffer to prepare. Do not hold the renderer's mutex while doing so.
         initialiseDx();
-        const int budget=calculateLayerVoiceBudgets(layer,EngineType::dx7)[(size_t)layer];
         std::array<std::unique_ptr<Dx7Note>,kVoicePoolCapacity> preparedVoices{};
-        for(int i=0;i<budget;++i)
+        for(int i=0;i<kLowPolyphonyEngineLimit;++i)
             preparedVoices[(size_t)i]=std::make_unique<Dx7Note>(tuning,nullptr);
+
+        std::lock_guard<std::mutex> lock(synthMutex);
+        const int budget=calculateLayerVoiceBudgets(layer,EngineType::dx7)[(size_t)layer];
         releaseLayer(layer);
         auto& dx = dxLayers[(size_t)layer];
         dx.patches=std::move(preparedPatches);

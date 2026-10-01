@@ -128,6 +128,21 @@ public class AudioRegressionTest {
         engine.stop();assertFalse(engine.isRunning());
     }
 
+    @Test public void loadingDx7WhilePlayingKeepsExistingAudioRunning() throws Exception {
+        activate(1,0);
+        engine.setBufferFrames(512);
+        engine.start();
+        assertTrue(engine.outputStatus(),engine.isRunning());
+        engine.noteOn(60,100,0);
+        android.os.SystemClock.sleep(100);
+        activate(2,1);
+        assertTrue("Loading DX7 must not stop the existing output",engine.isRunning());
+        assertEquals(2,engine.engineType(1));
+        engine.noteOn(64,100,0);
+        android.os.SystemClock.sleep(100);
+        assertTrue("Mixed SF2/DX7 output must remain active",engine.masterPeak()>0);
+    }
+
     private void activate(int type, int layer) {
         if (type == 1) assertTrue(engine.loadLayer(layer, sf2.getAbsolutePath()));
         if (type == 2) assertTrue(engine.loadDx7(layer, dx7.getAbsolutePath()));
