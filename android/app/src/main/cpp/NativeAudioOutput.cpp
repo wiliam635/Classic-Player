@@ -2,7 +2,9 @@
 #include <oboe/Oboe.h>
 #include <oboe/LatencyTuner.h>
 #include <algorithm>
+#include <array>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -15,6 +17,26 @@ namespace {
 class OutputCallback final : public oboe::AudioStreamDataCallback,
                              public oboe::AudioStreamErrorCallback {
 public:
+    explicit OutputCallback(int mode) : sampleRateMode(mode) {
+        if(sampleRateMode==2)for(int phase=0;phase<kPhases;++phase){
+            double sum=0.0;
+            for(int tap=0;tap<kTaps;++tap){
+                const double x=(tap-kHalfTaps+1)-static_cast<double>(phase)/kPhases;
+                const double sinc=std::abs(x)<1.0e-9?1.0:std::sin(kPi*x)/(kPi*x);
+                const double window=0.5-0.5*std::cos(2.0*kPi*(tap+0.5)/kTaps);
+                coefficients[phase][tap]=static_cast<float>(sinc*window);
+                sum+=coefficients[phase][tap];
+            }
+            for(float& coefficient:coefficients[phase])coefficient=static_cast<float>(coefficient/sum);
+        }
+    }
+    static constexpr int kTaps=32,kHalfTaps=kTaps/2,kPhases=512,kSourceRing=1024;
+    static constexpr double kPi=3.14159265358979323846;
+    const int sampleRateMode;
+    std::array<std::array<float,kTaps>,kPhases> coefficients{};
+    std::array<int16_t,kSourceRing*2> sourceRing{};
+    int64_t sourceFrames=0;
+    double sourcePosition=0.0;
     std::atomic<int> error{0};
     std::atomic<int> contentions{0};
     std::atomic<int> callbackMicros{0};
@@ -25,10 +47,45 @@ public:
     std::unique_ptr<oboe::LatencyTuner> latencyTuner;
     int16_t lastLeft=0,lastRight=0;
     bool faded=false;
+    void renderResampled(int16_t* output,int32_t frames){
+        constexpr int kRenderQuantum=256;
+        std::array<int16_t,kRenderQuantum*2> block{};
+        for(int frame=0;frame<frames;++frame){
+            const int64_t center=static_cast<int64_t>(sourcePosition);
+            while(sourceFrames<=center+kHalfTaps){
+                const int count=std::min<int64_t>(kRenderQuantum,center+kHalfTaps+1-sourceFrames);
+                if(!renderClassicPlayerPcm(block.data(),count,true)){
+                    ++contentions;
+                    block.fill(0);
+                }
+                for(int i=0;i<count;++i){
+                    const size_t destination=static_cast<size_t>((sourceFrames+i)%kSourceRing)*2;
+                    sourceRing[destination]=block[(size_t)i*2];
+                    sourceRing[destination+1]=block[(size_t)i*2+1];
+                }
+                sourceFrames+=count;
+            }
+            const double fraction=sourcePosition-center;
+            const int phase=std::min(kPhases-1,static_cast<int>(fraction*kPhases));
+            for(int channel=0;channel<2;++channel){
+                double value=0.0;
+                for(int tap=0;tap<kTaps;++tap){
+                    const int64_t index=center+tap-kHalfTaps+1;
+                    if(index>=0)value+=coefficients[phase][tap]*sourceRing[static_cast<size_t>(index%kSourceRing)*2+channel];
+                }
+                output[(size_t)frame*2+channel]=static_cast<int16_t>(std::clamp(std::lround(value),-32768L,32767L));
+            }
+            sourcePosition+=44100.0/48000.0;
+        }
+        lastLeft=output[(size_t)(frames-1)*2];lastRight=output[(size_t)(frames-1)*2+1];
+    }
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream*, void* data, int32_t frames) override {
         timespec started{};
         clock_gettime(CLOCK_MONOTONIC, &started);
         auto* output=static_cast<int16_t*>(data);
+        if(sampleRateMode==2){
+            renderResampled(output,frames);
+        }else{
         // Keep MIDI response within 256 frames (5.8 ms at 44.1 kHz), while
         // avoiding repeated DSP setup for every 128 frames. In particular,
         // USB callbacks can contain 882/960 frames and were doing 7/8 setups.
@@ -49,6 +106,7 @@ public:
                 faded=false;
             }
             lastLeft=block[(count-1)*2];lastRight=block[(count-1)*2+1];
+        }
         }
         if(latencyTuner)latencyTuner->tune();
         timespec finished{};
@@ -77,7 +135,7 @@ void closeOutput() {
     callback.reset();
 }
 
-oboe::Result openOutputStream(jint deviceId, oboe::SharingMode sharingMode, bool nativeRate,
+oboe::Result openOutputStream(jint deviceId, oboe::SharingMode sharingMode, int sampleRateMode,
                               const std::shared_ptr<OutputCallback>& dataCallback,
                               std::shared_ptr<oboe::AudioStream>& openedStream) {
     oboe::AudioStreamBuilder builder;
@@ -88,12 +146,11 @@ oboe::Result openOutputStream(jint deviceId, oboe::SharingMode sharingMode, bool
     // AAudio's capacity is fixed at open; setBufferSizeInFrames() cannot grow
     // beyond it later, which previously capped this USB route at 1,792 frames.
     builder.setBufferCapacityInFrames(4800);
-    // The synth renders at 44.1 kHz in both modes, so this client-side rate
-    // must remain fixed to prevent pitch changes. In native-rate mode Oboe
-    // opens the device endpoint at its optimal/native rate and converts the
-    // 44.1 kHz renderer stream with its high-quality SRC.
-    builder.setSampleRate(44100);
-    builder.setSampleRateConversionQuality(nativeRate
+    // The synth always renders at 44.1 kHz. Native mode lets Oboe convert to
+    // the endpoint rate; explicit 48 kHz uses the callback's band-limited SRC
+    // before handing samples to Oboe. Never reinterpret 44.1 kHz PCM as 48 kHz.
+    builder.setSampleRate(sampleRateMode==2?48000:44100);
+    builder.setSampleRateConversionQuality(sampleRateMode!=1
         ? oboe::SampleRateConversionQuality::High
         : oboe::SampleRateConversionQuality::None);
     builder.setFormatConversionAllowed(true);
@@ -112,15 +169,16 @@ oboe::Result openOutputStream(jint deviceId, oboe::SharingMode sharingMode, bool
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_classickeys_classicplayer_PolySynthEngine_nativeStartOutput(JNIEnv*,jclass,jint deviceId,jint bufferFrames,jboolean nativeRate) {
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeStartOutput(JNIEnv*,jclass,jint deviceId,jint bufferFrames,jint sampleRateMode) {
     std::lock_guard<std::mutex> lock(outputMutex);
     closeOutput();
-    auto nextCallback=std::make_shared<OutputCallback>();
+    const int mode=std::clamp(static_cast<int>(sampleRateMode),0,2);
+    auto nextCallback=std::make_shared<OutputCallback>(mode);
     // Try exclusive low-latency first. Some Android routes silently downgrade
     // a successful exclusive request to Shared/None instead of failing open;
     // detect that and explicitly retry Shared/LowLatency before accepting the
     // downgraded stream. This matters for both built-in and USB outputs.
-    auto result=openOutputStream(deviceId,oboe::SharingMode::Exclusive,nativeRate==JNI_TRUE,nextCallback,stream);
+    auto result=openOutputStream(deviceId,oboe::SharingMode::Exclusive,mode,nextCallback,stream);
     bool retryShared=result!=oboe::Result::OK;
     if(result==oboe::Result::OK &&
        (stream->getPerformanceMode()!=oboe::PerformanceMode::LowLatency ||
@@ -131,7 +189,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeStartOutput(JNIEnv*,jcl
     }
     if(retryShared){
         if(stream){stream->close();stream.reset();}
-        result=openOutputStream(deviceId,oboe::SharingMode::Shared,nativeRate==JNI_TRUE,nextCallback,stream);
+        result=openOutputStream(deviceId,oboe::SharingMode::Shared,mode,nextCallback,stream);
     }
     if(result!=oboe::Result::OK){
         if(stream){stream->close();stream.reset();}

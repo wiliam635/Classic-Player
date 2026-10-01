@@ -325,7 +325,8 @@ public final class MainActivity extends Activity {
         setContentView(screen);
         midiManager = (MidiManager) getSystemService(MIDI_SERVICE);
         audioEngine = new PolySynthEngine(this);
-        audioEngine.setNativeRatePreferred(getSharedPreferences("audio",MODE_PRIVATE).getBoolean("native_rate",true));
+        SharedPreferences audioPrefs=getSharedPreferences("audio",MODE_PRIVATE);
+        audioEngine.setSampleRateMode(audioPrefs.getInt("sample_rate_mode",audioPrefs.getBoolean("native_rate",true)?0:1));
         audioEngine.setOboePreferred(getSharedPreferences("audio",MODE_PRIVATE).getBoolean("oboe_preferred",false));
         audioEngine.setBufferFrames(getSharedPreferences("audio",MODE_PRIVATE).getInt("buffer_frames",512));
         audioEngine.setMaster(screen.faderGain(screen.masterVolume));
@@ -558,16 +559,18 @@ public final class MainActivity extends Activity {
     }
 
     private void showAudioSampleRateChooser() {
-        String[] choices={"Taxa nativa do dispositivo · menor latência (Oboe SRC)","44.100 Hz fixos · motor e fluxo"};
-        int selected=audioEngine.nativeRatePreferred()?0:1;
+        String[] choices={"Taxa nativa do dispositivo · Oboe SRC","44.100 Hz · motor e saída","48.000 Hz · saída Oboe com conversão"};
+        int selected=audioEngine.sampleRateMode();
         new AlertDialog.Builder(this).setTitle("TAXA DE AMOSTRAGEM")
-            .setMessage("O motor SF2 continua calculando em 44,1 kHz nos dois modos. Na opção nativa, o Oboe converte com alta qualidade para a taxa ideal da saída, sem mudar a afinação. Ela requer Oboe; o AudioTrack de compatibilidade permanece em 44,1 kHz.")
             .setSingleChoiceItems(choices,selected,(dialog,which)->{
-                boolean nativeRate=which==0;
-                audioEngine.setNativeRatePreferred(nativeRate);
-                getSharedPreferences("audio",MODE_PRIVATE).edit().putBoolean("native_rate",nativeRate).apply();
+                audioEngine.setSampleRateMode(which);
+                if(which!=1&&!audioEngine.oboePreferred()){
+                    audioEngine.setOboePreferred(true);
+                    getSharedPreferences("audio",MODE_PRIVATE).edit().putBoolean("oboe_preferred",true).apply();
+                }
+                getSharedPreferences("audio",MODE_PRIVATE).edit().putInt("sample_rate_mode",which).apply();
                 screen.invalidate();dialog.dismiss();
-            }).setNegativeButton("FECHAR",null).show();
+            }).setNegativeButton("CANCELAR",null).show();
     }
 
     private String routedAudioLabel() {
@@ -1926,7 +1929,7 @@ public final class MainActivity extends Activity {
                 button(canvas, "MIDI LEARN · VOLUME", 52, h*.59f, actionRight, h*.66f, pendingLearnTarget>=0);
                 button(canvas, "PARAR TODAS AS NOTAS", 52, h*.69f, actionRight, h*.76f, false);
                 button(canvas, "VOLTAR AO MIXER", 52, h*.79f, actionRight, h*.86f, false);
-                button(canvas,"TAXA · "+(audioEngine.nativeRatePreferred()?"NATIVA":"44,1 kHz"),w*.48f,h*.56f,w-52,h*.615f,false);
+                button(canvas,"TAXA · "+(audioEngine.sampleRateMode()==0?"NATIVA":audioEngine.sampleRateMode()==2?"48 kHz":"44,1 kHz"),w*.48f,h*.56f,w-52,h*.615f,false);
                 button(canvas, "AJUSTAR BUFFER · "+audioEngine.bufferFrames()+" FRAMES",w*.48f,h*.62f,w-52,h*.675f,false);
                 fittedText(canvas,audioEngine.outputStatus(),w*.48f,w-52,h*.70f,h*.017f,text);
                 fittedText(canvas,audioEngine.outputDspStatus(),w*.48f,w-52,h*.74f,h*.015f,text);

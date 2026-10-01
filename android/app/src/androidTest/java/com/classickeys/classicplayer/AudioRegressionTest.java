@@ -164,6 +164,12 @@ public class AudioRegressionTest {
             assertTrue("Sample-rate mode must not change the 44.1 kHz synth pitch reference",
                     engine.outputStatus().contains("44.1 kHz"));
         }
+        engine.setSampleRateMode(2);
+        assertTrue("48 kHz selection must keep output running",engine.isRunning());
+        if(engine.outputMode().startsWith("Oboe /")){
+            assertEquals("The 48 kHz output must actually open at 48 kHz",48000,engine.outputInfo()[0]);
+            assertTrue("The 44.1 kHz sound engine must retain its pitch reference",engine.outputStatus().contains("Motor 44.1 kHz"));
+        }
         engine.setOboePreferred(false);
         assertTrue("AudioTrack must restart after returning from Oboe",engine.isRunning());
         assertTrue("Stable route must be restored",engine.outputMode().startsWith("AudioTrack"));
