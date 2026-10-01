@@ -405,6 +405,13 @@ public final class MainActivity extends Activity {
                 }
             } else if (name != null) screen.setLayerName(i, name);
         }
+        // One-time migration: old builds saved non-neutral SF2 effects even
+        // when the user only wanted the SoundFont's own sound. Fresh imports
+        // are reset separately when their files are selected.
+        if(!prefs.getBoolean("sf2_neutral_migration_1",false)){
+            for(int i=0;i<6;i++)if("SF2".equals(screen.engineName(i)))screen.resetSf2Processing(i);
+            prefs.edit().putBoolean("sf2_neutral_migration_1",true).apply();
+        }
         for(int i=0;i<6;i++)screen.applyLoadedEditorState(i);
         String account = licenseManager.userName();
         if (account == null || account.isEmpty()) account = licenseManager.userEmail();
@@ -1083,7 +1090,7 @@ public final class MainActivity extends Activity {
         SharedPreferences live=getSharedPreferences("live_set",MODE_PRIVATE);String root="bank_"+bank+"_slot_"+slot;if(!live.getBoolean(root+"_valid",false)){new AlertDialog.Builder(this).setMessage("Este slot está vazio. Ative SALVAR SLOT e toque nele para guardar o programa atual.").setPositiveButton("OK",null).show();return;}
         int version=live.getInt(root+"_version",1);boolean legacyContinuous=false;for(int layer=0;layer<6;layer++){int engine=live.getInt(root+"_"+layer+"_engine",0);if(engine==5||engine==6)legacyContinuous=engine==6;}SharedPreferences.Editor e=getSharedPreferences("layers",MODE_PRIVATE).edit();
         screen.masterReverb=live.getFloat(root+"_reverb",0f);screen.masterChorus=live.getFloat(root+"_chorus",0f);if(audioEngine!=null)audioEngine.setMasterEffects(screen.masterReverb,screen.masterChorus);
-        for(int layer=0;layer<6;layer++)screen.setSf2OriginalSound(layer,live.getBoolean(root+"_"+layer+"_sf2Original",true));
+        for(int layer=0;layer<6;layer++)if("SF2".equals(screen.engineName(layer)))screen.setSf2OriginalSound(layer,false);
         e.putFloat("master_volume",live.getFloat(root+"_master",screen.masterVolume))
             .putFloat("master_reverb",screen.masterReverb).putFloat("master_chorus",screen.masterChorus);
         if(version>=7){SharedPreferences.Editor learned=getSharedPreferences("midi_learn",MODE_PRIVATE).edit();
@@ -1246,6 +1253,9 @@ public final class MainActivity extends Activity {
             String name = soundFontDisplayName(uri);
             screen.setLayerName(layer, name);
             screen.setEngineName(layer, "SF2");
+            // A newly imported SoundFont starts with its own region envelopes
+            // and no inherited processing from the previous layer instrument.
+            screen.resetSf2Processing(layer);
             String firstPreset = audioEngine.presetCount(layer) > 0 ? audioEngine.presetName(layer, 0) : "Preset 1";
             screen.setPresetName(layer, firstPreset);
             soundFontLayers[layer].load(uri, name);
@@ -1396,7 +1406,6 @@ public final class MainActivity extends Activity {
                 EditorUi.selector(body,"BANCO DX7",banks,first?0:second?1:2,which->{if(which<2){panel.dialog.dismiss();activateBundledDx7(layer,which==0?R.raw.dx7_bank_1:R.raw.dx7_bank_2,which==0?"Divine Masquerade 1":"Divine Masquerade 2");openDx7Editor(layer);}});
             }else if("SF2".equals(engine)){
                 TextView loaded=EditorUi.label(this,screen.layerNames[layer],11);loaded.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);loaded.setSingleLine(true);loaded.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);body.addView(loaded,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,22)));
-                EditorUi.selector(body,"SOM DO SF2",new String[]{"ORIGINAL · SEM EFEITOS DA LAYER","PROCESSADO · USAR EFEITOS DA LAYER"},screen.sf2OriginalSound[layer]?0:1,which->{screen.setSf2OriginalSound(layer,which==0);renderLayerEditorPage(layer,panel,page,items,selected,selection,secondaryLabel,secondaryAction);});
             }
             EditorUi.selector(body,"TIMBRE",items,selected,which->{selection.apply(which);if(analog)renderLayerEditorPage(layer,panel,page,items,which,selection,secondaryLabel,secondaryAction);});
             LinearLayout source=EditorUi.gridRow(body);if(secondaryLabel!=null)EditorUi.addButton(source,secondaryLabel,()->{panel.dialog.dismiss();secondaryAction.run();});if(secondaryLabel==null||!secondaryLabel.equals("TROCAR MOTOR"))EditorUi.addButton(source,"TROCAR MOTOR",()->{panel.dialog.dismiss();panicAndChooseLayerSource(layer);});
@@ -1633,7 +1642,7 @@ public final class MainActivity extends Activity {
         else if(engine.equals("DX7")){if(audioEngine!=null&&audioEngine.setDx7Patch(layer,preset)){screen.setPresetName(layer,audioEngine.dx7PatchName(layer,preset));prefs.edit().putInt("dx7_patch_"+layer,preset).apply();}}
         else if(engine.equals("ANALOG")){if(audioEngine!=null&&audioEngine.setAnalogPreset(layer,preset)){screen.setPresetName(layer,audioEngine.analogPresetName(preset));screen.setAnalogPresetDefaults(layer,preset);}}
         else if(engine.equals("HAMMOND")){if(audioEngine!=null)audioEngine.setHammondPreset(layer,preset);prefs.edit().putInt("hammond_preset_"+layer,preset).apply();screen.setPresetName(layer,audioEngine==null?"Hammond":audioEngine.hammondPresetName(preset));}
-        screen.setSf2OriginalSound(layer,json.optBoolean("sf2Original",true));screen.setLayerEnvelope(layer,(float)json.optDouble("attack",screen.layerAttack[layer]),(float)json.optDouble("release",screen.layerRelease[layer]));screen.setLearnedVolume(layer,(float)json.optDouble("volume",screen.layerVolumes[layer]));screen.setLayerPan(layer,(float)json.optDouble("pan",screen.layerPan[layer]));screen.setLayerTone(layer,(float)json.optDouble("cutoff",screen.layerCutoff[layer]),(float)json.optDouble("reverbSend",screen.layerReverb[layer]),(float)json.optDouble("compMix",screen.layerCompMix[layer]),(float)json.optDouble("chorus",screen.layerChorus[layer]));
+        if(engine.equals("SF2"))screen.setSf2OriginalSound(layer,false);screen.setLayerEnvelope(layer,(float)json.optDouble("attack",screen.layerAttack[layer]),(float)json.optDouble("release",screen.layerRelease[layer]));screen.setLearnedVolume(layer,(float)json.optDouble("volume",screen.layerVolumes[layer]));screen.setLayerPan(layer,(float)json.optDouble("pan",screen.layerPan[layer]));screen.setLayerTone(layer,(float)json.optDouble("cutoff",screen.layerCutoff[layer]),(float)json.optDouble("reverbSend",screen.layerReverb[layer]),(float)json.optDouble("compMix",screen.layerCompMix[layer]),(float)json.optDouble("chorus",screen.layerChorus[layer]));
         screen.setLayerEq(layer,(float)json.optDouble("eqLow",screen.eqLow[layer]),(float)json.optDouble("eqMid",screen.eqMid[layer]),(float)json.optDouble("eqHigh",screen.eqHigh[layer]),(float)json.optDouble("eqLowFreq",screen.eqLowFreq[layer]),(float)json.optDouble("eqMidFreq",screen.eqMidFreq[layer]),(float)json.optDouble("eqHighFreq",screen.eqHighFreq[layer]),(float)json.optDouble("eqLowQ",screen.eqLowQ[layer]),(float)json.optDouble("eqMidQ",screen.eqMidQ[layer]),(float)json.optDouble("eqHighQ",screen.eqHighQ[layer]),(float)json.optDouble("eqHighPass",screen.eqHighPass[layer]),(float)json.optDouble("eqLowPass",screen.eqLowPass[layer]));
         screen.setLayerCompressor(layer,(float)json.optDouble("compThreshold",screen.compressorThreshold[layer]),(float)json.optDouble("compRatio",screen.compressorRatio[layer]),(float)json.optDouble("compAttack",screen.compressorAttackMs[layer]),(float)json.optDouble("compRelease",screen.compressorReleaseMs[layer]),(float)json.optDouble("compMakeup",screen.compressorMakeupDb[layer]));screen.setLayerReverb(layer,(float)json.optDouble("reverbSize",screen.reverbSize[layer]),(float)json.optDouble("reverbDamping",screen.reverbDamping[layer]),(float)json.optDouble("reverbWidth",screen.reverbWidth[layer]));
         screen.setLayerRouting(layer,json.optInt("routeChannel",screen.routeChannel[layer]),json.optInt("routeOctave",screen.routeOctave[layer]),json.optInt("routeVelocity",screen.routeVelocity[layer]),json.optBoolean("routeSustain",screen.routeSustain[layer]),json.optInt("routeMode",screen.routeMode[layer]));
@@ -1667,7 +1676,7 @@ public final class MainActivity extends Activity {
         private final float[] layerPan={0,0,0,0,0,0};
         private final float[] layerAttack = {0.005f,0.005f,0.005f,0.005f,0.005f,0.005f};
         private final float[] layerRelease = {0.05f,0.05f,0.05f,0.05f,0.05f,0.05f};
-        private final boolean[] sf2OriginalSound={true,true,true,true,true,true};
+        private final boolean[] sf2OriginalSound={false,false,false,false,false,false};
         private final float[] layerCutoff={100,100,100,100,100,100},layerReverb={0,0,0,0,0,0},layerCompMix={0,0,0,0,0,0},layerChorus={0,0,0,0,0,0};
         private final float[] reverbSize={55,55,55,55,55,55},reverbDamping={45,45,45,45,45,45},reverbWidth={100,100,100,100,100,100};
         private final float[] compressorAttackMs={10,10,10,10,10,10},compressorReleaseMs={120,120,120,120,120,120},compressorMakeupDb={0,0,0,0,0,0};
@@ -1733,7 +1742,7 @@ public final class MainActivity extends Activity {
             analogPinkNoise[i]=p.getBoolean("analog_pink_"+i,analogPinkNoise[i]);analogMonophonic[i]=p.getBoolean("analog_mono_"+i,analogMonophonic[i]);
             routeChannel[i]=p.getInt("route_channel_"+i,-1);routeOctave[i]=p.getInt("route_octave_"+i,0);routeVelocity[i]=p.getInt("route_velocity_"+i,0);routeSustain[i]=p.getBoolean("route_sustain_"+i,true);routeMode[i]=p.getInt("route_mode_"+i,0);
             layerAttack[i]=p.getFloat("control_attack_"+i,layerAttack[i]);layerRelease[i]=p.getFloat("control_release_"+i,layerRelease[i]);
-            sf2OriginalSound[i]=p.getBoolean("sf2_original_"+i,true);
+            sf2OriginalSound[i]=false;
             eqLow[i]=p.contains("eq_low_db_"+i)?p.getFloat("eq_low_db_"+i,0):(float)(20*Math.log10(Math.max(.125f,p.getFloat("eq_low_"+i,1))));eqMid[i]=p.contains("eq_mid_db_"+i)?p.getFloat("eq_mid_db_"+i,0):(float)(20*Math.log10(Math.max(.125f,p.getFloat("eq_mid_"+i,1))));eqHigh[i]=p.contains("eq_high_db_"+i)?p.getFloat("eq_high_db_"+i,0):(float)(20*Math.log10(Math.max(.125f,p.getFloat("eq_high_"+i,1))));
             eqLowFreq[i]=p.getFloat("eq_low_freq_"+i,220);eqMidFreq[i]=p.getFloat("eq_mid_freq_"+i,1200);eqHighFreq[i]=p.getFloat("eq_high_freq_"+i,4200);eqLowQ[i]=p.getFloat("eq_low_q_"+i,.707f);eqMidQ[i]=p.getFloat("eq_mid_q_"+i,1);eqHighQ[i]=p.getFloat("eq_high_q_"+i,.707f);eqHighPass[i]=p.getFloat("eq_highpass_"+i,20);eqLowPass[i]=p.getFloat("eq_lowpass_"+i,20000);
             compressorThreshold[i]=p.getFloat("comp_threshold_"+i,compressorThreshold[i]);compressorRatio[i]=p.getFloat("comp_ratio_"+i,compressorRatio[i]);layerVolumes[i]=p.getFloat("control_volume_"+i,layerVolumes[i]);layerPan[i]=p.getFloat("control_pan_"+i,0);muted[i]=p.getBoolean("muted_"+i,false);solo[i]=p.getBoolean("solo_"+i,false);
@@ -1749,11 +1758,18 @@ public final class MainActivity extends Activity {
         void setLastMidiControl(int cc,int channel,int value){lastMidiControl="CC "+cc+" · CH "+(channel+1)+" · "+value;postInvalidate();}
         void setLayerName(int layer, String name) { if (layer >= 0 && layer < layerNames.length) { layerNames[layer] = name; postInvalidate(); } }
         void setPresetName(int layer, String name) { if (layer >= 0 && layer < presetNames.length) { presetNames[layer] = name == null ? "" : name; postInvalidate(); } }
-        void setEngineName(int layer, String name) { if (layer >= 0 && layer < engineNames.length) { engineNames[layer] = name == null ? "VAZIA" : name; if("SF2".equals(engineNames[layer])&&audioEngine!=null)audioEngine.setSf2OriginalSound(layer,sf2OriginalSound[layer]); postInvalidate(); } }
+        void setEngineName(int layer, String name) { if (layer >= 0 && layer < engineNames.length) { engineNames[layer] = name == null ? "VAZIA" : name; if("SF2".equals(engineNames[layer]))setSf2OriginalSound(layer,false); postInvalidate(); } }
         String engineName(int layer) { return layer >= 0 && layer < engineNames.length ? engineNames[layer] : "VAZIA"; }
         void setLiveName(int slot,String name){if(slot>=0&&slot<names.length){names[slot]=name;postInvalidate();}}
         void setLearnedVolume(int target,float value){if(target<6){layerVolumes[target]=value;getSharedPreferences("layers",MODE_PRIVATE).edit().putFloat("control_volume_"+target,value).apply();applyLayerGains();}else{masterVolume=value;getSharedPreferences("layers",MODE_PRIVATE).edit().putFloat("master_volume",value).apply();if(audioEngine!=null)audioEngine.setMaster(faderGain(value));if(padEngine!=null)padEngine.setMaster(faderGain(value));}postInvalidate();}
         void setLayerEnvelope(int layer,float attack,float release){if(layer<0||layer>=6)return;layerAttack[layer]=attack;layerRelease[layer]=release;getSharedPreferences("layers",MODE_PRIVATE).edit().putFloat("control_attack_"+layer,attack).putFloat("control_release_"+layer,release).apply();if(audioEngine!=null)audioEngine.setLayerEnvelope(layer,attack,release);}
+        void resetSf2Processing(int layer){
+            if(layer<0||layer>=6)return;
+            setLayerEnvelope(layer,.005f,.05f);
+            setLayerTone(layer,100f,0f,0f,0f);
+            setLayerEq(layer,0f,0f,0f,220f,1200f,4200f,.707f,1f,.707f,20f,20000f);
+            setLayerCompressor(layer,.126f,4f,10f,120f,0f);
+        }
         void setSf2OriginalSound(int layer,boolean original){if(layer<0||layer>=6)return;sf2OriginalSound[layer]=original;getSharedPreferences("layers",MODE_PRIVATE).edit().putBoolean("sf2_original_"+layer,original).apply();if(audioEngine!=null)audioEngine.setSf2OriginalSound(layer,original);}
         void setLayerPan(int layer,float value){if(layer<0||layer>=6)return;layerPan[layer]=Math.max(-1,Math.min(1,value));getSharedPreferences("layers",MODE_PRIVATE).edit().putFloat("control_pan_"+layer,layerPan[layer]).apply();if(audioEngine!=null)audioEngine.setLayerPan(layer,layerPan[layer]);if(isPadEngine(layer)&&padEngine!=null)padEngine.setPan(layerPan[layer],engineNames[layer].startsWith("CONT"));}
         void setLayerEq(int layer,float low,float mid,float high,float lowFreq,float midFreq,float highFreq,float lowQValue,float midQValue,float highQValue,float highPassValue,float lowPassValue){if(layer<0||layer>=6)return;eqLow[layer]=low;eqMid[layer]=mid;eqHigh[layer]=high;eqLowFreq[layer]=lowFreq;eqMidFreq[layer]=midFreq;eqHighFreq[layer]=highFreq;eqLowQ[layer]=lowQValue;eqMidQ[layer]=midQValue;eqHighQ[layer]=highQValue;eqHighPass[layer]=highPassValue;eqLowPass[layer]=lowPassValue;SharedPreferences.Editor p=getSharedPreferences("layers",MODE_PRIVATE).edit();p.putFloat("eq_low_db_"+layer,low).putFloat("eq_mid_db_"+layer,mid).putFloat("eq_high_db_"+layer,high).putFloat("eq_low_freq_"+layer,lowFreq).putFloat("eq_mid_freq_"+layer,midFreq).putFloat("eq_high_freq_"+layer,highFreq).putFloat("eq_low_q_"+layer,lowQValue).putFloat("eq_mid_q_"+layer,midQValue).putFloat("eq_high_q_"+layer,highQValue).putFloat("eq_highpass_"+layer,highPassValue).putFloat("eq_lowpass_"+layer,lowPassValue).apply();if(audioEngine!=null)audioEngine.setLayerEq(layer,low,mid,high,lowFreq,midFreq,highFreq,lowQValue,midQValue,highQValue,highPassValue,lowPassValue);if(isPadEngine(layer)&&padEngine!=null)padEngine.setEq(low,mid,high,lowFreq,midFreq,highFreq,lowQValue,midQValue,highQValue,highPassValue,lowPassValue,engineNames[layer].startsWith("CONT"));}

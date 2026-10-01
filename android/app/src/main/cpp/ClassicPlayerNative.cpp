@@ -43,8 +43,10 @@ std::array<int,kLayerCount> layerMidiChannel { -1,-1,-1,-1,-1,-1 }, layerOctave 
 std::array<int,kLayerCount> layerMidiMode {};
 std::array<bool,kLayerCount> layerSustainEnabled {true,true,true,true,true,true};
 std::array<std::array<std::array<int,128>,16>,kLayerCount> routedNotes {};
-std::array<float, kLayerCount> layerAttack { 0.01f,0.01f,0.01f,0.01f,0.01f,0.01f };
-std::array<float, kLayerCount> layerRelease { 0.25f,0.25f,0.25f,0.25f,0.25f,0.25f };
+// These controls are offsets to the envelope stored in each SF2 region.
+// Their neutral positions must leave the SoundFont envelope untouched.
+std::array<float, kLayerCount> layerAttack { 0.005f,0.005f,0.005f,0.005f,0.005f,0.005f };
+std::array<float, kLayerCount> layerRelease { 0.05f,0.05f,0.05f,0.05f,0.05f,0.05f };
 std::array<float,kLayerCount> layerCutoff {100,100,100,100,100,100},layerReverbSend {},layerCompressorMix {},layerChorusMix {};
 std::array<float,kLayerCount> layerReverbSize {55,55,55,55,55,55},layerReverbDamping {45,45,45,45,45,45},layerReverbWidth {100,100,100,100,100,100};
 std::array<float,kLayerCount> compressorAttack {0.01f,0.01f,0.01f,0.01f,0.01f,0.01f},compressorRelease {0.12f,0.12f,0.12f,0.12f,0.12f,0.12f},compressorMakeupDb {};
@@ -1196,6 +1198,11 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
         const float layerStep = (targetLayer - smoothedLayerGains[(size_t)layer]) / (float)std::max(frames, 1);
         const float panStep=(layerPan[(size_t)layer]-smoothedLayerPan[(size_t)layer])/(float)std::max(frames,1);
         const float masterStep = (targetMaster - smoothedMasterGain) / (float)std::max(frames, 1);
+        const bool useCutoff=layerCutoff[li]<99.999f;
+        const bool useLowEq=eqLow[li]!=0.0f, useMidEq=eqMid[li]!=0.0f,
+                useHighEq=eqHigh[li]!=0.0f, useHighPass=eqHighPassHz[li]>20.0f,
+                useLowPass=eqLowPassHz[li]<20000.0f;
+        const bool useEq=useLowEq||useMidEq||useHighEq||useHighPass||useLowPass;
         const float cutoffHz=20.0f*std::pow(900.0f,layerCutoff[li]/100.0f);
         const float cutoffAlpha=1.0f-std::exp(-6.2831853f*cutoffHz/(float)kSampleRate);
         const float makeupGain=std::pow(10.0f,compressorMakeupDb[li]/20.0f);
@@ -1207,12 +1214,20 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
         for (int frame = 0; frame < frames; ++frame)
         {
             std::array<float,2> shaped{scratch[(size_t)frame*2],scratch[(size_t)frame*2+1]};
-            if(!originalSf2){
+            if(!originalSf2&&(useEq||useCutoff)){
                 for(int channel=0;channel<2;++channel){
-                    for(auto& filter:layerEqFilters[li][(size_t)channel])
-                        shaped[(size_t)channel]=processBiquad(filter,shaped[(size_t)channel]);
-                    lowPassState[li][(size_t)channel]+=(shaped[(size_t)channel]-lowPassState[li][(size_t)channel])*cutoffAlpha;
-                    shaped[(size_t)channel]=lowPassState[li][(size_t)channel];
+                    if(useEq){
+                        auto& filters=layerEqFilters[li][(size_t)channel];
+                        if(useLowEq)shaped[(size_t)channel]=processBiquad(filters[0],shaped[(size_t)channel]);
+                        if(useMidEq)shaped[(size_t)channel]=processBiquad(filters[1],shaped[(size_t)channel]);
+                        if(useHighEq)shaped[(size_t)channel]=processBiquad(filters[2],shaped[(size_t)channel]);
+                        if(useHighPass)shaped[(size_t)channel]=processBiquad(filters[3],shaped[(size_t)channel]);
+                        if(useLowPass)shaped[(size_t)channel]=processBiquad(filters[4],shaped[(size_t)channel]);
+                    }
+                    if(useCutoff){
+                        lowPassState[li][(size_t)channel]+=(shaped[(size_t)channel]-lowPassState[li][(size_t)channel])*cutoffAlpha;
+                        shaped[(size_t)channel]=lowPassState[li][(size_t)channel];
+                    }else lowPassState[li][(size_t)channel]=shaped[(size_t)channel];
                 }
             }
             // Link the compressor detector across both channels, but retain
@@ -1228,7 +1243,8 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
             for(int channel=0;channel<2;++channel){
                 float& value=shaped[(size_t)channel];
                 const float compressed=value*compressionGain;
-                value=originalSf2?value:(value+(compressed-value)*layerCompressorMix[li])*makeupGain;
+                value=(originalSf2||layerCompressorMix[li]<=0.0f)?value
+                        :(value+(compressed-value)*layerCompressorMix[li])*makeupGain;
                 const float dryShaped=value;
                 const int cursor=layerChorusCursor[li][(size_t)channel];
                 if(!originalSf2&&layerChorusMix[li]>0.0f) {

@@ -301,6 +301,26 @@ public class AudioRegressionTest {
         assertTrue("Original SF2 should bypass an old layer cutoff", original > processed * 2);
     }
 
+    @Test public void neutralProcessedSoundFontKeepsPresetToneAndEnvelope() throws Exception {
+        activate(1, 0);
+        engine.setLayerGain(0, 1.0f);
+        engine.setLayerEnvelope(0, .005f, .05f);
+        engine.setLayerTone(0, 100, 0, 0, 0);
+        engine.setLayerEq(0, 0, 0, 0, 220, 1200, 4200, .707f, 1, .707f, 20, 20000);
+        engine.setLayerCompressor(0, .126f, 4, 10, 120, 0);
+        engine.setSf2OriginalSound(0, true);
+        engine.noteOn(60, 100, 0);
+        double original = rms(pcm(RATE / 10));
+        engine.noteOff(60, 0);
+        pcm(RATE);
+        engine.setSf2OriginalSound(0, false);
+        engine.noteOn(60, 100, 0);
+        double neutralProcessed = rms(pcm(RATE / 10));
+        engine.noteOff(60, 0);
+        assertTrue("Neutral layer processing changed the SF2 preset level or tone",
+                Math.abs(original-neutralProcessed) < original*.02);
+    }
+
     @Test public void failedSoundFontImportPreservesLayer() throws Exception {
         activate(1, 0);
         assertFalse(engine.loadLayer(0, new File(context.getCacheDir(), "missing-font.sf2").getAbsolutePath()));
