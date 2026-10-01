@@ -528,8 +528,8 @@ public final class MainActivity extends Activity {
     }
 
     private void showAudioBufferChooser() {
-        final int[] frames={128,256,512,1024,2048};
-        String[] labels={"128 frames","256 frames","512 frames","1024 frames","2048 frames"};
+        final int[] frames={128,256,512,1024,2048,4800};
+        String[] labels={"128 frames","256 frames","512 frames","1024 frames","2048 frames","4800 frames · estável"};
         int selected=2;for(int i=0;i<frames.length;i++)if(frames[i]==audioEngine.bufferFrames())selected=i;
         new AlertDialog.Builder(this).setTitle("BUFFER DE SAÍDA")
             .setSingleChoiceItems(labels,selected,(dialog,which)->{
@@ -538,7 +538,7 @@ public final class MainActivity extends Activity {
                 screen.invalidate();dialog.dismiss();
             }).setNeutralButton("SOBRE",(dialog,which)->new AlertDialog.Builder(this)
                 .setTitle("BUFFER DE SAÍDA")
-                .setMessage("Escolha o tamanho inicial pedido. O Android pode arredondá-lo para múltiplos do burst da rota; o tamanho efetivo aparece em ÁUDIO/MIDI. O ajuste automático só aumenta o buffer se houver underruns.")
+                .setMessage("Escolha o tamanho inicial pedido. O Android pode arredondá-lo para múltiplos do burst da rota; o tamanho efetivo e o limite da saída aparecem em ÁUDIO/MIDI. 4800 frames reproduz a configuração estável do Numa Player, com maior latência. O ajuste automático aumenta o buffer se houver underruns.")
                 .setPositiveButton("FECHAR",null).show())
             .setNegativeButton("CANCELAR",null).show();
     }

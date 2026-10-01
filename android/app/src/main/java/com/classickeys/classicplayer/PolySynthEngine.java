@@ -35,7 +35,7 @@ final class PolySynthEngine {
 
     int bufferFrames() { return bufferFrames; }
     synchronized void setBufferFrames(int frames) {
-        if(frames!=128&&frames!=256&&frames!=512&&frames!=1024&&frames!=2048)
+        if(frames!=128&&frames!=256&&frames!=512&&frames!=1024&&frames!=2048&&frames!=4800)
             throw new IllegalArgumentException("Invalid buffer size");
         boolean restart=running;
         stop(); bufferFrames=frames;
@@ -45,9 +45,9 @@ final class PolySynthEngine {
         if(nativeOutputActive){
             int[] info=nativeOutputInfo();
             return String.format(java.util.Locale.US,
-                "Stream %.1f kHz · buffer %d/%d frames · burst %d · xruns %d · busy %d · callback %.1f/%.1f ms",
-                info[0]/1000.0,info[1],info[10],info[2],info[7],info[9],
-                info[11]/1000.0,info[0]>0?info[12]*1000.0/info[0]:0.0);
+                "Stream %.1f kHz · buffer %d/%d (pedido %d) · burst %d · xruns %d · busy %d · cb %.1f/max %.1f/prazo %.1f ms",
+                info[0]/1000.0,info[1],info[10],bufferFrames,info[2],info[7],info[9],
+                info[11]/1000.0,info[13]/1000.0,info[0]>0?info[12]*1000.0/info[0]:0.0);
         }
         AudioTrack current=track;
         try { return current==null ? "Áudio parado "+outputError :
@@ -58,18 +58,19 @@ final class PolySynthEngine {
     }
     boolean isRunning() { return running; }
     String outputMode() {
-        if(!nativeOutputActive)return "AudioTrack · modo compatível";
+        if(!nativeOutputActive)return "AudioTrack · Android Media · PCM 16-bit";
         int[] info=nativeOutputInfo();
         return (info[4]==2?"AAudio":"OpenSL ES")+" · "+(info[5]==12?"baixa latência":"modo padrão")+
             " · "+(info[6]==0?"exclusivo":"compartilhado");
     }
     String outputLatency() {
         double millis=outputLatencyMillis();
-        return millis>=0?String.format(java.util.Locale.US,"Saída Oboe estimada: %.1f ms · sem MIDI/loopback",millis):
-            "Latência de saída: medição indisponível";
+        return nativeOutputActive
+            ?String.format(java.util.Locale.US,"Saída nativa estimada: %.1f ms · sem MIDI/loopback",millis)
+            :"AudioTrack · latência real depende da interface e do Android";
     }
     double outputLatencyMillis() { return nativeOutputActive?nativeOutputLatency():-1; }
-    int[] outputInfo() { return nativeOutputActive?nativeOutputInfo():new int[13]; }
+    int[] outputInfo() { return nativeOutputActive?nativeOutputInfo():new int[14]; }
 
     static { System.loadLibrary("classic_player_native"); }
 
@@ -125,16 +126,21 @@ final class PolySynthEngine {
         if (running) return;
         stop();
         outputError="";
-        if(nativeStartOutput(preferredDevice==null?0:preferredDevice.getId(),bufferFrames)){
-            nativeOutputActive=true;running=true;
-            outputMonitor=new Thread(this::monitorOutput,"classic-output-monitor");
-            outputMonitor.start();return;
-        }
+        // Match the stable v0.3.4 route first: Android's AudioTrack MEDIA
+        // policy honors the preferred USB output and handles device routing.
         track = createTrack();
         if(track==null){
+            // Retain Oboe as a compatibility fallback for devices where the
+            // framework cannot initialize AudioTrack in the requested format.
+            if(nativeStartOutput(preferredDevice==null?0:preferredDevice.getId(),bufferFrames)){
+                nativeOutputActive=true;running=true;
+                outputMonitor=new Thread(this::monitorOutput,"classic-output-monitor");
+                outputMonitor.start();return;
+            }
             outputError=preferredDevice==null?"Falha ao abrir saída de áudio":"Interface de áudio indisponível";
             return;
         }
+        nativeOutputActive=false;
         outputError="";
         running = true;
         renderThread = new Thread(this::render, "classic-sf2-audio");
@@ -144,6 +150,7 @@ final class PolySynthEngine {
 
     private AudioTrack createTrack() {
         int min = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT);
+        if(min<=0)return null;
         AudioTrack.Builder builder = new AudioTrack.Builder()
                 // MEDIA is routed to USB Audio Class interfaces by Android's
                 // normal media policy; GAME can remain pinned to the speaker
@@ -162,7 +169,13 @@ final class PolySynthEngine {
         if(preferredDevice!=null&&!result.setPreferredDevice(preferredDevice)){
             result.release();return null;
         }
-        if(Build.VERSION.SDK_INT>=24)result.setBufferSizeInFrames(bufferFrames);
+        // Never shrink below Android's minimum buffer, even if a smaller
+        // value was selected; this keeps the working system route from
+        // underrunning on USB interfaces with larger hardware periods.
+        if(Build.VERSION.SDK_INT>=24){
+            int minimumFrames=(min+3)/4;
+            result.setBufferSizeInFrames(Math.max(bufferFrames,minimumFrames));
+        }
         return result;
     }
 

@@ -86,22 +86,30 @@ public class AudioRegressionTest {
         engine.setSustain(0,false);pcm(RATE*3);assertEquals(0,engine.activeVoices(0));
     }
 
-    @Test public void threeEnginesNativeOutputSurvivesBufferRestarts() throws Exception {
+    @Test public void threeEnginesOutputSurvivesBufferRestarts() throws Exception {
         activate(1,0);activate(2,1);activate(1,2);
-        for(int frames:new int[]{128,256,512,1024,2048,512}){
+        for(int frames:new int[]{128,256,512,1024,2048,4800,512}){
             engine.setBufferFrames(frames);engine.start();
             engine.noteOn(60,80,0);
             android.os.SystemClock.sleep(150);
             assertTrue(engine.outputStatus(),engine.isRunning());
             int[] info=engine.outputInfo();
-            assertEquals("Native callback output must be exercised",44100,info[0]);
-            assertTrue("Output buffer must be negotiated",info[1]>0);
-            assertTrue("Device burst must be known",info[2]>0);
-            assertTrue("Buffer capacity must be reported",info[10]>=info[2]);
-            assertTrue("Buffer must retain at least one device burst when capacity allows",
-                info[1]>=Math.min(info[10],info[2]));
-            assertEquals("Android 10 must use AAudio",2,info[4]);
-            report("native-output-"+frames,"{\"info\":"+Arrays.toString(info)+",\"outputLatencyMs\":"+
+            assertTrue("Expected Android Media AudioTrack primary or native fallback",
+                engine.outputMode().startsWith("AudioTrack · Android Media") || info[0]==44100);
+            if(engine.outputMode().startsWith("AudioTrack · Android Media")) {
+                assertTrue("AudioTrack must honor the synth sample rate",
+                    engine.outputStatus().startsWith("44.1 kHz"));
+            } else {
+                assertEquals("Fallback callback must use the synth sample rate",44100,info[0]);
+                assertTrue("Peak callback duration must include the most recent callback",info[13]>=info[11]);
+                assertTrue("Output buffer must be negotiated",info[1]>0);
+                assertTrue("Device burst must be known",info[2]>0);
+                assertTrue("Buffer capacity must be reported",info[10]>=info[2]);
+                assertTrue("Buffer must retain at least one device burst when capacity allows",
+                    info[1]>=Math.min(info[10],info[2]));
+            }
+            report("output-"+frames,"{\"mode\":\""+engine.outputMode()+"\",\"status\":\""+
+                engine.outputStatus()+"\",\"info\":"+Arrays.toString(info)+",\"outputLatencyMs\":"+
                 engine.outputLatencyMillis()+"}");
             assertTrue("Renderer stopped producing audio",engine.masterPeak()>0);
             engine.noteOff(60,0);engine.stop();assertFalse(engine.isRunning());

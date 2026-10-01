@@ -18,6 +18,7 @@ public:
     std::atomic<int> error{0};
     std::atomic<int> contentions{0};
     std::atomic<int> callbackMicros{0};
+    std::atomic<int> maxCallbackMicros{0};
     std::atomic<int> callbackFrames{0};
     // Owned for the full stream lifetime. Oboe recommends tuning from the
     // data callback; this avoids a Java/JNI hop or a control-thread race.
@@ -54,8 +55,12 @@ public:
         clock_gettime(CLOCK_MONOTONIC, &finished);
         const int64_t elapsedNanos=(finished.tv_sec-started.tv_sec)*1000000000LL+
                 (finished.tv_nsec-started.tv_nsec);
-        callbackMicros.store(static_cast<int>(std::max<int64_t>(0,elapsedNanos/1000)),
-                             std::memory_order_relaxed);
+        const int elapsedMicros=static_cast<int>(std::max<int64_t>(0,elapsedNanos/1000));
+        callbackMicros.store(elapsedMicros,std::memory_order_relaxed);
+        int maxMicros=maxCallbackMicros.load(std::memory_order_relaxed);
+        while(elapsedMicros>maxMicros &&
+              !maxCallbackMicros.compare_exchange_weak(maxMicros,elapsedMicros,
+                                                       std::memory_order_relaxed)) { }
         callbackFrames.store(frames,std::memory_order_relaxed);
         return oboe::DataCallbackResult::Continue;
     }
@@ -79,6 +84,10 @@ oboe::Result openOutputStream(jint deviceId, oboe::SharingMode sharingMode,
     builder.setDirection(oboe::Direction::Output);
     builder.setFormat(oboe::AudioFormat::I16);
     builder.setChannelCount(2);
+    // Reserve enough capacity for the 4,800-frame setting used by Numa Player.
+    // AAudio's capacity is fixed at open; setBufferSizeInFrames() cannot grow
+    // beyond it later, which previously capped this USB route at 1,792 frames.
+    builder.setBufferCapacityInFrames(4800);
     // Match the synth and AudioTrack fallback at 44.1 kHz to avoid unnecessary
     // SRC work on USB routes such as the CK61.
     builder.setSampleRate(44100);
@@ -171,10 +180,10 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeStopOutput(JNIEnv*,jcla
 extern "C" JNIEXPORT jintArray JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeOutputInfo(JNIEnv* env,jclass) {
     std::lock_guard<std::mutex> lock(outputMutex);
-    // rate, buffer, burst, device, API, performance, sharing, underruns, error,
+    // rate, effective buffer, burst, device, API, performance, sharing, underruns, error,
     // lock contentions, buffer capacity, latest callback duration in micros,
-    // and callback frame count for comparing work time to its route deadline.
-    jint values[13]={};
+    // callback frame count, and peak callback duration since this stream opened.
+    jint values[14]={};
     if(stream){
         const auto xruns=stream->getXRunCount();
         values[0]=stream->getSampleRate();values[1]=stream->getBufferSizeInFrames();
@@ -188,9 +197,10 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeOutputInfo(JNIEnv* env,
         if(callback){
             values[11]=callback->callbackMicros.load(std::memory_order_relaxed);
             values[12]=callback->callbackFrames.load(std::memory_order_relaxed);
+            values[13]=callback->maxCallbackMicros.load(std::memory_order_relaxed);
         }
     }
-    auto result=env->NewIntArray(13);if(result)env->SetIntArrayRegion(result,0,13,values);return result;
+    auto result=env->NewIntArray(14);if(result)env->SetIntArrayRegion(result,0,14,values);return result;
 }
 
 extern "C" JNIEXPORT jdouble JNICALL
