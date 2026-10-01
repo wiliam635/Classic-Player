@@ -420,6 +420,12 @@ public final class MainActivity extends Activity {
             for(int i=0;i<6;i++)if("SF2".equals(screen.engineName(i)))screen.resetSf2Processing(i);
             prefs.edit().putBoolean("sf2_envelope_migration_2",true).apply();
         }
+        // SF2 layers start flat: don't inherit compressor presets or EQ
+        // shaping from older builds unless the user explicitly reapplies it.
+        if(!prefs.getBoolean("sf2_effects_neutral_migration_3",false)){
+            for(int i=0;i<6;i++)if("SF2".equals(screen.engineName(i)))screen.resetSf2Processing(i);
+            prefs.edit().putBoolean("sf2_effects_neutral_migration_3",true).apply();
+        }
         for(int i=0;i<6;i++)screen.applyLoadedEditorState(i);
         String account = licenseManager.userName();
         if (account == null || account.isEmpty()) account = licenseManager.userEmail();
@@ -1066,9 +1072,9 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("SALVAR NO LIVE SET "+(slot+1)).setView(input)
                 .setPositiveButton("SALVAR",(d,w)->{
                     SharedPreferences layers=getSharedPreferences("layers",MODE_PRIVATE),live=getSharedPreferences("live_set",MODE_PRIVATE);SharedPreferences.Editor e=live.edit();
-                    String root="bank_"+bank+"_slot_"+slot;e.putInt(root+"_version",10).putFloat(root+"_master",screen.masterVolume);for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";e.putInt(p+"engine",layers.getInt("engine_"+layer,0));e.putString(p+"sf2",layers.getString("sf2_"+layer,null));e.putString(p+"dx7",layers.getString("dx7_"+layer,null));e.putString(p+"name",layers.getString("name_"+layer,null));e.putInt(p+"preset",layers.getInt("preset_"+layer,0));e.putInt(p+"dx7_patch",layers.getInt("dx7_patch_"+layer,0));e.putInt(p+"analog",layers.getInt("analog_preset_"+layer,0));e.putInt(p+"hammond",layers.getInt("hammond_preset_"+layer,0));e.putFloat(p+"volume",screen.layerVolumes[layer]).putFloat(p+"pan",screen.layerPan[layer]).putBoolean(p+"muted",screen.muted[layer]).putBoolean(p+"solo",screen.solo[layer]);}
+                    String root="bank_"+bank+"_slot_"+slot;e.putInt(root+"_version",11).putFloat(root+"_master",screen.masterVolume);for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";e.putInt(p+"engine",layers.getInt("engine_"+layer,0));e.putString(p+"sf2",layers.getString("sf2_"+layer,null));e.putString(p+"dx7",layers.getString("dx7_"+layer,null));e.putString(p+"name",layers.getString("name_"+layer,null));e.putInt(p+"preset",layers.getInt("preset_"+layer,0));e.putInt(p+"dx7_patch",layers.getInt("dx7_patch_"+layer,0));e.putInt(p+"analog",layers.getInt("analog_preset_"+layer,0));e.putInt(p+"hammond",layers.getInt("hammond_preset_"+layer,0));e.putFloat(p+"volume",screen.layerVolumes[layer]).putFloat(p+"pan",screen.layerPan[layer]).putBoolean(p+"muted",screen.muted[layer]).putBoolean(p+"solo",screen.solo[layer]);}
                     SharedPreferences pads=getSharedPreferences("pads",MODE_PRIVATE);e.putFloat(root+"_pad_fade",pads.getFloat("crossfade_seconds",1f)).putInt(root+"_pad_stop_cc",pads.getInt("pad_stop_cc",-1));for(int pad=0;pad<12;pad++){e.putString(root+"_drum_pad_"+pad,pads.getString(padSampleKey(false,pad),null)).putString(root+"_continuous_pad_"+pad,pads.getString(padSampleKey(true,pad),null)).putString(root+"_drum_pad_name_"+pad,pads.getString(padNameKey(false,pad),null)).putString(root+"_continuous_pad_name_"+pad,pads.getString(padNameKey(true,pad),null)).putInt(root+"_pad_note_"+pad,pads.getInt("pad_note_"+pad,36+pad)).putInt(root+"_pad_cc_"+pad,pads.getInt("pad_cc_"+pad,-1));}
-                    e.putInt(root+"_version",10).putFloat(root+"_reverb",screen.masterReverb).putFloat(root+"_chorus",screen.masterChorus);
+                    e.putInt(root+"_version",11).putFloat(root+"_reverb",screen.masterReverb).putFloat(root+"_chorus",screen.masterChorus);
                     SharedPreferences midiLearn=getSharedPreferences("midi_learn",MODE_PRIVATE);
                     for(int layer=0;layer<6;layer++)for(int target=0;target<5;target++){
                         String key="layer_"+layer+"_"+target;
@@ -1134,7 +1140,18 @@ public final class MainActivity extends Activity {
                         .putFloat("eq_low_db_"+layer,0f).putFloat("eq_mid_db_"+layer,0f).putFloat("eq_high_db_"+layer,0f)
                         .putFloat("eq_highpass_"+layer,20f).putFloat("eq_lowpass_"+layer,20000f)
                         .putFloat("control_cutoff_"+layer,100f).putFloat("control_reverb_"+layer,0f)
-                        .putFloat("control_comp_"+layer,0f).putFloat("control_chorus_"+layer,0f).putFloat("comp_makeup_"+layer,0f);
+                        .putFloat("control_comp_"+layer,0f).putFloat("control_chorus_"+layer,0f)
+                        .putFloat("comp_threshold_"+layer,1f).putFloat("comp_ratio_"+layer,1f)
+                        .putFloat("comp_attack_"+layer,.1f).putFloat("comp_release_"+layer,5f)
+                        .putFloat("comp_makeup_"+layer,0f);
+            }
+            // v10 stored compressor's old preset-like values even when its
+            // mix was off. Keep explicitly enabled user settings, but remove
+            // that dormant configuration from older flat SF2 live sets.
+            if(version<11&&live.getInt(p+"engine",0)==1&&live.getFloat(p+"compMix",0f)<=0f){
+                e.putFloat("comp_threshold_"+layer,1f).putFloat("comp_ratio_"+layer,1f)
+                        .putFloat("comp_attack_"+layer,.1f).putFloat("comp_release_"+layer,5f)
+                        .putFloat("comp_makeup_"+layer,0f);
             }
         }
         for(int position=0;position<6;position++)e.putInt("layer_order_"+position,live.getInt(root+"_layer_order_"+position,screen.layerOrder[position]));
@@ -1702,11 +1719,11 @@ public final class MainActivity extends Activity {
         private final boolean[] sf2OriginalSound={false,false,false,false,false,false};
         private final float[] layerCutoff={100,100,100,100,100,100},layerReverb={0,0,0,0,0,0},layerCompMix={0,0,0,0,0,0},layerChorus={0,0,0,0,0,0};
         private final float[] reverbSize={55,55,55,55,55,55},reverbDamping={45,45,45,45,45,45},reverbWidth={100,100,100,100,100,100};
-        private final float[] compressorAttackMs={10,10,10,10,10,10},compressorReleaseMs={120,120,120,120,120,120},compressorMakeupDb={0,0,0,0,0,0};
+        private final float[] compressorAttackMs={.1f,.1f,.1f,.1f,.1f,.1f},compressorReleaseMs={5,5,5,5,5,5},compressorMakeupDb={0,0,0,0,0,0};
         private final float[] eqLow = {0,0,0,0,0,0}, eqMid = {0,0,0,0,0,0}, eqHigh = {0,0,0,0,0,0};
         private final float[] eqLowFreq={220,220,220,220,220,220},eqMidFreq={1200,1200,1200,1200,1200,1200},eqHighFreq={4200,4200,4200,4200,4200,4200};
         private final float[] eqLowQ={.707f,.707f,.707f,.707f,.707f,.707f},eqMidQ={1,1,1,1,1,1},eqHighQ={.707f,.707f,.707f,.707f,.707f,.707f},eqHighPass={20,20,20,20,20,20},eqLowPass={20000,20000,20000,20000,20000,20000};
-        private final float[] compressorThreshold = {.126f,.126f,.126f,.126f,.126f,.126f}, compressorRatio = {4f,4f,4f,4f,4f,4f};
+        private final float[] compressorThreshold = {1f,1f,1f,1f,1f,1f}, compressorRatio = {1f,1f,1f,1f,1f,1f};
         private final int[] routeChannel={-1,-1,-1,-1,-1,-1},routeOctave={0,0,0,0,0,0},routeVelocity={0,0,0,0,0,0},routeMode={0,0,0,0,0,0};
         private final boolean[] routeSustain={true,true,true,true,true,true};
         private final int[][] hammondBars=new int[6][9];private final int[] hammondLeslie=new int[6],hammondPercussion=new int[6];
@@ -1791,7 +1808,7 @@ public final class MainActivity extends Activity {
             setLayerEnvelope(layer,0f,0f);
             setLayerTone(layer,100f,0f,0f,0f);
             setLayerEq(layer,0f,0f,0f,220f,1200f,4200f,.707f,1f,.707f,20f,20000f);
-            setLayerCompressor(layer,.126f,4f,10f,120f,0f);
+            setLayerCompressor(layer,1f,1f,.1f,5f,0f);
         }
         void setSf2OriginalSound(int layer,boolean original){if(layer<0||layer>=6)return;sf2OriginalSound[layer]=original;getSharedPreferences("layers",MODE_PRIVATE).edit().putBoolean("sf2_original_"+layer,original).apply();if(audioEngine!=null)audioEngine.setSf2OriginalSound(layer,original);}
         void setLayerPan(int layer,float value){if(layer<0||layer>=6)return;layerPan[layer]=Math.max(-1,Math.min(1,value));getSharedPreferences("layers",MODE_PRIVATE).edit().putFloat("control_pan_"+layer,layerPan[layer]).apply();if(audioEngine!=null)audioEngine.setLayerPan(layer,layerPan[layer]);if(isPadEngine(layer)&&padEngine!=null)padEngine.setPan(layerPan[layer],engineNames[layer].startsWith("CONT"));}

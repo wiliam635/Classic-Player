@@ -309,7 +309,7 @@ public class AudioRegressionTest {
         engine.setLayerEnvelope(0, 0f, 0f);
         engine.setLayerTone(0, 100, 0, 0, 0);
         engine.setLayerEq(0, 0, 0, 0, 220, 1200, 4200, .707f, 1, .707f, 20, 20000);
-        engine.setLayerCompressor(0, .126f, 4, 10, 120, 0);
+        engine.setLayerCompressor(0, 1f, 1f, .1f, 5f, 0f);
         engine.setSf2OriginalSound(0, true);
         engine.noteOn(60, 100, 0);
         short[] originalAttack = pcm(RATE / 10);

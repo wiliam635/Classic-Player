@@ -49,7 +49,7 @@ std::array<float, kLayerCount> layerAttack { 0.005f,0.005f,0.005f,0.005f,0.005f,
 std::array<float, kLayerCount> layerRelease { 0.05f,0.05f,0.05f,0.05f,0.05f,0.05f };
 std::array<float,kLayerCount> layerCutoff {100,100,100,100,100,100},layerReverbSend {},layerCompressorMix {},layerChorusMix {};
 std::array<float,kLayerCount> layerReverbSize {55,55,55,55,55,55},layerReverbDamping {45,45,45,45,45,45},layerReverbWidth {100,100,100,100,100,100};
-std::array<float,kLayerCount> compressorAttack {0.01f,0.01f,0.01f,0.01f,0.01f,0.01f},compressorRelease {0.12f,0.12f,0.12f,0.12f,0.12f,0.12f},compressorMakeupDb {};
+std::array<float,kLayerCount> compressorAttack {0.0001f,0.0001f,0.0001f,0.0001f,0.0001f,0.0001f},compressorRelease {0.005f,0.005f,0.005f,0.005f,0.005f,0.005f},compressorMakeupDb {};
 std::array<std::array<float,2>,kLayerCount> lowPassState {};
 std::array<float,kLayerCount> compressorEnvelope {};
 std::array<float, kLayerCount> eqLow {}, eqMid {}, eqHigh {};
@@ -58,8 +58,8 @@ std::array<float,kLayerCount> eqLowQ {.707f,.707f,.707f,.707f,.707f,.707f},eqMid
 std::array<float,kLayerCount> eqHighPassHz {20,20,20,20,20,20},eqLowPassHz {20000,20000,20000,20000,20000,20000};
 struct Biquad { float b0=1,b1=0,b2=0,a1=0,a2=0,z1=0,z2=0; };
 std::array<std::array<std::array<Biquad,5>,2>,kLayerCount> layerEqFilters{};
-std::array<float, kLayerCount> compressorThreshold {0.126f,0.126f,0.126f,0.126f,0.126f,0.126f};
-std::array<float, kLayerCount> compressorRatio {4.f,4.f,4.f,4.f,4.f,4.f};
+std::array<float, kLayerCount> compressorThreshold {1.f,1.f,1.f,1.f,1.f,1.f};
+std::array<float, kLayerCount> compressorRatio {1.f,1.f,1.f,1.f,1.f,1.f};
 float reverbMix = 0.0f, chorusMix = 0.0f;
 float reverbDelayMs = 72.0f,reverbFeedback = 0.48f,reverbStereoWidth = 1.0f;
 std::array<float, kSampleRate * 2> reverbBuffer {};
