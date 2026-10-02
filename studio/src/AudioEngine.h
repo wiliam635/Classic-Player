@@ -1,7 +1,9 @@
 #pragma once
 
 #include "InstrumentHost.h"
+#include "MixerState.h"
 #include "TransportState.h"
+#include <atomic>
 #include <juce_audio_utils/juce_audio_utils.h>
 
 namespace classicplayer
@@ -15,7 +17,7 @@ class AudioEngine final : private juce::AudioIODeviceCallback,
                           private juce::MidiInputCallback
 {
 public:
-    AudioEngine(TransportState&, InstrumentHost&);
+    AudioEngine(TransportState&, MixerState&, InstrumentHost&);
     ~AudioEngine() override;
 
     AudioEngine(const AudioEngine&) = delete;
@@ -28,6 +30,12 @@ public:
     bool isRunning() const noexcept { return running; }
     double sampleRate() const noexcept { return activeSampleRate; }
     int bufferSize() const noexcept { return activeBufferSize; }
+    // Copies UI-owned mixer values into atomics consumed by the real-time
+    // callback. Call this after changing a mixer control and from the UI timer.
+    void refreshMixerSnapshot() noexcept;
+    float channelPreFaderPeak() const noexcept { return channelPrePeak.load(std::memory_order_relaxed); }
+    float channelPostFaderPeak() const noexcept { return channelPostPeak.load(std::memory_order_relaxed); }
+    float masterPeak() const noexcept { return masterPeakValue.load(std::memory_order_relaxed); }
     juce::AudioDeviceManager& deviceManager() noexcept { return deviceManagerValue; }
 
 private:
@@ -43,11 +51,20 @@ private:
     void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage&) override;
 
     TransportState& transportState;
+    MixerState& mixerState;
     InstrumentHost& instrumentHost;
     juce::AudioDeviceManager deviceManagerValue;
     double activeSampleRate { 44100.0 };
     int activeBufferSize { 512 };
     bool running { false };
     juce::MidiMessageCollector midiCollector;
+    std::atomic<float> channelGain { 1.0f };
+    std::atomic<float> channelPan { 0.0f };
+    std::atomic<float> masterGain { 1.0f };
+    std::atomic<bool> channelMuted { false };
+    std::atomic<bool> anotherChannelIsSoloed { false };
+    std::atomic<float> channelPrePeak { 0.0f };
+    std::atomic<float> channelPostPeak { 0.0f };
+    std::atomic<float> masterPeakValue { 0.0f };
 };
 }

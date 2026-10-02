@@ -14,7 +14,7 @@ public:
           instrumentHost(hostToUse), audioEngine(audioToUse)
     {
         auto* content = new juce::Component();
-        content->setSize(900, 540);
+        content->setSize(900, 480);
 
         title.setText("CLASSIC PLAYER STUDIO", juce::dontSendNotification);
         title.setFont(juce::FontOptions(24.0f, juce::Font::bold));
@@ -85,6 +85,7 @@ public:
             transportState.stop();
             transportState.setSampleRate(sessionState.sampleRate);
             mixerState.syncFromSession(sessionState.tracks);
+            syncMixerControlsFromState();
             instrumentHost.unload();
             pluginSummary.setText("Sessão nova", juce::dontSendNotification);
         };
@@ -115,6 +116,7 @@ public:
                     owner.transportState.stop();
                     owner.transportState.setSampleRate(owner.sessionState.sampleRate);
                     owner.mixerState.syncFromSession(owner.sessionState.tracks);
+                    owner.syncMixerControlsFromState();
                     owner.instrumentHost.unload();
                     owner.availableInstruments.clear();
                     const auto restored = owner.restoreInstrumentFromSession();
@@ -149,6 +151,7 @@ public:
                 if (result == juce::File())
                     return;
 
+                owner.syncSessionFromMixer();
                 owner.captureLoadedInstrumentState();
                 if (owner.sessionState.save(result))
                     owner.pluginSummary.setText("Sessão salva: " + result.getFileName(),
@@ -204,14 +207,116 @@ public:
         stop.setBounds(250, 316, 100, 36);
         content->addAndMakeVisible(stop);
 
+        trackGainLabel.setText("TRACK GAIN", juce::dontSendNotification);
+        trackPanLabel.setText("TRACK PAN", juce::dontSendNotification);
+        masterGainLabel.setText("MASTER", juce::dontSendNotification);
+        for (auto* label : { &trackGainLabel, &trackPanLabel, &masterGainLabel })
+        {
+            label->setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+            content->addAndMakeVisible(*label);
+        }
+        trackGainLabel.setBounds(30, 372, 120, 22);
+        trackPanLabel.setBounds(230, 372, 120, 22);
+        masterGainLabel.setBounds(430, 372, 120, 22);
+
+        setupSlider(trackGain, -60.0, 12.0, 0.0, " dB");
+        setupSlider(trackPan, -1.0, 1.0, 0.0, "");
+        setupSlider(masterGain, -60.0, 12.0, 0.0, " dB");
+        trackGain.setBounds(30, 396, 170, 28);
+        trackPan.setBounds(230, 396, 170, 28);
+        masterGain.setBounds(430, 396, 170, 28);
+        content->addAndMakeVisible(trackGain);
+        content->addAndMakeVisible(trackPan);
+        content->addAndMakeVisible(masterGain);
+
+        muteTrack.setButtonText("MUTE TRACK 1");
+        soloTrack.setButtonText("SOLO TRACK 1");
+        muteTrack.setClickingTogglesState(true);
+        soloTrack.setClickingTogglesState(true);
+        muteTrack.onClick = [this]
+        {
+            if (mixerState.size() > 0)
+                mixerState.get(0).muted = muteTrack.getToggleState();
+            syncSessionFromMixer();
+            audioEngine.refreshMixerSnapshot();
+        };
+        soloTrack.onClick = [this]
+        {
+            if (mixerState.size() > 0)
+                mixerState.get(0).solo = soloTrack.getToggleState();
+            syncSessionFromMixer();
+            audioEngine.refreshMixerSnapshot();
+        };
+        muteTrack.setBounds(620, 376, 130, 28);
+        soloTrack.setBounds(760, 376, 120, 28);
+        content->addAndMakeVisible(muteTrack);
+        content->addAndMakeVisible(soloTrack);
+
+        meterSummary.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+        meterSummary.setBounds(30, 438, 840, 24);
+        content->addAndMakeVisible(meterSummary);
+
         startTimerHz(20);
         setContentOwned(content, true);
-        centreWithSize(900, 540);
+        centreWithSize(900, 480);
         setResizable(true, true);
         setUsingNativeTitleBar(true);
     }
 private:
-    void timerCallback() override { refresh(); }
+    void setupSlider(juce::Slider& slider, double minimum, double maximum,
+                     double initial, const juce::String& suffix)
+    {
+        slider.setSliderStyle(juce::Slider::LinearHorizontal);
+        slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 22);
+        slider.setRange(minimum, maximum, 0.01);
+        slider.setValue(initial, juce::dontSendNotification);
+        slider.setTextValueSuffix(suffix);
+        slider.onValueChange = [this]
+        {
+            if (mixerState.size() <= 0)
+                return;
+
+            auto& channel = mixerState.get(0);
+            channel.gainDb = static_cast<float>(trackGain.getValue());
+            channel.pan = static_cast<float>(trackPan.getValue());
+            mixerState.setMasterGainDb(static_cast<float>(masterGain.getValue()));
+            syncSessionFromMixer();
+            audioEngine.refreshMixerSnapshot();
+        };
+    }
+
+    void syncSessionFromMixer()
+    {
+        if (sessionState.tracks.isEmpty() || mixerState.size() <= 0)
+            return;
+
+        const auto& channel = mixerState.get(0);
+        auto& track = sessionState.tracks.getReference(0);
+        track.volume = channel.linearGain();
+        track.pan = channel.pan;
+        track.muted = channel.muted;
+        track.solo = channel.solo;
+    }
+
+    void syncMixerControlsFromState()
+    {
+        if (mixerState.size() <= 0)
+            return;
+
+        const auto& channel = mixerState.get(0);
+        trackGain.setValue(channel.gainDb, juce::dontSendNotification);
+        trackPan.setValue(channel.pan, juce::dontSendNotification);
+        masterGain.setValue(mixerState.masterGainDb(), juce::dontSendNotification);
+        muteTrack.setToggleState(channel.muted, juce::dontSendNotification);
+        soloTrack.setToggleState(channel.solo, juce::dontSendNotification);
+        audioEngine.refreshMixerSnapshot();
+    }
+
+    void timerCallback() override
+    {
+        audioEngine.refreshMixerSnapshot();
+        refresh();
+    }
     void captureLoadedInstrumentState()
     {
         if (! instrumentHost.isLoaded() || sessionState.tracks.isEmpty())
@@ -270,7 +375,26 @@ private:
         mixerSummary.setText("MIXER · " + juce::String(mixerState.size())
                                  + " canal(is) · master "
                                  + juce::String(mixerState.masterGainDb(), 1) + " dB"
-                                 + (mixerState.anySoloed() ? " · solo ativo" : ""),
+                             + (mixerState.anySoloed() ? " · solo ativo" : ""),
+                             juce::dontSendNotification);
+        if (mixerState.size() > 0)
+        {
+            const auto& channel = mixerState.get(0);
+            if (! trackGain.isMouseButtonDown())
+                trackGain.setValue(channel.gainDb, juce::dontSendNotification);
+            if (! trackPan.isMouseButtonDown())
+                trackPan.setValue(channel.pan, juce::dontSendNotification);
+            if (! masterGain.isMouseButtonDown())
+                masterGain.setValue(mixerState.masterGainDb(), juce::dontSendNotification);
+            muteTrack.setToggleState(channel.muted, juce::dontSendNotification);
+            soloTrack.setToggleState(channel.solo, juce::dontSendNotification);
+        }
+        meterSummary.setText("METERS · track pre "
+                                 + juce::String(audioEngine.channelPreFaderPeak(), 3)
+                                 + " · track post "
+                                 + juce::String(audioEngine.channelPostFaderPeak(), 3)
+                                 + " · master "
+                                 + juce::String(audioEngine.masterPeak(), 3),
                              juce::dontSendNotification);
     }
     Session& sessionState;
@@ -279,11 +403,14 @@ private:
     InstrumentHost& instrumentHost;
     AudioEngine& audioEngine;
     juce::Label title, status, mixerSummary;
+    juce::Label trackGainLabel, trackPanLabel, masterGainLabel, meterSummary;
     juce::Label pluginSummary;
     juce::Label audioSummary;
     juce::TextButton scanPlugins, loadPlugin, newSession, openSession, saveSession;
     juce::TextButton startAudio, stopAudio;
     juce::TextButton play, pause, stop;
+    juce::Slider trackGain, trackPan, masterGain;
+    juce::ToggleButton muteTrack, soloTrack;
     juce::Array<juce::PluginDescription> availableInstruments;
 };
 
