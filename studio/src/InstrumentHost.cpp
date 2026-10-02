@@ -4,10 +4,10 @@ namespace classicplayer
 {
 InstrumentHost::InstrumentHost()
 {
-    // The available formats are controlled by JUCE_PLUGINHOST_* definitions
-    // in the Studio target.  This keeps VST3 first-class on both platforms and
-    // enables AU when the target is built on macOS.
-    formatManager.addDefaultFormats();
+    // JUCE 9 exposes default-format registration as a free helper. It honors
+    // the JUCE_PLUGINHOST_* definitions configured for the Studio target,
+    // keeping VST3 first-class and enabling AU on macOS.
+    juce::addDefaultFormatsToManager(formatManager);
 }
 
 InstrumentHost::~InstrumentHost()
