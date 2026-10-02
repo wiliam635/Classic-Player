@@ -78,6 +78,56 @@ public:
         pluginSummary.setBounds(435, 172, 355, 28);
         content->addAndMakeVisible(pluginSummary);
 
+        trackLabel.setText("RECORD TO", juce::dontSendNotification);
+        trackLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+        trackLabel.setBounds(30, 218, 90, 28);
+        content->addAndMakeVisible(trackLabel);
+
+        trackSelector.setTextWhenNoChoicesAllowed("No tracks");
+        trackSelector.onChange = [this]
+        {
+            if (trackSelector.getSelectedId() > 0)
+                selectedTrackIndex = trackSelector.getSelectedId() - 1;
+            refreshTimelineSummary();
+        };
+        trackSelector.setBounds(120, 214, 260, 36);
+        content->addAndMakeVisible(trackSelector);
+
+        addAudioTrack.setButtonText("ADD AUDIO TRACK");
+        addAudioTrack.onClick = [this]
+        {
+            SessionTrack track;
+            track.name = "Audio " + juce::String(sessionState.tracks.size());
+            track.instrument = false;
+            sessionState.tracks.add(std::move(track));
+            selectedTrackIndex = sessionState.tracks.size() - 1;
+            mixerState.syncFromSession(sessionState.tracks);
+            refreshTrackSelector();
+            refreshTimelineSummary();
+        };
+        addAudioTrack.setBounds(390, 214, 155, 36);
+        content->addAndMakeVisible(addAudioTrack);
+
+        removeTrack.setButtonText("REMOVE AUDIO TRACK");
+        removeTrack.onClick = [this]
+        {
+            if (selectedTrackIndex <= 0 || selectedTrackIndex >= sessionState.tracks.size())
+            {
+                pluginSummary.setText("A primeira pista é reservada ao instrumento",
+                                      juce::dontSendNotification);
+                return;
+            }
+
+            sessionState.tracks.remove(selectedTrackIndex);
+            selectedTrackIndex = juce::jmin(selectedTrackIndex, sessionState.tracks.size() - 1);
+            mixerState.syncFromSession(sessionState.tracks);
+            refreshTrackSelector();
+            syncMixerControlsFromState();
+            refreshTimelineSummary();
+        };
+        removeTrack.setBounds(555, 214, 175, 36);
+        content->addAndMakeVisible(removeTrack);
+
         newSession.setButtonText("NEW SESSION");
         newSession.onClick = [this]
         {
@@ -89,6 +139,8 @@ public:
             mixerState.syncFromSession(sessionState.tracks);
             syncMixerControlsFromState();
             instrumentHost.unload();
+            selectedTrackIndex = 0;
+            refreshTrackSelector();
             refreshTimelineSummary();
             pluginSummary.setText("Sessão nova", juce::dontSendNotification);
         };
@@ -123,6 +175,8 @@ public:
                     owner.syncMixerControlsFromState();
                     owner.instrumentHost.unload();
                     owner.availableInstruments.clear();
+                    owner.selectedTrackIndex = 0;
+                    owner.refreshTrackSelector();
                     owner.refreshTimelineSummary();
                     const auto restored = owner.restoreInstrumentFromSession();
                     owner.pluginSummary.setText(
@@ -330,6 +384,7 @@ public:
 
         startTimerHz(20);
         setContentOwned(content, true);
+        refreshTrackSelector();
         refreshTimelineSummary();
         centreWithSize(900, 640);
         setResizable(true, true);
@@ -404,8 +459,10 @@ private:
             clip.lengthSeconds = static_cast<double>(samples) / sampleRate;
             clip.sampleRate = sampleRate;
             clip.numChannels = 2;
-            sessionState.tracks.getReference(0).clips.add(std::move(clip));
-            recordingSummary.setText("Gravação adicionada à sessão: " + file.getFileName(),
+            const auto target = juce::jlimit(0, sessionState.tracks.size() - 1, selectedTrackIndex);
+            sessionState.tracks.getReference(target).clips.add(std::move(clip));
+            recordingSummary.setText("Gravação adicionada à " + sessionState.tracks[target].name
+                                         + ": " + file.getFileName(),
                                      juce::dontSendNotification);
             refreshTimelineSummary();
         }
@@ -435,6 +492,18 @@ private:
                                    + (lastClip.isNotEmpty() ? " · último: " + lastClip : ""),
                                juce::dontSendNotification);
         timelineView.refresh();
+    }
+
+    void refreshTrackSelector()
+    {
+        selectedTrackIndex = sessionState.tracks.isEmpty()
+                                 ? 0
+                                 : juce::jlimit(0, sessionState.tracks.size() - 1, selectedTrackIndex);
+        trackSelector.clear(juce::dontSendNotification);
+        for (int i = 0; i < sessionState.tracks.size(); ++i)
+            trackSelector.addItem(sessionState.tracks[i].name, i + 1);
+        if (! sessionState.tracks.isEmpty())
+            trackSelector.setSelectedId(selectedTrackIndex + 1, juce::dontSendNotification);
     }
 
     void timerCallback() override
@@ -534,15 +603,19 @@ private:
     juce::Label audioSummary;
     juce::Label recordingSummary;
     juce::Label timelineSummary;
+    juce::Label trackLabel;
     juce::TextButton scanPlugins, loadPlugin, newSession, openSession, saveSession;
     juce::TextButton startAudio, stopAudio;
     juce::TextButton play, pause, stop;
     juce::TextButton recordAudio, stopRecording;
+    juce::TextButton addAudioTrack, removeTrack;
+    juce::ComboBox trackSelector;
     juce::Slider trackGain, trackPan, masterGain;
     juce::ToggleButton muteTrack, soloTrack;
     juce::Array<juce::PluginDescription> availableInstruments;
     bool activeRecording { false };
     double recordStartPosition { 0.0 };
+    int selectedTrackIndex { 0 };
 };
 
 StudioApplication::~StudioApplication() = default;
