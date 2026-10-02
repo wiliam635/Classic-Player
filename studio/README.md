@@ -34,4 +34,7 @@ de áudio ao `InstrumentHost` e avança o transporte em tempo real. Os botões
 descrições e gravação ainda entram nos próximos marcos. As entradas MIDI
 habilitadas no sistema são encaminhadas ao instrumento carregado por um
 `MidiMessageCollector`, mantendo a conversão entre a thread MIDI e o callback
-de áudio. O alvo existente do Classic Player continua sem alterações.
+de áudio. Ao salvar uma sessão, o identificador/formato e o estado binário do
+instrumento carregado também são persistidos; ao abrir, a Studio tenta
+reencontrar o mesmo plug-in e restaurar esse estado. O alvo existente do
+Classic Player continua sem alterações.

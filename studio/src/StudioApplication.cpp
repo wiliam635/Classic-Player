@@ -60,8 +60,11 @@ public:
 
             juce::String error;
             if (instrumentHost.load(availableInstruments.getFirst(), sessionState.sampleRate, 512, error))
+            {
+                captureLoadedInstrumentState();
                 pluginSummary.setText("Carregado: " + instrumentHost.pluginName(),
                                       juce::dontSendNotification);
+            }
             else
                 pluginSummary.setText("Falha ao carregar: " + error,
                                       juce::dontSendNotification);
@@ -113,8 +116,12 @@ public:
                     owner.transportState.setSampleRate(owner.sessionState.sampleRate);
                     owner.mixerState.syncFromSession(owner.sessionState.tracks);
                     owner.instrumentHost.unload();
-                    owner.pluginSummary.setText("Sessão aberta: " + result.getFileName(),
-                                                juce::dontSendNotification);
+                    owner.availableInstruments.clear();
+                    const auto restored = owner.restoreInstrumentFromSession();
+                    owner.pluginSummary.setText(
+                        restored ? "Sessão aberta e instrumento restaurado: " + result.getFileName()
+                                 : "Sessão aberta: " + result.getFileName(),
+                        juce::dontSendNotification);
                 }
                 else
                     owner.pluginSummary.setText("Não foi possível abrir a sessão",
@@ -142,6 +149,7 @@ public:
                 if (result == juce::File())
                     return;
 
+                owner.captureLoadedInstrumentState();
                 if (owner.sessionState.save(result))
                     owner.pluginSummary.setText("Sessão salva: " + result.getFileName(),
                                                 juce::dontSendNotification);
@@ -204,6 +212,55 @@ public:
     }
 private:
     void timerCallback() override { refresh(); }
+    void captureLoadedInstrumentState()
+    {
+        if (! instrumentHost.isLoaded() || sessionState.tracks.isEmpty())
+            return;
+
+        auto& track = sessionState.tracks.getReference(0);
+        const auto& description = instrumentHost.description();
+        track.instrument = true;
+        track.instrumentFormat = description.pluginFormatName;
+        track.instrumentIdentifier = description.fileOrIdentifier;
+        track.instrumentName = instrumentHost.pluginName();
+
+        juce::MemoryBlock state;
+        if (instrumentHost.saveState(state))
+            track.instrumentStateBase64 = state.toBase64Encoding();
+    }
+
+    bool restoreInstrumentFromSession()
+    {
+        if (sessionState.tracks.isEmpty())
+            return false;
+
+        const auto& track = sessionState.tracks.getReference(0);
+        if (track.instrumentIdentifier.isEmpty())
+            return false;
+
+        if (availableInstruments.isEmpty())
+            availableInstruments = instrumentHost.scanInstalledInstruments();
+
+        for (const auto& description : availableInstruments)
+        {
+            if (description.fileOrIdentifier != track.instrumentIdentifier
+                || description.pluginFormatName != track.instrumentFormat)
+                continue;
+
+            juce::String error;
+            if (! instrumentHost.load(description, sessionState.sampleRate, 512, error))
+                return false;
+
+            juce::MemoryBlock state;
+            if (track.instrumentStateBase64.isNotEmpty()
+                && state.fromBase64Encoding(track.instrumentStateBase64))
+                instrumentHost.restoreState(state.getData(), static_cast<int>(state.getSize()));
+            return true;
+        }
+
+        return false;
+    }
+
     void refresh()
     {
         status.setText(juce::String(transportState.isPlaying() ? "Tocando" : "Parado")
