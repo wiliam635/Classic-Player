@@ -17,3 +17,12 @@ instrumento será o próximo marco.
   gravação e pico pré/pós-fader, além do ganho e pico do master.
 - Ainda não há processamento de áudio real, gravação ou carregamento do
   `ClassicPlayerAudioProcessor`; esses itens entram na integração seguinte.
+
+## Ponte de instrumento
+
+O `InstrumentHost` já define a fronteira para uma pista de instrumento: ele
+carrega uma `PluginDescription` via JUCE, prepara o plug-in, processa buffers
+de áudio/MIDI e salva/restaura o estado. A primeira implementação usa o
+Classic Player VST3 (e AU no macOS) instalado no computador. A descoberta do
+plug-in e a interface de seleção entram no próximo commit; o alvo existente do
+Classic Player continua sem alterações.

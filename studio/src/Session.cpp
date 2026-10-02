@@ -17,6 +17,10 @@ juce::ValueTree SessionTrack::toValueTree() const
     tree.setProperty("solo", solo, nullptr);
     tree.setProperty("volume", volume, nullptr);
     tree.setProperty("pan", pan, nullptr);
+    tree.setProperty("instrumentFormat", instrumentFormat, nullptr);
+    tree.setProperty("instrumentIdentifier", instrumentIdentifier, nullptr);
+    tree.setProperty("instrumentName", instrumentName, nullptr);
+    tree.setProperty("instrumentStateBase64", instrumentStateBase64, nullptr);
     return tree;
 }
 
@@ -29,6 +33,10 @@ SessionTrack SessionTrack::fromValueTree(const juce::ValueTree& tree)
     result.solo = static_cast<bool>(tree.getProperty("solo", result.solo));
     result.volume = static_cast<float>(tree.getProperty("volume", result.volume));
     result.pan = static_cast<float>(tree.getProperty("pan", result.pan));
+    result.instrumentFormat = tree.getProperty("instrumentFormat", result.instrumentFormat).toString();
+    result.instrumentIdentifier = tree.getProperty("instrumentIdentifier", result.instrumentIdentifier).toString();
+    result.instrumentName = tree.getProperty("instrumentName", result.instrumentName).toString();
+    result.instrumentStateBase64 = tree.getProperty("instrumentStateBase64", result.instrumentStateBase64).toString();
     return result;
 }
 

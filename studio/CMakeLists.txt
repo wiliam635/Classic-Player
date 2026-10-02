@@ -29,6 +29,8 @@ juce_add_gui_app(ClassicPlayerStudio
 
 target_sources(ClassicPlayerStudio PRIVATE
     src/Main.cpp
+    src/InstrumentHost.cpp
+    src/InstrumentHost.h
     src/MixerState.cpp
     src/MixerState.h
     src/Session.cpp
@@ -41,10 +43,13 @@ target_sources(ClassicPlayerStudio PRIVATE
 target_compile_definitions(ClassicPlayerStudio PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
+    JUCE_PLUGINHOST_VST3=1
+    $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>
     CLASSIC_PLAYER_STUDIO_VERSION="${PROJECT_VERSION}")
 
 target_link_libraries(ClassicPlayerStudio PRIVATE
     juce::juce_audio_utils
+    juce::juce_audio_processors
     juce::juce_gui_extra
     juce::juce_dsp
     PUBLIC
@@ -65,6 +70,7 @@ if(BUILD_TESTING)
     target_link_libraries(ClassicPlayerStudioSessionTest PRIVATE
         juce::juce_core
         juce::juce_data_structures
+        juce::juce_audio_processors
         PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)

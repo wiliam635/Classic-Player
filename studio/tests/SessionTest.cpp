@@ -9,6 +9,10 @@ int main()
     classicplayer::Session source;
     source.tempoBpm = 128.0;
     source.tracks.getReference(0).name = "Classic Player";
+    source.tracks.getReference(0).instrumentFormat = "VST3";
+    source.tracks.getReference(0).instrumentIdentifier = "com.classickeys.classicplayer.vst3";
+    source.tracks.getReference(0).instrumentName = "Classic Player";
+    source.tracks.getReference(0).instrumentStateBase64 = "c2FtcGxlLXN0YXRl";
     classicplayer::SessionTrack audioTrack;
     audioTrack.name = "Audio 1";
     audioTrack.instrument = false;
@@ -24,6 +28,9 @@ int main()
     assert(loaded.tempoBpm == 128.0);
     assert(loaded.tracks.size() == 2);
     assert(loaded.tracks[0].name == "Classic Player");
+    assert(loaded.tracks[0].instrumentFormat == "VST3");
+    assert(loaded.tracks[0].instrumentIdentifier == "com.classickeys.classicplayer.vst3");
+    assert(loaded.tracks[0].instrumentStateBase64 == "c2FtcGxlLXN0YXRl");
     assert(!loaded.tracks[1].instrument);
 
     classicplayer::MixerState mixer;

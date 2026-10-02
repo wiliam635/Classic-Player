@@ -12,6 +12,13 @@ struct SessionTrack
     bool solo { false };
     float volume { 1.0f };
     float pan { 0.0f };
+    // Empty identifier means that the track is not connected to a plug-in
+    // yet.  The state is stored as base64 so sessions remain self-contained
+    // without copying large sample libraries or plug-in binaries.
+    juce::String instrumentFormat { "Internal" };
+    juce::String instrumentIdentifier;
+    juce::String instrumentName;
+    juce::String instrumentStateBase64;
 
     juce::ValueTree toValueTree() const;
     static SessionTrack fromValueTree(const juce::ValueTree&);
