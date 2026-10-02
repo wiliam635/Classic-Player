@@ -18,6 +18,7 @@ int main()
     audioTrack.instrument = false;
     audioTrack.volume = 0.8f;
     audioTrack.pan = -0.2f;
+    audioTrack.clips.add({ "Take 1", "/tmp/take-1.wav", 2.5, 4.0, 48000.0, 2 });
     source.tracks.add(audioTrack);
 
     const auto file = juce::File::getSpecialLocation(juce::File::tempDirectory)
@@ -32,6 +33,10 @@ int main()
     assert(loaded.tracks[0].instrumentIdentifier == "com.classickeys.classicplayer.vst3");
     assert(loaded.tracks[0].instrumentStateBase64 == "c2FtcGxlLXN0YXRl");
     assert(!loaded.tracks[1].instrument);
+    assert(loaded.tracks[1].clips.size() == 1);
+    assert(loaded.tracks[1].clips[0].name == "Take 1");
+    assert(std::abs(loaded.tracks[1].clips[0].startSeconds - 2.5) < 0.000001);
+    assert(std::abs(loaded.tracks[1].clips[0].lengthSeconds - 4.0) < 0.000001);
 
     classicplayer::MixerState mixer;
     mixer.syncFromSession(loaded.tracks);

@@ -2,8 +2,9 @@
 
 Primeiro esqueleto da futura DAW desktop para Windows e macOS. O aplicativo
 contém a fundação da interface, o estado de transporte, a serialização de uma
-sessão e um caminho de áudio real para o instrumento hospedado. Ainda não
-grava nem exporta áudio.
+sessão e um caminho de áudio real para o instrumento hospedado. A gravação de
+entrada já gera WAV e registra cada take como clipe da sessão; ainda não há
+reprodução de clipes nem exportação final.
 
 O alvo é deliberadamente separado do `ClassicPlayer` existente. A fundação já
 tem sessão versionada, transporte baseado em amostras, estado de mixer
@@ -21,8 +22,13 @@ expansão para pistas de áudio/MIDI e timeline para os próximos marcos.
   solo e ganho master, além de expor picos pré/pós-fader para a interface.
 - O botão `RECORD INPUT` grava a entrada do dispositivo em WAV de 24 bits por
   meio de um `ThreadedWriter` em segundo plano; `STOP RECORDING` fecha o arquivo
-  com segurança sem escrever diretamente no disco dentro do callback.
-- Ainda não há timeline, roteamento de múltiplas pistas ou
+  com segurança sem escrever diretamente no disco dentro do callback. O arquivo
+  também é adicionado à pista principal como um `AudioClip`, com caminho,
+  posição inicial, duração, taxa de amostragem e número de canais.
+- A sessão está na versão 2 e continua aceitando arquivos da versão 1. A
+  interface mostra um resumo da timeline (quantidade, duração e último clipe),
+  mas ainda não renderiza as formas de onda nem reproduz os clipes.
+- Ainda não há reprodução de clipes, roteamento de múltiplas pistas ou
   carregamento do `ClassicPlayerAudioProcessor`; esses itens entram nas
   integrações seguintes.
 

@@ -4,6 +4,19 @@
 
 namespace classicplayer
 {
+struct SessionClip
+{
+    juce::String name { "Audio Clip" };
+    juce::String filePath;
+    double startSeconds { 0.0 };
+    double lengthSeconds { 0.0 };
+    double sampleRate { 44100.0 };
+    int numChannels { 2 };
+
+    juce::ValueTree toValueTree() const;
+    static SessionClip fromValueTree(const juce::ValueTree&);
+};
+
 struct SessionTrack
 {
     juce::String name { "Track 1" };
@@ -19,6 +32,7 @@ struct SessionTrack
     juce::String instrumentIdentifier;
     juce::String instrumentName;
     juce::String instrumentStateBase64;
+    juce::Array<SessionClip> clips;
 
     juce::ValueTree toValueTree() const;
     static SessionTrack fromValueTree(const juce::ValueTree&);
@@ -27,7 +41,7 @@ struct SessionTrack
 class Session
 {
 public:
-    static constexpr int currentFormatVersion = 1;
+    static constexpr int currentFormatVersion = 2;
 
     Session();
     void clear();

@@ -38,6 +38,7 @@ public:
     void stopRecording() noexcept;
     bool isRecording() const noexcept { return recorder.isRecording(); }
     juce::File recordingFile() const noexcept { return recorder.outputFile(); }
+    int64_t recordedSamples() const noexcept { return recorder.recordedSamples(); }
     float channelPreFaderPeak() const noexcept { return channelPrePeak.load(std::memory_order_relaxed); }
     float channelPostFaderPeak() const noexcept { return channelPostPeak.load(std::memory_order_relaxed); }
     float masterPeak() const noexcept { return masterPeakValue.load(std::memory_order_relaxed); }

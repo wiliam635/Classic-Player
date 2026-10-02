@@ -14,7 +14,7 @@ public:
           instrumentHost(hostToUse), audioEngine(audioToUse)
     {
         auto* content = new juce::Component();
-        content->setSize(900, 500);
+        content->setSize(900, 560);
 
         title.setText("CLASSIC PLAYER STUDIO", juce::dontSendNotification);
         title.setFont(juce::FontOptions(24.0f, juce::Font::bold));
@@ -80,6 +80,7 @@ public:
         newSession.setButtonText("NEW SESSION");
         newSession.onClick = [this]
         {
+            finishActiveRecording();
             audioEngine.stop();
             sessionState.clear();
             transportState.stop();
@@ -87,6 +88,7 @@ public:
             mixerState.syncFromSession(sessionState.tracks);
             syncMixerControlsFromState();
             instrumentHost.unload();
+            refreshTimelineSummary();
             pluginSummary.setText("Sessão nova", juce::dontSendNotification);
         };
         newSession.setBounds(30, 268, 120, 36);
@@ -95,6 +97,7 @@ public:
         openSession.setButtonText("OPEN SESSION");
         openSession.onClick = [this]
         {
+            finishActiveRecording();
             audioEngine.stop();
             auto chooser = std::make_shared<juce::FileChooser>(
                 "Abrir sessão do Classic Player Studio", juce::File(), "*.cpsession");
@@ -119,6 +122,7 @@ public:
                     owner.syncMixerControlsFromState();
                     owner.instrumentHost.unload();
                     owner.availableInstruments.clear();
+                    owner.refreshTimelineSummary();
                     const auto restored = owner.restoreInstrumentFromSession();
                     owner.pluginSummary.setText(
                         restored ? "Sessão aberta e instrumento restaurado: " + result.getFileName()
@@ -181,6 +185,7 @@ public:
         stopAudio.setButtonText("STOP AUDIO");
         stopAudio.onClick = [this]
         {
+            finishActiveRecording();
             audioEngine.stop();
             audioSummary.setText("Áudio: parado", juce::dontSendNotification);
             recordingSummary.setText("Gravação: parada", juce::dontSendNotification);
@@ -239,9 +244,13 @@ public:
 
                 juce::String error;
                 if (owner.audioEngine.startRecording(result, error))
+                {
+                    owner.activeRecording = true;
+                    owner.recordStartPosition = owner.transportState.position();
                     owner.recordingSummary.setText("Gravando: "
                                                        + owner.audioEngine.recordingFile().getFileName(),
                                                    juce::dontSendNotification);
+                }
                 else
                     owner.recordingSummary.setText("Gravação: falha · " + error,
                                                    juce::dontSendNotification);
@@ -253,8 +262,7 @@ public:
         stopRecording.setButtonText("STOP RECORDING");
         stopRecording.onClick = [this]
         {
-            audioEngine.stopRecording();
-            recordingSummary.setText("Gravação: parada", juce::dontSendNotification);
+            finishActiveRecording();
         };
         stopRecording.setBounds(170, 360, 145, 36);
         content->addAndMakeVisible(stopRecording);
@@ -313,9 +321,14 @@ public:
         meterSummary.setBounds(30, 474, 840, 24);
         content->addAndMakeVisible(meterSummary);
 
+        timelineSummary.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+        timelineSummary.setBounds(30, 510, 840, 32);
+        content->addAndMakeVisible(timelineSummary);
+
         startTimerHz(20);
         setContentOwned(content, true);
-        centreWithSize(900, 500);
+        refreshTimelineSummary();
+        centreWithSize(900, 560);
         setResizable(true, true);
         setUsingNativeTitleBar(true);
     }
@@ -367,6 +380,57 @@ private:
         muteTrack.setToggleState(channel.muted, juce::dontSendNotification);
         soloTrack.setToggleState(channel.solo, juce::dontSendNotification);
         audioEngine.refreshMixerSnapshot();
+    }
+
+    void finishActiveRecording()
+    {
+        if (! activeRecording && ! audioEngine.isRecording())
+            return;
+
+        const auto file = audioEngine.recordingFile();
+        const auto samples = audioEngine.recordedSamples();
+        audioEngine.stopRecording();
+        const auto sampleRate = audioEngine.sampleRate();
+
+        if (activeRecording && ! sessionState.tracks.isEmpty() && samples > 0 && sampleRate > 0.0)
+        {
+            SessionClip clip;
+            clip.name = file.getFileNameWithoutExtension();
+            clip.filePath = file.getFullPathName();
+            clip.startSeconds = recordStartPosition;
+            clip.lengthSeconds = static_cast<double>(samples) / sampleRate;
+            clip.sampleRate = sampleRate;
+            clip.numChannels = 2;
+            sessionState.tracks.getReference(0).clips.add(std::move(clip));
+            recordingSummary.setText("Gravação adicionada à sessão: " + file.getFileName(),
+                                     juce::dontSendNotification);
+            refreshTimelineSummary();
+        }
+        else
+        {
+            recordingSummary.setText("Gravação: parada", juce::dontSendNotification);
+        }
+
+        activeRecording = false;
+    }
+
+    void refreshTimelineSummary()
+    {
+        int clipCount = 0;
+        double totalSeconds = 0.0;
+        juce::String lastClip;
+        for (const auto& track : sessionState.tracks)
+            for (const auto& clip : track.clips)
+            {
+                ++clipCount;
+                totalSeconds = juce::jmax(totalSeconds, clip.startSeconds + clip.lengthSeconds);
+                lastClip = clip.name;
+            }
+
+        timelineSummary.setText("TIMELINE · " + juce::String(clipCount) + " clipe(s) · duração "
+                                   + juce::String(totalSeconds, 2) + " s"
+                                   + (lastClip.isNotEmpty() ? " · último: " + lastClip : ""),
+                               juce::dontSendNotification);
     }
 
     void timerCallback() override
@@ -464,6 +528,7 @@ private:
     juce::Label pluginSummary;
     juce::Label audioSummary;
     juce::Label recordingSummary;
+    juce::Label timelineSummary;
     juce::TextButton scanPlugins, loadPlugin, newSession, openSession, saveSession;
     juce::TextButton startAudio, stopAudio;
     juce::TextButton play, pause, stop;
@@ -471,6 +536,8 @@ private:
     juce::Slider trackGain, trackPan, masterGain;
     juce::ToggleButton muteTrack, soloTrack;
     juce::Array<juce::PluginDescription> availableInstruments;
+    bool activeRecording { false };
+    double recordStartPosition { 0.0 };
 };
 
 StudioApplication::~StudioApplication() = default;

@@ -57,6 +57,7 @@ bool AudioRecorder::start(const juce::File& file, double sampleRate, int numChan
         threadedWriter = std::make_unique<juce::AudioFormatWriter::ThreadedWriter>(
             writer.release(), backgroundThread, 32768);
         outputFileValue = output;
+        samplesRecorded.store(0, std::memory_order_release);
         recording.store(true, std::memory_order_release);
     }
 
@@ -91,5 +92,6 @@ void AudioRecorder::pushInput(const float* const* inputChannelData, int numChann
         return;
 
     threadedWriter->write(inputChannelData, numSamples);
+    samplesRecorded.fetch_add(numSamples, std::memory_order_acq_rel);
 }
 }

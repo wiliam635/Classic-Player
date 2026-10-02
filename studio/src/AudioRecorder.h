@@ -26,6 +26,7 @@ public:
     void stop() noexcept;
     bool isRecording() const noexcept { return recording.load(std::memory_order_acquire); }
     juce::File outputFile() const noexcept;
+    int64_t recordedSamples() const noexcept { return samplesRecorded.load(std::memory_order_acquire); }
 
     void pushInput(const float* const* inputChannelData, int numChannels,
                    int numSamples) noexcept;
@@ -35,6 +36,7 @@ private:
     juce::TimeSliceThread backgroundThread { "Classic Player Studio Recorder" };
     std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> threadedWriter;
     std::atomic<bool> recording { false };
+    std::atomic<int64_t> samplesRecorded { 0 };
     juce::File outputFileValue;
 };
 }

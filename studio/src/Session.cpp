@@ -6,6 +6,32 @@ namespace
 {
 constexpr auto sessionType = "ClassicPlayerStudioSession";
 constexpr auto trackType = "Track";
+constexpr auto clipType = "AudioClip";
+}
+
+juce::ValueTree SessionClip::toValueTree() const
+{
+    juce::ValueTree tree(clipType);
+    tree.setProperty("name", name, nullptr);
+    tree.setProperty("filePath", filePath, nullptr);
+    tree.setProperty("startSeconds", startSeconds, nullptr);
+    tree.setProperty("lengthSeconds", lengthSeconds, nullptr);
+    tree.setProperty("sampleRate", sampleRate, nullptr);
+    tree.setProperty("numChannels", numChannels, nullptr);
+    return tree;
+}
+
+SessionClip SessionClip::fromValueTree(const juce::ValueTree& tree)
+{
+    SessionClip result;
+    result.name = tree.getProperty("name", result.name).toString();
+    result.filePath = tree.getProperty("filePath", result.filePath).toString();
+    result.startSeconds = juce::jmax(0.0, static_cast<double>(tree.getProperty("startSeconds", result.startSeconds)));
+    result.lengthSeconds = juce::jmax(0.0, static_cast<double>(tree.getProperty("lengthSeconds", result.lengthSeconds)));
+    result.sampleRate = juce::jlimit(8000.0, 192000.0,
+                                     static_cast<double>(tree.getProperty("sampleRate", result.sampleRate)));
+    result.numChannels = juce::jlimit(1, 64, static_cast<int>(tree.getProperty("numChannels", result.numChannels)));
+    return result;
 }
 
 juce::ValueTree SessionTrack::toValueTree() const
@@ -21,6 +47,8 @@ juce::ValueTree SessionTrack::toValueTree() const
     tree.setProperty("instrumentIdentifier", instrumentIdentifier, nullptr);
     tree.setProperty("instrumentName", instrumentName, nullptr);
     tree.setProperty("instrumentStateBase64", instrumentStateBase64, nullptr);
+    for (const auto& clip : clips)
+        tree.addChild(clip.toValueTree(), -1, nullptr);
     return tree;
 }
 
@@ -37,6 +65,9 @@ SessionTrack SessionTrack::fromValueTree(const juce::ValueTree& tree)
     result.instrumentIdentifier = tree.getProperty("instrumentIdentifier", result.instrumentIdentifier).toString();
     result.instrumentName = tree.getProperty("instrumentName", result.instrumentName).toString();
     result.instrumentStateBase64 = tree.getProperty("instrumentStateBase64", result.instrumentStateBase64).toString();
+    for (int i = 0; i < tree.getNumChildren(); ++i)
+        if (tree.getChild(i).hasType(clipType))
+            result.clips.add(SessionClip::fromValueTree(tree.getChild(i)));
     return result;
 }
 
