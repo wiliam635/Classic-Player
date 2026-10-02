@@ -1,0 +1,37 @@
+name: Build Classic Player Studio
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'studio/**'
+      - '.github/workflows/build-studio.yml'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-15
+            name: macOS
+          - os: windows-2022
+            name: Windows
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        shell: bash
+        run: cmake -S studio -B studio/build -DBUILD_TESTING=ON -DCLASSIC_PLAYER_STUDIO_FETCH_JUCE=ON
+      - name: Build
+        shell: bash
+        run: cmake --build studio/build --config Release --parallel 2
+      - name: Test session persistence
+        shell: bash
+        run: ctest --test-dir studio/build -C Release --output-on-failure
+      - name: Upload Studio build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Classic-Player-Studio-${{ matrix.name }}
+          if-no-files-found: error
+          path: studio/build/ClassicPlayerStudio_artefacts/Release
