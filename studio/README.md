@@ -31,5 +31,7 @@ encontrada, e os botões de sessão já permitem criar, abrir e salvar arquivos
 `.cpsession`. O `AudioEngine` já abre o dispositivo padrão, conecta o callback
 de áudio ao `InstrumentHost` e avança o transporte em tempo real. Os botões
 `START AUDIO` e `STOP AUDIO` controlam esse ciclo; a seleção visual de várias
-descrições, gravação e arranjo em timeline ainda entram nos próximos marcos.
-O alvo existente do Classic Player continua sem alterações.
+descrições e gravação ainda entram nos próximos marcos. As entradas MIDI
+habilitadas no sistema são encaminhadas ao instrumento carregado por um
+`MidiMessageCollector`, mantendo a conversão entre a thread MIDI e o callback
+de áudio. O alvo existente do Classic Player continua sem alterações.

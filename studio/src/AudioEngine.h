@@ -11,7 +11,8 @@ namespace classicplayer
     instrument host. Device setup stays in this class so the UI never needs to
     touch the real-time callback directly.
 */
-class AudioEngine final : private juce::AudioIODeviceCallback
+class AudioEngine final : private juce::AudioIODeviceCallback,
+                          private juce::MidiInputCallback
 {
 public:
     AudioEngine(TransportState&, InstrumentHost&);
@@ -39,6 +40,7 @@ private:
     void audioDeviceAboutToStart(juce::AudioIODevice* device) override;
     void audioDeviceStopped() override;
     void audioDeviceError(const juce::String& errorMessage) override;
+    void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage&) override;
 
     TransportState& transportState;
     InstrumentHost& instrumentHost;
@@ -46,5 +48,6 @@ private:
     double activeSampleRate { 44100.0 };
     int activeBufferSize { 512 };
     bool running { false };
+    juce::MidiMessageCollector midiCollector;
 };
 }

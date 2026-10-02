@@ -27,6 +27,9 @@ bool AudioEngine::start(double preferredSampleRate, int preferredBufferSize,
         return false;
 
     deviceManagerValue.addAudioCallback(this);
+    deviceManagerValue.addMidiInputDeviceCallback({}, this);
+    for (const auto& device : juce::MidiInput::getAvailableDevices())
+        deviceManagerValue.setMidiInputDeviceEnabled(device.identifier, true);
     running = true;
     return true;
 }
@@ -36,6 +39,7 @@ void AudioEngine::stop() noexcept
     if (! running)
         return;
 
+    deviceManagerValue.removeMidiInputDeviceCallback({}, this);
     deviceManagerValue.removeAudioCallback(this);
     deviceManagerValue.closeAudioDevice();
     running = false;
@@ -52,6 +56,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(
     output.clear();
 
     juce::MidiBuffer midi;
+    midiCollector.removeNextBlockOfMessages(midi, numSamples);
     instrumentHost.processBlock(output, midi);
     transportState.advanceSamples(numSamples);
 }
@@ -64,6 +69,7 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device)
     activeSampleRate = device->getCurrentSampleRate();
     activeBufferSize = device->getCurrentBufferSizeSamples();
     transportState.setSampleRate(activeSampleRate);
+    midiCollector.reset(activeSampleRate);
     instrumentHost.prepareToPlay(activeSampleRate, activeBufferSize);
 }
 
@@ -75,5 +81,12 @@ void AudioEngine::audioDeviceStopped()
 void AudioEngine::audioDeviceError(const juce::String& errorMessage)
 {
     juce::Logger::writeToLog("Studio audio device error: " + errorMessage);
+}
+
+void AudioEngine::handleIncomingMidiMessage(juce::MidiInput* source,
+                                            const juce::MidiMessage& message)
+{
+    juce::ignoreUnused(source);
+    midiCollector.addMessageToQueue(message);
 }
 }
