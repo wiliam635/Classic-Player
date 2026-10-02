@@ -6,9 +6,10 @@ class StudioApplication::MainWindow final : public juce::DocumentWindow,
                                              private juce::Timer
 {
 public:
-    MainWindow(StudioApplication& owner, Session& session, TransportState& transport, MixerState& mixer)
+    MainWindow(StudioApplication& owner, Session& session, TransportState& transport,
+               MixerState& mixer, InstrumentHost& host)
         : DocumentWindow("Classic Player Studio", juce::Colours::darkgrey, DocumentWindow::allButtons),
-          app(owner), sessionState(session), transportState(transport), mixerState(mixer)
+          app(owner), sessionState(session), transportState(transport), mixerState(mixer), instrumentHost(host)
     {
         auto* content = new juce::Component();
         content->setSize(900, 540);
@@ -28,19 +29,37 @@ public:
         mixerSummary.setBounds(30, 102, 760, 24);
         content->addAndMakeVisible(mixerSummary);
 
+        scanPlugins.setButtonText("SCAN INSTRUMENTS");
+        scanPlugins.onClick = [this]
+        {
+            const auto found = instrumentHost.scanInstalledInstruments();
+            pluginSummary.setText(found.isEmpty()
+                                      ? "Instrumentos: nenhum VST3/AU encontrado"
+                                      : "Instrumentos: " + juce::String(found.size())
+                                            + " encontrado(s) · " + found.getFirst().name,
+                                  juce::dontSendNotification);
+        };
+        scanPlugins.setBounds(30, 168, 190, 36);
+        content->addAndMakeVisible(scanPlugins);
+
+        pluginSummary.setText("Instrumentos: varredura não executada", juce::dontSendNotification);
+        pluginSummary.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+        pluginSummary.setBounds(235, 172, 555, 28);
+        content->addAndMakeVisible(pluginSummary);
+
         play.setButtonText("PLAY");
         play.onClick = [this] { transportState.play(); refresh(); };
-        play.setBounds(30, 130, 100, 36);
+        play.setBounds(30, 220, 100, 36);
         content->addAndMakeVisible(play);
 
         pause.setButtonText("PAUSE");
         pause.onClick = [this] { transportState.pause(); refresh(); };
-        pause.setBounds(140, 130, 100, 36);
+        pause.setBounds(140, 220, 100, 36);
         content->addAndMakeVisible(pause);
 
         stop.setButtonText("STOP");
         stop.onClick = [this] { transportState.stop(); refresh(); };
-        stop.setBounds(250, 130, 100, 36);
+        stop.setBounds(250, 220, 100, 36);
         content->addAndMakeVisible(stop);
 
         startTimerHz(20);
@@ -67,8 +86,10 @@ private:
     Session& sessionState;
     TransportState& transportState;
     MixerState& mixerState;
+    InstrumentHost& instrumentHost;
     juce::Label title, status, mixerSummary;
-    juce::TextButton play, pause, stop;
+    juce::Label pluginSummary;
+    juce::TextButton scanPlugins, play, pause, stop;
 };
 
 StudioApplication::~StudioApplication() = default;
@@ -77,7 +98,7 @@ void StudioApplication::initialise(const juce::String&)
 {
     transport.setSampleRate(session.sampleRate);
     mixer.syncFromSession(session.tracks);
-    window = std::make_unique<MainWindow>(*this, session, transport, mixer);
+    window = std::make_unique<MainWindow>(*this, session, transport, mixer, instrumentHost);
     window->setVisible(true);
 }
 

@@ -3,6 +3,7 @@
 #include "Session.h"
 #include "MixerState.h"
 #include "TransportState.h"
+#include "InstrumentHost.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 
 namespace classicplayer
@@ -27,5 +28,6 @@ private:
     Session session;
     TransportState transport;
     MixerState mixer;
+    InstrumentHost instrumentHost;
 };
 }

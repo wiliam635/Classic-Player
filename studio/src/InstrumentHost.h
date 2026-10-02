@@ -23,6 +23,9 @@ public:
 
     bool load(const juce::PluginDescription&, double sampleRate, int maximumBlockSize,
               juce::String& errorMessage);
+    // Scan standard VST3/AU locations for instrument descriptions that can
+    // be presented by the Studio track selector.
+    juce::Array<juce::PluginDescription> scanInstalledInstruments() const;
     void unload();
 
     void prepareToPlay(double sampleRate, int maximumBlockSize);
