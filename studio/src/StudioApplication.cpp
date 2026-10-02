@@ -6,9 +6,9 @@ class StudioApplication::MainWindow final : public juce::DocumentWindow,
                                              private juce::Timer
 {
 public:
-    MainWindow(StudioApplication& owner, Session& session, TransportState& transport)
+    MainWindow(StudioApplication& owner, Session& session, TransportState& transport, MixerState& mixer)
         : DocumentWindow("Classic Player Studio", juce::Colours::darkgrey, DocumentWindow::allButtons),
-          app(owner), sessionState(session), transportState(transport)
+          app(owner), sessionState(session), transportState(transport), mixerState(mixer)
     {
         auto* content = new juce::Component();
         content->setSize(900, 540);
@@ -23,6 +23,10 @@ public:
         status.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
         status.setBounds(30, 72, 620, 28);
         content->addAndMakeVisible(status);
+
+        mixerSummary.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+        mixerSummary.setBounds(30, 102, 760, 24);
+        content->addAndMakeVisible(mixerSummary);
 
         play.setButtonText("PLAY");
         play.onClick = [this] { transportState.play(); refresh(); };
@@ -53,17 +57,25 @@ private:
                            + " · posição " + juce::String(transportState.position(), 2)
                            + " s · " + juce::String(sessionState.tracks.size()) + " pista(s)",
                        juce::dontSendNotification);
+        mixerSummary.setText("MIXER · " + juce::String(mixerState.size())
+                                 + " canal(is) · master "
+                                 + juce::String(mixerState.masterGainDb(), 1) + " dB"
+                                 + (mixerState.anySoloed() ? " · solo ativo" : ""),
+                             juce::dontSendNotification);
     }
     StudioApplication& app;
     Session& sessionState;
     TransportState& transportState;
-    juce::Label title, status;
+    MixerState& mixerState;
+    juce::Label title, status, mixerSummary;
     juce::TextButton play, pause, stop;
 };
 
 void StudioApplication::initialise(const juce::String&)
 {
-    window = std::make_unique<MainWindow>(*this, session, transport);
+    transport.setSampleRate(session.sampleRate);
+    mixer.syncFromSession(session.tracks);
+    window = std::make_unique<MainWindow>(*this, session, transport, mixer);
     window->setVisible(true);
 }
 

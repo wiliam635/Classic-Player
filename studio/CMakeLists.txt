@@ -29,6 +29,8 @@ juce_add_gui_app(ClassicPlayerStudio
 
 target_sources(ClassicPlayerStudio PRIVATE
     src/Main.cpp
+    src/MixerState.cpp
+    src/MixerState.h
     src/Session.cpp
     src/Session.h
     src/StudioApplication.cpp
@@ -54,6 +56,8 @@ if(BUILD_TESTING)
     juce_add_console_app(ClassicPlayerStudioSessionTest PRODUCT_NAME "Classic Player Studio Session Test")
     target_sources(ClassicPlayerStudioSessionTest PRIVATE
         tests/SessionTest.cpp
+        src/MixerState.cpp
+        src/MixerState.h
         src/Session.cpp
         src/Session.h)
     target_link_libraries(ClassicPlayerStudioSessionTest PRIVATE

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Session.h"
+#include "MixerState.h"
 #include "TransportState.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 
@@ -21,5 +22,6 @@ private:
     std::unique_ptr<MainWindow> window;
     Session session;
     TransportState transport;
+    MixerState mixer;
 };
 }
