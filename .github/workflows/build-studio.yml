@@ -56,7 +56,8 @@ jobs:
           hdiutil create -volname "Classic Player Studio" \
             -srcfolder "$staging_dir" -ov -format UDZO \
             "$package_dir/Classic-Player-Studio-macOS.dmg"
-      - name: Upload Studio build
+      - name: Upload macOS Studio build
+        if: matrix.name == 'macOS'
         uses: actions/upload-artifact@v4
         with:
           name: Classic-Player-Studio-${{ matrix.name }}
@@ -64,3 +65,10 @@ jobs:
           path: |
             studio/build/ClassicPlayerStudio_artefacts/Release
             studio/package
+      - name: Upload Windows Studio build
+        if: matrix.name == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Classic-Player-Studio-${{ matrix.name }}
+          if-no-files-found: error
+          path: studio/build/ClassicPlayerStudio_artefacts/Release
