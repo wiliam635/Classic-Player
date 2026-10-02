@@ -3,8 +3,13 @@
 #include "AudioRecorder.h"
 #include "InstrumentHost.h"
 #include "MixerState.h"
+#include "Session.h"
 #include "TransportState.h"
+#include <array>
 #include <atomic>
+#include <cstdint>
+#include <memory>
+#include <vector>
 #include <juce_audio_utils/juce_audio_utils.h>
 
 namespace classicplayer
@@ -18,7 +23,7 @@ class AudioEngine final : private juce::AudioIODeviceCallback,
                           private juce::MidiInputCallback
 {
 public:
-    AudioEngine(TransportState&, MixerState&, InstrumentHost&);
+    AudioEngine(Session&, TransportState&, MixerState&, InstrumentHost&);
     ~AudioEngine() override;
 
     AudioEngine(const AudioEngine&) = delete;
@@ -34,6 +39,12 @@ public:
     // Copies UI-owned mixer values into atomics consumed by the real-time
     // callback. Call this after changing a mixer control and from the UI timer.
     void refreshMixerSnapshot() noexcept;
+    // Rebuilds the immutable audio-clip snapshot from the current session.
+    // File I/O happens on the caller's (UI) thread; the callback only reads
+    // the published snapshot. Missing files are reported as a warning while
+    // valid clips remain available for playback.
+    bool reloadClipSources(juce::String& statusMessage);
+    int loadedClipCount() const noexcept { return loadedClipCountValue.load(std::memory_order_relaxed); }
     bool startRecording(const juce::File&, juce::String& errorMessage);
     void stopRecording() noexcept;
     bool isRecording() const noexcept { return recorder.isRecording(); }
@@ -56,22 +67,55 @@ private:
     void audioDeviceError(const juce::String& errorMessage) override;
     void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage&) override;
 
+    struct ClipPlaybackSource
+    {
+        int trackIndex { 0 };
+        std::int64_t startSample { 0 };
+        std::int64_t lengthSamples { 0 };
+        double sourceSampleRate { 44100.0 };
+        juce::AudioBuffer<float> samples;
+    };
+
+    struct ClipPlaybackState
+    {
+        double timelineSampleRate { 44100.0 };
+        std::vector<ClipPlaybackSource> sources;
+    };
+
+    static constexpr int maxTrackChannels = 64;
+
+    void mixClipSources(juce::AudioBuffer<float>& destination,
+                        const ClipPlaybackState& state,
+                        int trackIndex,
+                        std::int64_t timelineStartSample,
+                        int numSamples) noexcept;
+    void processTrackBuffer(juce::AudioBuffer<float>& buffer,
+                            int trackIndex,
+                            int numSamples) noexcept;
+
+    Session& sessionState;
     TransportState& transportState;
     MixerState& mixerState;
     InstrumentHost& instrumentHost;
     juce::AudioDeviceManager deviceManagerValue;
+    juce::AudioFormatManager formatManager;
+    std::shared_ptr<const ClipPlaybackState> clipPlaybackState;
+    juce::AudioBuffer<float> clipScratchBuffer;
     double activeSampleRate { 44100.0 };
     int activeBufferSize { 512 };
     bool running { false };
     juce::MidiMessageCollector midiCollector;
-    std::atomic<float> channelGain { 1.0f };
-    std::atomic<float> channelPan { 0.0f };
+    std::array<std::atomic<float>, maxTrackChannels> trackGains {};
+    std::array<std::atomic<float>, maxTrackChannels> trackPans {};
+    std::array<std::atomic<bool>, maxTrackChannels> trackMuted {};
+    std::array<std::atomic<bool>, maxTrackChannels> trackSoloed {};
+    std::atomic<int> trackCount { 0 };
+    std::atomic<bool> anyTrackIsSoloed { false };
     std::atomic<float> masterGain { 1.0f };
-    std::atomic<bool> channelMuted { false };
-    std::atomic<bool> anotherChannelIsSoloed { false };
     std::atomic<float> channelPrePeak { 0.0f };
     std::atomic<float> channelPostPeak { 0.0f };
     std::atomic<float> masterPeakValue { 0.0f };
+    std::atomic<int> loadedClipCountValue { 0 };
     AudioRecorder recorder;
     juce::AudioBuffer<float> recorderInputBuffer;
 };

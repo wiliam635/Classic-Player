@@ -3,8 +3,8 @@
 Primeiro esqueleto da futura DAW desktop para Windows e macOS. O aplicativo
 contém a fundação da interface, o estado de transporte, a serialização de uma
 sessão e um caminho de áudio real para o instrumento hospedado. A gravação de
-entrada já gera WAV e registra cada take como clipe da sessão; ainda não há
-reprodução de clipes nem exportação final.
+entrada já gera WAV, registra cada take como clipe da sessão e pode reproduzir
+esses clipes durante o transporte; ainda não há exportação final.
 
 O alvo é deliberadamente separado do `ClassicPlayer` existente. A fundação já
 tem sessão versionada, transporte baseado em amostras, estado de mixer
@@ -26,13 +26,21 @@ expansão para pistas de áudio/MIDI e timeline para os próximos marcos.
   também é adicionado à pista principal como um `AudioClip`, com caminho,
   posição inicial, duração, taxa de amostragem e número de canais.
 - A sessão está na versão 2 e continua aceitando arquivos da versão 1. A
-  interface mostra um resumo da timeline (quantidade, duração e último clipe),
-  mas ainda não renderiza as formas de onda nem reproduz os clipes.
+  interface mostra um resumo da timeline (quantidade, duração, clipes
+  carregados e último clipe) e uma prévia visual por pista. Ao iniciar o áudio,
+  os WAVs da sessão são carregados em um snapshot imutável e reproduzidos na
+  posição do transporte, com conversão linear simples de taxa de amostragem.
 - É possível adicionar e remover pistas de áudio na sessão e escolher a pista
   de destino antes de gravar. A primeira pista permanece reservada ao
   instrumento hospedado; as demais já podem receber takes e aparecem como
   linhas independentes na timeline.
-- Ainda não há reprodução de clipes, roteamento de múltiplas pistas ou
+- As pistas adicionais já são somadas no callback com ganho, pan, mute e solo
+  próprios. O carregamento dos WAVs acontece na thread da interface para não
+  fazer I/O no callback; por isso, arquivos ausentes aparecem como aviso e os
+  clipes válidos continuam disponíveis. A implementação mantém os clipes
+  inteiros em memória durante a sessão, uma solução adequada para o primeiro
+  marco mas que deverá ser substituída por streaming para projetos longos.
+- Ainda não há exportação final, edição de regiões, formas de onda ou
   carregamento do `ClassicPlayerAudioProcessor`; esses itens entram nas
   integrações seguintes.
 

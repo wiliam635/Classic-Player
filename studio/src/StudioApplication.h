@@ -30,6 +30,6 @@ private:
     TransportState transport;
     MixerState mixer;
     InstrumentHost instrumentHost;
-    AudioEngine audioEngine { transport, mixer, instrumentHost };
+    AudioEngine audioEngine { session, transport, mixer, instrumentHost };
 };
 }

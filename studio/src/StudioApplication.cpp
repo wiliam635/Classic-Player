@@ -103,6 +103,7 @@ public:
             selectedTrackIndex = sessionState.tracks.size() - 1;
             mixerState.syncFromSession(sessionState.tracks);
             refreshTrackSelector();
+            reloadSessionAudio();
             refreshTimelineSummary();
         };
         addAudioTrack.setBounds(390, 214, 155, 36);
@@ -123,6 +124,7 @@ public:
             mixerState.syncFromSession(sessionState.tracks);
             refreshTrackSelector();
             syncMixerControlsFromState();
+            reloadSessionAudio();
             refreshTimelineSummary();
         };
         removeTrack.setBounds(555, 214, 175, 36);
@@ -141,6 +143,7 @@ public:
             instrumentHost.unload();
             selectedTrackIndex = 0;
             refreshTrackSelector();
+            reloadSessionAudio();
             refreshTimelineSummary();
             pluginSummary.setText("Sessão nova", juce::dontSendNotification);
         };
@@ -177,6 +180,7 @@ public:
                     owner.availableInstruments.clear();
                     owner.selectedTrackIndex = 0;
                     owner.refreshTrackSelector();
+                    owner.reloadSessionAudio();
                     owner.refreshTimelineSummary();
                     const auto restored = owner.restoreInstrumentFromSession();
                     owner.pluginSummary.setText(
@@ -228,9 +232,12 @@ public:
         {
             juce::String error;
             if (audioEngine.start(sessionState.sampleRate, 512, error))
+            {
+                reloadSessionAudio();
                 audioSummary.setText("Áudio: ativo · " + juce::String(audioEngine.sampleRate(), 0)
                                          + " Hz / " + juce::String(audioEngine.bufferSize()) + " samples",
                                      juce::dontSendNotification);
+            }
             else
                 audioSummary.setText("Áudio: falha · " + error, juce::dontSendNotification);
         };
@@ -461,6 +468,7 @@ private:
             clip.numChannels = 2;
             const auto target = juce::jlimit(0, sessionState.tracks.size() - 1, selectedTrackIndex);
             sessionState.tracks.getReference(target).clips.add(std::move(clip));
+            reloadSessionAudio();
             recordingSummary.setText("Gravação adicionada à " + sessionState.tracks[target].name
                                          + ": " + file.getFileName(),
                                      juce::dontSendNotification);
@@ -472,6 +480,13 @@ private:
         }
 
         activeRecording = false;
+    }
+
+    void reloadSessionAudio()
+    {
+        juce::String clipStatus;
+        if (! audioEngine.reloadClipSources(clipStatus) && clipStatus.isNotEmpty())
+            pluginSummary.setText(clipStatus, juce::dontSendNotification);
     }
 
     void refreshTimelineSummary()
@@ -488,7 +503,8 @@ private:
             }
 
         timelineSummary.setText("TIMELINE · " + juce::String(clipCount) + " clipe(s) · duração "
-                                   + juce::String(totalSeconds, 2) + " s"
+                                   + juce::String(totalSeconds, 2) + " s · áudio carregado: "
+                                   + juce::String(audioEngine.loadedClipCount())
                                    + (lastClip.isNotEmpty() ? " · último: " + lastClip : ""),
                                juce::dontSendNotification);
         timelineView.refresh();
