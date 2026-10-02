@@ -83,7 +83,7 @@ public:
         trackLabel.setBounds(30, 218, 90, 28);
         content->addAndMakeVisible(trackLabel);
 
-        trackSelector.setTextWhenNoChoicesAllowed("No tracks");
+        trackSelector.setTextWhenNoChoicesAvailable("No tracks");
         trackSelector.onChange = [this]
         {
             if (trackSelector.getSelectedId() > 0)
