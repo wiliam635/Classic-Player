@@ -41,6 +41,8 @@ target_sources(ClassicPlayerStudio PRIVATE
     src/Session.h
     src/StudioApplication.cpp
     src/StudioApplication.h
+    src/TimelineView.cpp
+    src/TimelineView.h
     src/TransportState.cpp
     src/TransportState.h)
 

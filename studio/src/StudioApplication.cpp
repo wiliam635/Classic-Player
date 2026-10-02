@@ -1,4 +1,5 @@
 #include "StudioApplication.h"
+#include "TimelineView.h"
 
 namespace classicplayer
 {
@@ -10,11 +11,11 @@ public:
                MixerState& mixerToUse, InstrumentHost& hostToUse,
                AudioEngine& audioToUse)
         : DocumentWindow("Classic Player Studio", juce::Colours::darkgrey, DocumentWindow::allButtons),
-          sessionState(sessionToUse), transportState(transportToUse), mixerState(mixerToUse),
-          instrumentHost(hostToUse), audioEngine(audioToUse)
+          sessionState(sessionToUse), transportState(transportToUse), timelineView(sessionToUse, transportToUse),
+          mixerState(mixerToUse), instrumentHost(hostToUse), audioEngine(audioToUse)
     {
         auto* content = new juce::Component();
-        content->setSize(900, 560);
+        content->setSize(900, 640);
 
         title.setText("CLASSIC PLAYER STUDIO", juce::dontSendNotification);
         title.setFont(juce::FontOptions(24.0f, juce::Font::bold));
@@ -324,11 +325,13 @@ public:
         timelineSummary.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
         timelineSummary.setBounds(30, 510, 840, 32);
         content->addAndMakeVisible(timelineSummary);
+        timelineView.setBounds(30, 545, 840, 80);
+        content->addAndMakeVisible(timelineView);
 
         startTimerHz(20);
         setContentOwned(content, true);
         refreshTimelineSummary();
-        centreWithSize(900, 560);
+        centreWithSize(900, 640);
         setResizable(true, true);
         setUsingNativeTitleBar(true);
     }
@@ -431,6 +434,7 @@ private:
                                    + juce::String(totalSeconds, 2) + " s"
                                    + (lastClip.isNotEmpty() ? " · último: " + lastClip : ""),
                                juce::dontSendNotification);
+        timelineView.refresh();
     }
 
     void timerCallback() override
@@ -520,6 +524,7 @@ private:
     }
     Session& sessionState;
     TransportState& transportState;
+    TimelineView timelineView;
     MixerState& mixerState;
     InstrumentHost& instrumentHost;
     AudioEngine& audioEngine;
