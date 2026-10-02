@@ -28,6 +28,10 @@ expansão para pistas de áudio/MIDI e timeline para os próximos marcos.
 - A sessão está na versão 2 e continua aceitando arquivos da versão 1. A
   interface mostra um resumo da timeline (quantidade, duração e último clipe),
   mas ainda não renderiza as formas de onda nem reproduz os clipes.
+- É possível adicionar e remover pistas de áudio na sessão e escolher a pista
+  de destino antes de gravar. A primeira pista permanece reservada ao
+  instrumento hospedado; as demais já podem receber takes e aparecem como
+  linhas independentes na timeline.
 - Ainda não há reprodução de clipes, roteamento de múltiplas pistas ou
   carregamento do `ClassicPlayerAudioProcessor`; esses itens entram nas
   integrações seguintes.
