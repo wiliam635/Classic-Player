@@ -20,7 +20,10 @@ public:
     void anotherInstanceStarted(const juce::String&) override {}
 private:
     class MainWindow;
-    std::unique_ptr<MainWindow> window;
+    // MainWindow is implemented privately in the .cpp file. Store it through
+    // JUCE's complete base type so Clang does not instantiate the unique_ptr
+    // deleter where the nested type is still incomplete.
+    std::unique_ptr<juce::DocumentWindow> window;
     Session session;
     TransportState transport;
     MixerState mixer;

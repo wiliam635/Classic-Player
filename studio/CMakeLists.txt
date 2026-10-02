@@ -70,7 +70,6 @@ if(BUILD_TESTING)
     target_link_libraries(ClassicPlayerStudioSessionTest PRIVATE
         juce::juce_core
         juce::juce_data_structures
-        juce::juce_audio_processors
         PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
