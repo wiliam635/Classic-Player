@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AudioRecorder.h"
 #include "InstrumentHost.h"
 #include "MixerState.h"
 #include "TransportState.h"
@@ -33,6 +34,10 @@ public:
     // Copies UI-owned mixer values into atomics consumed by the real-time
     // callback. Call this after changing a mixer control and from the UI timer.
     void refreshMixerSnapshot() noexcept;
+    bool startRecording(const juce::File&, juce::String& errorMessage);
+    void stopRecording() noexcept;
+    bool isRecording() const noexcept { return recorder.isRecording(); }
+    juce::File recordingFile() const noexcept { return recorder.outputFile(); }
     float channelPreFaderPeak() const noexcept { return channelPrePeak.load(std::memory_order_relaxed); }
     float channelPostFaderPeak() const noexcept { return channelPostPeak.load(std::memory_order_relaxed); }
     float masterPeak() const noexcept { return masterPeakValue.load(std::memory_order_relaxed); }
@@ -66,5 +71,7 @@ private:
     std::atomic<float> channelPrePeak { 0.0f };
     std::atomic<float> channelPostPeak { 0.0f };
     std::atomic<float> masterPeakValue { 0.0f };
+    AudioRecorder recorder;
+    juce::AudioBuffer<float> recorderInputBuffer;
 };
 }

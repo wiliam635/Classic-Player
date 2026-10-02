@@ -14,7 +14,7 @@ public:
           instrumentHost(hostToUse), audioEngine(audioToUse)
     {
         auto* content = new juce::Component();
-        content->setSize(900, 480);
+        content->setSize(900, 500);
 
         title.setText("CLASSIC PLAYER STUDIO", juce::dontSendNotification);
         title.setFont(juce::FontOptions(24.0f, juce::Font::bold));
@@ -207,6 +207,62 @@ public:
         stop.setBounds(250, 316, 100, 36);
         content->addAndMakeVisible(stop);
 
+        recordAudio.setButtonText("RECORD INPUT");
+        recordAudio.onClick = [this]
+        {
+            auto chooser = std::make_shared<juce::FileChooser>(
+                "Gravar entrada de áudio", juce::File(), "*.wav");
+            juce::Component::SafePointer<MainWindow> safeThis(this);
+            chooser->launchAsync(juce::FileBrowserComponent::saveMode
+                                     | juce::FileBrowserComponent::canSelectFiles,
+                                 [safeThis, chooser](const juce::FileChooser& completedChooser)
+            {
+                if (safeThis == nullptr)
+                    return;
+
+                auto& owner = *safeThis;
+                const auto result = completedChooser.getResult();
+                if (result == juce::File())
+                    return;
+
+                if (! owner.audioEngine.isRunning())
+                {
+                    juce::String startError;
+                    if (! owner.audioEngine.start(owner.sessionState.sampleRate, 512, startError))
+                    {
+                        owner.recordingSummary.setText("Gravação: falha ao iniciar áudio · " + startError,
+                                                       juce::dontSendNotification);
+                        return;
+                    }
+                }
+
+                juce::String error;
+                if (owner.audioEngine.startRecording(result, error))
+                    owner.recordingSummary.setText("Gravando: "
+                                                       + owner.audioEngine.recordingFile().getFileName(),
+                                                   juce::dontSendNotification);
+                else
+                    owner.recordingSummary.setText("Gravação: falha · " + error,
+                                                   juce::dontSendNotification);
+            });
+        };
+        recordAudio.setBounds(30, 360, 130, 36);
+        content->addAndMakeVisible(recordAudio);
+
+        stopRecording.setButtonText("STOP RECORDING");
+        stopRecording.onClick = [this]
+        {
+            audioEngine.stopRecording();
+            recordingSummary.setText("Gravação: parada", juce::dontSendNotification);
+        };
+        stopRecording.setBounds(170, 360, 145, 36);
+        content->addAndMakeVisible(stopRecording);
+
+        recordingSummary.setText("Gravação: pronta", juce::dontSendNotification);
+        recordingSummary.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+        recordingSummary.setBounds(330, 364, 540, 28);
+        content->addAndMakeVisible(recordingSummary);
+
         trackGainLabel.setText("TRACK GAIN", juce::dontSendNotification);
         trackPanLabel.setText("TRACK PAN", juce::dontSendNotification);
         masterGainLabel.setText("MASTER", juce::dontSendNotification);
@@ -215,16 +271,16 @@ public:
             label->setColour(juce::Label::textColourId, juce::Colours::lightgrey);
             content->addAndMakeVisible(*label);
         }
-        trackGainLabel.setBounds(30, 372, 120, 22);
-        trackPanLabel.setBounds(230, 372, 120, 22);
-        masterGainLabel.setBounds(430, 372, 120, 22);
+        trackGainLabel.setBounds(30, 408, 120, 22);
+        trackPanLabel.setBounds(230, 408, 120, 22);
+        masterGainLabel.setBounds(430, 408, 120, 22);
 
         setupSlider(trackGain, -60.0, 12.0, 0.0, " dB");
         setupSlider(trackPan, -1.0, 1.0, 0.0, "");
         setupSlider(masterGain, -60.0, 12.0, 0.0, " dB");
-        trackGain.setBounds(30, 396, 170, 28);
-        trackPan.setBounds(230, 396, 170, 28);
-        masterGain.setBounds(430, 396, 170, 28);
+        trackGain.setBounds(30, 432, 170, 28);
+        trackPan.setBounds(230, 432, 170, 28);
+        masterGain.setBounds(430, 432, 170, 28);
         content->addAndMakeVisible(trackGain);
         content->addAndMakeVisible(trackPan);
         content->addAndMakeVisible(masterGain);
@@ -247,18 +303,18 @@ public:
             syncSessionFromMixer();
             audioEngine.refreshMixerSnapshot();
         };
-        muteTrack.setBounds(620, 376, 130, 28);
-        soloTrack.setBounds(760, 376, 120, 28);
+        muteTrack.setBounds(620, 412, 130, 28);
+        soloTrack.setBounds(760, 412, 120, 28);
         content->addAndMakeVisible(muteTrack);
         content->addAndMakeVisible(soloTrack);
 
         meterSummary.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-        meterSummary.setBounds(30, 438, 840, 24);
+        meterSummary.setBounds(30, 474, 840, 24);
         content->addAndMakeVisible(meterSummary);
 
         startTimerHz(20);
         setContentOwned(content, true);
-        centreWithSize(900, 480);
+        centreWithSize(900, 500);
         setResizable(true, true);
         setUsingNativeTitleBar(true);
     }
@@ -406,9 +462,11 @@ private:
     juce::Label trackGainLabel, trackPanLabel, masterGainLabel, meterSummary;
     juce::Label pluginSummary;
     juce::Label audioSummary;
+    juce::Label recordingSummary;
     juce::TextButton scanPlugins, loadPlugin, newSession, openSession, saveSession;
     juce::TextButton startAudio, stopAudio;
     juce::TextButton play, pause, stop;
+    juce::TextButton recordAudio, stopRecording;
     juce::Slider trackGain, trackPan, masterGain;
     juce::ToggleButton muteTrack, soloTrack;
     juce::Array<juce::PluginDescription> availableInstruments;

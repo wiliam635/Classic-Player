@@ -31,6 +31,8 @@ target_sources(ClassicPlayerStudio PRIVATE
     src/Main.cpp
     src/AudioEngine.cpp
     src/AudioEngine.h
+    src/AudioRecorder.cpp
+    src/AudioRecorder.h
     src/InstrumentHost.cpp
     src/InstrumentHost.h
     src/MixerState.cpp

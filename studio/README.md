@@ -9,7 +9,7 @@ O alvo é deliberadamente separado do `ClassicPlayer` existente. A fundação j�
 tem sessão versionada, transporte baseado em amostras, estado de mixer
 independente do volume interno das layers e uma ponte de plug-in. A Studio
 processa atualmente uma pista de instrumento por vez; a arquitetura deixa a
-expansão para pistas de áudio/MIDI e gravação para os próximos marcos.
+expansão para pistas de áudio/MIDI e timeline para os próximos marcos.
 
 ## Estado do Marco 1
 
@@ -19,7 +19,10 @@ expansão para pistas de áudio/MIDI e gravação para os próximos marcos.
   gravação e pico pré/pós-fader, além do ganho e pico do master.
 - O callback de áudio aplica ao primeiro bus de instrumento ganho, pan, mute,
   solo e ganho master, além de expor picos pré/pós-fader para a interface.
-- Ainda não há gravação, timeline, roteamento de múltiplas pistas ou
+- O botão `RECORD INPUT` grava a entrada do dispositivo em WAV de 24 bits por
+  meio de um `ThreadedWriter` em segundo plano; `STOP RECORDING` fecha o arquivo
+  com segurança sem escrever diretamente no disco dentro do callback.
+- Ainda não há timeline, roteamento de múltiplas pistas ou
   carregamento do `ClassicPlayerAudioProcessor`; esses itens entram nas
   integrações seguintes.
 
@@ -36,9 +39,9 @@ encontrada, e os botões de sessão já permitem criar, abrir e salvar arquivos
 `.cpsession`. O `AudioEngine` já abre o dispositivo padrão, conecta o callback
 de áudio ao `InstrumentHost` e avança o transporte em tempo real. Os botões
 `START AUDIO` e `STOP AUDIO` controlam esse ciclo; a seleção visual de várias
-descrições e gravação ainda entram nos próximos marcos. As entradas MIDI
+descrições e a timeline ainda entram nos próximos marcos. As entradas MIDI
 habilitadas no sistema são encaminhadas ao instrumento carregado por um
-  `MidiMessageCollector`, mantendo a conversão entre a thread MIDI e o callback
+`MidiMessageCollector`, mantendo a conversão entre a thread MIDI e o callback
   de áudio. O primeiro canal do mixer agora é copiado para o callback por um
   snapshot atômico, evitando que controles da interface sejam lidos diretamente
   pela thread de áudio. Ao salvar uma sessão, o identificador/formato e o estado binário do

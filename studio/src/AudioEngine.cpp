@@ -13,6 +13,23 @@ AudioEngine::~AudioEngine()
     stop();
 }
 
+bool AudioEngine::startRecording(const juce::File& file, juce::String& errorMessage)
+{
+    if (! running)
+    {
+        errorMessage = "Inicie o áudio antes de gravar";
+        return false;
+    }
+
+    return recorder.start(file, activeSampleRate, recorderInputBuffer.getNumChannels(),
+                          errorMessage);
+}
+
+void AudioEngine::stopRecording() noexcept
+{
+    recorder.stop();
+}
+
 void AudioEngine::refreshMixerSnapshot() noexcept
 {
     if (mixerState.size() <= 0)
@@ -47,7 +64,14 @@ bool AudioEngine::start(double preferredSampleRate, int preferredBufferSize,
     preferredSetup.sampleRate = juce::jmax(8000.0, preferredSampleRate);
     preferredSetup.bufferSize = juce::jmax(16, preferredBufferSize);
 
-    errorMessage = deviceManagerValue.initialise(0, 2, nullptr, true, {}, &preferredSetup);
+    errorMessage = deviceManagerValue.initialise(2, 2, nullptr, true, {}, &preferredSetup);
+    if (errorMessage.isNotEmpty())
+    {
+        // Some output-only devices cannot open input channels. Keep playback
+        // usable in that case; recording will simply receive no input signal.
+        deviceManagerValue.closeAudioDevice();
+        errorMessage = deviceManagerValue.initialise(0, 2, nullptr, true, {}, &preferredSetup);
+    }
     if (errorMessage.isNotEmpty())
         return false;
 
@@ -79,6 +103,18 @@ void AudioEngine::audioDeviceIOCallbackWithContext(
 
     juce::AudioBuffer<float> output(outputChannelData, numOutputChannels, numSamples);
     output.clear();
+
+    if (recorder.isRecording() && recorderInputBuffer.getNumSamples() >= numSamples)
+    {
+        recorderInputBuffer.clear();
+        for (int channel = 0; channel < recorderInputBuffer.getNumChannels(); ++channel)
+            if (channel < numInputChannels && inputChannelData != nullptr
+                && inputChannelData[channel] != nullptr)
+                recorderInputBuffer.copyFrom(channel, 0, inputChannelData[channel], numSamples);
+
+        recorder.pushInput(recorderInputBuffer.getArrayOfReadPointers(),
+                           recorderInputBuffer.getNumChannels(), numSamples);
+    }
 
     juce::MidiBuffer midi;
     midiCollector.removeNextBlockOfMessages(midi, numSamples);
@@ -129,11 +165,13 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device)
     activeBufferSize = device->getCurrentBufferSizeSamples();
     transportState.setSampleRate(activeSampleRate);
     midiCollector.reset(activeSampleRate);
+    recorderInputBuffer.setSize(2, activeBufferSize, false, true, true);
     instrumentHost.prepareToPlay(activeSampleRate, activeBufferSize);
 }
 
 void AudioEngine::audioDeviceStopped()
 {
+    recorder.stop();
     instrumentHost.releaseResources();
 }
 
