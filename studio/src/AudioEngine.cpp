@@ -121,7 +121,7 @@ bool AudioEngine::reloadClipSources(juce::String& statusMessage)
             source.samples.setSize(sourceChannels, sourceSamples, false, true, true);
 
             if (! reader->read(source.samples.getArrayOfWritePointers(), sourceChannels,
-                               0, sourceSamples, true))
+                               0, sourceSamples))
             {
                 failures.add(clip.name + " (falha ao ler)");
                 continue;
@@ -181,7 +181,7 @@ bool AudioEngine::start(double preferredSampleRate, int preferredBufferSize,
     if (errorMessage.isNotEmpty())
         return false;
 
-    if (const auto* device = deviceManagerValue.getCurrentAudioDevice(); device != nullptr)
+    if (auto* device = deviceManagerValue.getCurrentAudioDevice(); device != nullptr)
     {
         activeSampleRate = device->getCurrentSampleRate();
         activeBufferSize = device->getCurrentBufferSizeSamples();
