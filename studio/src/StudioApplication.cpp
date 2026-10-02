@@ -71,6 +71,8 @@ private:
     juce::TextButton play, pause, stop;
 };
 
+StudioApplication::~StudioApplication() = default;
+
 void StudioApplication::initialise(const juce::String&)
 {
     transport.setSampleRate(session.sampleRate);

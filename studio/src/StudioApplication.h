@@ -10,6 +10,7 @@ namespace classicplayer
 class StudioApplication final : public juce::JUCEApplication
 {
 public:
+    ~StudioApplication() override;
     const juce::String getApplicationName() override { return "Classic Player Studio"; }
     const juce::String getApplicationVersion() override { return CLASSIC_PLAYER_STUDIO_VERSION; }
     bool moreThanOneInstanceAllowed() override { return true; }

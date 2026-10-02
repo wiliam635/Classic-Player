@@ -59,7 +59,9 @@ if(BUILD_TESTING)
         src/MixerState.cpp
         src/MixerState.h
         src/Session.cpp
-        src/Session.h)
+        src/Session.h
+        src/TransportState.cpp
+        src/TransportState.h)
     target_link_libraries(ClassicPlayerStudioSessionTest PRIVATE
         juce::juce_core
         juce::juce_data_structures
