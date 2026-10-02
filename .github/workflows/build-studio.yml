@@ -29,9 +29,38 @@ jobs:
       - name: Test session persistence
         shell: bash
         run: ctest --test-dir studio/build -C Release --output-on-failure
+      - name: Package macOS test build
+        if: matrix.name == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          app="studio/build/ClassicPlayerStudio_artefacts/Release/Classic Player Studio.app"
+          package_dir="studio/package"
+          staging_dir="${RUNNER_TEMP}/classic-player-studio-dmg"
+
+          test -d "$app"
+          rm -rf "$package_dir" "$staging_dir"
+          mkdir -p "$package_dir" "$staging_dir"
+
+          # The CI build is intentionally unsigned, but it must still have a
+          # complete bundle signature so macOS does not report a damaged app.
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict "$app"
+
+          ditto "$app" "$staging_dir/Classic Player Studio.app"
+          ln -s /Applications "$staging_dir/Applications"
+
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$app" "$package_dir/Classic-Player-Studio-macOS.zip"
+          hdiutil create -volname "Classic Player Studio" \
+            -srcfolder "$staging_dir" -ov -format UDZO \
+            "$package_dir/Classic-Player-Studio-macOS.dmg"
       - name: Upload Studio build
         uses: actions/upload-artifact@v4
         with:
           name: Classic-Player-Studio-${{ matrix.name }}
           if-no-files-found: error
-          path: studio/build/ClassicPlayerStudio_artefacts/Release
+          path: |
+            studio/build/ClassicPlayerStudio_artefacts/Release
+            studio/package
