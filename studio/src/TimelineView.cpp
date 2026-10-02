@@ -89,6 +89,6 @@ void TimelineView::paint(juce::Graphics& graphics)
     const auto playheadX = timeline.getX() + timeline.getWidth()
                                              * static_cast<float>(transportState.position() / duration);
     graphics.setColour(juce::Colour(0xffffd166));
-    graphics.drawVerticalLine(static_cast<int>(playheadX), timeline.getY(), timeline.getBottom(), 2.0f);
+    graphics.drawVerticalLine(static_cast<int>(playheadX), timeline.getY(), timeline.getBottom());
 }
 }
