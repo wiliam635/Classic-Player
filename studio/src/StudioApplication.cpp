@@ -87,18 +87,34 @@ public:
         openSession.setButtonText("OPEN SESSION");
         openSession.onClick = [this]
         {
-            juce::FileChooser chooser("Abrir sessão do Classic Player Studio", {}, "*.cpsession");
-            if (!chooser.browseForFileToOpen()) return;
-            if (sessionState.load(chooser.getResult()))
+            auto chooser = std::make_shared<juce::FileChooser>(
+                "Abrir sessão do Classic Player Studio", juce::File(), "*.cpsession");
+            juce::Component::SafePointer<MainWindow> safeThis(this);
+            chooser->launchAsync(juce::FileBrowserComponent::openMode
+                                     | juce::FileBrowserComponent::canSelectFiles,
+                                 [safeThis, chooser](const juce::FileChooser& completedChooser)
             {
-                transportState.stop();
-                transportState.setSampleRate(sessionState.sampleRate);
-                mixerState.syncFromSession(sessionState.tracks);
-                pluginSummary.setText("Sessão aberta: " + chooser.getResult().getFileName(),
-                                      juce::dontSendNotification);
-            }
-            else
-                pluginSummary.setText("Não foi possível abrir a sessão", juce::dontSendNotification);
+                if (safeThis == nullptr)
+                    return;
+
+                auto& owner = *safeThis;
+                const auto result = completedChooser.getResult();
+                if (result == juce::File())
+                    return;
+
+                if (owner.sessionState.load(result))
+                {
+                    owner.transportState.stop();
+                    owner.transportState.setSampleRate(owner.sessionState.sampleRate);
+                    owner.mixerState.syncFromSession(owner.sessionState.tracks);
+                    owner.instrumentHost.unload();
+                    owner.pluginSummary.setText("Sessão aberta: " + result.getFileName(),
+                                                juce::dontSendNotification);
+                }
+                else
+                    owner.pluginSummary.setText("Não foi possível abrir a sessão",
+                                                juce::dontSendNotification);
+            });
         };
         openSession.setBounds(160, 268, 130, 36);
         content->addAndMakeVisible(openSession);
@@ -106,13 +122,28 @@ public:
         saveSession.setButtonText("SAVE SESSION");
         saveSession.onClick = [this]
         {
-            juce::FileChooser chooser("Salvar sessão do Classic Player Studio", {}, "*.cpsession");
-            if (!chooser.browseForFileToSave(true)) return;
-            if (sessionState.save(chooser.getResult()))
-                pluginSummary.setText("Sessão salva: " + chooser.getResult().getFileName(),
-                                      juce::dontSendNotification);
-            else
-                pluginSummary.setText("Não foi possível salvar a sessão", juce::dontSendNotification);
+            auto chooser = std::make_shared<juce::FileChooser>(
+                "Salvar sessão do Classic Player Studio", juce::File(), "*.cpsession");
+            juce::Component::SafePointer<MainWindow> safeThis(this);
+            chooser->launchAsync(juce::FileBrowserComponent::saveMode
+                                     | juce::FileBrowserComponent::canSelectFiles,
+                                 [safeThis, chooser](const juce::FileChooser& completedChooser)
+            {
+                if (safeThis == nullptr)
+                    return;
+
+                auto& owner = *safeThis;
+                const auto result = completedChooser.getResult();
+                if (result == juce::File())
+                    return;
+
+                if (owner.sessionState.save(result))
+                    owner.pluginSummary.setText("Sessão salva: " + result.getFileName(),
+                                                juce::dontSendNotification);
+                else
+                    owner.pluginSummary.setText("Não foi possível salvar a sessão",
+                                                juce::dontSendNotification);
+            });
         };
         saveSession.setBounds(300, 268, 130, 36);
         content->addAndMakeVisible(saveSession);
