@@ -33,7 +33,7 @@ bool AudioRecorder::start(const juce::File& file, double sampleRate, int numChan
         return false;
     }
 
-    auto stream = output.createOutputStream();
+    std::unique_ptr<juce::OutputStream> stream = output.createOutputStream();
     if (stream == nullptr)
     {
         errorMessage = "Não foi possível criar o arquivo WAV";
@@ -80,6 +80,8 @@ juce::File AudioRecorder::outputFile() const noexcept
 void AudioRecorder::pushInput(const float* const* inputChannelData, int numChannels,
                               int numSamples) noexcept
 {
+    juce::ignoreUnused(numChannels);
+
     if (! recording.load(std::memory_order_acquire)
         || inputChannelData == nullptr || numChannels <= 0 || numSamples <= 0)
         return;
