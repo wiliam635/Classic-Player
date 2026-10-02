@@ -4,6 +4,7 @@
 #include "MixerState.h"
 #include "TransportState.h"
 #include "InstrumentHost.h"
+#include "AudioEngine.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 
 namespace classicplayer
@@ -29,5 +30,6 @@ private:
     TransportState transport;
     MixerState mixer;
     InstrumentHost instrumentHost;
+    AudioEngine audioEngine { transport, instrumentHost };
 };
 }

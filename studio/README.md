@@ -28,6 +28,8 @@ plug-in agora pode ser executada pelo botão `SCAN INSTRUMENTS` da janela: a
 varredura consulta as pastas padrão de VST3 e AU e filtra somente instrumentos.
 O botão `LOAD FIRST INSTRUMENT` exercita o carregamento da primeira descrição
 encontrada, e os botões de sessão já permitem criar, abrir e salvar arquivos
-`.cpsession`. O processamento de áudio em tempo real e a seleção visual de
-várias descrições ainda entram nos próximos marcos; o alvo existente do
-Classic Player continua sem alterações.
+`.cpsession`. O `AudioEngine` já abre o dispositivo padrão, conecta o callback
+de áudio ao `InstrumentHost` e avança o transporte em tempo real. Os botões
+`START AUDIO` e `STOP AUDIO` controlam esse ciclo; a seleção visual de várias
+descrições, gravação e arranjo em timeline ainda entram nos próximos marcos.
+O alvo existente do Classic Player continua sem alterações.

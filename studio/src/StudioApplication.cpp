@@ -7,9 +7,11 @@ class StudioApplication::MainWindow final : public juce::DocumentWindow,
 {
 public:
     MainWindow(Session& sessionToUse, TransportState& transportToUse,
-               MixerState& mixerToUse, InstrumentHost& hostToUse)
+               MixerState& mixerToUse, InstrumentHost& hostToUse,
+               AudioEngine& audioToUse)
         : DocumentWindow("Classic Player Studio", juce::Colours::darkgrey, DocumentWindow::allButtons),
-          sessionState(sessionToUse), transportState(transportToUse), mixerState(mixerToUse), instrumentHost(hostToUse)
+          sessionState(sessionToUse), transportState(transportToUse), mixerState(mixerToUse),
+          instrumentHost(hostToUse), audioEngine(audioToUse)
     {
         auto* content = new juce::Component();
         content->setSize(900, 540);
@@ -45,6 +47,7 @@ public:
         loadPlugin.setButtonText("LOAD FIRST INSTRUMENT");
         loadPlugin.onClick = [this]
         {
+            audioEngine.stop();
             if (availableInstruments.isEmpty())
                 availableInstruments = instrumentHost.scanInstalledInstruments();
 
@@ -74,6 +77,7 @@ public:
         newSession.setButtonText("NEW SESSION");
         newSession.onClick = [this]
         {
+            audioEngine.stop();
             sessionState.clear();
             transportState.stop();
             transportState.setSampleRate(sessionState.sampleRate);
@@ -87,6 +91,7 @@ public:
         openSession.setButtonText("OPEN SESSION");
         openSession.onClick = [this]
         {
+            audioEngine.stop();
             auto chooser = std::make_shared<juce::FileChooser>(
                 "Abrir sessão do Classic Player Studio", juce::File(), "*.cpsession");
             juce::Component::SafePointer<MainWindow> safeThis(this);
@@ -148,6 +153,34 @@ public:
         saveSession.setBounds(300, 268, 130, 36);
         content->addAndMakeVisible(saveSession);
 
+        startAudio.setButtonText("START AUDIO");
+        startAudio.onClick = [this]
+        {
+            juce::String error;
+            if (audioEngine.start(sessionState.sampleRate, 512, error))
+                audioSummary.setText("Áudio: ativo · " + juce::String(audioEngine.sampleRate(), 0)
+                                         + " Hz / " + juce::String(audioEngine.bufferSize()) + " samples",
+                                     juce::dontSendNotification);
+            else
+                audioSummary.setText("Áudio: falha · " + error, juce::dontSendNotification);
+        };
+        startAudio.setBounds(440, 268, 130, 36);
+        content->addAndMakeVisible(startAudio);
+
+        stopAudio.setButtonText("STOP AUDIO");
+        stopAudio.onClick = [this]
+        {
+            audioEngine.stop();
+            audioSummary.setText("Áudio: parado", juce::dontSendNotification);
+        };
+        stopAudio.setBounds(580, 268, 130, 36);
+        content->addAndMakeVisible(stopAudio);
+
+        audioSummary.setText("Áudio: parado", juce::dontSendNotification);
+        audioSummary.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+        audioSummary.setBounds(440, 308, 350, 24);
+        content->addAndMakeVisible(audioSummary);
+
         play.setButtonText("PLAY");
         play.onClick = [this] { transportState.play(); refresh(); };
         play.setBounds(30, 316, 100, 36);
@@ -187,9 +220,12 @@ private:
     TransportState& transportState;
     MixerState& mixerState;
     InstrumentHost& instrumentHost;
+    AudioEngine& audioEngine;
     juce::Label title, status, mixerSummary;
     juce::Label pluginSummary;
+    juce::Label audioSummary;
     juce::TextButton scanPlugins, loadPlugin, newSession, openSession, saveSession;
+    juce::TextButton startAudio, stopAudio;
     juce::TextButton play, pause, stop;
     juce::Array<juce::PluginDescription> availableInstruments;
 };
@@ -200,9 +236,13 @@ void StudioApplication::initialise(const juce::String&)
 {
     transport.setSampleRate(session.sampleRate);
     mixer.syncFromSession(session.tracks);
-    window = std::make_unique<MainWindow>(session, transport, mixer, instrumentHost);
+    window = std::make_unique<MainWindow>(session, transport, mixer, instrumentHost, audioEngine);
     window->setVisible(true);
 }
 
-void StudioApplication::shutdown() { window.reset(); }
+void StudioApplication::shutdown()
+{
+    audioEngine.stop();
+    window.reset();
+}
 }

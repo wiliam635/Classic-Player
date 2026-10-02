@@ -29,6 +29,8 @@ juce_add_gui_app(ClassicPlayerStudio
 
 target_sources(ClassicPlayerStudio PRIVATE
     src/Main.cpp
+    src/AudioEngine.cpp
+    src/AudioEngine.h
     src/InstrumentHost.cpp
     src/InstrumentHost.h
     src/MixerState.cpp
