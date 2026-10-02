@@ -26,5 +26,8 @@ de áudio/MIDI e salva/restaura o estado. A primeira implementação usa o
 Classic Player VST3 (e AU no macOS) instalado no computador. A descoberta do
 plug-in agora pode ser executada pelo botão `SCAN INSTRUMENTS` da janela: a
 varredura consulta as pastas padrão de VST3 e AU e filtra somente instrumentos.
-O carregamento de uma descrição selecionada entra no próximo marco; o alvo
-existente do Classic Player continua sem alterações.
+O botão `LOAD FIRST INSTRUMENT` exercita o carregamento da primeira descrição
+encontrada, e os botões de sessão já permitem criar, abrir e salvar arquivos
+`.cpsession`. O processamento de áudio em tempo real e a seleção visual de
+várias descrições ainda entram nos próximos marcos; o alvo existente do
+Classic Player continua sem alterações.

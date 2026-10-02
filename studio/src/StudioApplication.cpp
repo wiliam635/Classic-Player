@@ -6,10 +6,10 @@ class StudioApplication::MainWindow final : public juce::DocumentWindow,
                                              private juce::Timer
 {
 public:
-    MainWindow(StudioApplication& owner, Session& session, TransportState& transport,
-               MixerState& mixer, InstrumentHost& host)
+    MainWindow(Session& sessionToUse, TransportState& transportToUse,
+               MixerState& mixerToUse, InstrumentHost& hostToUse)
         : DocumentWindow("Classic Player Studio", juce::Colours::darkgrey, DocumentWindow::allButtons),
-          app(owner), sessionState(session), transportState(transport), mixerState(mixer), instrumentHost(host)
+          sessionState(sessionToUse), transportState(transportToUse), mixerState(mixerToUse), instrumentHost(hostToUse)
     {
         auto* content = new juce::Component();
         content->setSize(900, 540);
@@ -32,34 +32,104 @@ public:
         scanPlugins.setButtonText("SCAN INSTRUMENTS");
         scanPlugins.onClick = [this]
         {
-            const auto found = instrumentHost.scanInstalledInstruments();
-            pluginSummary.setText(found.isEmpty()
+            availableInstruments = instrumentHost.scanInstalledInstruments();
+            pluginSummary.setText(availableInstruments.isEmpty()
                                       ? "Instrumentos: nenhum VST3/AU encontrado"
-                                      : "Instrumentos: " + juce::String(found.size())
-                                            + " encontrado(s) · " + found.getFirst().name,
+                                      : "Instrumentos: " + juce::String(availableInstruments.size())
+                                            + " encontrado(s) · " + availableInstruments.getFirst().name,
                                   juce::dontSendNotification);
         };
         scanPlugins.setBounds(30, 168, 190, 36);
         content->addAndMakeVisible(scanPlugins);
 
+        loadPlugin.setButtonText("LOAD FIRST INSTRUMENT");
+        loadPlugin.onClick = [this]
+        {
+            if (availableInstruments.isEmpty())
+                availableInstruments = instrumentHost.scanInstalledInstruments();
+
+            if (availableInstruments.isEmpty())
+            {
+                pluginSummary.setText("Instrumentos: faça uma varredura antes de carregar",
+                                      juce::dontSendNotification);
+                return;
+            }
+
+            juce::String error;
+            if (instrumentHost.load(availableInstruments.getFirst(), sessionState.sampleRate, 512, error))
+                pluginSummary.setText("Carregado: " + instrumentHost.pluginName(),
+                                      juce::dontSendNotification);
+            else
+                pluginSummary.setText("Falha ao carregar: " + error,
+                                      juce::dontSendNotification);
+        };
+        loadPlugin.setBounds(230, 168, 190, 36);
+        content->addAndMakeVisible(loadPlugin);
+
         pluginSummary.setText("Instrumentos: varredura não executada", juce::dontSendNotification);
         pluginSummary.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-        pluginSummary.setBounds(235, 172, 555, 28);
+        pluginSummary.setBounds(435, 172, 355, 28);
         content->addAndMakeVisible(pluginSummary);
+
+        newSession.setButtonText("NEW SESSION");
+        newSession.onClick = [this]
+        {
+            sessionState.clear();
+            transportState.stop();
+            transportState.setSampleRate(sessionState.sampleRate);
+            mixerState.syncFromSession(sessionState.tracks);
+            instrumentHost.unload();
+            pluginSummary.setText("Sessão nova", juce::dontSendNotification);
+        };
+        newSession.setBounds(30, 268, 120, 36);
+        content->addAndMakeVisible(newSession);
+
+        openSession.setButtonText("OPEN SESSION");
+        openSession.onClick = [this]
+        {
+            juce::FileChooser chooser("Abrir sessão do Classic Player Studio", {}, "*.cpsession");
+            if (!chooser.browseForFileToOpen()) return;
+            if (sessionState.load(chooser.getResult()))
+            {
+                transportState.stop();
+                transportState.setSampleRate(sessionState.sampleRate);
+                mixerState.syncFromSession(sessionState.tracks);
+                pluginSummary.setText("Sessão aberta: " + chooser.getResult().getFileName(),
+                                      juce::dontSendNotification);
+            }
+            else
+                pluginSummary.setText("Não foi possível abrir a sessão", juce::dontSendNotification);
+        };
+        openSession.setBounds(160, 268, 130, 36);
+        content->addAndMakeVisible(openSession);
+
+        saveSession.setButtonText("SAVE SESSION");
+        saveSession.onClick = [this]
+        {
+            juce::FileChooser chooser("Salvar sessão do Classic Player Studio", {}, "*.cpsession");
+            if (!chooser.browseForFileToSave(true)) return;
+            if (sessionState.save(chooser.getResult()))
+                pluginSummary.setText("Sessão salva: " + chooser.getResult().getFileName(),
+                                      juce::dontSendNotification);
+            else
+                pluginSummary.setText("Não foi possível salvar a sessão", juce::dontSendNotification);
+        };
+        saveSession.setBounds(300, 268, 130, 36);
+        content->addAndMakeVisible(saveSession);
 
         play.setButtonText("PLAY");
         play.onClick = [this] { transportState.play(); refresh(); };
-        play.setBounds(30, 220, 100, 36);
+        play.setBounds(30, 316, 100, 36);
         content->addAndMakeVisible(play);
 
         pause.setButtonText("PAUSE");
         pause.onClick = [this] { transportState.pause(); refresh(); };
-        pause.setBounds(140, 220, 100, 36);
+        pause.setBounds(140, 316, 100, 36);
         content->addAndMakeVisible(pause);
 
         stop.setButtonText("STOP");
         stop.onClick = [this] { transportState.stop(); refresh(); };
-        stop.setBounds(250, 220, 100, 36);
+        stop.setBounds(250, 316, 100, 36);
         content->addAndMakeVisible(stop);
 
         startTimerHz(20);
@@ -82,14 +152,15 @@ private:
                                  + (mixerState.anySoloed() ? " · solo ativo" : ""),
                              juce::dontSendNotification);
     }
-    StudioApplication& app;
     Session& sessionState;
     TransportState& transportState;
     MixerState& mixerState;
     InstrumentHost& instrumentHost;
     juce::Label title, status, mixerSummary;
     juce::Label pluginSummary;
-    juce::TextButton scanPlugins, play, pause, stop;
+    juce::TextButton scanPlugins, loadPlugin, newSession, openSession, saveSession;
+    juce::TextButton play, pause, stop;
+    juce::Array<juce::PluginDescription> availableInstruments;
 };
 
 StudioApplication::~StudioApplication() = default;
@@ -98,7 +169,7 @@ void StudioApplication::initialise(const juce::String&)
 {
     transport.setSampleRate(session.sampleRate);
     mixer.syncFromSession(session.tracks);
-    window = std::make_unique<MainWindow>(*this, session, transport, mixer, instrumentHost);
+    window = std::make_unique<MainWindow>(session, transport, mixer, instrumentHost);
     window->setVisible(true);
 }
 
