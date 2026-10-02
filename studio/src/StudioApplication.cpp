@@ -183,6 +183,7 @@ public:
         {
             audioEngine.stop();
             audioSummary.setText("Áudio: parado", juce::dontSendNotification);
+            recordingSummary.setText("Gravação: parada", juce::dontSendNotification);
         };
         stopAudio.setBounds(580, 268, 130, 36);
         content->addAndMakeVisible(stopAudio);
