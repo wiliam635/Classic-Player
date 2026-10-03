@@ -39,6 +39,17 @@ public:
         g.drawHorizontalLine(228, 28.0f, bounds.getWidth() - 28.0f);
         g.drawHorizontalLine(382, 28.0f, bounds.getWidth() - 28.0f);
         g.drawHorizontalLine(514, 28.0f, bounds.getWidth() - 28.0f);
+
+        g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+        g.setColour(juce::Colour(0xff52dbe0));
+        g.drawText("STUDIO / INSTRUMENT", 30, 119, 220, 18, juce::Justification::left);
+        g.drawText("SESSION / TRANSPORT", 30, 235, 220, 18, juce::Justification::left);
+        g.drawText("MIXER / MONITORING", 30, 389, 220, 18, juce::Justification::left);
+        g.drawText("ARRANGEMENT / TIMELINE", 30, 521, 260, 18, juce::Justification::left);
+        g.setColour(juce::Colour(0xff8fb5bf));
+        g.setFont(juce::FontOptions(12.0f));
+        g.drawText("AUDIO WORKSTATION", bounds.getWidth() - 190.0f, 39.0f, 150.0f, 20.0f,
+                   juce::Justification::right);
     }
 };
 
