@@ -38,10 +38,12 @@ jobs:
           app="studio/build/ClassicPlayerStudio_artefacts/Release/Classic Player Studio.app"
           package_dir="studio/package"
           staging_dir="${RUNNER_TEMP}/classic-player-studio-dmg"
+          pkgroot_dir="${RUNNER_TEMP}/classic-player-studio-pkgroot"
+          component_plist="${RUNNER_TEMP}/classic-player-studio-component.plist"
 
           test -d "$app"
-          rm -rf "$package_dir" "$staging_dir"
-          mkdir -p "$package_dir" "$staging_dir"
+          rm -rf "$package_dir" "$staging_dir" "$pkgroot_dir"
+          mkdir -p "$package_dir" "$staging_dir" "$pkgroot_dir"
 
           # The CI build is intentionally unsigned, but it must still have a
           # complete bundle signature so macOS does not report a damaged app.
@@ -56,7 +58,32 @@ jobs:
           hdiutil create -volname "Classic Player Studio" \
             -srcfolder "$staging_dir" -ov -format UDZO \
             "$package_dir/Classic-Player-Studio-macOS.dmg"
-          pkgbuild --component "$app" \
+
+          # Disable Apple's bundle relocation heuristic. Without this, a
+          # previous copy in Downloads can cause Installer to put the new app
+          # back beside that old copy instead of /Applications.
+          ditto "$app" "$pkgroot_dir/Classic Player Studio.app"
+          cat > "$component_plist" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <array><dict>
+            <key>RootRelativeBundlePath</key>
+            <string>Classic Player Studio.app</string>
+            <key>BundleIsRelocatable</key>
+            <false/>
+            <key>BundleIsVersionChecked</key>
+            <true/>
+            <key>BundleHasStrictIdentifier</key>
+            <true/>
+          </dict></array>
+          </plist>
+          EOF
+          version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
+          pkgbuild --root "$pkgroot_dir" \
+            --component-plist "$component_plist" \
+            --identifier com.classickeys.classicplayerstudio \
+            --version "$version" \
             --install-location /Applications \
             "$package_dir/Classic-Player-Studio-macOS.pkg"
       - name: Upload macOS Studio build
