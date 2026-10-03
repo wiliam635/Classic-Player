@@ -3,6 +3,85 @@
 
 namespace classicplayer
 {
+namespace
+{
+// Keep user-facing Portuguese text explicitly UTF-8 on every platform.
+juce::String cpText(const char* value)
+{
+    return juce::String::fromUTF8(value);
+}
+
+class StudioCanvas final : public juce::Component
+{
+public:
+    void paint(juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        g.fillAll(juce::Colour(0xff08151e));
+
+        g.setColour(juce::Colour(0xff0c202d));
+        g.fillRoundedRectangle(bounds.reduced(14.0f).withHeight(84.0f), 10.0f);
+        g.setColour(juce::Colour(0xff12c8cf));
+        g.fillRoundedRectangle(bounds.reduced(14.0f).withHeight(3.0f).translated(0.0f, 95.0f), 1.5f);
+
+        const auto panel = juce::Colour(0xff102632);
+        const auto panelAlt = juce::Colour(0xff0d202c);
+        g.setColour(panel);
+        g.fillRoundedRectangle(14.0f, 112.0f, bounds.getWidth() - 28.0f, 104.0f, 10.0f);
+        g.fillRoundedRectangle(14.0f, 228.0f, bounds.getWidth() - 28.0f, 142.0f, 10.0f);
+        g.fillRoundedRectangle(14.0f, 382.0f, bounds.getWidth() - 28.0f, 120.0f, 10.0f);
+        g.setColour(panelAlt);
+        g.fillRoundedRectangle(14.0f, 514.0f, bounds.getWidth() - 28.0f,
+                               juce::jmax(140.0f, bounds.getHeight() - 528.0f), 10.0f);
+
+        g.setColour(juce::Colour(0xff1c4051));
+        g.drawHorizontalLine(112, 28.0f, bounds.getWidth() - 28.0f);
+        g.drawHorizontalLine(228, 28.0f, bounds.getWidth() - 28.0f);
+        g.drawHorizontalLine(382, 28.0f, bounds.getWidth() - 28.0f);
+        g.drawHorizontalLine(514, 28.0f, bounds.getWidth() - 28.0f);
+    }
+};
+
+class StudioLookAndFeel final : public juce::LookAndFeel_V4
+{
+public:
+    StudioLookAndFeel()
+    {
+        setColour(juce::ResizableWindow::backgroundColourId, juce::Colour(0xff08151e));
+        setColour(juce::DocumentWindow::backgroundColourId, juce::Colour(0xff08151e));
+        setColour(juce::TextButton::buttonColourId, juce::Colour(0xff183544));
+        setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff0e9ea9));
+        setColour(juce::TextButton::textColourOffId, juce::Colour(0xffedf6f8));
+        setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff10232e));
+        setColour(juce::ComboBox::outlineColourId, juce::Colour(0xff2a5263));
+        setColour(juce::ComboBox::textColourId, juce::Colour(0xffedf6f8));
+        setColour(juce::Slider::thumbColourId, juce::Colour(0xff16c5d0));
+        setColour(juce::Slider::trackColourId, juce::Colour(0xff1d5264));
+        setColour(juce::Slider::backgroundColourId, juce::Colour(0xff07131b));
+        setColour(juce::Label::textColourId, juce::Colour(0xffd7e5e8));
+        setColour(juce::ToggleButton::textColourId, juce::Colour(0xffd7e5e8));
+    }
+
+    void drawButtonBackground(juce::Graphics& g, juce::Button& button,
+                              const juce::Colour& backgroundColour,
+                              bool shouldDrawButtonAsHighlighted,
+                              bool shouldDrawButtonAsDown) override
+    {
+        auto colour = backgroundColour;
+        if (shouldDrawButtonAsDown)
+            colour = colour.brighter(0.18f);
+        else if (shouldDrawButtonAsHighlighted)
+            colour = colour.brighter(0.10f);
+
+        g.setColour(colour);
+        g.fillRoundedRectangle(button.getLocalBounds().toFloat().reduced(0.5f), 6.0f);
+        g.setColour(juce::Colour(0xff2e6072));
+        g.drawRoundedRectangle(button.getLocalBounds().toFloat().reduced(0.5f), 6.0f, 1.0f);
+    }
+};
+}
+
 class StudioApplication::MainWindow final : public juce::DocumentWindow,
                                              private juce::Timer
 {
@@ -10,25 +89,26 @@ public:
     MainWindow(Session& sessionToUse, TransportState& transportToUse,
                MixerState& mixerToUse, InstrumentHost& hostToUse,
                AudioEngine& audioToUse)
-        : DocumentWindow("Classic Player Studio", juce::Colours::darkgrey, DocumentWindow::allButtons),
+        : DocumentWindow("Classic Player Studio", juce::Colour(0xff08151e), DocumentWindow::allButtons),
           sessionState(sessionToUse), transportState(transportToUse), timelineView(sessionToUse, transportToUse),
           mixerState(mixerToUse), instrumentHost(hostToUse), audioEngine(audioToUse)
     {
-        auto* content = new juce::Component();
-        content->setSize(900, 640);
+        setLookAndFeel(&lookAndFeel);
+        auto* content = new StudioCanvas();
+        content->setSize(1180, 760);
 
         title.setText("CLASSIC PLAYER STUDIO", juce::dontSendNotification);
         title.setFont(juce::FontOptions(24.0f, juce::Font::bold));
-        title.setColour(juce::Label::textColourId, juce::Colours::white);
+        title.setColour(juce::Label::textColourId, juce::Colour(0xfff4fbfc));
         title.setBounds(30, 24, 400, 36);
         content->addAndMakeVisible(title);
 
-        status.setText("Sessão vazia · fundação da DAW", juce::dontSendNotification);
-        status.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+        status.setText(cpText("Sessão vazia · fundação da DAW"), juce::dontSendNotification);
+        status.setColour(juce::Label::textColourId, juce::Colour(0xff8fb5bf));
         status.setBounds(30, 72, 620, 28);
         content->addAndMakeVisible(status);
 
-        mixerSummary.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+        mixerSummary.setColour(juce::Label::textColourId, juce::Colour(0xff8fb5bf));
         mixerSummary.setBounds(30, 102, 760, 24);
         content->addAndMakeVisible(mixerSummary);
 
@@ -54,7 +134,7 @@ public:
 
             if (availableInstruments.isEmpty())
             {
-                pluginSummary.setText("Instrumentos: faça uma varredura antes de carregar",
+                pluginSummary.setText(cpText("Instrumentos: faça uma varredura antes de carregar"),
                                       juce::dontSendNotification);
                 return;
             }
@@ -73,9 +153,9 @@ public:
         loadPlugin.setBounds(230, 168, 190, 36);
         content->addAndMakeVisible(loadPlugin);
 
-        pluginSummary.setText("Instrumentos: varredura não executada", juce::dontSendNotification);
+        pluginSummary.setText(cpText("Instrumentos: varredura não executada"), juce::dontSendNotification);
         pluginSummary.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-        pluginSummary.setBounds(435, 172, 355, 28);
+        pluginSummary.setBounds(435, 172, 700, 28);
         content->addAndMakeVisible(pluginSummary);
 
         trackLabel.setText("RECORD TO", juce::dontSendNotification);
@@ -114,7 +194,7 @@ public:
         {
             if (selectedTrackIndex <= 0 || selectedTrackIndex >= sessionState.tracks.size())
             {
-                pluginSummary.setText("A primeira pista é reservada ao instrumento",
+                pluginSummary.setText(cpText("A primeira pista é reservada ao instrumento"),
                                       juce::dontSendNotification);
                 return;
             }
@@ -145,7 +225,7 @@ public:
             refreshTrackSelector();
             reloadSessionAudio();
             refreshTimelineSummary();
-            pluginSummary.setText("Sessão nova", juce::dontSendNotification);
+            pluginSummary.setText(cpText("Sessão nova"), juce::dontSendNotification);
         };
         newSession.setBounds(30, 268, 120, 36);
         content->addAndMakeVisible(newSession);
@@ -156,7 +236,7 @@ public:
             finishActiveRecording();
             audioEngine.stop();
             auto chooser = std::make_shared<juce::FileChooser>(
-                "Abrir sessão do Classic Player Studio", juce::File(), "*.cpsession");
+                cpText("Abrir sessão do Classic Player Studio"), juce::File(), "*.cpsession");
             juce::Component::SafePointer<MainWindow> safeThis(this);
             chooser->launchAsync(juce::FileBrowserComponent::openMode
                                      | juce::FileBrowserComponent::canSelectFiles,
@@ -184,12 +264,12 @@ public:
                     owner.refreshTimelineSummary();
                     const auto restored = owner.restoreInstrumentFromSession();
                     owner.pluginSummary.setText(
-                        restored ? "Sessão aberta e instrumento restaurado: " + result.getFileName()
-                                 : "Sessão aberta: " + result.getFileName(),
+                        restored ? cpText("Sessão aberta e instrumento restaurado: ") + result.getFileName()
+                                 : cpText("Sessão aberta: ") + result.getFileName(),
                         juce::dontSendNotification);
                 }
                 else
-                    owner.pluginSummary.setText("Não foi possível abrir a sessão",
+                    owner.pluginSummary.setText(cpText("Não foi possível abrir a sessão"),
                                                 juce::dontSendNotification);
             });
         };
@@ -200,7 +280,7 @@ public:
         saveSession.onClick = [this]
         {
             auto chooser = std::make_shared<juce::FileChooser>(
-                "Salvar sessão do Classic Player Studio", juce::File(), "*.cpsession");
+                cpText("Salvar sessão do Classic Player Studio"), juce::File(), "*.cpsession");
             juce::Component::SafePointer<MainWindow> safeThis(this);
             chooser->launchAsync(juce::FileBrowserComponent::saveMode
                                      | juce::FileBrowserComponent::canSelectFiles,
@@ -217,10 +297,10 @@ public:
                 owner.syncSessionFromMixer();
                 owner.captureLoadedInstrumentState();
                 if (owner.sessionState.save(result))
-                    owner.pluginSummary.setText("Sessão salva: " + result.getFileName(),
+                    owner.pluginSummary.setText(cpText("Sessão salva: ") + result.getFileName(),
                                                 juce::dontSendNotification);
                 else
-                    owner.pluginSummary.setText("Não foi possível salvar a sessão",
+                    owner.pluginSummary.setText(cpText("Não foi possível salvar a sessão"),
                                                 juce::dontSendNotification);
             });
         };
@@ -234,12 +314,12 @@ public:
             if (audioEngine.start(sessionState.sampleRate, 512, error))
             {
                 reloadSessionAudio();
-                audioSummary.setText("Áudio: ativo · " + juce::String(audioEngine.sampleRate(), 0)
+                audioSummary.setText(cpText("Áudio: ativo · ") + juce::String(audioEngine.sampleRate(), 0)
                                          + " Hz / " + juce::String(audioEngine.bufferSize()) + " samples",
                                      juce::dontSendNotification);
             }
             else
-                audioSummary.setText("Áudio: falha · " + error, juce::dontSendNotification);
+                audioSummary.setText(cpText("Áudio: falha · ") + error, juce::dontSendNotification);
         };
         startAudio.setBounds(440, 268, 130, 36);
         content->addAndMakeVisible(startAudio);
@@ -249,15 +329,15 @@ public:
         {
             finishActiveRecording();
             audioEngine.stop();
-            audioSummary.setText("Áudio: parado", juce::dontSendNotification);
-            recordingSummary.setText("Gravação: parada", juce::dontSendNotification);
+            audioSummary.setText(cpText("Áudio: parado"), juce::dontSendNotification);
+            recordingSummary.setText(cpText("Gravação: parada"), juce::dontSendNotification);
         };
         stopAudio.setBounds(580, 268, 130, 36);
         content->addAndMakeVisible(stopAudio);
 
-        audioSummary.setText("Áudio: parado", juce::dontSendNotification);
+        audioSummary.setText(cpText("Áudio: parado"), juce::dontSendNotification);
         audioSummary.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-        audioSummary.setBounds(440, 308, 350, 24);
+        audioSummary.setBounds(440, 308, 650, 24);
         content->addAndMakeVisible(audioSummary);
 
         play.setButtonText("PLAY");
@@ -279,7 +359,7 @@ public:
         recordAudio.onClick = [this]
         {
             auto chooser = std::make_shared<juce::FileChooser>(
-                "Gravar entrada de áudio", juce::File(), "*.wav");
+                cpText("Gravar entrada de áudio"), juce::File(), "*.wav");
             juce::Component::SafePointer<MainWindow> safeThis(this);
             chooser->launchAsync(juce::FileBrowserComponent::saveMode
                                      | juce::FileBrowserComponent::canSelectFiles,
@@ -298,7 +378,7 @@ public:
                     juce::String startError;
                     if (! owner.audioEngine.start(owner.sessionState.sampleRate, 512, startError))
                     {
-                        owner.recordingSummary.setText("Gravação: falha ao iniciar áudio · " + startError,
+                        owner.recordingSummary.setText(cpText("Gravação: falha ao iniciar áudio · ") + startError,
                                                        juce::dontSendNotification);
                         return;
                     }
@@ -314,7 +394,7 @@ public:
                                                    juce::dontSendNotification);
                 }
                 else
-                    owner.recordingSummary.setText("Gravação: falha · " + error,
+                    owner.recordingSummary.setText(cpText("Gravação: falha · ") + error,
                                                    juce::dontSendNotification);
             });
         };
@@ -329,9 +409,9 @@ public:
         stopRecording.setBounds(170, 360, 145, 36);
         content->addAndMakeVisible(stopRecording);
 
-        recordingSummary.setText("Gravação: pronta", juce::dontSendNotification);
+        recordingSummary.setText(cpText("Gravação: pronta"), juce::dontSendNotification);
         recordingSummary.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-        recordingSummary.setBounds(330, 364, 540, 28);
+        recordingSummary.setBounds(330, 364, 800, 28);
         content->addAndMakeVisible(recordingSummary);
 
         trackGainLabel.setText("TRACK GAIN", juce::dontSendNotification);
@@ -380,21 +460,31 @@ public:
         content->addAndMakeVisible(soloTrack);
 
         meterSummary.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-        meterSummary.setBounds(30, 474, 840, 24);
+        meterSummary.setBounds(30, 474, 1120, 24);
         content->addAndMakeVisible(meterSummary);
 
         timelineSummary.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-        timelineSummary.setBounds(30, 510, 840, 32);
+        timelineSummary.setBounds(30, 510, 1120, 32);
         content->addAndMakeVisible(timelineSummary);
-        timelineView.setBounds(30, 545, 840, 80);
+        timelineView.setBounds(30, 545, 1120, 150);
         content->addAndMakeVisible(timelineView);
+
+        for (auto* label : { &status, &mixerSummary, &pluginSummary, &audioSummary,
+                             &recordingSummary, &meterSummary, &timelineSummary })
+        {
+            label->setFont(juce::FontOptions(14.0f));
+        }
 
         startTimerHz(20);
         setContentOwned(content, true);
         refreshTrackSelector();
         refreshTimelineSummary();
-        centreWithSize(900, 640);
-        setResizable(true, true);
+        centreWithSize(1180, 760);
+        // The first Studio build was freely resizable while most controls had
+        // fixed coordinates, which produced a large empty grey area.  Keep a
+        // deliberate, balanced workspace until the responsive layout pass is
+        // implemented.
+        setResizable(false, false);
         setUsingNativeTitleBar(true);
     }
 private:
@@ -469,14 +559,14 @@ private:
             const auto target = juce::jlimit(0, sessionState.tracks.size() - 1, selectedTrackIndex);
             sessionState.tracks.getReference(target).clips.add(std::move(clip));
             reloadSessionAudio();
-            recordingSummary.setText("Gravação adicionada à " + sessionState.tracks[target].name
+            recordingSummary.setText(cpText("Gravação adicionada à ") + sessionState.tracks[target].name
                                          + ": " + file.getFileName(),
                                      juce::dontSendNotification);
             refreshTimelineSummary();
         }
         else
         {
-            recordingSummary.setText("Gravação: parada", juce::dontSendNotification);
+            recordingSummary.setText(cpText("Gravação: parada"), juce::dontSendNotification);
         }
 
         activeRecording = false;
@@ -502,10 +592,10 @@ private:
                 lastClip = clip.name;
             }
 
-        timelineSummary.setText("TIMELINE · " + juce::String(clipCount) + " clipe(s) · duração "
-                                   + juce::String(totalSeconds, 2) + " s · áudio carregado: "
+        timelineSummary.setText(cpText("TIMELINE · ") + juce::String(clipCount) + cpText(" clipe(s) · duração ")
+                                   + juce::String(totalSeconds, 2) + cpText(" s · áudio carregado: ")
                                    + juce::String(audioEngine.loadedClipCount())
-                                   + (lastClip.isNotEmpty() ? " · último: " + lastClip : ""),
+                                   + (lastClip.isNotEmpty() ? cpText(" · último: ") + lastClip : juce::String()),
                                juce::dontSendNotification);
         timelineView.refresh();
     }
@@ -579,7 +669,7 @@ private:
     void refresh()
     {
         status.setText(juce::String(transportState.isPlaying() ? "Tocando" : "Parado")
-                           + " · posição " + juce::String(transportState.position(), 2)
+                           + cpText(" · posição ") + juce::String(transportState.position(), 2)
                            + " s · " + juce::String(sessionState.tracks.size()) + " pista(s)",
                        juce::dontSendNotification);
         mixerSummary.setText("MIXER · " + juce::String(mixerState.size())
@@ -607,6 +697,13 @@ private:
                                  + juce::String(audioEngine.masterPeak(), 3),
                              juce::dontSendNotification);
     }
+public:
+    ~MainWindow() override
+    {
+        setLookAndFeel(nullptr);
+    }
+
+    StudioLookAndFeel lookAndFeel;
     Session& sessionState;
     TransportState& transportState;
     TimelineView timelineView;
