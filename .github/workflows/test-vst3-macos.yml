@@ -59,10 +59,6 @@ jobs:
           codesign --force --deep --sign - "$output"
           codesign --verify --deep --strict "$output"
           lipo "$output/Contents/MacOS/Classic Player" -verify_arch x86_64 arm64
-          hdiutil create -volname "Classic Player VST3 Teste" -srcfolder "$output" \
-            -ov -format UDZO \
-            "outputs/vst3-test/Classic-Player-2.0.1-VST3-teste-macOS-Universal.dmg"
-          hdiutil verify "outputs/vst3-test/Classic-Player-2.0.1-VST3-teste-macOS-Universal.dmg"
 
       - name: Assemble and verify universal AU
         shell: bash
@@ -82,6 +78,9 @@ jobs:
           lipo "$output/Contents/MacOS/Classic Player" -verify_arch x86_64 arm64
           plutil -lint "$output/Contents/Info.plist"
 
+      - name: Free build space before packaging
+        run: rm -rf build/macos-compat-arm64 build/macos-compat-x86_64 build/vcpkg-macos-compat
+
       - name: Package standalone, VST3 and AU test installer
         shell: bash
         env:
@@ -95,7 +94,6 @@ jobs:
           name: Classic-Player-2.0.1-VST3-AU-teste-${{ github.run_number }}-macOS-Universal
           if-no-files-found: error
           path: |
-            outputs/vst3-test/Classic-Player-2.0.1-VST3-teste-macOS-Universal.dmg
             outputs/vst3-test/Classic-Player-2.0.1-Standalone-VST3-AU-teste-macOS-Universal.pkg
 
       - name: Upload final installer
