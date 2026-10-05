@@ -23,7 +23,7 @@ public:
         bool mono = false; // Mono legato: one voice at a time, without a gap.
         bool portamento = false;
         bool sustainEnabled = true;
-        int midiChannel = 0; // 0 = omni, 1..16 = fixed
+        int midiChannel = 1; // New layers default to channel 1; 0 = omni, 1..16 = fixed
         int lowNote = 0;
         int highNote = 127;
         int octave = 0;

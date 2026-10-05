@@ -19,14 +19,58 @@
 
 namespace
 {
-constexpr auto background = 0xff091018;
-constexpr auto panel = 0xff151f28;
-constexpr auto panelLight = 0xff202c35;
-constexpr auto line = 0xff33414c;
-constexpr auto teal = 0xff13b8ad;
-constexpr auto yellow = 0xffffd84a;
-constexpr auto text = 0xffedf4f7;
-constexpr auto mutedText = 0xff9eabb5;
+void setButtonTextIfChanged(juce::TextButton& button, const juce::String& value)
+{
+    if (button.getButtonText() != value)
+        button.setButtonText(value);
+}
+
+void setButtonColourIfChanged(juce::TextButton& button, int colourId, juce::Colour value)
+{
+    if (button.findColour(colourId) != value)
+        button.setColour(colourId, value);
+}
+
+struct UiPalette
+{
+    juce::uint32 background, panel, panelLight, line, accent, highlight, text, mutedText;
+};
+
+static constexpr std::array<UiPalette, 5> uiPalettes {{
+    { 0xff091018, 0xff151f28, 0xff202c35, 0xff33414c, 0xff13b8ad, 0xffffd84a, 0xffedf4f7, 0xff9eabb5 },
+    { 0xff050608, 0xff101216, 0xff1c2025, 0xff565e66, 0xffbec5cc, 0xfff3f5f6, 0xfff6f7f8, 0xffb1b7bd },
+    { 0xff22040b, 0xff3b0912, 0xff60101e, 0xff8d7f82, 0xffd51b38, 0xffbec3c8, 0xfffaf7f8, 0xffc9bfc2 },
+    { 0xff0d1027, 0xff151a35, 0xff202747, 0xff5d5b88, 0xff6549cf, 0xfff5f2ff, 0xfffbfaff, 0xffc8c4df },
+    { 0xffe9eef4, 0xfff6f8fb, 0xffd6e0ec, 0xff6c849d, 0xff126dbe, 0xff3b92dd, 0xff14273b, 0xff4c6073 }
+}};
+int activeUiPalette = 0;
+juce::uint32 background = uiPalettes[0].background;
+juce::uint32 panel = uiPalettes[0].panel;
+juce::uint32 panelLight = uiPalettes[0].panelLight;
+juce::uint32 paletteLine = uiPalettes[0].line;
+juce::uint32 teal = uiPalettes[0].accent;
+juce::uint32 yellow = uiPalettes[0].highlight;
+juce::uint32 text = uiPalettes[0].text;
+juce::uint32 mutedText = uiPalettes[0].mutedText;
+
+void setUiPalette(int index)
+{
+    activeUiPalette = juce::jlimit(0, (int) uiPalettes.size() - 1, index);
+    const auto& palette = uiPalettes[(size_t) activeUiPalette];
+    background = palette.background;
+    panel = palette.panel;
+    panelLight = palette.panelLight;
+    paletteLine = palette.line;
+    teal = palette.accent;
+    yellow = palette.highlight;
+    text = palette.text;
+    mutedText = palette.mutedText;
+}
+
+juce::Colour brandTextColour()
+{
+    return juce::Colour(activeUiPalette == 2 || activeUiPalette == 3 ? text : teal);
+}
 
 juce::Colour layerAccentColour(int layer)
 {
@@ -37,6 +81,11 @@ juce::Colour layerAccentColour(int layer)
         juce::Colour(0xff27d8ed), juce::Colour(0xff8f72ff)
     };
     return colours[(size_t) juce::jlimit(0, 7, layer)];
+}
+
+juce::String layerOutlinePreferenceKey(int layer)
+{
+    return "layerOutline" + juce::String(layer + 1);
 }
 
 void drawCategoryArtwork(juce::Graphics& g, juce::Rectangle<int> bounds,
@@ -82,8 +131,19 @@ void drawCategoryArtwork(juce::Graphics& g, juce::Rectangle<int> bounds,
         }
         if (image->isValid())
         {
-            g.drawImageWithin(*image, bounds.getX(), bounds.getY(), bounds.getWidth(), bounds.getHeight(),
-                              juce::RectanglePlacement::fillDestination);
+            // Keep the photo inside the frame, including its rounded corners.
+            // The image used to reach the frame's outer edge and cover it at
+            // the corners, especially on narrow mixer strips.
+            {
+                juce::Graphics::ScopedSaveState imageState(g);
+                juce::Path imageClip;
+                imageClip.addRoundedRectangle(bounds.toFloat().reduced(1.0f), 3.0f);
+                g.reduceClipRegion(imageClip);
+                const auto imageBounds = bounds.reduced(2);
+                g.drawImageWithin(*image, imageBounds.getX(), imageBounds.getY(),
+                                  imageBounds.getWidth(), imageBounds.getHeight(),
+                                  juce::RectanglePlacement::fillDestination);
+            }
             g.setColour(accent.withAlpha(0.75f));
             g.drawRoundedRectangle(bounds.toFloat().reduced(0.5f), 3.0f, 1.0f);
             return;
@@ -273,6 +333,21 @@ static constexpr UiTranslation uiTranslations[] {
     { "BEMOL", "FLAT", "BEMOL" },
     { "COR ACORDE", "CHORD COLOR", "COLOR DEL ACORDE" },
     { "COR TECLAS", "KEY COLOR", "COLOR DE TECLAS" },
+    { "PADRÃO", "CLASSIC", "CLÁSICO" },
+    { "PRETO", "BLACK", "NEGRO" },
+    { "VERMELHO", "RED", "ROJO" },
+    { "AZUL ROXO", "PURPLE BLUE", "AZUL VIOLETA" },
+    { "BRANCO AZUL", "WHITE BLUE", "BLANCO AZUL" },
+    { "TEMA", "THEME", "TEMA" },
+    { "COR DO CONTORNO", "LAYER OUTLINE", "CONTORNO DE CAPA" },
+    { "Automática", "Automatic", "Automático" },
+    { "Vermelho", "Red", "Rojo" }, { "Laranja", "Orange", "Naranja" },
+    { "Amarelo", "Yellow", "Amarillo" }, { "Verde", "Green", "Verde" },
+    { "Ciano", "Cyan", "Cian" }, { "Azul", "Blue", "Azul" },
+    { "Roxo", "Purple", "Morado" }, { "Rosa", "Pink", "Rosa" },
+    { "Branco", "White", "Blanco" }, { "Cinza", "Gray", "Gris" },
+    { "Escolher outra cor...", "Choose another color...", "Elegir otro color..." },
+    { "Tema de cores do aplicativo", "Application color theme", "Tema de color de la aplicación" },
     { "OCULTAR TECLADO", "HIDE KEYBOARD", "OCULTAR TECLADO" },
     { "MOSTRAR TECLADO", "SHOW KEYBOARD", "MOSTRAR TECLADO" },
     { "GRAVAR WAV+MIDI", "RECORD WAV+MIDI", "GRABAR WAV+MIDI" },
@@ -525,6 +600,16 @@ static constexpr UiTranslation uiTranslations[] {
     { "EQ HIGH dB", "EQ HIGH dB", "EQ ALTO dB" },
     { "THRESHOLD dB", "THRESHOLD dB", "UMBRAL dB" },
     { "MAKEUP dB", "MAKEUP dB", "GANANCIA COMP. dB" },
+    { "TAMANHO", "SIZE", "TAMAÑO" }, { "TEMPO", "SIZE", "TAMAÑO" },
+    { "DIFUSAO", "DAMPING", "DIFUSIÓN" }, { "LARGURA", "WIDTH", "ANCHO" },
+    { "Piano Intimo", "Intimate Piano", "Piano Íntimo" },
+    { "Sala Clara", "Bright Room", "Sala Brillante" },
+    { "Worship Hall", "Worship Hall", "Sala Worship" },
+    { "Ambient Grande", "Large Ambient", "Ambiente Amplio" },
+    { "Piano Natural", "Natural Piano", "Piano Natural" },
+    { "Piano Presenca", "Piano Presence", "Presencia de Piano" },
+    { "Worship Suave", "Soft Worship", "Worship Suave" },
+    { "Worship Sustentado", "Sustained Worship", "Worship Sostenido" },
     { "INPUT dB", "INPUT dB", "ENTRADA dB" },
     { "OUTPUT dB", "OUTPUT dB", "SALIDA dB" },
     { "Equalizador parametrico de tres bandas: frequencia e ganho independentes.",
@@ -884,6 +969,136 @@ void writeUiLanguagePreference(int language)
     settings.saveIfNeeded();
 }
 
+int readUiSkinPreference()
+{
+    juce::PropertiesFile settings(uiLanguageFileOptions());
+    return juce::jlimit(0, (int) uiPalettes.size() - 1, settings.getIntValue("uiSkin", 0));
+}
+
+void writeUiSkinPreference(int skin)
+{
+    juce::PropertiesFile settings(uiLanguageFileOptions());
+    settings.setValue("uiSkin", juce::jlimit(0, (int) uiPalettes.size() - 1, skin));
+    settings.saveIfNeeded();
+}
+
+juce::Colour readLayerOutlinePreference(int layer, bool& customColour)
+{
+    juce::PropertiesFile settings(uiLanguageFileOptions());
+    const auto savedColour = settings.getValue(layerOutlinePreferenceKey(layer));
+    customColour = savedColour.isNotEmpty();
+    return customColour ? juce::Colour::fromString(savedColour) : layerAccentColour(layer);
+}
+
+void writeLayerOutlinePreference(int layer, juce::Colour colour, bool useAutomatic)
+{
+    juce::PropertiesFile settings(uiLanguageFileOptions());
+    const auto key = layerOutlinePreferenceKey(layer);
+    if (useAutomatic)
+        settings.removeValue(key);
+    else
+        settings.setValue(key, colour.toString());
+    settings.saveIfNeeded();
+}
+
+void remapComponentColour(juce::Component& component, int colourId, const UiPalette& newPalette)
+{
+    const auto current = component.findColour(colourId, false);
+    for (const auto& sourcePalette : uiPalettes)
+    {
+        const std::array<std::pair<juce::uint32, juce::uint32>, 8> replacements {{
+            { sourcePalette.background, newPalette.background }, { sourcePalette.panel, newPalette.panel },
+            { sourcePalette.panelLight, newPalette.panelLight }, { sourcePalette.line, newPalette.line },
+            { sourcePalette.accent, newPalette.accent }, { sourcePalette.highlight, newPalette.highlight },
+            { sourcePalette.text, newPalette.text }, { sourcePalette.mutedText, newPalette.mutedText }
+        }};
+        for (const auto& [sourceColour, targetColour] : replacements)
+        {
+            if (current == juce::Colour(sourceColour))
+            {
+                component.setColour(colourId, juce::Colour(targetColour));
+                return;
+            }
+        }
+    }
+}
+
+void applyUiSkinToComponentTree(juce::Component& component, const UiPalette& newPalette)
+{
+    // JUCE AlertWindows draw their shell from these three IDs rather than
+    // ordinary child-component colours. Keep editor and effect dialogs in
+    // sync with the active palette as well as their embedded controls.
+    if (dynamic_cast<juce::AlertWindow*>(&component) != nullptr)
+    {
+        component.setColour(juce::AlertWindow::backgroundColourId, juce::Colour(newPalette.panel));
+        component.setColour(juce::AlertWindow::textColourId, juce::Colour(newPalette.text));
+        component.setColour(juce::AlertWindow::outlineColourId, juce::Colour(newPalette.line));
+    }
+
+    if (dynamic_cast<juce::Label*>(&component) != nullptr)
+    {
+        for (const auto colourId : { juce::Label::textColourId, juce::Label::backgroundColourId,
+                                     juce::Label::outlineColourId })
+            remapComponentColour(component, colourId, newPalette);
+    }
+    if (dynamic_cast<juce::Button*>(&component) != nullptr)
+    {
+        const auto buttonOnColour = component.findColour(juce::TextButton::buttonOnColourId, false);
+        const bool usesPaletteAccent = std::any_of(uiPalettes.begin(), uiPalettes.end(),
+            [buttonOnColour](const UiPalette& palette)
+            {
+                return buttonOnColour == juce::Colour(palette.accent);
+            });
+        for (const auto colourId : { juce::TextButton::buttonColourId, juce::TextButton::buttonOnColourId,
+                                     juce::TextButton::textColourOffId, juce::TextButton::textColourOnId })
+            remapComponentColour(component, colourId, newPalette);
+        if (usesPaletteAccent)
+            component.setColour(juce::TextButton::textColourOnId,
+                                juce::Colour(newPalette.accent == uiPalettes[2].accent
+                                          || newPalette.accent == uiPalettes[3].accent
+                                    ? newPalette.text : newPalette.background));
+    }
+    if (dynamic_cast<juce::ComboBox*>(&component) != nullptr)
+    {
+        for (const auto colourId : { juce::ComboBox::backgroundColourId, juce::ComboBox::textColourId,
+                                     juce::ComboBox::outlineColourId, juce::ComboBox::arrowColourId,
+                                     juce::ComboBox::focusedOutlineColourId })
+            remapComponentColour(component, colourId, newPalette);
+    }
+    if (dynamic_cast<juce::Slider*>(&component) != nullptr)
+    {
+        for (const auto colourId : { juce::Slider::backgroundColourId, juce::Slider::thumbColourId,
+                                     juce::Slider::trackColourId, juce::Slider::rotarySliderFillColourId,
+                                     juce::Slider::rotarySliderOutlineColourId, juce::Slider::textBoxTextColourId,
+                                     juce::Slider::textBoxBackgroundColourId, juce::Slider::textBoxOutlineColourId })
+            remapComponentColour(component, colourId, newPalette);
+    }
+    if (dynamic_cast<juce::TextEditor*>(&component) != nullptr)
+    {
+        for (const auto colourId : { juce::TextEditor::backgroundColourId, juce::TextEditor::textColourId,
+                                     juce::TextEditor::highlightColourId, juce::TextEditor::highlightedTextColourId,
+                                     juce::TextEditor::outlineColourId, juce::TextEditor::focusedOutlineColourId,
+                                     juce::TextEditor::shadowColourId })
+            remapComponentColour(component, colourId, newPalette);
+    }
+    if (dynamic_cast<juce::ScrollBar*>(&component) != nullptr)
+    {
+        for (const auto colourId : { juce::ScrollBar::thumbColourId, juce::ScrollBar::trackColourId })
+            remapComponentColour(component, colourId, newPalette);
+    }
+    if (dynamic_cast<juce::ColourSelector*>(&component) != nullptr)
+    {
+        for (const auto colourId : { juce::ColourSelector::backgroundColourId,
+                                     juce::ColourSelector::labelTextColourId })
+            remapComponentColour(component, colourId, newPalette);
+    }
+
+    for (int child = 0; child < component.getNumChildComponents(); ++child)
+        if (auto* nested = component.getChildComponent(child))
+            applyUiSkinToComponentTree(*nested, newPalette);
+    component.repaint();
+}
+
 void applyUiLanguageToComponentTree(juce::Component& component, int language)
 {
     const auto preserveText = static_cast<bool>(component.getProperties()["uiDataText"]);
@@ -1013,7 +1228,8 @@ void flatButton(juce::Button& button)
     button.setColour(juce::TextButton::buttonColourId, juce::Colour(panelLight));
     button.setColour(juce::TextButton::buttonOnColourId, juce::Colour(teal));
     button.setColour(juce::TextButton::textColourOffId, juce::Colour(text));
-    button.setColour(juce::TextButton::textColourOnId, juce::Colour(background));
+    const auto onText = activeUiPalette == 2 || activeUiPalette == 3 ? text : background;
+    button.setColour(juce::TextButton::textColourOnId, juce::Colour(onText));
 }
 
 juce::String midiNoteName(int note)
@@ -1051,17 +1267,23 @@ public:
 
     ClassicLookAndFeel()
     {
-        setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff0b141d));
-        setColour(juce::ComboBox::outlineColourId, juce::Colour(line));
+        applyCurrentPalette();
+    }
+
+    void applyCurrentPalette()
+    {
+        setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
+        setColour(juce::ComboBox::outlineColourId, juce::Colour(paletteLine));
         setColour(juce::ComboBox::textColourId, juce::Colour(text));
         setColour(juce::ComboBox::arrowColourId, juce::Colour(teal));
-        setColour(juce::PopupMenu::backgroundColourId, juce::Colour(0xff111b24));
+        setColour(juce::PopupMenu::backgroundColourId, juce::Colour(panel));
         setColour(juce::PopupMenu::textColourId, juce::Colour(text));
         setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(teal));
-        setColour(juce::PopupMenu::highlightedTextColourId, juce::Colour(background));
+        setColour(juce::PopupMenu::highlightedTextColourId,
+                  juce::Colour(activeUiPalette == 2 || activeUiPalette == 3 ? text : background));
         setColour(juce::Slider::textBoxTextColourId, juce::Colour(text));
-        setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xff0b1117));
-        setColour(juce::Slider::textBoxOutlineColourId, juce::Colour(line));
+        setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(background));
+        setColour(juce::Slider::textBoxOutlineColourId, juce::Colour(paletteLine));
     }
 
     void drawButtonText(juce::Graphics& g, juce::TextButton& button, bool over, bool down) override
@@ -1079,9 +1301,9 @@ public:
         {
             const auto bounds = button.getLocalBounds().toFloat().reduced(1.5f);
             const bool active = button.getProperties()["liveActive"];
-            g.setColour(juce::Colour(0xff0b1720).brighter(shouldDrawButtonAsDown ? 0.18f : shouldDrawButtonAsHighlighted ? 0.10f : 0.0f));
+            g.setColour(juce::Colour(background).brighter(shouldDrawButtonAsDown ? 0.18f : shouldDrawButtonAsHighlighted ? 0.10f : 0.0f));
             g.fillRoundedRectangle(bounds, 6.0f);
-            g.setColour(juce::Colour(active ? teal : 0xff485560));
+            g.setColour(juce::Colour(active ? teal : paletteLine));
             g.drawRoundedRectangle(bounds, 6.0f, active ? 2.0f : 1.0f);
             const float w = (float)button.getWidth(), h = (float)button.getHeight();
             g.setColour(juce::Colour(teal));
@@ -1316,6 +1538,9 @@ public:
           sourceTitle(title), sourceMessage(message)
     {
         setUsingNativeTitleBar(true);
+        // New dialogs should start in the selected palette, including their
+        // JUCE-drawn background and frame (not only the embedded controls).
+        applyUiSkinToComponentTree(*this, uiPalettes[(size_t) activeUiPalette]);
     }
 
     void userTriedToCloseWindow() override { exitModalState(0); }
@@ -1354,6 +1579,9 @@ public:
                                         appBounds.getCentreX() - width / 2),
                            juce::jlimit(available.getY(), available.getBottom() - height,
                                         appBounds.getCentreY() - height / 2));
+        // AlertWindow may become visible before callers finish adding custom
+        // controls. Translate again now, when the complete dialog tree exists.
+        applyLanguage();
     }
 
     void fitCustomComponentsVertically()
@@ -1584,7 +1812,7 @@ public:
         presets.setTextWhenNothingSelected("ESCOLHA UM PRESET");
         presets.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
         presets.setColour(juce::ComboBox::textColourId, juce::Colour(text));
-        presets.setColour(juce::ComboBox::outlineColourId, juce::Colour(line));
+        presets.setColour(juce::ComboBox::outlineColourId, juce::Colour(paletteLine));
         presets.onChange = [this]
         {
             if (onPresetSelected) onPresetSelected(presets.getSelectedItemIndex());
@@ -2594,7 +2822,7 @@ public:
         presetBox.setSelectedId(1, juce::dontSendNotification);
         presetBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
         presetBox.setColour(juce::ComboBox::textColourId, juce::Colour(text));
-        presetBox.setColour(juce::ComboBox::outlineColourId, juce::Colour(line));
+        presetBox.setColour(juce::ComboBox::outlineColourId, juce::Colour(paletteLine));
         presetBox.onChange = [this]
         {
             applyFactoryPreset(presetBox.getSelectedId());
@@ -3529,8 +3757,9 @@ private:
 class ColourPicker final : public juce::Component, private juce::ChangeListener
 {
 public:
-    ColourPicker(juce::Colour initial, std::function<void(juce::Colour)> changed)
-        : callback(std::move(changed))
+    ColourPicker(juce::Colour initial, std::function<void(juce::Colour)> changed,
+                 std::function<void(juce::Colour)> committed = {})
+        : callback(std::move(changed)), commitCallback(std::move(committed))
     {
         selector.setCurrentColour(initial);
         selector.setColour(juce::ColourSelector::backgroundColourId, juce::Colour(panel));
@@ -3539,12 +3768,17 @@ public:
         setSize(300, 300);
     }
 
-    ~ColourPicker() override { selector.removeChangeListener(this); }
+    ~ColourPicker() override
+    {
+        selector.removeChangeListener(this);
+        if (commitCallback && colourWasChanged) commitCallback(selector.getCurrentColour());
+    }
     void resized() override { selector.setBounds(getLocalBounds()); }
 
 private:
     void changeListenerCallback(juce::ChangeBroadcaster*) override
     {
+        colourWasChanged = true;
         if (callback) callback(selector.getCurrentColour());
     }
 
@@ -3552,6 +3786,8 @@ private:
                                     juce::ColourSelector::showSliders |
                                     juce::ColourSelector::showColourspace };
     std::function<void(juce::Colour)> callback;
+    std::function<void(juce::Colour)> commitCallback;
+    bool colourWasChanged = false;
 };
 }
 
@@ -3570,7 +3806,7 @@ void ClassicPlayerAudioProcessorEditor::LevelMeter::paint(juce::Graphics& g)
     auto bounds = getLocalBounds().toFloat();
     g.setColour(juce::Colour(0xff080c10));
     g.fillRect(bounds);
-    g.setColour(juce::Colour(line));
+    g.setColour(juce::Colour(paletteLine));
     g.drawRect(bounds, 1.0f);
     auto fill = bounds.reduced(2.0f);
     fill.removeFromTop(fill.getHeight() * (1.0f - level));
@@ -3739,20 +3975,20 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::chooseSample(int pad)
 void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
 {
     const auto volumeCC=processor.midiLearnCC(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume);
-    volumeLearnButton.setButtonText(localizedUiText(
+    setButtonTextIfChanged(volumeLearnButton, localizedUiText(
         processor.isMidiLearning(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume)
             ? "VOLUME: MOVA O CC" : volumeCC>=0 ? "VOLUME: CC "+juce::String(volumeCC) : "LEARN VOLUME",
         activeUiLanguage.load()));
     const auto muteTarget = ClassicPlayerAudioProcessor::LearnTarget::mute;
     const auto muteCC = processor.midiLearnCC(layerIndex, muteTarget);
-    muteLearnButton.setButtonText(localizedUiText(
+    setButtonTextIfChanged(muteLearnButton, localizedUiText(
         processor.isMidiLearning(layerIndex, muteTarget) ? "MUTE: MOVA O CC"
             : muteCC >= 0 ? "MUTE: CC " + juce::String(muteCC) : "LEARN MUTE",
         activeUiLanguage.load()));
     if(continuous())
     {
         const int cc=processor.continuousPads(layerIndex).mapping(12);
-        stopLearn.setButtonText(localizedUiText(
+        setButtonTextIfChanged(stopLearn, localizedUiText(
             processor.continuousPads(layerIndex).learningTarget()==12 ? "STOP: MOVA O CC"
                 : cc>=0 ? "STOP: CC "+juce::String(cc) : "LEARN STOP",
             activeUiLanguage.load()));
@@ -3762,17 +3998,18 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
         auto& trigger = pads[(size_t) pad];
         const auto active = continuous() ? processor.continuousPads(layerIndex).selected()==pad : processor.isDrumPadPlaying(pad);
         const auto samplePath = continuous() ? processor.continuousPads(layerIndex).path(pad) : processor.drumPadPath(pad);
-        trigger.setButtonText(samplePath.isNotEmpty() ? juce::File(samplePath).getFileNameWithoutExtension()
+        setButtonTextIfChanged(trigger, samplePath.isNotEmpty() ? juce::File(samplePath).getFileNameWithoutExtension()
                                                       : "PAD " + juce::String(pad + 1));
-        trigger.setColour(juce::TextButton::buttonColourId,
+        setButtonColourIfChanged(trigger, juce::TextButton::buttonColourId,
                           active ? juce::Colour(yellow) : drumPadColour(pad));
-        trigger.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff101820));
+        setButtonColourIfChanged(trigger, juce::TextButton::textColourOffId, juce::Colour(0xff101820));
         const int cc=continuous()?processor.continuousPads(layerIndex).mapping(pad):-1;
         const auto mapping = continuous() ? (cc>=0?"CC "+juce::String(cc):juce::String{}) : processor.drumPadMidiMapping(pad);
-        learnButtons[(size_t) pad].setButtonText(localizedUiText(
+        setButtonTextIfChanged(learnButtons[(size_t) pad], localizedUiText(
             (continuous()?processor.continuousPads(layerIndex).learningTarget()==pad:processor.isDrumPadMidiLearning(pad)) ? "MOVA PAD"
             : mapping.isNotEmpty() ? mapping : "LEARN", activeUiLanguage.load()));
-        if (!continuous() && !padVolumes[(size_t) pad].isMouseButtonDown())
+        if (!continuous() && !padVolumes[(size_t) pad].isMouseButtonDown()
+            && std::abs(padVolumes[(size_t) pad].getValue() - processor.drumPadVolume(pad) * 100.0f) > 0.0001)
             padVolumes[(size_t) pad].setValue(processor.drumPadVolume(pad) * 100.0f,
                                                juce::dontSendNotification);
     }
@@ -3839,6 +4076,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     ClassicPlayerAudioProcessor& p, int layerIndex, std::function<void()> mixChanged)
     : processor(p), index(layerIndex), mixStateChanged(std::move(mixChanged)), drumPadPanel(p,layerIndex)
 {
+        outlineColour = readLayerOutlinePreference(index, hasCustomOutlineColour);
         for (auto* box : { &externalInstrumentBox, &dx7LibraryBox, &dx7PatchBox,
                        &libraryBox, &presetBox, &midiDevice })
         box->getProperties().set("uiDataItems", true);
@@ -4301,7 +4539,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
         juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* knobs = new KnobEditorPanel({
-        { "TEMPO", processor.parameters.getRawParameterValue(prefix + "ReverbSize")->load(), 0.0f, 100.0f, 1.0f, 0 },
+        { "TAMANHO", processor.parameters.getRawParameterValue(prefix + "ReverbSize")->load(), 0.0f, 100.0f, 1.0f, 0 },
         { "DIFUSAO", 100.0f - processor.parameters.getRawParameterValue(prefix + "ReverbDamping")->load(), 0.0f, 100.0f, 1.0f, 0 },
         { "LARGURA", processor.parameters.getRawParameterValue(prefix + "ReverbWidth")->load(), 0.0f, 100.0f, 1.0f, 0 },
         { "MIX", processor.parameters.getRawParameterValue(prefix + "Reverb")->load(), 0.0f, 100.0f, 1.0f, 0 }
@@ -4374,7 +4612,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
     presets->onPresetSelected = [safe, knobs, setParameter](int preset)
     {
         if (safe == nullptr || preset < 0) return;
-        // TEMPO, DIFUSAO, LARGURA and MIX. The four voicings move from a
+        // Reverb size, damping, width and mix. The four voicings move from a
         // close piano room to the long, wide tail commonly used for worship.
         const auto& selected = factoryReverbPresets[(size_t) juce::jlimit(0, 3, preset)];
         for (int control = 0; control < 4; ++control)
@@ -4734,12 +4972,72 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDown(const juce::MouseE
     if (event.mods.isPopupMenu())
     {
         juce::PopupMenu menu;
-        menu.addItem(1, localizedUiText("Excluir layer", activeUiLanguage.load()));
+        juce::PopupMenu outlineMenu;
+        const auto language = activeUiLanguage.load();
+        outlineMenu.addItem(10, localizedUiText(juce::String::fromUTF8("Automática"), language),
+                            true, !hasCustomOutlineColour);
+        const auto addOutlineOption = [&outlineMenu, language, this](int id, const char* label,
+                                                                    juce::Colour colour)
+        {
+            outlineMenu.addColouredItem(id, localizedUiText(juce::String::fromUTF8(label), language),
+                                        colour, true, hasCustomOutlineColour && outlineColour == colour);
+        };
+        addOutlineOption(11, "Vermelho", juce::Colour(0xffe5394b));
+        addOutlineOption(12, "Laranja", juce::Colour(0xffff9138));
+        addOutlineOption(13, "Amarelo", juce::Colour(0xffffd23f));
+        addOutlineOption(14, "Verde", juce::Colour(0xff22c58b));
+        addOutlineOption(15, "Ciano", juce::Colour(0xff18c7d9));
+        addOutlineOption(16, "Azul", juce::Colour(0xff138cff));
+        addOutlineOption(17, "Roxo", juce::Colour(0xff9857ff));
+        addOutlineOption(18, "Rosa", juce::Colour(0xffed5aa1));
+        addOutlineOption(19, "Branco", juce::Colour(0xfff3f5f7));
+        addOutlineOption(20, "Cinza", juce::Colour(0xff9aa3ad));
+        outlineMenu.addSeparator();
+        outlineMenu.addItem(21, localizedUiText(juce::String::fromUTF8("Escolher outra cor..."), language));
+        menu.addSubMenu(localizedUiText(juce::String::fromUTF8("COR DO CONTORNO"), language), outlineMenu);
+        menu.addSeparator();
+        menu.addItem(1, localizedUiText("Excluir layer", language));
         const juce::Component::SafePointer<LayerStrip> safe(this);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
                            [safe](int result)
         {
-            if (result != 1 || safe == nullptr) return;
+            if (safe == nullptr || result == 0) return;
+
+            const auto setColourFromMenu = [safe](juce::Colour colour)
+            {
+                if (safe != nullptr) safe->setOutlineColour(colour);
+            };
+            switch (result)
+            {
+                case 10: safe->setOutlineColour(layerAccentColour(safe->index), true); return;
+                case 11: setColourFromMenu(juce::Colour(0xffe5394b)); return;
+                case 12: setColourFromMenu(juce::Colour(0xffff9138)); return;
+                case 13: setColourFromMenu(juce::Colour(0xffffd23f)); return;
+                case 14: setColourFromMenu(juce::Colour(0xff22c58b)); return;
+                case 15: setColourFromMenu(juce::Colour(0xff18c7d9)); return;
+                case 16: setColourFromMenu(juce::Colour(0xff138cff)); return;
+                case 17: setColourFromMenu(juce::Colour(0xff9857ff)); return;
+                case 18: setColourFromMenu(juce::Colour(0xffed5aa1)); return;
+                case 19: setColourFromMenu(juce::Colour(0xfff3f5f7)); return;
+                case 20: setColourFromMenu(juce::Colour(0xff9aa3ad)); return;
+                case 21:
+                {
+                    auto picker = std::make_unique<ColourPicker>(
+                        safe->outlineColour,
+                        [safe](juce::Colour colour)
+                        {
+                            if (safe != nullptr) safe->setOutlineColour(colour, false, false);
+                        },
+                        [safe](juce::Colour colour)
+                        {
+                            if (safe != nullptr) safe->setOutlineColour(colour);
+                        });
+                    juce::CallOutBox::launchAsynchronously(std::move(picker), safe->getScreenBounds(), nullptr);
+                    return;
+                }
+                case 1: break;
+                default: return;
+            }
 
             // A hosted instrument editor must close before its layer is
             // released, just as it did with the old X button.
@@ -4753,6 +5051,17 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDown(const juce::MouseE
     draggingLayerTitle = event.originalComponent == &layerTitle && event.mods.isLeftButtonDown();
     if (draggingLayerTitle)
         layerDragger.startDraggingComponent(this, event.getEventRelativeTo(this));
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::setOutlineColour(juce::Colour colour,
+                                                                      bool useAutomatic,
+                                                                      bool savePreference)
+{
+    hasCustomOutlineColour = !useAutomatic;
+    outlineColour = useAutomatic ? layerAccentColour(index) : colour.withAlpha(1.0f);
+    if (savePreference)
+        writeLayerOutlinePreference(index, outlineColour, useAutomatic);
+    repaint();
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDrag(const juce::MouseEvent& event)
@@ -4774,7 +5083,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseUp(const juce::MouseEve
 void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
-    const auto accent = layerAccentColour(index);
+    const auto accent = outlineColour;
     const auto drumLayer = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::drumPads || processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::continuousPads;
     g.setColour(juce::Colour(panel));
     if (drumLayer)
@@ -4813,7 +5122,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
         g.drawText(label, scaleX + 4, y - 7, 27, 14, juce::Justification::left);
     }
 
-    g.setColour(juce::Colour(line));
+    g.setColour(juce::Colour(paletteLine));
     g.drawHorizontalLine(routingLabel.getY() - 4, 108.0f, static_cast<float>(getWidth() - 12));
     g.drawHorizontalLine(lowNote.getY() - 9, 108.0f, static_cast<float>(getWidth() - 12));
 }
@@ -4828,15 +5137,22 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     auto layerActions = area.removeFromTop(25);
     editButton.setBounds(layerActions.removeFromLeft(70).reduced(1));
     resetButton.setBounds(layerActions.removeFromRight(52).reduced(1));
+    const auto type = processor.layerType(index);
+    const bool isPadLayer = type == ClassicPlayerAudioProcessor::LayerType::drumPads
+                         || type == ClassicPlayerAudioProcessor::LayerType::continuousPads;
     area.removeFromTop(5);
-    categoryArtworkBounds = area.removeFromTop(60).reduced(1, 0);
-    area.removeFromTop(5);
+    if (isPadLayer)
+        categoryArtworkBounds = {};
+    else
+    {
+        categoryArtworkBounds = area.removeFromTop(60).reduced(1, 0);
+        area.removeFromTop(5);
+    }
     auto summaryRow = area.removeFromTop(32);
     sourceSummary.setBounds(summaryRow.reduced(2, 0));
     area.removeFromTop(4);
-    const auto type = processor.layerType(index);
     modulationButton.setVisible(false);
-    if (type == ClassicPlayerAudioProcessor::LayerType::drumPads || type == ClassicPlayerAudioProcessor::LayerType::continuousPads)
+    if (isPadLayer)
     {
         gain.setSliderStyle(juce::Slider::LinearVertical);
         gain.setTextBoxStyle(juce::Slider::TextBoxBelow,false,58,18);
@@ -5248,7 +5564,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resetLayer()
     gain.setValue(80.0);
     mode.setSelectedId(1);
     sustain.setSelectedId(1);
-    midiChannel.setSelectedId(1);
+    midiChannel.setSelectedId(2);
     octave.setSelectedId(5);
     lowNote.setSelectedId(1);
     highNote.setSelectedId(128);
@@ -5522,7 +5838,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMeter()
             if (std::abs(slider.getValue() - value) > 0.0001)
             {
                 slider.setValue(value, juce::dontSendNotification);
-                slider.repaint();
             }
         }
     };
@@ -5551,12 +5866,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMidiLearnState()
         const auto channel = processor.midiLearnChannel(index, target);
         const auto mappingText = cc < 0 ? juce::String("LEARN")
             : "CC " + juce::String(cc) + (channel > 0 ? " C" + juce::String(channel) : juce::String{});
-        button->setButtonText(localizedUiText(learning ? "MOVA O CC" : mappingText,
+        setButtonTextIfChanged(*button, localizedUiText(learning ? "MOVA O CC" : mappingText,
                                               activeUiLanguage.load()));
-        button->setColour(juce::TextButton::buttonColourId,
+        setButtonColourIfChanged(*button, juce::TextButton::buttonColourId,
                           learning ? juce::Colour(yellow)
                                    : cc >= 0 ? juce::Colour(0xff1b554e) : juce::Colour(panelLight));
-        button->setColour(juce::TextButton::textColourOffId,
+        setButtonColourIfChanged(*button, juce::TextButton::textColourOffId,
                           learning ? juce::Colour(background) : juce::Colour(text));
     }
 }
@@ -5567,6 +5882,9 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     juce::Logger::writeToLog("Editor Classic Player inicializado");
     uiLanguage = readUiLanguagePreference();
     activeUiLanguage.store(uiLanguage);
+    uiSkin = readUiSkinPreference();
+    setUiPalette(uiSkin);
+    classicLookAndFeel.applyCurrentPalette();
     setLookAndFeel(&classicLookAndFeel);
     setOpaque(true);
 #if JucePlugin_Build_Standalone
@@ -5599,11 +5917,11 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
 
     title.setText("CLASSIC PLAYER", juce::dontSendNotification);
     title.setFont(juce::FontOptions(25.0f, juce::Font::bold));
-    title.setColour(juce::Label::textColourId, juce::Colour(teal));
+    title.setColour(juce::Label::textColourId, brandTextColour());
     addAndMakeVisible(title);
     subtitle.setText("CLASSIC KEYS SF2 WORKSTATION", juce::dontSendNotification);
     subtitle.setColour(juce::Label::textColourId, juce::Colour(mutedText));
-    addAndMakeVisible(subtitle); userLabel.getProperties().set("uiDataText", true); userLabel.setColour(juce::Label::textColourId, juce::Colour(teal)); userLabel.setFont(juce::FontOptions(11.0f, juce::Font::bold)); userLabel.setJustificationType(juce::Justification::topLeft); userLabel.setText(accountIdentityText(), juce::dontSendNotification); addAndMakeVisible(userLabel);
+    addAndMakeVisible(subtitle); userLabel.getProperties().set("uiDataText", true); userLabel.setColour(juce::Label::textColourId, brandTextColour()); userLabel.setFont(juce::FontOptions(11.0f, juce::Font::bold)); userLabel.setJustificationType(juce::Justification::topLeft); userLabel.setText(accountIdentityText(), juce::dontSendNotification); addAndMakeVisible(userLabel);
     chordLabel.setText("-", juce::dontSendNotification);
     chordLabel.setFont(juce::FontOptions(36.0f, juce::Font::bold));
     chordLabel.setJustificationType(juce::Justification::centred);
@@ -5794,13 +6112,37 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     languageSelector.setTooltip(juce::String::fromUTF8("Selecionar idioma / Select language / Seleccionar idioma"));
     languageSelector.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
     languageSelector.setColour(juce::ComboBox::textColourId, juce::Colour(text));
-    languageSelector.setColour(juce::ComboBox::outlineColourId, juce::Colour(line));
+    languageSelector.setColour(juce::ComboBox::outlineColourId, juce::Colour(paletteLine));
     languageSelector.onChange = [this]
     {
         const auto selected = languageSelector.getSelectedId();
         if (selected >= 1 && selected <= 3) setUiLanguage(selected - 1);
     };
     addAndMakeVisible(languageSelector);
+
+    skinSelector.addItem(juce::String::fromUTF8("PADRÃO"), 1);
+    skinSelector.addItem("PRETO", 2);
+    skinSelector.addItem("VERMELHO", 3);
+    skinSelector.addItem("AZUL ROXO", 4);
+    skinSelector.addItem("BRANCO AZUL", 5);
+    skinSelector.setSelectedId(uiSkin + 1, juce::dontSendNotification);
+    skinSelector.setName(juce::String::fromUTF8("Tema de cores do aplicativo"));
+    skinSelector.setTooltip(juce::String::fromUTF8("Tema de cores do aplicativo"));
+    skinSelector.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
+    skinSelector.setColour(juce::ComboBox::textColourId, juce::Colour(text));
+    skinSelector.setColour(juce::ComboBox::outlineColourId, juce::Colour(paletteLine));
+    skinSelector.onChange = [this]
+    {
+        const auto selected = skinSelector.getSelectedId();
+        if (selected >= 1 && selected <= (int) uiPalettes.size()) setUiSkin(selected - 1);
+    };
+    addAndMakeVisible(skinSelector);
+    skinCaption.setText("TEMA", juce::dontSendNotification);
+    skinCaption.setName("TEMA");
+    skinCaption.setColour(juce::Label::textColourId, juce::Colour(mutedText));
+    skinCaption.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+    skinCaption.setJustificationType(juce::Justification::centredRight);
+    addAndMakeVisible(skinCaption);
 
     flatButton(liveSetButton);
     liveSetButton.onClick = [this] { showLiveSet(!showingLiveSet); };
@@ -5931,7 +6273,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
 
     layerViewport.setViewedComponent(&layerContent, false);
     // Keep all layer controls accessible on compact notebook displays.
-    layerViewport.setScrollBarsShown(true, true);
+    layerViewport.setScrollBarsShown(false, true);
     layerViewport.setScrollBarThickness(9);
     layerViewport.setWantsKeyboardFocus(false);
     addAndMakeVisible(layerViewport);
@@ -6294,10 +6636,27 @@ void ClassicPlayerAudioProcessorEditor::showMasterLimiterEditor()
 }
 void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(background));
+    if (activeUiPalette == 2)
+    {
+        juce::ColourGradient nordGradient(juce::Colour(0xff7a1127), 0.0f, 0.0f,
+                                          juce::Colour(background), (float) getWidth(), (float) getHeight(), false);
+        nordGradient.addColour(0.46, juce::Colour(0xff3d0914));
+        g.setGradientFill(nordGradient);
+        g.fillAll();
+    }
+    else if (activeUiPalette == 3)
+    {
+        juce::ColourGradient violetGradient(juce::Colour(0xff351083), 0.0f, 0.0f,
+                                            juce::Colour(background), (float) getWidth(), (float) getHeight(), false);
+        violetGradient.addColour(0.52, juce::Colour(0xff1c1757));
+        g.setGradientFill(violetGradient);
+        g.fillAll();
+    }
+    else
+        g.fillAll(juce::Colour(background));
     if (showingLiveSet)
     {
-        g.setColour(juce::Colour(line));
+        g.setColour(juce::Colour(paletteLine));
         g.drawHorizontalLine(81, 14.0f, (float)getWidth()-14.0f);
         g.drawRoundedRectangle(juce::Rectangle<float>(14, (float)getHeight()-76, (float)getWidth()-28, 62), 5, 1);
         g.setColour(juce::Colour(text));
@@ -6306,15 +6665,15 @@ void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
         const int start = getWidth()/2-100;
         for (int i=0; i<ClassicPlayerAudioProcessor::liveSetBankCount; ++i)
         {
-            g.setColour(juce::Colour(i == activeLiveSetBank ? teal : line));
+            g.setColour(juce::Colour(i == activeLiveSetBank ? teal : paletteLine));
             g.fillEllipse((float)(start+i*26), (float)getHeight()-49, 8, 8);
         }
         return;
     }
-    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff122633), 0.0f, 0.0f,
+    g.setGradientFill(juce::ColourGradient(juce::Colour(panelLight), 0.0f, 0.0f,
                                            juce::Colour(background), (float) getWidth(), 220.0f, false));
     g.fillRect(0, 0, getWidth(), 142);
-    g.setColour(juce::Colour(line));
+    g.setColour(juce::Colour(paletteLine));
     g.drawHorizontalLine(141, 18.0f, (float) getWidth() - 18.0f);
     g.drawHorizontalLine(getHeight() - 66, 18.0f, (float) getWidth() - 18.0f);
     g.setColour(juce::Colour(mutedText));
@@ -6328,16 +6687,17 @@ void ClassicPlayerAudioProcessorEditor::resized()
 {
     auto area = getLocalBounds().reduced(14);
     auto header = area.removeFromTop(120);
-    appIcon.setBounds(header.removeFromLeft(getWidth() < 1100 ? 58 : 70).reduced(4));
+    const bool compactHeader = getWidth() < 1100;
+    appIcon.setBounds(header.removeFromLeft(compactHeader ? 58 : 70).reduced(4));
     header.removeFromLeft(5);
-    const auto brandWidth = getWidth() < 1100 ? 164 : juce::jlimit(205, 255, getWidth() / 6);
+    const auto brandWidth = compactHeader ? 164 : juce::jlimit(205, 255, getWidth() / 6);
     auto brand = header.removeFromLeft(brandWidth);
     brand.removeFromTop(16);
-    title.setFont(juce::FontOptions(getWidth() < 1100 ? 18.0f : 25.0f, juce::Font::bold));
+    title.setFont(juce::FontOptions(compactHeader ? 18.0f : 25.0f, juce::Font::bold));
     title.setBounds(brand.removeFromTop(38));
     subtitle.setBounds(brand.removeFromTop(25)); userLabel.setBounds(brand.removeFromTop(34)); userLabel.setVisible(userLabel.getText().isNotEmpty());
 
-    auto masterArea = header.removeFromRight(getWidth() < 1100 ? 112 : 136);
+    auto masterArea = header.removeFromRight(compactHeader ? 112 : 136);
     masterMeter.setBounds(masterArea.removeFromRight(13).reduced(0, 6));
     masterLabel.setBounds(masterArea.removeFromTop(17));
     auto masterKnobArea = masterArea.removeFromTop(57);
@@ -6348,7 +6708,10 @@ void ClassicPlayerAudioProcessorEditor::resized()
     masterEqButton.setButtonText("EQ");
     masterEqButton.setBounds(masterActions.reduced(1, 0));
     header.removeFromRight(5);
-    auto rightActions = header.removeFromRight(getWidth() < 1100 ? 95 : 115);
+    const auto rightActionsWidth = compactHeader ? 95
+        : juce::jlimit(95, 190, juce::roundToInt(95.0f
+            + static_cast<float>(getWidth() - 1100) * 0.23f));
+    auto rightActions = header.removeFromRight(rightActionsWidth);
     const auto rightActionHeight = 28;
     liveSetButton.setBounds(rightActions.removeFromTop(rightActionHeight).reduced(1));
     addLayerButton.setBounds(rightActions.removeFromTop(rightActionHeight).reduced(1));
@@ -6356,7 +6719,10 @@ void ClassicPlayerAudioProcessorEditor::resized()
     keyColourButton.setBounds(rightActions.removeFromTop(rightActionHeight).reduced(1));
     header.removeFromRight(5);
 
-    auto programActions = header.removeFromRight(getWidth() < 1100 ? 124 : 154);
+    const auto programActionsWidth = compactHeader ? 124
+        : juce::jlimit(124, 260, juce::roundToInt(124.0f
+            + static_cast<float>(getWidth() - 1100) * 0.43f));
+    auto programActions = header.removeFromRight(programActionsWidth);
     const auto actionWidth = programActions.getWidth() / 2;
     auto actionRow = programActions.removeFromTop(27);
     importProgramButton.setBounds(actionRow.removeFromLeft(actionWidth).reduced(1));
@@ -6386,6 +6752,9 @@ void ClassicPlayerAudioProcessorEditor::resized()
     recordingStatus.setBounds(recordingArea.removeFromLeft(230).reduced(6, 0));
     keyboardVisibilityButton.setBounds(recordingArea.removeFromLeft(156).reduced(2, 0));
     audioMidiSettingsButton.setBounds(recordingArea.removeFromLeft(140).reduced(2, 0));
+    skinCaption.setBounds(recordingArea.removeFromLeft(48).reduced(2, 0));
+    skinSelector.setBounds(recordingArea.removeFromLeft(160).reduced(2, 0));
+    skinSelector.setVisible(true);
     audioMidiSettingsButton.setVisible(!showingLiveSet
         && classicProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone);
     recordingButton.setVisible(!showingLiveSet);
@@ -6474,14 +6843,14 @@ void ClassicPlayerAudioProcessorEditor::resized()
 void ClassicPlayerAudioProcessorEditor::timerCallback()
 {
     const auto panicCC = classicProcessor.panicMidiLearnCC();
-    panicLearnButton.setButtonText(localizedUiText(classicProcessor.isPanicMidiLearning() ? "MOVA O CC"
+    setButtonTextIfChanged(panicLearnButton, localizedUiText(classicProcessor.isPanicMidiLearning() ? "MOVA O CC"
         : panicCC < 0 ? "LEARN" : "CC " + juce::String(panicCC), activeUiLanguage.load()));
-    panicLearnButton.setColour(juce::TextButton::buttonColourId,
+    setButtonColourIfChanged(panicLearnButton, juce::TextButton::buttonColourId,
         classicProcessor.isPanicMidiLearning() ? juce::Colour(yellow)
                                                : panicCC >= 0 ? juce::Colour(0xff1b554e)
                                                               : juce::Colour(panelLight));
     const auto masterCC = classicProcessor.masterMidiLearnCC();
-    masterLearnButton.setButtonText(localizedUiText(classicProcessor.isMasterMidiLearning() ? "MOVE CC"
+    setButtonTextIfChanged(masterLearnButton, localizedUiText(classicProcessor.isMasterMidiLearning() ? "MOVE CC"
         : masterCC < 0 ? "LEARN" : "CC " + juce::String(masterCC), activeUiLanguage.load()));
     if (showingLiveSet)
         masterLabel.setText(localizedUiText(classicProcessor.isMasterMidiLearning() ? "MOVA UM CC"
@@ -6533,7 +6902,7 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
         recordingStatus.setText(localizedUiText("GRAVANDO " + juce::String(elapsed / 60).paddedLeft('0', 2)
                                 + ":" + juce::String(elapsed % 60).paddedLeft('0', 2), activeUiLanguage.load()),
                                 juce::dontSendNotification);
-        recordingButton.setButtonText(localizedUiText("PARAR", activeUiLanguage.load()));
+        setButtonTextIfChanged(recordingButton, localizedUiText("PARAR", activeUiLanguage.load()));
     }
 }
 
@@ -6833,6 +7202,49 @@ void ClassicPlayerAudioProcessorEditor::setUiLanguage(int language)
     repaint();
 }
 
+void ClassicPlayerAudioProcessorEditor::setUiSkin(int skin)
+{
+    const auto nextIndex = juce::jlimit(0, (int) uiPalettes.size() - 1, skin);
+    if (nextIndex == activeUiPalette && nextIndex == uiSkin) return;
+
+    const auto& nextPalette = uiPalettes[(size_t) nextIndex];
+    uiSkin = nextIndex;
+    skinSelector.setSelectedId(uiSkin + 1, juce::dontSendNotification);
+
+    // Remap JUCE component colours against every known palette; custom
+    // layer/pad/key colours are not palette tokens and remain untouched.
+    setUiPalette(nextIndex);
+    classicLookAndFeel.applyCurrentPalette();
+    applyUiSkinToComponentTree(*this, nextPalette);
+    title.setColour(juce::Label::textColourId, brandTextColour());
+    userLabel.setColour(juce::Label::textColourId, brandTextColour());
+
+    auto& desktop = juce::Desktop::getInstance();
+    for (int index = 0; index < desktop.getNumComponents(); ++index)
+    {
+        if (auto* window = desktop.getComponent(index))
+        {
+            if (auto* layerEditor = dynamic_cast<LayerEditorWindow*>(window))
+            {
+                applyUiSkinToComponentTree(*layerEditor, nextPalette);
+                continue;
+            }
+            const bool isOurAlert = dynamic_cast<juce::AlertWindow*>(window) != nullptr
+                                 && isClassicPlayerAlertTitle(window->getName());
+            if (isOurAlert || window->getName() == "Hammond")
+            {
+                if (auto* documentWindow = dynamic_cast<juce::DocumentWindow*>(window))
+                    documentWindow->setBackgroundColour(juce::Colour(panel));
+                applyUiSkinToComponentTree(*window, nextPalette);
+            }
+        }
+    }
+
+    writeUiSkinPreference(uiSkin);
+    resized();
+    repaint();
+}
+
 void ClassicPlayerAudioProcessorEditor::applyUiLanguage()
 {
     uiLanguage = juce::jlimit(0, 2, activeUiLanguage.load());
@@ -6863,7 +7275,7 @@ void ClassicPlayerAudioProcessorEditor::applyUiLanguage()
 void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
 {
     showingLiveSet = show;
-    title.setColour(juce::Label::textColourId, juce::Colour(show ? text : teal));
+    title.setColour(juce::Label::textColourId, brandTextColour());
     subtitle.setText(localizedUiText(show ? "SONS QUE INSPIRAM" : "CLASSIC KEYS SF2 WORKSTATION",
                                      activeUiLanguage.load()), juce::dontSendNotification);
     subtitle.setColour(juce::Label::textColourId, juce::Colour(show ? teal : mutedText));
@@ -7212,36 +7624,38 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
     // Keep each layer as a narrow mixer strip.  Empty space to the right is
     // intentional when fewer than eight layers are active; do not stretch the
     // channels merely to fill the viewport.
-    const auto availableWidth = juce::jmax(1,
-        layerViewport.getWidth() - layerViewport.getScrollBarThickness());
+    const auto availableWidth = juce::jmax(1, layerViewport.getWidth());
     constexpr int expandedHeight = 590;
     const auto viewportHeight = layerViewport.getHeight()
         - layerViewport.getScrollBarThickness();
     // Mixer-style channels fill the complete area above the keyboard instead
     // of collapsing into short horizontal cards at the top.
     const int compactHeight = juce::jmax(148, viewportHeight - gap * 2);
+    const int maxStripHeight = juce::jmax(1, viewportHeight - gap * 2);
     // Match the new slim-channel design. Fixed-width compact strips preserve
     // the proportions of the artwork and fader instead of stretching to fill a row.
     constexpr int compactStripWidth = 142;
     const auto stripWidth = juce::jmin(availableWidth, compactStripWidth);
     // Pack variable-width pad strips without stretching ordinary instruments.
     std::vector<juce::Rectangle<int>> bounds;
-    int x=0, y=gap, rowHeight=0, contentWidth=availableWidth;
+    int x = 0;
+    int rowHeight = 0;
     for (int position=0;position<count;++position)
     {
         const auto i=classicProcessor.visualLayerAt(position);
         if (!juce::isPositiveAndBelow(i, count)) continue;
         const bool pads=classicProcessor.layerType(i)==ClassicPlayerAudioProcessor::LayerType::drumPads || classicProcessor.layerType(i)==ClassicPlayerAudioProcessor::LayerType::continuousPads;
         const int width=pads ? juce::jmin(availableWidth,juce::jmax(420,stripWidth*2)) : stripWidth;
-        const int height=strips[(size_t)i] && strips[(size_t)i]->isExpanded()
-            ? expandedHeight : juce::jmax(pads ? 322 : 148,compactHeight);
-        if(x>0 && x+width>availableWidth){x=0;y+=rowHeight+gap;rowHeight=0;}
-        bounds.emplace_back(x,y,width,height);
-        contentWidth=juce::jmax(contentWidth,x+width);
+        const int requestedHeight = strips[(size_t)i] && strips[(size_t)i]->isExpanded()
+            ? expandedHeight : juce::jmax(pads ? 322 : 148, compactHeight);
+        const int height = juce::jmin(maxStripHeight, requestedHeight);
+        bounds.emplace_back(x, gap, width, height);
         x+=width+gap;rowHeight=juce::jmax(rowHeight,height);
     }
-    layerContent.setSize(contentWidth,juce::jmax(y+rowHeight+gap,
-        layerViewport.getHeight()-layerViewport.getScrollBarThickness()));
+    const auto contentWidth = juce::jmax(availableWidth, x > 0 ? x - gap : availableWidth);
+    const auto contentHeight = juce::jmax(layerViewport.getHeight()
+        - layerViewport.getScrollBarThickness(), rowHeight + gap * 2);
+    layerContent.setSize(contentWidth, contentHeight);
     for (int position = 0; position < Sf2Engine::layerCount; ++position)
     {
         const auto i = classicProcessor.visualLayerAt(position);

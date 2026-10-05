@@ -80,6 +80,8 @@ private:
         void mouseUp(const juce::MouseEvent&) override;
         void refresh();
         void updateMeter();
+        void setOutlineColour(juce::Colour colour, bool useAutomatic = false,
+                              bool savePreference = true);
         void refreshMidiDevices(const juce::Array<juce::MidiDeviceInfo>& devices);
         void refreshExternalInstrumentLibrary();
         void closeExternalInstrumentEditor();
@@ -131,6 +133,8 @@ private:
         std::function<void()> removeLayerCallback;
         std::function<void(int, juce::Point<int>)> reorderCallback;
         juce::ComponentDragger layerDragger;
+        juce::Colour outlineColour;
+        bool hasCustomOutlineColour = false;
         bool draggingLayerTitle = false;
         bool muted = false;
         bool solo = false;
@@ -224,6 +228,7 @@ private:
     void showLiveSet(bool show);
     void showAudioMidiSettings();
     void setUiLanguage(int language);
+    void setUiSkin(int skin);
     void applyUiLanguage();
     void refreshLiveSet();
     void refreshLiveSetVolumeIndicators();
@@ -262,6 +267,8 @@ private:
     juce::TextButton keyboardVisibilityButton { "OCULTAR TECLADO" };
     juce::TextButton audioMidiSettingsButton { "AUDIO / MIDI" };
     juce::ComboBox languageSelector;
+    juce::Label skinCaption;
+    juce::ComboBox skinSelector;
     juce::TextButton liveSetButton { "LIVE SET" };
     juce::TextButton editLiveSetButton { "EDITAR LIVE SET" };
     juce::TextButton livePreviousButton { "<  ANTERIOR" };
@@ -311,6 +318,7 @@ private:
     bool editingLiveSet = false;
     bool virtualKeyboardVisible = true;
     int uiLanguage = 0; // 0 = Português, 1 = English, 2 = Español
+    int uiSkin = 0; // 0 = Classic, 1 = Black, 2 = Red, 3 = Purple Blue, 4 = White Blue
     juce::int64 recordingStartedAtMs = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ClassicPlayerAudioProcessorEditor)

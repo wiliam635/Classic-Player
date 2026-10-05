@@ -211,6 +211,10 @@ static void newProgramStartsBlank()
     check(std::abs(processor->parameters.getRawParameterValue("master")->load() - 80.0f) < 0.01f,
           "new project did not restore parameter defaults");
 
+    auto startup = juce::XmlDocument::parse(root.getChildFile("Startup.xml"));
+    check(startup != nullptr && startup->getStringAttribute("lastSavedProgram").isEmpty(),
+          "new project did not clear the startup file");
+
     processor.reset();
     processor = open();
     check(processor->activeLayerCount() == 0 && processor->currentSavedProgramName().isEmpty(),

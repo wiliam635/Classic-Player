@@ -355,7 +355,8 @@ static void analogEditorLifecycle()
         auto panel=createAnalogCommonControls(*processor,0);
         const auto selected=AnalogBrowserPresets::config(preset,Sf2Engine::LayerConfig{});
         processor->setAnalogSynthConfig(0,selected);
-        check(std::abs(slider(*panel,1)->getValue()-selected.cutoff)<0.0001,
+        // The compact panel orders Volume, Attack, Release, then Cutoff.
+        check(std::abs(slider(*panel,3)->getValue()-selected.cutoff)<0.0001,
               "preset did not update visible cutoff");
         slider(*panel,0)->setValue(37,juce::sendNotificationSync);
         check(std::abs(read("Cutoff")-selected.cutoff)<0.0001,
@@ -368,7 +369,7 @@ static void analogEditorLifecycle()
         check(std::abs(read("Gain")-61)<0.001&&std::abs(read("Reverb")-29)<0.001,
               "closing restored stale mix values");
         panel=createAnalogCommonControls(*processor,0);
-        check(std::abs(slider(*panel,1)->getValue()-selected.cutoff)<0.0001,
+        check(std::abs(slider(*panel,3)->getValue()-selected.cutoff)<0.0001,
               "reopening rounded or reset cutoff");
         check(processor->analogSynthConfig(0).browserCompatible,"closing changed synth mode");
     }
@@ -541,6 +542,7 @@ int main(int argc, char** argv)
         }
         auto engine=std::make_unique<HammondEngine>();engine->prepare(48000,128);
         auto c=configs();c[0].learning=0;
+        c[0].routing.midiChannel=0; // This test learns from channel 3; new layers default to channel 1.
         juce::AudioBuffer<float> audio(2,128);juce::MidiBuffer midi;
         midi.addEvent(juce::MidiMessage::controllerEvent(3,64,127),0);
         audio.clear();engine->process(audio,midi,c);check(c[0].learning==0,"sustain consumed learn");

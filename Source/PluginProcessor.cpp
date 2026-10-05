@@ -81,6 +81,8 @@ void ClassicPlayerAudioProcessor::restoreStartupSettings()
         masterCCChannel.store(juce::jlimit(-1, 16, settings->getIntAttribute("masterChannel", -1)));
         panicCC.store(juce::jlimit(-1, 119, settings->getIntAttribute("panicCC", -1)));
         panicCCChannel.store(juce::jlimit(-1, 16, settings->getIntAttribute("panicChannel", -1)));
+        if (lastSavedProgram.isEmpty())
+            resetToNewProgram();
     }
     else if (!startupSettingsFile().existsAsFile())
     {
@@ -1404,6 +1406,7 @@ bool ClassicPlayerAudioProcessor::addLayer(LayerType type)
         {
             auto config = engine.getConfig(count);
             config.enabled = true;
+            config.midiChannel = type == LayerType::drumPads ? 10 : 1;
             engine.setConfig(count, config);
             setLayerType(count, type);
             return true;
@@ -3082,7 +3085,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
 
                 auto config = engine.getConfig(i);
                 config.midiChannel = juce::jlimit(0, 16, static_cast<int>(
-                    state.getProperty("midiChannel" + juce::String(i), 0)));
+                    state.getProperty("midiChannel" + juce::String(i),
+                        savedType == static_cast<int>(LayerType::drumPads) ? 10 : 1)));
                 config.lowNote = state.getProperty("low" + juce::String(i), 0);
                 config.highNote = state.getProperty("high" + juce::String(i), 127);
                 config.octave = state.getProperty("octave" + juce::String(i), 0);
