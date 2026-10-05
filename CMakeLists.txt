@@ -96,6 +96,19 @@ juce_add_binary_data(ClassicPlayerAssets
         Resources/classic-player-app-icon.png
         Resources/WebUI/classic-keys-logo.jpeg
         Resources/WebUI/willam-silva-logo.png
+        Resources/CategoryArt/piano-acustico.png
+        Resources/CategoryArt/piano-eletrico.png
+        Resources/CategoryArt/piano-dx.jpeg
+        Resources/CategoryArt/strings.png
+        Resources/CategoryArt/pad.png
+        Resources/CategoryArt/synth.png
+        Resources/CategoryArt/brass.png
+        Resources/CategoryArt/organ.png
+        Resources/CategoryArt/guitar.png
+        Resources/CategoryArt/bass.png
+        Resources/CategoryArt/bells.png
+        Resources/CategoryArt/efeitos.png
+        Resources/CategoryArt/outros.png
         "Resources/DX7/Classic Keys DX7 - Divine Masquerade 1.syx"
         "Resources/DX7/Classic Keys DX7 - Divine Masquerade 2.syx")
 

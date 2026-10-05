@@ -43,6 +43,52 @@ void drawCategoryArtwork(juce::Graphics& g, juce::Rectangle<int> bounds,
                          const juce::String& category, juce::Colour accent)
 {
     if (bounds.isEmpty()) return;
+    static constexpr std::array<const char*, 13> resourceNames {
+        "pianoacustico_png", "pianoeletrico_png", "pianodx_jpeg",
+        "strings_png", "pad_png", "synth_png", "brass_png", "organ_png",
+        "guitar_png", "bass_png", "bells_png", "efeitos_png", "outros_png"
+    };
+    static std::array<std::unique_ptr<juce::Image>, resourceNames.size()> images;
+    const auto categories = ClassicPlayerAudioProcessor::soundFontCategories();
+    auto imageIndex = categories.indexOf(category);
+    if (category == "DX7") imageIndex = 2;
+    else if (category == "Hammond") imageIndex = 7;
+    else if (category == "Moog Analog" || category == "Synth") imageIndex = 5;
+    if (juce::isPositiveAndBelow(imageIndex, (int) images.size()))
+    {
+        auto& image = images[(size_t) imageIndex];
+        if (image == nullptr)
+        {
+            int dataSize = 0;
+            const auto* data = ClassicPlayerAssets::getNamedResource(resourceNames[(size_t) imageIndex], dataSize);
+            const auto original = data != nullptr
+                ? juce::ImageFileFormat::loadFrom(data, (size_t) dataSize) : juce::Image{};
+            juce::Image thumbnail;
+            if (original.isValid())
+            {
+                thumbnail = juce::Image(juce::Image::ARGB, 256, 120, true);
+                juce::Graphics thumbnailGraphics(thumbnail);
+                const auto sourceAspect = (float) original.getWidth() / (float) original.getHeight();
+                constexpr auto targetAspect = 256.0f / 120.0f;
+                const auto sourceWidth = sourceAspect > targetAspect
+                    ? juce::roundToInt((float) original.getHeight() * targetAspect) : original.getWidth();
+                const auto sourceHeight = sourceAspect > targetAspect
+                    ? original.getHeight() : juce::roundToInt((float) original.getWidth() / targetAspect);
+                thumbnailGraphics.drawImage(original, 0, 0, 256, 120,
+                    (original.getWidth() - sourceWidth) / 2, (original.getHeight() - sourceHeight) / 2,
+                    sourceWidth, sourceHeight);
+            }
+            image = std::make_unique<juce::Image>(std::move(thumbnail));
+        }
+        if (image->isValid())
+        {
+            g.drawImageWithin(*image, bounds.getX(), bounds.getY(), bounds.getWidth(), bounds.getHeight(),
+                              juce::RectanglePlacement::fillDestination);
+            g.setColour(accent.withAlpha(0.75f));
+            g.drawRoundedRectangle(bounds.toFloat().reduced(0.5f), 3.0f, 1.0f);
+            return;
+        }
+    }
     auto area = bounds.toFloat();
     const auto centre = area.getCentre();
     g.setGradientFill(juce::ColourGradient(juce::Colour(0xff071525), area.getX(), area.getBottom(),
@@ -238,6 +284,18 @@ static constexpr UiTranslation uiTranslations[] {
     { "EDITAR LIVE SET", "EDIT LIVE SET", "EDITAR LIVE SET" },
     { "CONCLUIR EDICAO", "DONE EDITING", "FINALIZAR EDICIÓN" },
     { "BANCO", "BANK", "BANCO" },
+    { "Piano Acustico", "Acoustic Piano", "Piano Acústico" },
+    { "Piano Eletrico", "Electric Piano", "Piano Eléctrico" },
+    { "Piano DX", "DX Piano", "Piano DX" },
+    { "Strings", "Strings", "Cuerdas" },
+    { "Synth", "Synth", "Sintetizador" },
+    { "Brass", "Brass", "Metales" },
+    { "Organ", "Organ", "Órgano" },
+    { "Guitar", "Guitar", "Guitarra" },
+    { "Bass", "Bass", "Bajo" },
+    { "Bells", "Bells", "Campanas" },
+    { "Efeitos", "Effects", "Efectos" },
+    { "Outros", "Other", "Otros" },
     { "LAYER SF2", "SF2 LAYER", "CAPA SF2" },
     { "Layer SF2", "SF2 Layer", "Capa SF2" },
     { "Layer DX7 (.syx)", "DX7 Layer (.syx)", "Capa DX7 (.syx)" },
@@ -359,6 +417,12 @@ static constexpr UiTranslation uiTranslations[] {
     { "Configurar dispositivo de audio, taxa de amostragem, buffer e MIDI",
       "Configure the audio device, sample rate, buffer and MIDI",
       "Configura el dispositivo de audio, la frecuencia de muestreo, el búfer y MIDI" },
+    { "Ativa ou desativa a modulação recebida pelo teclado",
+      "Enable or disable keyboard modulation",
+      "Activar o desactivar la modulación recibida del teclado" },
+    { "Ativa ou desativa a modulação recebida pelo teclado nesta layer",
+      "Enable or disable keyboard modulation for this layer",
+      "Activar o desactivar la modulación del teclado en esta capa" },
     { "Mostrar ou ocultar o teclado virtual para liberar espaço para as layers",
       "Show or hide the virtual keyboard to make room for layers",
       "Mostrar u ocultar el teclado virtual para dejar espacio a las capas" },
@@ -783,6 +847,20 @@ juce::String localizedUiText(const juce::String& value, int language)
     return value;
 }
 
+// A UTF-8 literal passed through juce::String(const char*) may be decoded as
+// single-byte text on some hosts. Decode literals before dictionary lookup.
+juce::String localizedUiText(const char* value, int language)
+{
+    return localizedUiText(juce::String::fromUTF8(value), language);
+}
+
+juce::String selectedCategoryId(const juce::ComboBox& box)
+{
+    const auto categories = ClassicPlayerAudioProcessor::soundFontCategories();
+    const auto index = box.getSelectedId() - 1;
+    return juce::isPositiveAndBelow(index, categories.size()) ? categories[index] : categories[0];
+}
+
 juce::PropertiesFile::Options uiLanguageFileOptions()
 {
     juce::PropertiesFile::Options options;
@@ -919,13 +997,15 @@ bool isClassicPlayerAlertTitle(const juce::String& title)
 
 juce::Colour drumPadColour(int pad)
 {
-    static const std::array<juce::Colour, 8> colours {
-        juce::Colour(0xfff3e4d8), juce::Colour(0xffeef0d8),
-        juce::Colour(0xffdff1d7), juce::Colour(0xffd8f0e5),
-        juce::Colour(0xffd9f0f1), juce::Colour(0xffdbe8f5),
-        juce::Colour(0xffe3def5), juce::Colour(0xffefdff1)
+    static const std::array<juce::Colour, 12> colours {
+        juce::Colour(0xff168dff), juce::Colour(0xffb34cff),
+        juce::Colour(0xffff526b), juce::Colour(0xffffa03a),
+        juce::Colour(0xff19cf86), juce::Colour(0xffffd43a),
+        juce::Colour(0xff17cedd), juce::Colour(0xfff05a9d),
+        juce::Colour(0xff7f8cff), juce::Colour(0xffff7752),
+        juce::Colour(0xff7dde55), juce::Colour(0xffaa75ed)
     };
-    return colours[(size_t) juce::jlimit(0, 7, pad)];
+    return colours[(size_t) juce::jlimit(0, 11, pad)];
 }
 
 void flatButton(juce::Button& button)
@@ -1106,8 +1186,12 @@ public:
             g.setColour(colour);
             g.fillRoundedRectangle(bounds, 5.0f);
         }
-        g.setColour(isDrumPad ? colour.darker(0.32f) : juce::Colour(line));
-        g.drawRoundedRectangle(bounds, isDrumPad ? 8.0f : 5.0f, isDrumPad ? 2.0f : 1.0f);
+        const auto outline = isDrumPad ? colour.brighter(0.35f)
+                                       : juce::Colour(teal).interpolatedWith(backgroundColour, 0.35f);
+        g.setColour(outline.withAlpha(0.28f));
+        g.drawRoundedRectangle(bounds.reduced(1.0f), isDrumPad ? 8.0f : 5.0f, 3.0f);
+        g.setColour(outline.withAlpha(0.92f));
+        g.drawRoundedRectangle(bounds.reduced(0.5f), isDrumPad ? 8.0f : 5.0f, 1.2f);
     }
 
     void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height,
@@ -1227,12 +1311,26 @@ class LayerEditorWindow final : public juce::AlertWindow
 public:
     LayerEditorWindow(const juce::String& title, const juce::String& message,
                       juce::MessageBoxIconType icon)
-        : juce::AlertWindow(title, message, icon)
+        : juce::AlertWindow(localizedUiText(title, activeUiLanguage.load()),
+                            localizedUiText(message, activeUiLanguage.load()), icon),
+          sourceTitle(title), sourceMessage(message)
     {
         setUsingNativeTitleBar(true);
     }
 
     void userTriedToCloseWindow() override { exitModalState(0); }
+
+    void applyLanguage()
+    {
+        setName(localizedUiText(sourceTitle, activeUiLanguage.load()));
+        setMessage(localizedUiText(sourceMessage, activeUiLanguage.load()));
+        applyUiLanguageToComponentTree(*this, activeUiLanguage.load());
+    }
+
+    void visibilityChanged() override
+    {
+        if (isVisible()) applyLanguage();
+    }
 
     void fitWithinApp(juce::Component* owner)
     {
@@ -1297,6 +1395,8 @@ public:
                 component->setBounds(bounds);
             }
     }
+private:
+    juce::String sourceTitle, sourceMessage;
 };
 
 class KnobEditorPanel final : public juce::Component
@@ -1574,8 +1674,8 @@ public:
     {
         flatButton(saveButton);
         flatButton(loadButton);
-        saveButton.setTooltip("Exportar somente a configuração desta layer em um arquivo portátil");
-        loadButton.setTooltip("Importar uma configuração sem alterar as outras layers");
+        saveButton.setTooltip(juce::String::fromUTF8("Exportar somente a configuração desta layer em um arquivo portátil"));
+        loadButton.setTooltip(juce::String::fromUTF8("Importar uma configuração sem alterar as outras layers"));
         saveButton.onClick = std::move(save);
         loadButton.onClick = std::move(load);
         addAndMakeVisible(saveButton);
@@ -2332,7 +2432,7 @@ public:
     {
         flatButton(button);
         button.setClickingTogglesState(true);
-        button.setTooltip("Ativa ou desativa a modulação recebida pelo teclado");
+        button.setTooltip(juce::String::fromUTF8("Ativa ou desativa a modulação recebida pelo teclado"));
         button.onClick = [this]
         {
             if (auto* parameter = processor.parameters.getParameter(
@@ -2792,7 +2892,7 @@ public:
     {
         flatButton(saveButton);
         saveButton.setButtonText("Exportar Preset");
-        saveButton.setTooltip("Exporta a programação completa para um arquivo portátil.");
+        saveButton.setTooltip(juce::String::fromUTF8("Exporta a programação completa para um arquivo portátil."));
         saveButton.onClick = [this]
         {
             auto name = (engineName + " - Layer " + juce::String(index + 1))
@@ -2833,7 +2933,7 @@ class Sf2EditorPanel final : public juce::Component
 public:
     Sf2EditorPanel(ClassicPlayerAudioProcessor& p, int layer) : processor(p), index(layer)
     {
-        for (auto* box : { &categoryBox, &libraryBox, &presetBox, &deviceBox })
+        for (auto* box : { &libraryBox, &presetBox, &deviceBox })
             box->getProperties().set("uiDataItems", true);
         for (auto* label : { &categoryLabel, &libraryLabel, &presetLabel, &modeLabel,
                              &sustainLabel, &channelLabel, &deviceLabel, &octaveLabel,
@@ -2889,7 +2989,7 @@ public:
                     const auto source = c.getResult();
                     if (!source.existsAsFile()) return;
                     juce::File imported;
-                    const auto result = processor.importSoundFont(source, categoryBox.getText(), imported);
+                    const auto result = processor.importSoundFont(source, selectedCategoryId(categoryBox), imported);
                     if (result.failed())
                         juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
                                                                "Falha ao importar SF2", result.getErrorMessage());
@@ -3001,7 +3101,7 @@ private:
 
     void rebuildLibrary()
     {
-        libraryFiles = processor.librarySoundFonts(categoryBox.getText());
+        libraryFiles = processor.librarySoundFonts(selectedCategoryId(categoryBox));
         libraryBox.clear(juce::dontSendNotification);
         const auto currentPath = processor.soundFontPath(index);
         int selectedId = 0;
@@ -3218,7 +3318,7 @@ public:
             addAndMakeVisible(labels[(size_t) i]);
             flatButton(buttons[(size_t) i]);
             buttons[(size_t) i].setButtonText("LEARN");
-            buttons[(size_t) i].setTooltip("Clique novamente para cancelar; clique com o botão direito para excluir o mapeamento.");
+            buttons[(size_t) i].setTooltip(juce::String::fromUTF8("Clique novamente para cancelar; clique com o botão direito para excluir o mapeamento."));
             buttons[(size_t) i].onClick = [this, target = targets[(size_t) i]]
             {
                 processor.beginMidiLearn(index, target);
@@ -3542,8 +3642,7 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
         trigger.getProperties().set("uiDataText", true);
         trigger.setButtonText("PAD " + juce::String(pad + 1));
         trigger.setTooltip("Clique para tocar este pad");
-        // Loaded pads receive unique colours in refresh(); empty pads stay neutral.
-        trigger.setColour(juce::TextButton::buttonColourId, juce::Colour(panelLight));
+        trigger.setColour(juce::TextButton::buttonColourId, drumPadColour(pad));
         trigger.setColour(juce::TextButton::buttonOnColourId, juce::Colour(yellow));
         trigger.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff15191d));
         trigger.setColour(juce::TextButton::textColourOnId, juce::Colour(0xff15191d));
@@ -3559,7 +3658,7 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
 
         auto& learn = learnButtons[(size_t) pad];
         learn.setButtonText("LEARN");
-        learn.setTooltip("Clique para aprender; clique novamente para cancelar; botão direito para excluir o mapeamento.");
+        learn.setTooltip(juce::String::fromUTF8("Clique para aprender; clique novamente para cancelar; botão direito para excluir o mapeamento."));
         flatButton(learn);
         learn.onClick = [this, pad] { if(continuous())processor.continuousPads(layerIndex).learn(pad);else processor.beginDrumPadMidiLearn(pad); refresh(); };
         learn.onClearMapping = [this, pad]
@@ -3587,7 +3686,7 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
     for(auto* button:{&stopLearn,&volumeLearnButton,&muteLearnButton}){flatButton(*button);addAndMakeVisible(*button);}
     stopButton.onClick=[this]{processor.continuousPads(layerIndex).stop();};
     stopLearn.onClick=[this]{processor.continuousPads(layerIndex).learn(12);refresh();};
-    stopLearn.setTooltip("Clique novamente para cancelar; botão direito para excluir o mapeamento do STOP.");
+    stopLearn.setTooltip(juce::String::fromUTF8("Clique novamente para cancelar; botão direito para excluir o mapeamento do STOP."));
     stopLearn.onClearMapping=[this]{processor.continuousPads(layerIndex).clearMapping(12);refresh();};
     volumeLearnButton.onClick=[this]{processor.beginMidiLearn(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume);refresh();};
     volumeLearnButton.onClearMapping=[this]{processor.clearMidiLearn(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume);refresh();};
@@ -3666,10 +3765,8 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
         trigger.setButtonText(samplePath.isNotEmpty() ? juce::File(samplePath).getFileNameWithoutExtension()
                                                       : "PAD " + juce::String(pad + 1));
         trigger.setColour(juce::TextButton::buttonColourId,
-                          active ? juce::Colour(yellow)
-                                 : samplePath.isNotEmpty() ? drumPadColour(pad)
-                                                           : juce::Colour(panelLight));
-        trigger.setColour(juce::TextButton::textColourOffId, samplePath.isNotEmpty() || active ? juce::Colour(0xff15191d) : juce::Colour(text));
+                          active ? juce::Colour(yellow) : drumPadColour(pad));
+        trigger.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff101820));
         const int cc=continuous()?processor.continuousPads(layerIndex).mapping(pad):-1;
         const auto mapping = continuous() ? (cc>=0?"CC "+juce::String(cc):juce::String{}) : processor.drumPadMidiMapping(pad);
         learnButtons[(size_t) pad].setButtonText(localizedUiText(
@@ -3743,7 +3840,6 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     : processor(p), index(layerIndex), mixStateChanged(std::move(mixChanged)), drumPadPanel(p,layerIndex)
 {
         for (auto* box : { &externalInstrumentBox, &dx7LibraryBox, &dx7PatchBox,
-                       &categoryBox,
                        &libraryBox, &presetBox, &midiDevice })
         box->getProperties().set("uiDataItems", true);
     layerTitle.setText("LAYER " + juce::String(index + 1), juce::dontSendNotification);
@@ -3775,7 +3871,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     flatButton(modulationButton);
     addAndMakeVisible(modulationButton);
     modulationButton.setClickingTogglesState(true);
-    modulationButton.setTooltip("Ativa ou desativa a modulação recebida pelo teclado nesta layer");
+    modulationButton.setTooltip(juce::String::fromUTF8("Ativa ou desativa a modulação recebida pelo teclado nesta layer"));
     modulationButton.onClick = [this]
     {
         if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::sf2
@@ -3820,7 +3916,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     };
     openExternalEditorButton.onClick = [this] { openExternalInstrumentEditor(); };
     externalInstrumentButton.setTooltip("Escolher manualmente um instrumento VST3/AU");
-    openExternalEditorButton.setTooltip("Abrir a janela de configuração do instrumento virtual");
+    openExternalEditorButton.setTooltip(juce::String::fromUTF8("Abrir a janela de configuração do instrumento virtual"));
     dx7Button.setTooltip("Importar banco ou voz DX7 em formato SysEx (.syx)");
     deleteDx7LibraryButton.setTooltip("Excluir o banco DX7 selecionado da biblioteca");
     deleteDx7LibraryButton.onClick = [this] { deleteSelectedDx7Bank(); };
@@ -3967,7 +4063,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     for (auto* button : { &volumeLearn, &cutoffLearn, &reverbLearn, &compressorLearn })
     {
         flatButton(*button);
-        button->setTooltip("Mova um controle MIDI CC; clique novamente para cancelar ou use o botão direito para excluir o mapeamento.");
+        button->setTooltip(juce::String::fromUTF8("Mova um controle MIDI CC; clique novamente para cancelar ou use o botão direito para excluir o mapeamento."));
         addAndMakeVisible(*button);
     }
     volumeLearn.onClick = [this] { processor.beginMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::volume); updateMidiLearnState(); };
@@ -3981,7 +4077,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     for (auto* button : { &reverbEditButton, &compressorEditButton })
     {
         flatButton(*button);
-        button->setTooltip("Ajustar com precisão a intensidade do efeito");
+        button->setTooltip(juce::String::fromUTF8("Ajustar com precisão a intensidade do efeito"));
         addAndMakeVisible(*button);
     }
     reverbEditButton.onClick = [this] { showReverbEditor(); };
@@ -4055,12 +4151,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::initialiseComboBoxes()
             processor.selectLayerPreset(index, presets[(size_t) selected].bank,
                                          presets[(size_t) selected].program);
     };
-    refreshMidiDevices();
+    refreshMidiDevices(processor.availableMidiDevices());
 }
 
-void ClassicPlayerAudioProcessorEditor::LayerStrip::refreshMidiDevices()
+void ClassicPlayerAudioProcessorEditor::LayerStrip::refreshMidiDevices(
+    const juce::Array<juce::MidiDeviceInfo>& devices)
 {
-    const auto devices = processor.availableMidiDevices();
     juce::String fingerprint;
     for (const auto& device : devices) fingerprint << device.identifier << ";";
     if (fingerprint == midiDeviceFingerprint && midiDevice.getNumItems() > 0) return;
@@ -4404,9 +4500,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::saveEffectPreset(const juce:
             const auto ok = xml != nullptr && destination.replaceWithText(xml->toString());
             juce::AlertWindow::showMessageBoxAsync(
                 ok ? juce::MessageBoxIconType::InfoIcon : juce::MessageBoxIconType::WarningIcon,
-                ok ? "Preset exportado" : "Falha ao exportar preset",
-                ok ? "Arquivo exportado para:\n" + destination.getFullPathName()
-                   : "Não foi possível exportar o preset.");
+                localizedUiText(ok ? "Preset exportado" : "Falha ao exportar preset", activeUiLanguage.load()),
+                ok ? localizedUiText(juce::String::fromUTF8("Arquivo exportado para:\n") + destination.getFullPathName(), activeUiLanguage.load())
+                   : localizedUiText("Não foi possível exportar o preset.", activeUiLanguage.load()));
         });
 }
 
@@ -4416,7 +4512,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::loadEffectPreset(
     const juce::String extension = effect == "EQ" ? ".ckeq"
                                  : effect == "COMP" ? ".ckcomp" : ".ckreverb";
     fileChooser = std::make_unique<juce::FileChooser>(
-        "Importar preset de " + effect, juce::File{}, "*" + extension);
+        localizedUiText(juce::String::fromUTF8("Importar preset de ") + effect, activeUiLanguage.load()), juce::File{}, "*" + extension);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode
                            | juce::FileBrowserComponent::canSelectFiles,
@@ -4427,7 +4523,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::loadEffectPreset(
             if (xml == nullptr)
             {
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                                       "Preset inválido", "O arquivo está corrompido.");
+                                                       localizedUiText("Preset inválido", activeUiLanguage.load()),
+                                                       localizedUiText("O arquivo está corrompido.", activeUiLanguage.load()));
                 return;
             }
             const auto preset = juce::ValueTree::fromXml(*xml);
@@ -4435,8 +4532,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::loadEffectPreset(
                 || preset.getProperty("effect").toString() != effect)
             {
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                                       "Preset incompatível",
-                                                       "Escolha um preset de " + effect + ".");
+                                                       localizedUiText("Preset incompatível", activeUiLanguage.load()),
+                                                       localizedUiText(juce::String::fromUTF8("Escolha um preset de ") + effect + ".", activeUiLanguage.load()));
                 return;
             }
             const auto prefix = "layer" + juce::String(safe->index + 1);
@@ -4691,7 +4788,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
     g.setColour(accent);
     g.drawRoundedRectangle(bounds.reduced(1.0f), 7.0f, 2.0f);
     const auto type = processor.layerType(index);
-    auto category = type == ClassicPlayerAudioProcessor::LayerType::sf2 ? categoryBox.getText()
+    auto category = type == ClassicPlayerAudioProcessor::LayerType::sf2 ? selectedCategoryId(categoryBox)
                   : type == ClassicPlayerAudioProcessor::LayerType::dx7 ? "DX7"
                   : type == ClassicPlayerAudioProcessor::LayerType::hammond ? "Hammond"
                   : type == ClassicPlayerAudioProcessor::LayerType::analog ? "Moog Analog"
@@ -4887,7 +4984,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
             loadButton.setEnabled(false);
             fileLabel.setText(localizedUiText("Carregando...", activeUiLanguage.load()), juce::dontSendNotification);
             juce::File importedFile;
-            auto result = processor.importSoundFont(file, categoryBox.getText(), importedFile);
+            auto result = processor.importSoundFont(file, selectedCategoryId(categoryBox), importedFile);
             if (result.wasOk()) result = processor.loadSoundFont(index, importedFile);
             loadButton.setEnabled(true);
             if (result.failed())
@@ -5202,7 +5299,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refreshExternalInstrumentLib
 void ClassicPlayerAudioProcessorEditor::LayerStrip::rebuildLibrary()
 {
     const auto currentPath = processor.soundFontPath(index);
-    libraryFiles = processor.librarySoundFonts(categoryBox.getText());
+    libraryFiles = processor.librarySoundFonts(selectedCategoryId(categoryBox));
     libraryBox.clear(juce::dontSendNotification);
     auto selectedId = 0;
     for (int item = 0; item < libraryFiles.size(); ++item)
@@ -5570,7 +5667,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     programBox.getProperties().set("uiDataItems", true);
     programBox.setEditableText(true);
     programBox.setTextWhenNothingSelected("NOVO PROGRAMA");
-    programBox.setTooltip("Selecione uma performance para carregá-la imediatamente; digite um nome para salvar uma nova");
+    programBox.setTooltip(juce::String::fromUTF8("Selecione uma performance para carregá-la imediatamente; digite um nome para salvar uma nova"));
     programBox.onChange = [this]
     {
         // Text entry is used to name a new performance. Only a real list item
@@ -5584,10 +5681,10 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     flatButton(exportProgramButton);
     flatButton(deleteProgramButton);
     flatButton(importProgramButton);
-    newProgramButton.setTooltip("Criar uma programação vazia do zero");
+    newProgramButton.setTooltip(juce::String::fromUTF8("Criar uma programação vazia do zero"));
     saveProgramButton.setTooltip("Salvar esta performance na biblioteca interna do Classic Player");
-    exportProgramButton.setTooltip("Exportar uma cópia portátil da performance para outro computador");
-    importProgramButton.setTooltip("Importar uma performance portátil para a biblioteca deste computador e abri-la");
+    exportProgramButton.setTooltip(juce::String::fromUTF8("Exportar uma cópia portátil da performance para outro computador"));
+    importProgramButton.setTooltip(juce::String::fromUTF8("Importar uma performance portátil para a biblioteca deste computador e abri-la"));
     newProgramButton.onClick = [this] { createNewProgram(); };
     saveProgramButton.onClick = [this] { saveProgram(); };
     exportProgramButton.onClick = [this] { exportProgram(); };
@@ -5626,7 +5723,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     addAndMakeVisible(addLayerButton);
 
     flatButton(recordingButton);
-    recordingButton.setTooltip("Gravar simultaneamente a saída em WAV e a performance em MIDI");
+    recordingButton.setTooltip(juce::String::fromUTF8("Gravar simultaneamente a saída em WAV e a performance em MIDI"));
     recordingButton.onClick = [this]
     {
         if (classicProcessor.isAudioRecording())
@@ -5668,7 +5765,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     addAndMakeVisible(panicLearnButton);
 
     flatButton(keyboardVisibilityButton);
-    keyboardVisibilityButton.setTooltip("Mostrar ou ocultar o teclado virtual para liberar espaço para as layers");
+    keyboardVisibilityButton.setTooltip(juce::String::fromUTF8("Mostrar ou ocultar o teclado virtual para liberar espaço para as layers"));
         keyboardVisibilityButton.setButtonText(localizedUiText(virtualKeyboardVisible ? "OCULTAR TECLADO"
                                                                                       : "MOSTRAR TECLADO",
                                                                activeUiLanguage.load()));
@@ -5690,11 +5787,11 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     audioMidiSettingsButton.onClick = [this] { showAudioMidiSettings(); };
     addChildComponent(audioMidiSettingsButton);
 
-    languageSelector.addItem("PT - Português", 1);
+    languageSelector.addItem(juce::String::fromUTF8("PT - Português"), 1);
     languageSelector.addItem("EN - English", 2);
-    languageSelector.addItem("ES - Español", 3);
+    languageSelector.addItem(juce::String::fromUTF8("ES - Español"), 3);
     languageSelector.setSelectedId(uiLanguage + 1, juce::dontSendNotification);
-    languageSelector.setTooltip("Selecionar idioma / Select language / Seleccionar idioma");
+    languageSelector.setTooltip(juce::String::fromUTF8("Selecionar idioma / Select language / Seleccionar idioma"));
     languageSelector.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
     languageSelector.setColour(juce::ComboBox::textColourId, juce::Colour(text));
     languageSelector.setColour(juce::ComboBox::outlineColourId, juce::Colour(line));
@@ -5733,9 +5830,9 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     liveSettingsButton.onClick = [this] {
         juce::PopupMenu menu;
         juce::PopupMenu languageMenu;
-        languageMenu.addItem(10, "Português", uiLanguage == 0);
+        languageMenu.addItem(10, juce::String::fromUTF8("Português"), uiLanguage == 0);
         languageMenu.addItem(11, "English", uiLanguage == 1);
-        languageMenu.addItem(12, "Español", uiLanguage == 2);
+        languageMenu.addItem(12, juce::String::fromUTF8("Español"), uiLanguage == 2);
         menu.addSubMenu(localizedUiText("IDIOMA / LANGUAGE / IDIOMA", uiLanguage), languageMenu);
         menu.addSeparator();
         if (classicProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
@@ -5801,7 +5898,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     showLiveSet(false);
 
     flatButton(masterEqButton);
-    masterEqButton.setTooltip("Abrir o equalizador paramétrico da saída master");
+    masterEqButton.setTooltip(juce::String::fromUTF8("Abrir o equalizador paramétrico da saída master"));
     masterEqButton.onClick = [this] { showMasterEqEditor(); };
     addAndMakeVisible(masterEqButton);
     flatButton(masterLimiterButton);
@@ -6231,15 +6328,16 @@ void ClassicPlayerAudioProcessorEditor::resized()
 {
     auto area = getLocalBounds().reduced(14);
     auto header = area.removeFromTop(120);
-    appIcon.setBounds(header.removeFromLeft(78).reduced(4));
-    header.removeFromLeft(8);
-    const auto brandWidth = juce::jlimit(230, 330, getWidth() / 4);
+    appIcon.setBounds(header.removeFromLeft(getWidth() < 1100 ? 58 : 70).reduced(4));
+    header.removeFromLeft(5);
+    const auto brandWidth = getWidth() < 1100 ? 164 : juce::jlimit(205, 255, getWidth() / 6);
     auto brand = header.removeFromLeft(brandWidth);
     brand.removeFromTop(16);
+    title.setFont(juce::FontOptions(getWidth() < 1100 ? 18.0f : 25.0f, juce::Font::bold));
     title.setBounds(brand.removeFromTop(38));
     subtitle.setBounds(brand.removeFromTop(25)); userLabel.setBounds(brand.removeFromTop(34)); userLabel.setVisible(userLabel.getText().isNotEmpty());
 
-    auto masterArea = header.removeFromRight(150);
+    auto masterArea = header.removeFromRight(getWidth() < 1100 ? 112 : 136);
     masterMeter.setBounds(masterArea.removeFromRight(13).reduced(0, 6));
     masterLabel.setBounds(masterArea.removeFromTop(17));
     auto masterKnobArea = masterArea.removeFromTop(57);
@@ -6249,41 +6347,34 @@ void ClassicPlayerAudioProcessorEditor::resized()
     masterLimiterButton.setBounds(masterActions.removeFromRight(42).reduced(1, 0));
     masterEqButton.setButtonText("EQ");
     masterEqButton.setBounds(masterActions.reduced(1, 0));
-    header.removeFromRight(12);
+    header.removeFromRight(5);
+    auto rightActions = header.removeFromRight(getWidth() < 1100 ? 95 : 115);
+    const auto rightActionHeight = 28;
+    liveSetButton.setBounds(rightActions.removeFromTop(rightActionHeight).reduced(1));
+    addLayerButton.setBounds(rightActions.removeFromTop(rightActionHeight).reduced(1));
+    chordColourButton.setBounds(rightActions.removeFromTop(rightActionHeight).reduced(1));
+    keyColourButton.setBounds(rightActions.removeFromTop(rightActionHeight).reduced(1));
+    header.removeFromRight(5);
 
-    auto chordArea = header.reduced(4, 1);
-    auto colourControls = chordArea.removeFromRight(320).reduced(5, 2);
-    // Arrange the four header actions as a 2x2 block beside the chord
-    // display: chord colour / Live Set on the first row, key colour / Add
-    // Layer on the second. This keeps the requested visual grouping without
-    // changing the chord display or program field dimensions.
-    auto topButtonRow = colourControls.removeFromTop(30);
-    auto bottomButtonRow = colourControls.removeFromTop(30);
-    const auto buttonWidth = topButtonRow.getWidth() / 2;
-    chordColourButton.setBounds(topButtonRow.removeFromLeft(buttonWidth).reduced(1));
-    liveSetButton.setBounds(topButtonRow.reduced(1));
-    keyColourButton.setBounds(bottomButtonRow.removeFromLeft(buttonWidth).reduced(1));
-    addLayerButton.setBounds(bottomButtonRow.reduced(1));
-    // Keep the accidental selector directly below the left button column,
-    // matching the compact header layout without changing the chord display.
-    // Anchor MISTO to the header rather than the consumed button-row bounds.
-    accidentalStyleBox.setBounds(colourControls.getX(), header.getY() + 76,
-                                 buttonWidth - 2, 32);
-    languageSelector.setBounds(accidentalStyleBox.getRight() + 6, header.getY() + 76, 120, 32);
+    auto programActions = header.removeFromRight(getWidth() < 1100 ? 124 : 154);
+    const auto actionWidth = programActions.getWidth() / 2;
+    auto actionRow = programActions.removeFromTop(27);
+    importProgramButton.setBounds(actionRow.removeFromLeft(actionWidth).reduced(1));
+    newProgramButton.setBounds(actionRow.reduced(1));
+    actionRow = programActions.removeFromTop(27);
+    saveProgramButton.setBounds(actionRow.removeFromLeft(actionWidth).reduced(1));
+    deleteProgramButton.setBounds(actionRow.reduced(1));
+    actionRow = programActions.removeFromTop(27);
+    exportProgramButton.setBounds(actionRow.removeFromLeft(actionWidth).reduced(1));
+    accidentalStyleBox.setBounds(actionRow.reduced(1));
+    languageSelector.setBounds(programActions.removeFromTop(32).reduced(1));
     languageSelector.setVisible(true);
+    header.removeFromRight(5);
 
-    auto programArea = chordArea.removeFromBottom(54);
-    programBox.setBounds(programArea.removeFromTop(28).reduced(1, 0));
-    auto programButtons = programArea.removeFromTop(24);
-    importProgramButton.setBounds(programButtons.removeFromRight(82).reduced(1, 0));
-    exportProgramButton.setBounds(programButtons.removeFromRight(78).reduced(1, 0));
-    deleteProgramButton.setBounds(programButtons.removeFromRight(64).reduced(1, 0));
-    saveProgramButton.setBounds(programButtons.removeFromRight(58).reduced(1, 0));
-    newProgramButton.setBounds(programButtons.removeFromRight(54).reduced(1, 0));
-
-    auto chordBox = chordArea.reduced(2, 0);
+    auto displayArea = header.reduced(2, 1);
+    programBox.setBounds(displayArea.removeFromBottom(31).reduced(1));
     chordCaption.setBounds({});
-    chordLabel.setBounds(chordBox);
+    chordLabel.setBounds(displayArea.reduced(1));
 
     area.removeFromTop(12);
     auto footer = area.removeFromBottom(54);
@@ -6422,7 +6513,6 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
     if (++timerTicks >= 20)
     {
         timerTicks = 0;
-        applyUiLanguage();
         const auto activeCount = classicProcessor.activeLayerCount();
         if (displayedLayerCount != activeCount)
         {
@@ -6431,8 +6521,9 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
             layoutLayerStrips();
         }
         classicProcessor.refreshStandaloneMidiInputs();
+        const auto devices = classicProcessor.availableMidiDevices();
         for (auto& strip : strips)
-            if (strip != nullptr) strip->refreshMidiDevices();
+            if (strip != nullptr) strip->refreshMidiDevices(devices);
     }
     masterMeter.setLevel(juce::jlimit(0.0f, 1.0f, classicProcessor.limiterOutputLevel()));
 
@@ -6546,9 +6637,10 @@ void ClassicPlayerAudioProcessorEditor::saveProgram()
                 safe->activeLiveSetBank, safe->activeLiveSetSlot, savedFile);
             if (assigned.failed())
                 juce::AlertWindow::showMessageBoxAsync(
-                    juce::MessageBoxIconType::WarningIcon, "Live Set não atualizado",
-                    "A performance foi salva, mas não foi possível atualizar a posição ativa do Live Set: "
-                        + assigned.getErrorMessage());
+                    juce::MessageBoxIconType::WarningIcon,
+                    localizedUiText("Live Set não atualizado", activeUiLanguage.load()),
+                    localizedUiText(juce::String::fromUTF8("A performance foi salva, mas não foi possível atualizar a posição ativa do Live Set: ")
+                        + assigned.getErrorMessage(), activeUiLanguage.load()));
         }
 
         safe->programBox.setText(savedFile.getFileNameWithoutExtension(), juce::dontSendNotification);
@@ -6559,7 +6651,8 @@ void ClassicPlayerAudioProcessorEditor::saveProgram()
     if (replacing)
         juce::AlertWindow::showOkCancelBox(
             juce::MessageBoxIconType::QuestionIcon, "Substituir performance?",
-            "Já existe uma performance chamada \"" + name + "\" na biblioteca do app. Deseja substituí-la?",
+            localizedUiText(juce::String::fromUTF8("Já existe uma performance chamada \"") + name
+                + juce::String::fromUTF8("\" na biblioteca do app. Deseja substituí-la?"), activeUiLanguage.load()),
             "SUBSTITUIR", "CANCELAR", this,
             juce::ModalCallbackFunction::create([saveToLibrary](int answer)
             {
@@ -6597,8 +6690,10 @@ void ClassicPlayerAudioProcessorEditor::exportProgram()
                                                        "Falha ao Exportar Performance", result.getErrorMessage());
             else
                 juce::AlertWindow::showMessageBoxAsync(
-                    juce::MessageBoxIconType::NoIcon, "Exportação concluída",
-                    "Cópia portátil salva em:\n" + exportedFile.getFullPathName());
+                    juce::MessageBoxIconType::NoIcon,
+                    localizedUiText("Exportação concluída", activeUiLanguage.load()),
+                    localizedUiText(juce::String::fromUTF8("Cópia portátil salva em:\n")
+                        + exportedFile.getFullPathName(), activeUiLanguage.load()));
         });
 }
 
@@ -6655,7 +6750,8 @@ void ClassicPlayerAudioProcessorEditor::importProgramFile()
             if (nameCollision && !alreadyInLibrary)
                 juce::AlertWindow::showOkCancelBox(
                     juce::MessageBoxIconType::QuestionIcon, "Substituir performance?",
-                    "Já existe uma performance com esse nome na biblioteca deste computador. Deseja substituí-la?",
+                    localizedUiText("Já existe uma performance com esse nome na biblioteca deste computador. Deseja substituí-la?",
+                                    activeUiLanguage.load()),
                     "SUBSTITUIR", "CANCELAR", this,
                     juce::ModalCallbackFunction::create([importAndOpen](int answer)
                     {
@@ -6751,10 +6847,14 @@ void ClassicPlayerAudioProcessorEditor::applyUiLanguage()
     {
         if (auto* window = desktop.getComponent(index))
         {
-            const bool isOurLayerEditor = dynamic_cast<LayerEditorWindow*>(window) != nullptr;
+            if (auto* layerEditor = dynamic_cast<LayerEditorWindow*>(window))
+            {
+                layerEditor->applyLanguage();
+                continue;
+            }
             const bool isOurAlert = dynamic_cast<juce::AlertWindow*>(window) != nullptr
                                  && isClassicPlayerAlertTitle(window->getName());
-            if (isOurLayerEditor || isOurAlert || window->getName() == "Hammond")
+            if (isOurAlert || window->getName() == "Hammond")
                 applyUiLanguageToComponentTree(*window, uiLanguage);
         }
     }
@@ -7159,10 +7259,10 @@ void ClassicPlayerAudioProcessorEditor::activate()
     const auto email = activationEmail.getText().trim();
     const auto password = activationPassword.getText();
     if (email.isEmpty() || password.isEmpty())
-    { activationStatus.setText("Informe e-mail e senha.", juce::dontSendNotification); return; }
+    { activationStatus.setText(localizedUiText("Informe e-mail e senha.", activeUiLanguage.load()), juce::dontSendNotification); return; }
     activationButton.setEnabled(false);
     activationStatus.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    activationStatus.setText("Conectando ao servidor de licença...", juce::dontSendNotification);
+    activationStatus.setText(localizedUiText("Conectando ao servidor de licença...", activeUiLanguage.load()), juce::dontSendNotification);
     const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
     juce::Thread::launch([safe, email, password]
     {
@@ -7184,7 +7284,7 @@ void ClassicPlayerAudioProcessorEditor::validateStoredOnlineSession()
 {
     activationButton.setEnabled(false);
     activationStatus.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    activationStatus.setText("Validando a licença deste computador...", juce::dontSendNotification);
+    activationStatus.setText(localizedUiText("Validando a licença deste computador...", activeUiLanguage.load()), juce::dontSendNotification);
     const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
     juce::Thread::launch([safe]
     {

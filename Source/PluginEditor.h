@@ -52,7 +52,7 @@ private:
         void setControlsVisible(bool shouldShow);
     private:
         void chooseSample(int pad);
-        void timerCallback() override { refresh(); }
+        void timerCallback() override { if (isShowing()) refresh(); }
         ClassicPlayerAudioProcessor& processor;
         int layerIndex;
         bool continuous() const {return processor.layerType(layerIndex)==ClassicPlayerAudioProcessor::LayerType::continuousPads;}
@@ -80,7 +80,7 @@ private:
         void mouseUp(const juce::MouseEvent&) override;
         void refresh();
         void updateMeter();
-        void refreshMidiDevices();
+        void refreshMidiDevices(const juce::Array<juce::MidiDeviceInfo>& devices);
         void refreshExternalInstrumentLibrary();
         void closeExternalInstrumentEditor();
         void setEngineEnabled(bool);
