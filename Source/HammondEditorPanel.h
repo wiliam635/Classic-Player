@@ -1,6 +1,8 @@
 #pragma once
 #include "PluginProcessor.h"
 #include "MidiLearnButton.h"
+#include <functional>
+#include <utility>
 
 std::unique_ptr<juce::Component> createHammondEditorContent(
     ClassicPlayerAudioProcessor&, int layer,
@@ -14,6 +16,12 @@ std::unique_ptr<juce::Component> createHammondEditorContent(
 class HammondEditorPanel final : public juce::Component, private juce::Timer
 {
 public:
+    void setUiTextTranslator(std::function<juce::String(const juce::String&)> translator)
+    {
+        translateUiText = std::move(translator);
+        refresh();
+    }
+
     HammondEditorPanel(ClassicPlayerAudioProcessor& p,int layer):processor(p),index(layer)
     {
         preset.addItem("Personalizado",1);
@@ -102,11 +110,13 @@ private:
         percussion.setSelectedId(c.percussion==0?1:c.percussion,juce::dontSendNotification);
         const std::array<float,4> values {c.click,c.leakage,c.drive,c.level};
         for(size_t i=0;i<4;++i)if(!knobs[i].isMouseButtonDown())knobs[i].setValue(values[i],juce::dontSendNotification);
-        learn.setButtonText(c.learning>=0?"CANCELAR":"LEARN CC");
+        learn.setButtonText(translate(c.learning>=0?"CANCELAR":"LEARN CC"));
         const auto selected=(size_t)(target.getSelectedId()-1);
         const auto learned=c.cc[selected]<0?juce::String{}:"CC "+juce::String(c.cc[selected])+" / CH "+juce::String(c.channel[selected]);
-        mapping.setText(selected==9?"MOD: CC 1"+(learned.isEmpty()?juce::String{}:" + "+learned):learned.isEmpty()?"Sem CC":learned,juce::dontSendNotification);
+        mapping.setText(translate(selected==9?"MOD: CC 1"+(learned.isEmpty()?juce::String{}:" + "+learned):learned.isEmpty()?"Sem CC":learned),juce::dontSendNotification);
     }
+    juce::String translate(const juce::String& value) const
+    { return translateUiText ? translateUiText(value) : value; }
     ClassicPlayerAudioProcessor& processor;int index;
     std::array<juce::Slider,9> bars;
     std::array<juce::Label,9> labels;
@@ -116,4 +126,5 @@ private:
     MidiLearnButton learn {"LEARN CC"};
     juce::TextButton clear {"LIMPAR"};
     juce::Label mapping;
+    std::function<juce::String(const juce::String&)> translateUiText;
 };

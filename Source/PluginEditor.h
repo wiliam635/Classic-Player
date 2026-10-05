@@ -60,6 +60,7 @@ private:
         std::array<juce::TextButton, 12> pads;
         std::array<juce::TextButton, 12> loadButtons;
         std::array<MidiLearnButton, 12> learnButtons;
+        std::array<juce::Slider, 12> padVolumes;
         juce::TextButton stopButton{"STOP"};
         MidiLearnButton stopLearn{"LEARN STOP"}, volumeLearnButton{"LEARN VOLUME"},
                         muteLearnButton{"LEARN MUTE"};
@@ -140,10 +141,10 @@ private:
         juce::Array<juce::File> dx7LibraryFiles;
 
         juce::Label layerTitle;
+        juce::Rectangle<int> categoryArtworkBounds;
         juce::TextButton muteButton { "M" };
         juce::TextButton soloButton { "S" };
         juce::TextButton resetButton { "RESET" };
-        juce::TextButton removeButton { "X" };
         juce::TextButton editButton { "EDITAR" };
         juce::TextButton loadButton { "IMPORTAR SF2" };
         juce::TextButton externalInstrumentButton { "CARREGAR VST" };
@@ -222,6 +223,8 @@ private:
     void refreshAfterProgramLoad();
     void showLiveSet(bool show);
     void showAudioMidiSettings();
+    void setUiLanguage(int language);
+    void applyUiLanguage();
     void refreshLiveSet();
     void refreshLiveSetVolumeIndicators();
     void chooseLiveSetSlot(int slot);
@@ -258,6 +261,7 @@ private:
     juce::Label recordingStatus;
     juce::TextButton keyboardVisibilityButton { "OCULTAR TECLADO" };
     juce::TextButton audioMidiSettingsButton { "AUDIO / MIDI" };
+    juce::ComboBox languageSelector;
     juce::TextButton liveSetButton { "LIVE SET" };
     juce::TextButton editLiveSetButton { "EDITAR LIVE SET" };
     juce::TextButton livePreviousButton { "<  ANTERIOR" };
@@ -306,6 +310,7 @@ private:
     bool showingLiveSet = false;
     bool editingLiveSet = false;
     bool virtualKeyboardVisible = true;
+    int uiLanguage = 0; // 0 = Português, 1 = English, 2 = Español
     juce::int64 recordingStartedAtMs = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ClassicPlayerAudioProcessorEditor)

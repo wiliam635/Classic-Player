@@ -874,6 +874,19 @@ juce::String ClassicPlayerAudioProcessor::drumPadPath(int pad) const
     return juce::isPositiveAndBelow(pad, drumPadCount) ? drumPads[(size_t) pad].path : juce::String{};
 }
 
+float ClassicPlayerAudioProcessor::drumPadVolume(int pad) const
+{
+    return juce::isPositiveAndBelow(pad, drumPadCount)
+        ? drumPads[(size_t) pad].volume.load(std::memory_order_acquire) : 1.0f;
+}
+
+void ClassicPlayerAudioProcessor::setDrumPadVolume(int pad, float normalizedVolume)
+{
+    if (!juce::isPositiveAndBelow(pad, drumPadCount)) return;
+    drumPads[(size_t) pad].volume.store(juce::jlimit(0.0f, 1.0f, normalizedVolume),
+                                       std::memory_order_release);
+}
+
 int ClassicPlayerAudioProcessor::drumPadMidiCC(int pad) const
 {
     if (!juce::isPositiveAndBelow(pad, drumPadCount)) return -1;
@@ -989,10 +1002,12 @@ void ClassicPlayerAudioProcessor::processDrumPads(juce::AudioBuffer<float>& outp
         auto position = state.position.load(std::memory_order_acquire);
         if (position < 0 || state.audio.getNumSamples() <= 0) continue;
         const auto channels = juce::jmin(2, state.audio.getNumChannels(), output.getNumChannels());
+        const auto padVolume = juce::jlimit(0.0f, 1.0f,
+            state.volume.load(std::memory_order_acquire));
         for (int sample = 0; sample < output.getNumSamples() && position < state.audio.getNumSamples(); ++sample, ++position)
             for (int channel = 0; channel < channels; ++channel)
             {
-                const auto dry = state.audio.getSample(channel, position);
+                const auto dry = state.audio.getSample(channel, position) * padVolume;
                 output.addSample(channel, sample, dry*drumGainScratch.getSample(0,sample));
                 drumMixScratch.addSample(channel,sample,dry);
             }
@@ -2768,6 +2783,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("drumPadPath" + juce::String(pad + 1), drumPads[(size_t) pad].path, nullptr);
         state.setProperty("drumPadCC" + juce::String(pad + 1), drumPads[(size_t) pad].midiCC.load(), nullptr);
         state.setProperty("drumPadNote" + juce::String(pad + 1), drumPads[(size_t) pad].midiNote.load(), nullptr);
+        state.setProperty("drumPadVolume" + juce::String(pad + 1), drumPads[(size_t) pad].volume.load(), nullptr);
     }
     for(int i=state.getNumChildren()-1;i>=0;--i)
         if(state.getChild(i).hasType("ContinuousPads"))state.removeChild(i,nullptr);
@@ -2918,6 +2934,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                                      std::memory_order_release);
                 drumPad.midiNote.store(static_cast<int>(state.getProperty(
                     "drumPadNote" + juce::String(pad + 1), -1)), std::memory_order_release);
+                drumPad.volume.store(juce::jlimit(0.0f, 1.0f, static_cast<float>(state.getProperty(
+                    "drumPadVolume" + juce::String(pad + 1), 1.0f))), std::memory_order_release);
                 drumPad.learning.store(false, std::memory_order_release);
                 const auto path = state.getProperty(
                     "drumPadPath" + juce::String(pad + 1)).toString();

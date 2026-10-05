@@ -15,6 +15,7 @@
 #include <initializer_list>
 #include <limits>
 #include <set>
+#include <utility>
 
 namespace
 {
@@ -26,6 +27,895 @@ constexpr auto teal = 0xff13b8ad;
 constexpr auto yellow = 0xffffd84a;
 constexpr auto text = 0xffedf4f7;
 constexpr auto mutedText = 0xff9eabb5;
+
+juce::Colour layerAccentColour(int layer)
+{
+    static const std::array<juce::Colour, 8> colours {
+        juce::Colour(0xff138cff), juce::Colour(0xffd94cff),
+        juce::Colour(0xff18d6a4), juce::Colour(0xffff9b42),
+        juce::Colour(0xffff4f7b), juce::Colour(0xfff2d13d),
+        juce::Colour(0xff27d8ed), juce::Colour(0xff8f72ff)
+    };
+    return colours[(size_t) juce::jlimit(0, 7, layer)];
+}
+
+void drawCategoryArtwork(juce::Graphics& g, juce::Rectangle<int> bounds,
+                         const juce::String& category, juce::Colour accent)
+{
+    if (bounds.isEmpty()) return;
+    auto area = bounds.toFloat();
+    const auto centre = area.getCentre();
+    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff071525), area.getX(), area.getBottom(),
+                                           accent.darker(0.45f), area.getRight(), area.getY(), false));
+    g.fillRoundedRectangle(area, 3.0f);
+
+    // Soft stage lights give every generated category banner the same visual
+    // language as the supplied reference while keeping the asset resolution-independent.
+    g.setGradientFill(juce::ColourGradient(accent.withAlpha(0.55f), centre.x, area.getBottom(),
+                                           juce::Colours::transparentBlack, centre.x, area.getY(), true));
+    g.fillEllipse(area.expanded(area.getWidth() * 0.12f, area.getHeight() * 0.28f));
+    g.setColour(accent.withAlpha(0.65f));
+    g.drawHorizontalLine(juce::roundToInt(area.getBottom() - 7.0f), area.getX() + 5.0f, area.getRight() - 5.0f);
+
+    const auto key = category.toLowerCase();
+    g.setColour(juce::Colours::white.withAlpha(0.9f));
+    if (key.contains("dx7"))
+    {
+        // Six operator blocks and crossing modulation lines identify the FM engine.
+        std::array<juce::Point<float>, 6> operators {
+            juce::Point<float>(area.getX() + 22.0f, area.getY() + 16.0f),
+            juce::Point<float>(centre.x, area.getY() + 12.0f),
+            juce::Point<float>(area.getRight() - 22.0f, area.getY() + 16.0f),
+            juce::Point<float>(area.getX() + 30.0f, area.getBottom() - 17.0f),
+            juce::Point<float>(centre.x, area.getBottom() - 13.0f),
+            juce::Point<float>(area.getRight() - 30.0f, area.getBottom() - 17.0f)
+        };
+        g.setColour(accent.brighter(0.35f).withAlpha(0.9f));
+        for (size_t i = 1; i < operators.size(); ++i)
+            g.drawLine(operators[i - 1].x, operators[i - 1].y,
+                       operators[i].x, operators[i].y, 1.5f);
+        g.drawLine(operators[0].x, operators[0].y, operators[4].x, operators[4].y, 1.2f);
+        g.drawLine(operators[2].x, operators[2].y, operators[3].x, operators[3].y, 1.2f);
+        g.setColour(juce::Colours::white.withAlpha(0.92f));
+        for (const auto point : operators)
+        {
+            g.fillRoundedRectangle(point.x - 6.0f, point.y - 5.0f, 12.0f, 10.0f, 2.0f);
+            g.setColour(juce::Colour(0xff14202b));
+            g.fillEllipse(point.x - 2.0f, point.y - 2.0f, 4.0f, 4.0f);
+            g.setColour(juce::Colours::white.withAlpha(0.92f));
+        }
+    }
+    else if (key.contains("moog") || key.contains("analog"))
+    {
+        // Three oscillators, a filter sweep and a small keyboard form the analog banner.
+        const auto topY = area.getY() + 13.0f;
+        for (int oscillator = 0; oscillator < 3; ++oscillator)
+        {
+            const auto x = area.getX() + 25.0f + static_cast<float>(oscillator) * 25.0f;
+            g.drawEllipse(x - 7.0f, topY - 7.0f, 14.0f, 14.0f, 2.0f);
+            g.drawLine(x, topY, x + 4.0f, topY - 5.0f, 2.0f);
+        }
+        auto keyboard = area.reduced(13.0f, 7.0f).removeFromBottom(15.0f);
+        g.fillRect(keyboard);
+        g.setColour(juce::Colour(0xff101820));
+        for (int i = 1; i < 9; ++i)
+            g.drawVerticalLine(juce::roundToInt(keyboard.getX() + keyboard.getWidth() * static_cast<float>(i) / 9.0f),
+                               keyboard.getY(), keyboard.getBottom());
+        g.setColour(accent.brighter(0.35f));
+        juce::Path filter;
+        filter.startNewSubPath(area.getX() + 15.0f, centre.y + 7.0f);
+        filter.cubicTo(centre.x - 8.0f, centre.y + 7.0f, centre.x + 2.0f, centre.y - 9.0f,
+                       area.getRight() - 14.0f, centre.y - 9.0f);
+        g.strokePath(filter, juce::PathStrokeType(2.2f));
+    }
+    else if (key.contains("hammond"))
+    {
+        // Drawbars are the Hammond's strongest visual signature.
+        const auto baseY = area.getBottom() - 19.0f;
+        for (int i = 0; i < 9; ++i)
+        {
+            const auto x = area.getX() + 10.0f + static_cast<float>(i) * (area.getWidth() - 20.0f) / 9.0f;
+            const auto travel = 13.0f + static_cast<float>((i * 5) % 15);
+            g.drawVerticalLine(juce::roundToInt(x), area.getY() + 7.0f, baseY);
+            g.fillRoundedRectangle(x - 3.0f, baseY - travel, 6.0f, 9.0f, 1.5f);
+        }
+        g.setColour(accent.brighter(0.35f));
+        g.drawHorizontalLine(juce::roundToInt(area.getBottom() - 10.0f),
+                             area.getX() + 8.0f, area.getRight() - 8.0f);
+    }
+    else if (key.contains("piano") || key.contains("dx"))
+    {
+        auto keyboard = area.reduced(12.0f, 9.0f).removeFromBottom(17.0f);
+        g.fillRect(keyboard);
+        g.setColour(juce::Colour(0xff101820));
+        for (int i = 1; i < 8; ++i)
+            g.drawVerticalLine(juce::roundToInt(keyboard.getX() + keyboard.getWidth() * i / 8.0f),
+                               keyboard.getY(), keyboard.getBottom());
+        for (int i : { 1, 2, 4, 5, 6 })
+            g.fillRect(keyboard.getX() + keyboard.getWidth() * i / 8.0f - 2.0f,
+                       keyboard.getY(), 4.0f, keyboard.getHeight() * 0.58f);
+        g.setColour(juce::Colours::white.withAlpha(0.9f));
+        juce::Path piano;
+        piano.startNewSubPath(area.getX() + 18.0f, keyboard.getY());
+        piano.lineTo(area.getX() + 26.0f, area.getY() + 11.0f);
+        piano.lineTo(area.getRight() - 17.0f, area.getY() + 7.0f);
+        piano.lineTo(area.getRight() - 29.0f, keyboard.getY());
+        piano.closeSubPath();
+        g.fillPath(piano);
+    }
+    else if (key.contains("string"))
+    {
+        g.drawEllipse(centre.x - 13.0f, centre.y - 18.0f, 26.0f, 36.0f, 3.0f);
+        g.drawLine(centre.x, area.getY() + 5.0f, centre.x, area.getBottom() - 5.0f, 2.0f);
+        g.drawLine(centre.x, centre.y - 12.0f, area.getRight() - 18.0f, area.getY() + 8.0f, 2.0f);
+    }
+    else if (key.contains("organ"))
+    {
+        const auto baseY = area.getBottom() - 9.0f;
+        for (int i = 0; i < 7; ++i)
+        {
+            const auto x = area.getX() + 16.0f + i * (area.getWidth() - 32.0f) / 7.0f;
+            const auto height = 14.0f + static_cast<float>((i * 7) % 19);
+            g.fillRoundedRectangle(x, baseY - height, 5.0f, height, 1.0f);
+        }
+    }
+    else if (key.contains("guitar") || key.contains("bass"))
+    {
+        g.fillEllipse(centre.x - 20.0f, centre.y - 13.0f, 25.0f, 26.0f);
+        g.fillEllipse(centre.x - 7.0f, centre.y - 10.0f, 21.0f, 20.0f);
+        g.fillRect(centre.x + 7.0f, centre.y - 2.0f, area.getRight() - centre.x - 21.0f, 4.0f);
+        g.setColour(juce::Colour(0xff101820));
+        g.fillEllipse(centre.x - 3.0f, centre.y - 4.0f, 8.0f, 8.0f);
+    }
+    else if (key.contains("brass"))
+    {
+        g.drawLine(area.getX() + 18.0f, centre.y, area.getRight() - 28.0f, centre.y, 6.0f);
+        juce::Path bell;
+        bell.startNewSubPath(area.getRight() - 31.0f, centre.y - 5.0f);
+        bell.lineTo(area.getRight() - 12.0f, centre.y - 15.0f);
+        bell.lineTo(area.getRight() - 12.0f, centre.y + 15.0f);
+        bell.lineTo(area.getRight() - 31.0f, centre.y + 5.0f);
+        bell.closeSubPath();
+        g.fillPath(bell);
+    }
+    else if (key.contains("bell"))
+    {
+        juce::Path bell;
+        bell.addArc(centre.x - 17.0f, centre.y - 18.0f, 34.0f, 36.0f,
+                    -juce::MathConstants<float>::pi, 0.0f, true);
+        bell.lineTo(centre.x + 21.0f, centre.y + 13.0f);
+        bell.lineTo(centre.x - 21.0f, centre.y + 13.0f);
+        bell.closeSubPath();
+        g.fillPath(bell);
+        g.fillEllipse(centre.x - 4.0f, centre.y + 11.0f, 8.0f, 8.0f);
+    }
+    else
+    {
+        juce::Path wave;
+        wave.startNewSubPath(area.getX() + 10.0f, centre.y);
+        for (int x = 10; x <= bounds.getWidth() - 10; x += 3)
+        {
+            const auto phase = static_cast<float>(x) * 0.22f;
+            wave.lineTo(area.getX() + static_cast<float>(x), centre.y + std::sin(phase) * 12.0f);
+        }
+        g.strokePath(wave, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved));
+    }
+
+    g.setColour(accent.withAlpha(0.9f));
+    g.drawRoundedRectangle(area.reduced(0.5f), 3.0f, 1.0f);
+}
+
+struct UiTranslation
+{
+    const char* portuguese;
+    const char* english;
+    const char* spanish;
+};
+
+// Portuguese is the source language for UI strings. Keep terminology stable
+// across the standalone app and plug-in formats; audio terms such as MIDI,
+// REVERB, CUTOFF and PANIC intentionally remain industry-standard labels.
+static constexpr UiTranslation uiTranslations[] {
+    { "CONFIGURACOES", "SETTINGS", "CONFIGURACIÓN" },
+    { "SONS QUE INSPIRAM", "SOUNDS THAT INSPIRE", "SONIDOS QUE INSPIRAN" },
+    { "NOVO", "NEW", "NUEVO" }, { "SALVAR", "SAVE", "GUARDAR" },
+    { "EXPORTAR", "EXPORT", "EXPORTAR" }, { "EXCLUIR", "DELETE", "ELIMINAR" },
+    { "IMPORTAR", "IMPORT", "IMPORTAR" }, { "EDITAR", "EDIT", "EDITAR" },
+    { "VOLTAR", "BACK", "VOLVER" }, { "ANTERIOR", "PREVIOUS", "ANTERIOR" },
+    { "PROXIMO  >", "NEXT  >", "SIGUIENTE  >" },
+    { "MISTO", "MIXED", "MIXTO" }, { "SUSTENIDO", "SHARP", "SOSTENIDO" },
+    { "BEMOL", "FLAT", "BEMOL" },
+    { "COR ACORDE", "CHORD COLOR", "COLOR DEL ACORDE" },
+    { "COR TECLAS", "KEY COLOR", "COLOR DE TECLAS" },
+    { "OCULTAR TECLADO", "HIDE KEYBOARD", "OCULTAR TECLADO" },
+    { "MOSTRAR TECLADO", "SHOW KEYBOARD", "MOSTRAR TECLADO" },
+    { "GRAVAR WAV+MIDI", "RECORD WAV+MIDI", "GRABAR WAV+MIDI" },
+    { "PARAR", "STOP", "DETENER" }, { "PANIC", "PANIC", "PANIC" },
+    { "MASTER", "MASTER", "MASTER" }, { "VOLUME", "VOLUME", "VOLUMEN" },
+    { "LIM", "LIM", "LIM" }, { "EQ", "EQ", "EQ" },
+    { "NOVO PROGRAMA", "NEW PERFORMANCE", "NUEVA PERFORMANCE" },
+    { "LIVE SET", "LIVE SET", "LIVE SET" },
+    { "EDITAR LIVE SET", "EDIT LIVE SET", "EDITAR LIVE SET" },
+    { "CONCLUIR EDICAO", "DONE EDITING", "FINALIZAR EDICIÓN" },
+    { "BANCO", "BANK", "BANCO" },
+    { "LAYER SF2", "SF2 LAYER", "CAPA SF2" },
+    { "Layer SF2", "SF2 Layer", "Capa SF2" },
+    { "Layer DX7 (.syx)", "DX7 Layer (.syx)", "Capa DX7 (.syx)" },
+    { "Classic Keys Analog", "Classic Keys Analog", "Classic Keys Analog" },
+    { "Layer Drum Pads (8)", "Drum Pads Layer (8)", "Capa Drum Pads (8)" },
+    { "Hammond", "Hammond", "Hammond" },
+    { "Pad Continuo (12)", "Continuous Pads (12)", "Pads Continuos (12)" },
+    { "EDITAR LAYER", "EDIT LAYER", "EDITAR CAPA" },
+    { "Excluir layer", "Delete layer", "Eliminar capa" },
+    { "EDITAR REVERB", "EDIT REVERB", "EDITAR REVERB" },
+    { "EDITAR COMP", "EDIT COMP", "EDITAR COMP" },
+    { "EDITAR CHORUS", "EDIT CHORUS", "EDITAR CHORUS" },
+    { "EDITAR EQ", "EDIT EQ", "EDITAR EQ" },
+    { "EDITAR EQ / FILTROS", "EDIT EQ / FILTERS", "EDITAR EQ / FILTROS" },
+    { "CATEGORIA", "CATEGORY", "CATEGORÍA" },
+    { "BIBLIOTECA SF2", "SF2 LIBRARY", "BIBLIOTECA SF2" },
+    { "PRESET", "PRESET", "PRESET" }, { "MODO", "MODE", "MODO" },
+    { "SUSTAIN", "SUSTAIN", "SUSTAIN" }, { "CANAL MIDI", "MIDI CHANNEL", "CANAL MIDI" },
+    { "ENTRADA MIDI", "MIDI INPUT", "ENTRADA MIDI" },
+    { "OITAVA", "OCTAVE", "OCTAVA" }, { "FAIXA DE NOTAS", "NOTE RANGE", "RANGO DE NOTAS" },
+    { "VELOCIDADE", "VELOCITY", "VELOCIDAD" },
+    { "TODOS OS CONTROLADORES", "ALL CONTROLLERS", "TODOS LOS CONTROLADORES" },
+    { "CONTROLADOR MIDI", "MIDI CONTROLLER", "CONTROLADOR MIDI" },
+    { "POLI", "POLY", "POLI" }, { "MONO / LEGATO", "MONO / LEGATO", "MONO / LEGATO" },
+    { "MONO LEGATO", "MONO LEGATO", "MONO LEGATO" },
+    { "PORTAMENTO", "PORTAMENTO", "PORTAMENTO" },
+    { "SUSTAIN ON", "SUSTAIN ON", "SUSTAIN ON" },
+    { "SUSTAIN OFF", "SUSTAIN OFF", "SUSTAIN OFF" },
+    { "MIDI OMNI", "MIDI OMNI", "MIDI OMNI" },
+    { "VEL LINEAR", "LINEAR VEL", "VEL LINEAL" },
+    { "VEL SOFT", "SOFT VEL", "VEL SUAVE" },
+    { "VEL HARD", "HARD VEL", "VEL FUERTE" },
+    { "ESCOLHA O SF2", "CHOOSE AN SF2", "ELIGE UN SF2" },
+    { "CATEGORIA VAZIA", "EMPTY CATEGORY", "CATEGORÍA VACÍA" },
+    { "BIBLIOTECA DX7 VAZIA", "EMPTY DX7 LIBRARY", "BIBLIOTECA DX7 VACÍA" },
+    { "SELECIONE O TIMBRE DX7", "SELECT A DX7 PATCH", "SELECCIONA UN TIMBRE DX7" },
+    { "VST INSTALADO", "INSTALLED VST", "VST INSTALADO" },
+    { "IMPORTAR SF2", "IMPORT SF2", "IMPORTAR SF2" },
+    { "EXCLUIR SF2", "DELETE SF2", "ELIMINAR SF2" },
+    { "CARREGAR VST", "LOAD VST", "CARGAR VST" },
+    { "ABRIR EDITOR", "OPEN EDITOR", "ABRIR EDITOR" },
+    { "IMPORTAR DX7", "IMPORT DX7", "IMPORTAR DX7" },
+    { "EXCLUIR DX7", "DELETE DX7", "ELIMINAR DX7" },
+    { "BANCO DX7", "DX7 BANK", "BANCO DX7" },
+    { "TIMBRE DX7", "DX7 PATCH", "TIMBRE DX7" },
+    { "SEM SOUNDFONT", "NO SOUNDFONT", "SIN SOUNDFONT" },
+    { "PAD CONTINUO", "CONTINUOUS PADS", "PADS CONTINUOS" },
+    { "PADS CONTINUOS", "CONTINUOUS PADS", "PADS CONTINUOS" },
+    { "DRUM PADS", "DRUM PADS", "DRUM PADS" },
+    { "PAD", "PAD", "PAD" }, { "LOAD", "LOAD", "CARGAR" },
+    { "LEARN", "LEARN", "APRENDER" }, { "LEARN CC", "LEARN CC", "APRENDER CC" },
+    { "LEARN VOLUME", "LEARN VOLUME", "APRENDER VOLUMEN" },
+    { "LEARN MUTE", "LEARN MUTE", "APRENDER MUTE" },
+    { "LEARN STOP", "LEARN STOP", "APRENDER STOP" },
+    { "LEARN M", "LEARN MUTE", "APRENDER MUTE" },
+    { "VOLUME: MOVA O CC", "VOLUME: MOVE A CC", "VOLUMEN: MUEVE UN CC" },
+    { "MUTE: MOVA O CC", "MUTE: MOVE A CC", "MUTE: MUEVE UN CC" },
+    { "STOP: MOVA O CC", "STOP: MOVE A CC", "STOP: MUEVE UN CC" },
+    { "MOVA O CC", "MOVE A CC", "MUEVE UN CC" },
+    { "MOVA UM CC", "MOVE A CC", "MUEVE UN CC" },
+    { "MOVE CC", "MOVE CC", "MUEVE UN CC" },
+    { "AGUARDANDO...", "WAITING...", "ESPERANDO..." },
+    { "RESET", "RESET", "RESTABLECER" }, { "RESET CC", "RESET CC", "RESTABLECER CC" },
+    { "MUTE", "MUTE", "MUTE" }, { "COMP", "COMP", "COMP" },
+    { "REVERB", "REVERB", "REVERB" }, { "CHORUS", "CHORUS", "CHORUS" },
+    { "ATTACK", "ATTACK", "ATTACK" }, { "RELEASE", "RELEASE", "RELEASE" },
+    { "ROTEAMENTO DA LAYER", "LAYER ROUTING", "RUTEO DE CAPA" },
+    { "MODULATION DO TECLADO: ON", "KEYBOARD MODULATION: ON", "MODULACIÓN DEL TECLADO: ON" },
+    { "MODULATION DO TECLADO: OFF", "KEYBOARD MODULATION: OFF", "MODULACIÓN DEL TECLADO: OFF" },
+    { "EXPORTAR PRESET", "EXPORT PRESET", "EXPORTAR PRESET" },
+    { "IMPORTAR PRESET", "IMPORT PRESET", "IMPORTAR PRESET" },
+    { "Exportar Preset", "Export Preset", "Exportar Preset" },
+    { "ESCOLHA UM PRESET", "CHOOSE A PRESET", "ELIGE UN PRESET" },
+    { "Exporta um arquivo .ckprogram que pode ser importado em outro Classic Player.",
+      "Exports a .ckprogram file that can be imported into another Classic Player.",
+      "Exporta un archivo .ckprogram que se puede importar en otro Classic Player." },
+    { "GRAVANDO 00:00", "RECORDING 00:00", "GRABANDO 00:00" },
+    { "WAV + MIDI: Area de Trabalho", "WAV + MIDI: Desktop", "WAV + MIDI: Escritorio" },
+    { "WAV + MIDI salvos na Area de Trabalho", "WAV + MIDI saved to Desktop", "WAV + MIDI guardados en el Escritorio" },
+    { "LICENCA CLASSIC PLAYER", "CLASSIC PLAYER LICENSE", "LICENCIA CLASSIC PLAYER" },
+    { "Entre com o e-mail e a senha da sua conta para liberar este computador.",
+      "Sign in with your account email and password to activate this computer.",
+      "Inicia sesión con el correo y la contraseña de tu cuenta para activar este equipo." },
+    { "ENTRAR E ATIVAR", "SIGN IN & ACTIVATE", "INICIAR SESIÓN Y ACTIVAR" },
+    { "IDIOMA / LANGUAGE / IDIOMA", "LANGUAGE / IDIOMA", "IDIOMA / LANGUAGE" },
+    { "APLICAR", "APPLY", "APLICAR" }, { "CANCELAR", "CANCEL", "CANCELAR" },
+    { "FECHAR", "CLOSE", "CERRAR" }, { "SUBSTITUIR", "REPLACE", "REEMPLAZAR" },
+    { "Salvar", "Save", "Guardar" }, { "Importar", "Import", "Importar" },
+    { "Selecionar", "Select", "Seleccionar" },
+    { "CANCELAR MIDI LEARN DO VOLUME MASTER", "CANCEL MASTER VOLUME MIDI LEARN", "CANCELAR MIDI LEARN DEL VOLUMEN MASTER" },
+    { "MIDI LEARN DO VOLUME MASTER", "MASTER VOLUME MIDI LEARN", "MIDI LEARN DEL VOLUMEN MASTER" },
+    { "Equalizador master", "Master equalizer", "Ecualizador master" },
+    { "Audio / MIDI", "Audio / MIDI", "Audio / MIDI" },
+    { "Clique para atribuir uma programação salva", "Click to assign a saved performance", "Haz clic para asignar una performance guardada" },
+    { "Posição vazia", "Empty slot", "Posición vacía" },
+    { "Mova agora um controle MIDI CC", "Move a MIDI CC control now", "Mueve ahora un control MIDI CC" },
+    { "Clique e mova um controle MIDI para carregar esta performance", "Click and move a MIDI control to load this performance", "Haz clic y mueve un control MIDI para cargar esta performance" },
+    { "Clique para reaprender.", "Click to learn again.", "Haz clic para volver a aprender." },
+    { "Clique para reaprender.", "Click to learn again.", "Haz clic para volver a aprender." },
+    { "Escolha um SoundFont", "Choose a SoundFont", "Elige un SoundFont" },
+    { "HAMMOND", "HAMMOND", "HAMMOND" },
+    { "CLASSIC KEYS ANALOG", "CLASSIC KEYS ANALOG", "CLASSIC KEYS ANALOG" },
+    { "TODOS OS CONTROLADORES", "ALL CONTROLLERS", "TODOS LOS CONTROLADORES" },
+    { "PADS CONTINUOS", "CONTINUOUS PADS", "PADS CONTINUOS" },
+    { "SUSTAIN ON", "SUSTAIN ON", "SUSTAIN ON" },
+    { "AUDIO / MIDI", "AUDIO / MIDI", "AUDIO / MIDI" },
+    { "MIDI OMNI", "MIDI OMNI", "MIDI OMNI" },
+    { "EXPORTADO:", "EXPORTED:", "EXPORTADO:" },
+    { "Carregando...", "Loading...", "Cargando..." },
+    { "Carregando instrumento...", "Loading instrument...", "Cargando instrumento..." },
+    { "Importando DX7...", "Importing DX7...", "Importando DX7..." },
+    { "COMPLETO", "DONE", "COMPLETADO" },
+    { "Copyright 2026 Willam Silva & Classic Keys. Todos os direitos reservados.",
+      "Copyright 2026 Willam Silva & Classic Keys. All rights reserved.",
+      "Copyright 2026 Willam Silva & Classic Keys. Todos los derechos reservados." },
+    { "Gravar simultaneamente a saída em WAV e a performance em MIDI",
+      "Record the audio output to WAV and the performance to MIDI at the same time",
+      "Graba simultáneamente la salida de audio en WAV y la performance en MIDI" },
+    { "Configurar dispositivo de audio, taxa de amostragem, buffer e MIDI",
+      "Configure the audio device, sample rate, buffer and MIDI",
+      "Configura el dispositivo de audio, la frecuencia de muestreo, el búfer y MIDI" },
+    { "Mostrar ou ocultar o teclado virtual para liberar espaço para as layers",
+      "Show or hide the virtual keyboard to make room for layers",
+      "Mostrar u ocultar el teclado virtual para dejar espacio a las capas" },
+    { "Formato dos acidentes exibidos no visor de acordes",
+      "Accidental style shown in the chord display",
+      "Formato de las alteraciones mostrado en el visor de acordes" },
+    { "Selecione uma performance para carregá-la imediatamente; digite um nome para salvar uma nova",
+      "Select a performance to load it, or type a name to save a new one",
+      "Selecciona una performance para cargarla o escribe un nombre para guardar una nueva" },
+    { "Criar uma programação vazia do zero", "Create a blank performance", "Crear una performance vacía desde cero" },
+    { "Salvar esta performance na biblioteca interna do Classic Player", "Save this performance in the Classic Player library", "Guardar esta performance en la biblioteca de Classic Player" },
+    { "Exportar uma cópia portátil da performance para outro computador", "Export a portable copy of this performance for another computer", "Exportar una copia portátil de esta performance para otro equipo" },
+    { "Importar uma performance portátil para a biblioteca deste computador e abri-la", "Import a portable performance into this computer's library and open it", "Importar una performance portátil a la biblioteca de este equipo y abrirla" },
+    { "Envia All Notes Off/All Sound Off e solta qualquer nota presa", "Sends All Notes Off/All Sound Off and releases any stuck notes", "Envía All Notes Off/All Sound Off y libera cualquier nota atascada" },
+    { "Aprender um MIDI CC para acionar o Panic", "Learn a MIDI CC to trigger Panic", "Aprender un MIDI CC para activar Panic" },
+    { "Mova um controle MIDI CC; clique novamente para cancelar ou use o botão direito para excluir o mapeamento.",
+      "Move a MIDI CC control; click again to cancel or right-click to delete the mapping.",
+      "Mueve un control MIDI CC; haz clic de nuevo para cancelar o clic derecho para eliminar el mapeo." },
+    { "Apagar todos os endereçamentos MIDI Learn desta layer", "Clear all MIDI Learn mappings for this layer", "Borrar todos los mapeos MIDI Learn de esta capa" },
+    { "Excluir o SF2 selecionado da biblioteca", "Delete the selected SF2 from the library", "Eliminar el SF2 seleccionado de la biblioteca" },
+    { "Master forte", "Powerful master", "Master potente" },
+    { "Preset exportado", "Preset exported", "Preset exportado" },
+    { "O arquivo está corrompido.", "The file is corrupted.", "El archivo está dañado." },
+    { "Não foi possível exportar o preset.", "Could not export the preset.", "No se pudo exportar el preset." },
+    { "Preset inválido", "Invalid preset", "Preset no válido" },
+    { "Falha ao salvar", "Failed to save", "Error al guardar" },
+    { "Idioma / Language / Idioma", "Language / Idioma", "Idioma / Language" },
+    { "Selecionar idioma / Select language / Seleccionar idioma",
+      "Select language / Idioma", "Seleccionar idioma / Language" },
+    { "Exportar Preset Classic Player", "Export Classic Player Preset", "Exportar preset de Classic Player" },
+    { "Importar SoundFont", "Import SoundFont", "Importar SoundFont" },
+    { "Escolha um arquivo DX7 SysEx", "Choose a DX7 SysEx file", "Elige un archivo DX7 SysEx" },
+    { "Carregar áudio do pad", "Load pad audio", "Cargar audio del pad" },
+    { "Exportar preset da layer", "Export layer preset", "Exportar preset de la capa" },
+    { "Importar preset da layer", "Import layer preset", "Importar preset de la capa" },
+    { "Escolha um instrumento virtual", "Choose a virtual instrument", "Elige un instrumento virtual" },
+    { "Exportar performance Classic Player", "Export Classic Player performance", "Exportar performance de Classic Player" },
+    { "Importar performance Classic Player", "Import Classic Player performance", "Importar performance de Classic Player" },
+    { "Falha ao exportar", "Export failed", "Error al exportar" },
+    { "Falha ao exportar preset", "Failed to export preset", "Error al exportar el preset" },
+    { "Falha ao importar preset", "Failed to import preset", "Error al importar el preset" },
+    { "Preset da layer exportado", "Layer preset exported", "Preset de la capa exportado" },
+    { "Arquivo exportado para:", "File exported to:", "Archivo exportado a:" },
+    { "Exportação concluída", "Export complete", "Exportación completada" },
+    { "Cópia portátil salva em:", "Portable copy saved to:", "Copia portátil guardada en:" },
+    { "Falha ao Exportar Performance", "Failed to Export Performance", "Error al exportar la performance" },
+    { "Falha ao importar performance", "Failed to import performance", "Error al importar la performance" },
+    { "Falha ao carregar performance", "Failed to load performance", "Error al cargar la performance" },
+    { "Falha ao substituir performance", "Failed to replace performance", "Error al reemplazar la performance" },
+    { "Preset da layer importado", "Layer preset imported", "Preset de la capa importado" },
+    { "Importação concluída", "Import complete", "Importación completada" },
+    { "Digite o nome da performance", "Enter the performance name", "Escribe el nombre de la performance" },
+    { "O carregamento de VST/AU está disponível apenas no aplicativo standalone.", "VST/AU loading is available only in the standalone app.", "La carga de VST/AU solo está disponible en la aplicación independiente." },
+    { "Instrumento externo", "External instrument", "Instrumento externo" },
+    { "Falha ao carregar instrumento", "Failed to load instrument", "Error al cargar el instrumento" },
+    { "Falha ao carregar DX7", "Failed to load DX7", "Error al cargar DX7" },
+    { "Falha ao importar DX7", "Failed to import DX7", "Error al importar DX7" },
+    { "Limpar posição", "Clear slot", "Limpiar posición" },
+    { "Excluir DX7", "Delete DX7", "Eliminar DX7" },
+    { "Excluir SF2", "Delete SF2", "Eliminar SF2" },
+    { "Falha ao excluir DX7", "Failed to delete DX7", "Error al eliminar DX7" },
+    { "Falha ao Salvar Preset", "Failed to Save Preset", "Error al guardar el preset" },
+    { "Falha ao Importar Performance", "Failed to Import Performance", "Error al importar la performance" },
+    { "Falha ao Abrir Performance", "Failed to Open Performance", "Error al abrir la performance" },
+    { "Live Set não atualizado", "Live Set not updated", "Live Set no actualizado" },
+    { "Editor indisponível", "Editor unavailable", "Editor no disponible" },
+    { "Drum pad", "Drum pad", "Drum pad" },
+    { "Excluir programacao", "Delete performance", "Eliminar performance" },
+    { "Carregar programação", "Load performance", "Cargar performance" },
+    { "Nova programação", "New performance", "Nueva performance" },
+    { "Substituir performance?", "Replace performance?", "¿Reemplazar la performance?" },
+    { "Excluir", "Delete", "Eliminar" }, { "Cancelar", "Cancel", "Cancelar" },
+    { "Começar uma programação vazia? As alterações não salvas e as layers atuais serão removidas desta sessão. Os arquivos salvos e os bancos do Live Set não serão apagados.",
+      "Start a blank performance? Unsaved changes and the current layers will be removed from this session. Saved files and Live Set banks will not be deleted.",
+      "¿Empezar una performance vacía? Los cambios sin guardar y las capas actuales se quitarán de esta sesión. Los archivos guardados y los bancos del Live Set no se eliminarán." },
+    { "Já existe uma performance com esse nome na biblioteca deste computador. Deseja substituí-la?",
+      "A performance with this name already exists in this computer's library. Replace it?",
+      "Ya existe una performance con este nombre en la biblioteca de este equipo. ¿Quieres reemplazarla?" },
+    { "Selecione uma programação salva na lista.", "Select a saved performance from the list.", "Selecciona una performance guardada de la lista." },
+    { "Este instrumento virtual não possui uma janela de edição.",
+      "This virtual instrument does not provide an editor window.",
+      "Este instrumento virtual no tiene una ventana de edición." },
+    { "INICIAL", "INITIAL", "INICIAL" },
+    { "HIGH PASS: OFF", "HIGH PASS: OFF", "HIGH PASS: OFF" },
+    { "LOW PASS: OFF", "LOW PASS: OFF", "LOW PASS: OFF" },
+    { "EQ DA LAYER", "LAYER EQ", "EQ DE LA CAPA" },
+    { "LOW FREQ Hz", "LOW FREQ Hz", "FREC. BAJA Hz" },
+    { "LOW GAIN dB", "LOW GAIN dB", "GANANCIA BAJA dB" },
+    { "LOW Q", "LOW Q", "Q BAJA" },
+    { "MID FREQ Hz", "MID FREQ Hz", "FREC. MEDIA Hz" },
+    { "MID GAIN dB", "MID GAIN dB", "GANANCIA MEDIA dB" },
+    { "MID Q", "MID Q", "Q MEDIA" },
+    { "HIGH FREQ Hz", "HIGH FREQ Hz", "FREC. ALTA Hz" },
+    { "HIGH GAIN dB", "HIGH GAIN dB", "GANANCIA ALTA dB" },
+    { "HIGH Q", "HIGH Q", "Q ALTA" },
+    { "LOW CUT Hz", "LOW CUT Hz", "CORTE BAJO Hz" },
+    { "HIGH CUT Hz", "HIGH CUT Hz", "CORTE ALTO Hz" },
+    { "EQ LOW dB", "EQ LOW dB", "EQ BAJO dB" },
+    { "EQ MID dB", "EQ MID dB", "EQ MEDIO dB" },
+    { "EQ HIGH dB", "EQ HIGH dB", "EQ ALTO dB" },
+    { "THRESHOLD dB", "THRESHOLD dB", "UMBRAL dB" },
+    { "MAKEUP dB", "MAKEUP dB", "GANANCIA COMP. dB" },
+    { "INPUT dB", "INPUT dB", "ENTRADA dB" },
+    { "OUTPUT dB", "OUTPUT dB", "SALIDA dB" },
+    { "Equalizador parametrico de tres bandas: frequencia e ganho independentes.",
+      "Three-band parametric equalizer: independent frequency and gain controls.",
+      "Ecualizador paramétrico de tres bandas: frecuencia y ganancia independientes." },
+    { "REVERB DA LAYER", "LAYER REVERB", "REVERB DE LA CAPA" },
+    { "O knob REVERB controla a quantidade. Ajuste o carater da sala abaixo.",
+      "The REVERB knob controls the amount. Adjust the room character below.",
+      "El knob REVERB controla la cantidad. Ajusta el carácter de la sala abajo." },
+    { "COMPRESSOR DA LAYER", "LAYER COMPRESSOR", "COMPRESOR DE LA CAPA" },
+    { "O knob COMP controla a mistura. Ajuste a dinamica abaixo.",
+      "The COMP knob controls the mix. Adjust the dynamics below.",
+      "El knob COMP controla la mezcla. Ajusta la dinámica abajo." },
+    { "CHORUS DA LAYER DX7", "DX7 LAYER CHORUS", "CHORUS DE LA CAPA DX7" },
+    { "Ajuste o chorus em tempo real.", "Adjust chorus in real time.", "Ajusta el chorus en tiempo real." },
+    { "Ajuste os controles desta layer sem expandir o canal.",
+      "Adjust this layer's controls without expanding the channel.",
+      "Ajusta los controles de esta capa sin expandir el canal." },
+    { "Protecao da saida master. OUTPUT define o teto em dBFS.",
+      "Protects the master output. OUTPUT sets the ceiling in dBFS.",
+      "Protege la salida master. OUTPUT define el límite en dBFS." },
+    { "EQ MASTER", "MASTER EQ", "EQ MASTER" },
+    { "EQ de cinco estagios: corte baixo, tres bandas e corte alto.",
+      "Five-stage EQ: low cut, three bands and high cut.",
+      "EQ de cinco etapas: corte bajo, tres bandas y corte alto." },
+    { "LIMITER MASTER", "MASTER LIMITER", "LIMITER MASTER" },
+    { "Selecione o preset desta camada.", "Select this layer's preset.", "Selecciona el preset de esta capa." },
+    { "Selecione o banco e o timbre desta camada.", "Select this layer's bank and patch.", "Selecciona el banco y el timbre de esta capa." },
+    { "Exportar somente a configuração desta layer em um arquivo portátil", "Export only this layer's settings to a portable file", "Exportar solo la configuración de esta capa a un archivo portátil" },
+    { "Importar uma configuração sem alterar as outras layers", "Import settings without changing other layers", "Importar una configuración sin cambiar las otras capas" },
+    { "Exporta a programação completa para um arquivo portátil.", "Exports the complete performance to a portable file.", "Exporta la performance completa a un archivo portátil." },
+    { "Clique novamente para cancelar; clique com o botão direito para excluir o mapeamento.", "Click again to cancel; right-click to delete the mapping.", "Haz clic de nuevo para cancelar; clic derecho para eliminar el mapeo." },
+    { "Clique novamente para cancelar; botão direito para excluir o mapeamento do STOP.", "Click again to cancel; right-click to delete the STOP mapping.", "Haz clic de nuevo para cancelar; clic derecho para eliminar el mapeo de STOP." },
+    { "Aprender um CC para alternar o mute desta layer", "Learn a CC to toggle this layer's mute", "Aprender un CC para alternar el mute de esta capa" },
+    { "Aprender um CC de botão para alternar esta layer entre ativa e muda", "Learn a button CC to toggle this layer on and off", "Aprender un CC de botón para activar o silenciar esta capa" },
+    { "Ativar ou silenciar esta layer; o volume do fader permanece salvo", "Enable or mute this layer; the fader volume is preserved", "Activar o silenciar esta capa; el volumen del fader se conserva" },
+    { "Mostrar ou ocultar os controles desta layer", "Show or hide this layer's controls", "Mostrar u ocultar los controles de esta capa" },
+    { "Excluir esta layer", "Delete this layer", "Eliminar esta capa" },
+    { "Arraste o nome para mudar a ordem das layers", "Drag the name to reorder the layers", "Arrastra el nombre para cambiar el orden de las capas" },
+    { "Escolher manualmente um instrumento VST3/AU", "Choose a VST3/AU instrument manually", "Elegir manualmente un instrumento VST3/AU" },
+    { "Abrir a janela de configuração do instrumento virtual", "Open the virtual instrument settings window", "Abrir la ventana de configuración del instrumento virtual" },
+    { "Importar banco ou voz DX7 em formato SysEx (.syx)", "Import a DX7 bank or patch in SysEx (.syx) format", "Importar un banco o timbre DX7 en formato SysEx (.syx)" },
+    { "Excluir o banco DX7 selecionado da biblioteca", "Delete the selected DX7 bank from the library", "Eliminar el banco DX7 seleccionado de la biblioteca" },
+    { "Excluir o SF2 selecionado da biblioteca", "Delete the selected SF2 from the library", "Eliminar el SF2 seleccionado de la biblioteca" },
+    { "Clique para tocar este pad", "Click to play this pad", "Haz clic para tocar este pad" },
+    { "Carregar MP3/WAV neste pad", "Load an MP3/WAV into this pad", "Cargar un MP3/WAV en este pad" },
+    { "Clique para aprender; clique novamente para cancelar; botão direito para excluir o mapeamento.", "Click to learn; click again to cancel; right-click to delete the mapping.", "Haz clic para aprender; haz clic de nuevo para cancelar; clic derecho para eliminar el mapeo." },
+    { "Volume da layer de drum pads", "Drum pads layer volume", "Volumen de la capa Drum Pads" },
+    { "Volume individual deste pad", "Individual volume for this pad", "Volumen individual de este pad" },
+    { "Ajustar com precisão a intensidade do efeito", "Fine-tune the effect amount", "Ajustar con precisión la intensidad del efecto" },
+    { "Ajustar chorus da layer DX7", "Adjust the DX7 layer chorus", "Ajustar el chorus de la capa DX7" },
+    { "Abrir o equalizador paramétrico da saída master", "Open the master output parametric equalizer", "Abrir el ecualizador paramétrico de la salida master" },
+    { "Abrir limiter da saida master", "Open the master output limiter", "Abrir el limiter de la salida master" },
+    { "Aprender CC e canal do volume master. Clique novamente para cancelar; Shift+clique apaga o mapeamento. CC64 reservado ao sustain.",
+      "Learn the master volume CC and channel. Click again to cancel; Shift-click clears the mapping. CC64 is reserved for sustain.",
+      "Aprender CC y canal del volumen master. Haz clic de nuevo para cancelar; Shift+clic borra el mapeo. CC64 reservado para sustain." },
+    { "E-mail", "Email", "Correo electrónico" }, { "Senha", "Password", "Contraseña" },
+    { "Informe e-mail e senha.", "Enter your email and password.", "Ingresa tu correo y contraseña." },
+    { "Conectando ao servidor de licença...", "Connecting to the license server...", "Conectando con el servidor de licencias..." },
+    { "Validando a licença deste computador...", "Validating this computer's license...", "Validando la licencia de este equipo..." },
+    { "Não foi possível gravar", "Recording failed", "No se pudo grabar" },
+    { "Falha ao carregar SF2", "Failed to load SF2", "Error al cargar SF2" },
+    { "Falha ao importar SF2", "Failed to import SF2", "Error al importar SF2" },
+    { "Falha ao excluir SF2", "Failed to delete SF2", "Error al eliminar SF2" },
+    { "Falha ao excluir programacao", "Failed to delete performance", "Error al eliminar la performance" },
+    { "Escolha um SoundFont", "Choose a SoundFont", "Elige un SoundFont" },
+    { "Limpar posição", "Clear slot", "Limpiar posición" },
+    { "EXPORTADO:", "EXPORTED:", "EXPORTADO:" },
+    { "MOVA O CC", "MOVE A CC", "MUEVE UN CC" },
+    { "MOVA UM CC", "MOVE A CC", "MUEVE UN CC" },
+    { "Arraste os pontos para ajustar frequencia e ganho", "Drag the points to adjust frequency and gain", "Arrastra los puntos para ajustar frecuencia y ganancia" },
+    { "ANALISADOR MASTER", "MASTER ANALYZER", "ANALIZADOR MASTER" },
+    { "COMPRESSOR DA LAYER", "LAYER COMPRESSOR", "COMPRESOR DE LA CAPA" },
+    { "CURVA", "CURVE", "CURVA" },
+    { "OSCILLOSCOPE", "OSCILLOSCOPE", "OSCILOSCOPIO" },
+    { "TODOS OS CONTROLADORES", "ALL CONTROLLERS", "TODOS LOS CONTROLADORES" },
+    { "Exportar Preset Classic Player", "Export Classic Player Preset", "Exportar preset de Classic Player" },
+    { "Importar SoundFont", "Import SoundFont", "Importar SoundFont" },
+    { "Escolha um arquivo DX7 SysEx", "Choose a DX7 SysEx file", "Elige un archivo DX7 SysEx" },
+    { "Carregar áudio do pad", "Load pad audio", "Cargar audio del pad" },
+    { "Exportar preset da layer", "Export layer preset", "Exportar preset de la capa" },
+    { "Importar preset da layer", "Import layer preset", "Importar preset de la capa" },
+    { "Escolha um instrumento virtual", "Choose a virtual instrument", "Elige un instrumento virtual" },
+    { "Exportar performance Classic Player", "Export Classic Player performance", "Exportar performance de Classic Player" },
+    { "Importar performance Classic Player", "Import Classic Player performance", "Importar performance de Classic Player" },
+    { "Falha ao exportar", "Export failed", "Error al exportar" },
+    { "Falha ao exportar preset", "Failed to export preset", "Error al exportar el preset" },
+    { "Falha ao importar preset", "Failed to import preset", "Error al importar el preset" },
+    { "Preset da layer exportado", "Layer preset exported", "Preset de la capa exportado" },
+    { "Arquivo exportado para:", "File exported to:", "Archivo exportado a:" },
+    { "O carregamento de VST/AU está disponível apenas no aplicativo standalone.",
+      "VST/AU loading is available only in the standalone app.",
+      "La carga de VST/AU solo está disponible en la aplicación independiente." },
+    { "Instrumento externo", "External instrument", "Instrumento externo" },
+    { "Falha ao carregar instrumento", "Failed to load instrument", "Error al cargar el instrumento" },
+    { "Falha ao carregar DX7", "Failed to load DX7", "Error al cargar DX7" },
+    { "Falha ao importar DX7", "Failed to import DX7", "Error al importar DX7" },
+    { "Falha ao exportar DX7", "Failed to export DX7", "Error al exportar DX7" },
+    { "Exportação concluída", "Export complete", "Exportación completada" },
+    { "Cópia portátil salva em:", "Portable copy saved to:", "Copia portátil guardada en:" },
+    { "Falha ao Exportar Performance", "Failed to Export Performance", "Error al exportar la performance" },
+    { "Falha ao importar performance", "Failed to import performance", "Error al importar la performance" },
+    { "Falha ao carregar performance", "Failed to load performance", "Error al cargar la performance" },
+    { "Falha ao substituir performance", "Failed to replace performance", "Error al reemplazar la performance" },
+    { "Preset da layer importado", "Layer preset imported", "Preset de la capa importado" },
+    { "Importação concluída", "Import complete", "Importación completada" },
+    { "Digite o nome da performance", "Enter the performance name", "Escribe el nombre de la performance" },
+    { "Não foi possível excluir", "Could not delete", "No se pudo eliminar" },
+    { "INFORME O NOME", "ENTER A NAME", "INGRESA UN NOMBRE" },
+    { "NOVO", "NEW", "NUEVO" },
+    { "Escolha um SoundFont", "Choose a SoundFont", "Elige un SoundFont" },
+    { "MIDI Learn do volume", "Volume MIDI Learn", "MIDI Learn del volumen" },
+    { "Selecione o arquivo", "Select a file", "Selecciona un archivo" },
+    { "Exportar", "Export", "Exportar" },
+    { "Importar", "Import", "Importar" },
+    { "Escolha um SoundFont", "Choose a SoundFont", "Elige un SoundFont" },
+    { "Protecao transparente", "Transparent protection", "Protección transparente" },
+    { "Piano suave", "Soft piano", "Piano suave" },
+    { "Piano worship", "Worship piano", "Piano worship" },
+    { "Piano presente", "Present piano", "Piano presente" },
+    { "Master forte", "Powerful master", "Master potente" },
+    { "CLASSIC KEYS SF2 WORKSTATION", "CLASSIC KEYS SF2 WORKSTATION", "ESTACIÓN DE TRABAJO SF2 CLASSIC KEYS" },
+    { "Personalizado", "Custom", "Personalizado" },
+    { "LIMPAR", "CLEAR", "LIMPIAR" },
+    { "Sem CC", "No CC", "Sin CC" },
+    { "Level", "Level", "Nivel" },
+    { "Leslie / Mod wheel", "Leslie / Mod wheel", "Leslie / rueda de modulación" },
+    { "Mod wheel (CC1): 0-63 lento, 64-127 rapido",
+      "Mod wheel (CC1): 0-63 slow, 64-127 fast",
+      "Rueda Mod (CC1): 0-63 lento, 64-127 rápido" },
+    { "KEY CLICK", "KEY CLICK", "CLIC DE TECLA" },
+    { "LEAKAGE", "LEAKAGE", "FUGA" },
+    { "PINK NOISE", "PINK NOISE", "RUIDO ROSA" },
+    { "OSCILLATOR - FILTER - MODULATION", "OSCILLATOR - FILTER - MODULATION", "OSCILADOR - FILTRO - MODULACIÓN" },
+    { "BROWSER 12 dB - SOM APROVADO", "BROWSER 12 dB - APPROVED SOUND", "BROWSER 12 dB - SONIDO APROBADO" },
+    { "PRESET ANALOG - BROWSER 12 dB", "ANALOG PRESET - BROWSER 12 dB", "PRESET ANALÓGICO - BROWSER 12 dB" },
+    { "PRESET ANALOG - LEGADO", "ANALOG PRESET - LEGACY", "PRESET ANALÓGICO - LEGADO" },
+    { "Drawbars, Leslie e MIDI. Salve a programação para guardar o timbre.",
+      "Drawbars, Leslie and MIDI. Save the performance to store the sound.",
+      "Drawbars, Leslie y MIDI. Guarda la performance para conservar el sonido." },
+    { "OSC 1 LEVEL", "OSC 1 LEVEL", "NIVEL OSC 1" },
+    { "OSC 2 LEVEL", "OSC 2 LEVEL", "NIVEL OSC 2" },
+    { "OSC 3 LEVEL", "OSC 3 LEVEL", "NIVEL OSC 3" },
+    { "OSC 2 TUNE", "OSC 2 TUNE", "AFINACIÓN OSC 2" },
+    { "OSC 3 TUNE", "OSC 3 TUNE", "AFINACIÓN OSC 3" },
+    { "NOISE", "NOISE", "RUIDO" },
+    { "EMPHASIS", "EMPHASIS", "ÉNFASIS" },
+    { "FILTER CONTOUR", "FILTER CONTOUR", "ENVOLVENTE DE FILTRO" },
+    { "ATTACK ms", "ATTACK ms", "ATAQUE ms" },
+    { "DECAY ms", "DECAY ms", "CAÍDA ms" },
+    { "RELEASE ms", "RELEASE ms", "LIBERACIÓN ms" },
+    { "LFO RATE Hz", "LFO RATE Hz", "VELOCIDAD LFO Hz" },
+    { "LFO PITCH", "LFO PITCH", "TONO LFO" },
+    { "LFO FILTER", "LFO FILTER", "FILTRO LFO" },
+    { "KEY TRACK", "KEY TRACK", "SEGUIMIENTO DE TECLA" },
+    { "MOD WHEEL", "MOD WHEEL", "RUEDA DE MODULACIÓN" },
+    { "OSC 1 ON", "OSC 1 ON", "OSC 1 ACTIVADO" },
+    { "OSC 2 ON", "OSC 2 ON", "OSC 2 ACTIVADO" },
+    { "OSC 3 ON", "OSC 3 ON", "OSC 3 ACTIVADO" },
+    { "Sem SoundFont", "No SoundFont", "Sin SoundFont" },
+    { "Sem VST", "No VST", "Sin VST" },
+    { "Sem DX7", "No DX7", "Sin DX7" },
+    { "ABRIR CLASSIC KEYS ANALOG", "OPEN CLASSIC KEYS ANALOG", "ABRIR CLASSIC KEYS ANALOG" },
+    { "ABRIR HAMMOND", "OPEN HAMMOND", "ABRIR HAMMOND" },
+    { "EQ PARAMETRICO MASTER", "MASTER PARAMETRIC EQ", "EQ PARAMÉTRICO MASTER" },
+    { "EQ PARAMETRICO DA LAYER", "LAYER PARAMETRIC EQ", "EQ PARAMÉTRICO DE LA CAPA" },
+    { "MOVA PAD", "MOVE PAD", "MUEVE EL PAD" },
+    { "Volume master", "Master volume", "Volumen master" },
+    { "Volume master — use CONFIGURACOES para MIDI Learn",
+      "Master volume — use SETTINGS for MIDI Learn",
+      "Volumen master — usa CONFIGURACIÓN para MIDI Learn" },
+};
+
+std::atomic<int> activeUiLanguage { 0 };
+
+juce::String localizedUiText(const juce::String& value, int language)
+{
+    const auto localeIndex = juce::jlimit(0, 2, language);
+    for (const auto& entry : uiTranslations)
+    {
+        const auto pt = juce::String::fromUTF8(entry.portuguese);
+        const auto en = juce::String::fromUTF8(entry.english);
+        const auto es = juce::String::fromUTF8(entry.spanish);
+        if (value == pt) return localeIndex == 0 ? pt : localeIndex == 1 ? en : es;
+        if (value == en || value == es)
+            return localeIndex == 0 ? pt : localeIndex == 1 ? en : es;
+    }
+
+    // Keep generated labels such as LAYER 3 and BANK 2 translatable without
+    // treating performance names or sample paths as UI strings.
+    const std::array<std::array<const char*, 3>, 4> prefixes {{
+        {{ "CAMADA ", "LAYER ", "CAPA " }},
+        {{ "BANCO ", "BANK ", "BANCO " }},
+        {{ "CAMADAS", "LAYERS", "CAPAS" }},
+        {{ "Drawbar ", "Drawbar ", "Tirador " }}
+    }};
+    for (const auto& prefix : prefixes)
+    {
+        for (int source = 0; source < 3; ++source)
+        {
+            const auto sourcePrefix = juce::String::fromUTF8(prefix[(size_t) source]);
+            if (value.startsWith(sourcePrefix))
+                return juce::String::fromUTF8(prefix[(size_t) localeIndex])
+                     + value.substring(sourcePrefix.length());
+        }
+    }
+    const std::array<std::array<const char*, 3>, 3> layerSuffixes {{
+        {{ " CAMADA", " LAYER", " CAPA" }},
+        {{ " CAMADAS", " LAYERS", " CAPAS" }},
+        {{ " CAMADA(S)", " LAYER(S)", " CAPA(S)" }}
+    }};
+    for (const auto& suffix : layerSuffixes)
+        for (int source = 0; source < 3; ++source)
+        {
+            const auto sourceSuffix = juce::String::fromUTF8(suffix[(size_t) source]);
+            if (value.endsWith(sourceSuffix))
+                return value.dropLastCharacters(sourceSuffix.length())
+                     + juce::String::fromUTF8(suffix[(size_t) localeIndex]);
+        }
+    const std::array<std::array<const char*, 3>, 10> dynamicPrefixes {{
+        {{ "EXPORTADO: ", "EXPORTED: ", "EXPORTADO: " }},
+        {{ "Exportar preset de ", "Export effect preset: ", "Exportar preset de " }},
+        {{ "GRAVANDO ", "RECORDING ", "GRABANDO " }},
+        {{ "VOLUME / CC ", "VOLUME / CC ", "VOLUMEN / CC " }},
+        {{ "VOLUME: CC ", "VOLUME: CC ", "VOLUMEN: CC " }},
+        {{ "MUTE: CC ", "MUTE: CC ", "MUTE: CC " }},
+        {{ "STOP: CC ", "STOP: CC ", "DETENER: CC " }},
+        {{ "Carregar ", "Load ", "Cargar " }},
+        {{ "HIGH PASS: ", "HIGH PASS: ", "PASA ALTOS: " }},
+        {{ "LOW PASS: ", "LOW PASS: ", "PASA BAJOS: " }}
+    }};
+    for (const auto& prefix : dynamicPrefixes)
+        for (int source = 0; source < 3; ++source)
+        {
+            const auto sourcePrefix = juce::String::fromUTF8(prefix[(size_t) source]);
+            if (value.startsWith(sourcePrefix))
+                return juce::String::fromUTF8(prefix[(size_t) localeIndex])
+                     + value.substring(sourcePrefix.length());
+        }
+    const std::array<std::array<const char*, 3>, 2> pathPrefixes {{
+        {{ "Cópia portátil salva em:\n", "Portable copy saved to:\n", "Copia portátil guardada en:\n" }},
+        {{ "Arquivo exportado para:\n", "File exported to:\n", "Archivo exportado a:\n" }}
+    }};
+    for (const auto& prefix : pathPrefixes)
+        for (int source = 0; source < 3; ++source)
+        {
+            const auto sourcePrefix = juce::String::fromUTF8(prefix[(size_t) source]);
+            if (value.startsWith(sourcePrefix))
+                return juce::String::fromUTF8(prefix[(size_t) localeIndex])
+                     + value.substring(sourcePrefix.length());
+        }
+    const std::array<std::array<const char*, 3>, 2> deleteMessagePrefixes {{
+        {{ "Excluir '", "Delete '", "¿Eliminar '" }},
+        {{ "' da biblioteca?", "' from the library?", "' de la biblioteca?" }}
+    }};
+    for (int source = 0; source < 3; ++source)
+    {
+        const auto prefix = juce::String::fromUTF8(deleteMessagePrefixes[0][(size_t) source]);
+        const auto suffix = juce::String::fromUTF8(deleteMessagePrefixes[1][(size_t) source]);
+        if (value.startsWith(prefix) && value.endsWith(suffix)
+            && value.length() >= prefix.length() + suffix.length())
+        {
+            const auto filename = value.substring(prefix.length(), value.length() - suffix.length());
+            const auto targetPrefix = juce::String::fromUTF8(deleteMessagePrefixes[0][(size_t) localeIndex]);
+            const auto targetSuffix = juce::String::fromUTF8(deleteMessagePrefixes[1][(size_t) localeIndex]);
+            return targetPrefix + filename + targetSuffix;
+        }
+    }
+    const std::array<std::array<const char*, 3>, 1> liveSetErrorPrefixes {{
+        {{ "A performance foi salva, mas não foi possível atualizar a posição ativa do Live Set: ",
+           "The performance was saved, but the active Live Set slot could not be updated: ",
+           "La performance se guardó, pero no se pudo actualizar la posición activa del Live Set: " }}
+    }};
+    for (const auto& prefix : liveSetErrorPrefixes)
+        for (int source = 0; source < 3; ++source)
+        {
+            const auto sourcePrefix = juce::String::fromUTF8(prefix[(size_t) source]);
+            if (value.startsWith(sourcePrefix))
+                return juce::String::fromUTF8(prefix[(size_t) localeIndex])
+                + value.substring(sourcePrefix.length());
+        }
+    const std::array<std::array<const char*, 3>, 2> performanceCollision {{
+        {{ "Já existe uma performance chamada \"", "A performance named \"", "Ya existe una performance llamada \"" }},
+        {{ "\" na biblioteca do app. Deseja substituí-la?", "\" already exists in the app library. Replace it?", "\" en la biblioteca de la aplicación. ¿Quieres reemplazarla?" }}
+    }};
+    for (int source = 0; source < 3; ++source)
+    {
+        const auto prefix = juce::String::fromUTF8(performanceCollision[0][(size_t) source]);
+        const auto suffix = juce::String::fromUTF8(performanceCollision[1][(size_t) source]);
+        if (value.startsWith(prefix) && value.endsWith(suffix)
+            && value.length() >= prefix.length() + suffix.length())
+        {
+            const auto name = value.substring(prefix.length(), value.length() - suffix.length());
+            return juce::String::fromUTF8(performanceCollision[0][(size_t) localeIndex])
+                 + name + juce::String::fromUTF8(performanceCollision[1][(size_t) localeIndex]);
+        }
+    }
+    const std::array<std::array<const char*, 3>, 1> unitSuffixes {{
+        {{ " OIT", " OCT", " OCT" }}
+    }};
+    for (const auto& suffix : unitSuffixes)
+        for (int source = 0; source < 3; ++source)
+        {
+            const auto sourceSuffix = juce::String::fromUTF8(suffix[(size_t) source]);
+            if (value.endsWith(sourceSuffix))
+                return value.dropLastCharacters(sourceSuffix.length())
+                     + juce::String::fromUTF8(suffix[(size_t) localeIndex]);
+        }
+    const std::array<std::array<const char*, 3>, 1> importPrefixes {{
+        {{ "Importar preset de ", "Import effect preset: ", "Importar preset de " }}
+    }};
+    for (const auto& prefix : importPrefixes)
+        for (int source = 0; source < 3; ++source)
+        {
+            const auto sourcePrefix = juce::String::fromUTF8(prefix[(size_t) source]);
+            if (value.startsWith(sourcePrefix))
+                return juce::String::fromUTF8(prefix[(size_t) localeIndex])
+                     + value.substring(sourcePrefix.length());
+        }
+    return value;
+}
+
+juce::PropertiesFile::Options uiLanguageFileOptions()
+{
+    juce::PropertiesFile::Options options;
+    options.applicationName = "Classic Player";
+    options.filenameSuffix = "ui-settings";
+    options.osxLibrarySubFolder = "Application Support";
+    options.storageFormat = juce::PropertiesFile::storeAsXML;
+    return options;
+}
+
+int readUiLanguagePreference()
+{
+    juce::PropertiesFile settings(uiLanguageFileOptions());
+    return juce::jlimit(0, 2, settings.getIntValue("uiLanguage", 0));
+}
+
+void writeUiLanguagePreference(int language)
+{
+    juce::PropertiesFile settings(uiLanguageFileOptions());
+    settings.setValue("uiLanguage", juce::jlimit(0, 2, language));
+    settings.saveIfNeeded();
+}
+
+void applyUiLanguageToComponentTree(juce::Component& component, int language)
+{
+    const auto preserveText = static_cast<bool>(component.getProperties()["uiDataText"]);
+    const auto translatedName = localizedUiText(component.getName(), language);
+    if (translatedName != component.getName()) component.setName(translatedName);
+    if (!static_cast<bool>(component.getProperties()["uiDataTooltip"]))
+    {
+        if (auto* tooltip = dynamic_cast<juce::SettableTooltipClient*>(&component))
+        {
+            const auto currentTooltip = tooltip->getTooltip();
+            const auto translatedTooltip = localizedUiText(currentTooltip, language);
+            if (translatedTooltip != currentTooltip) tooltip->setTooltip(translatedTooltip);
+        }
+    }
+
+    if (auto* label = dynamic_cast<juce::Label*>(&component))
+    {
+        if (!preserveText)
+        {
+            const auto translated = localizedUiText(label->getText(), language);
+            if (translated != label->getText()) label->setText(translated, juce::dontSendNotification);
+        }
+    }
+    else if (auto* button = dynamic_cast<juce::TextButton*>(&component))
+    {
+        if (!preserveText)
+        {
+            const auto translated = localizedUiText(button->getButtonText(), language);
+            if (translated != button->getButtonText()) button->setButtonText(translated);
+        }
+    }
+    else if (auto* combo = dynamic_cast<juce::ComboBox*>(&component))
+    {
+        const auto selectionId = combo->getSelectedId();
+        const auto typedText = combo->getText();
+        const auto placeholder = combo->getTextWhenNothingSelected();
+        const auto emptyMessage = combo->getTextWhenNoChoicesAvailable();
+        const auto translatedPlaceholder = localizedUiText(placeholder, language);
+        const auto translatedEmptyMessage = localizedUiText(emptyMessage, language);
+        const auto preserveItemText = static_cast<bool>(component.getProperties()["uiDataItems"]);
+        bool itemsChanged = false;
+        std::vector<std::pair<int, juce::String>> items;
+        items.reserve((size_t) combo->getNumItems());
+        for (int index = 0; index < combo->getNumItems(); ++index)
+        {
+            const auto id = combo->getItemId(index);
+            const auto oldText = combo->getItemText(index);
+            const auto newText = preserveItemText ? oldText : localizedUiText(oldText, language);
+            items.emplace_back(id, newText);
+            itemsChanged = itemsChanged || oldText != newText;
+        }
+
+        if (itemsChanged)
+        {
+            combo->clear(juce::dontSendNotification);
+            for (const auto& item : items)
+            {
+                if (item.first == 0) combo->addSeparator();
+                else combo->addItem(item.second, item.first);
+            }
+            combo->setSelectedId(selectionId, juce::dontSendNotification);
+        }
+        if (translatedPlaceholder != placeholder)
+            combo->setTextWhenNothingSelected(translatedPlaceholder);
+        if (translatedEmptyMessage != emptyMessage)
+            combo->setTextWhenNoChoicesAvailable(translatedEmptyMessage);
+        if (!preserveItemText && combo->isTextEditable() && selectionId <= 0)
+        {
+            const auto translatedTypedText = localizedUiText(typedText, language);
+            if (translatedTypedText != typedText)
+                combo->setText(translatedTypedText, juce::dontSendNotification);
+        }
+    }
+    else if (auto* editor = dynamic_cast<juce::TextEditor*>(&component))
+    {
+        const auto placeholder = editor->getTextToShowWhenEmpty();
+        const auto translated = localizedUiText(placeholder, language);
+        if (translated != placeholder) editor->setTextToShowWhenEmpty(translated, juce::Colours::grey);
+    }
+
+    for (int child = 0; child < component.getNumChildComponents(); ++child)
+        if (auto* nested = component.getChildComponent(child))
+            applyUiLanguageToComponentTree(*nested, language);
+}
+
+bool isClassicPlayerAlertTitle(const juce::String& title)
+{
+    static constexpr const char* ownedPrefixes[] {
+        "Falha", "Não foi possível", "Instrumento externo", "Preset", "Exportação",
+        "Importação", "Excluir", "Exclusão", "Confirmação", "LICENCA CLASSIC PLAYER",
+        "Editor indisponível", "Drum pad", "Live Set não atualizado",
+        "Carregar programação", "Nova programação", "Substituir performance?"
+    };
+    for (const auto* prefix : ownedPrefixes)
+        if (title.startsWith(juce::String::fromUTF8(prefix))) return true;
+
+    // After changing language, a Classic Player alert's title is translated
+    // too. Recognize any translated dictionary entry so a second language
+    // change can update that same window without claiming host-owned dialogs.
+    for (const auto& entry : uiTranslations)
+    {
+        const auto pt = juce::String::fromUTF8(entry.portuguese);
+        const auto en = juce::String::fromUTF8(entry.english);
+        const auto es = juce::String::fromUTF8(entry.spanish);
+        if (title == pt || title == en || title == es)
+            if (pt != en || en != es) return true;
+    }
+    if (title == "Live Set") return true;
+    return false;
+}
 
 juce::Colour drumPadColour(int pad)
 {
@@ -124,12 +1014,15 @@ public:
             g.setFont(juce::FontOptions(juce::jlimit(17.0f, 28.0f, w * 0.085f), juce::Font::bold));
             g.drawFittedText(button.getProperties()["liveTitle"].toString(),
                             14, (int)(h * 0.49f), (int)w - 28, (int)(h * 0.20f), juce::Justification::centred, 2);
-            const auto summary = button.getProperties()["liveSummary"].toString();
+            const auto summary = localizedUiText(button.getProperties()["liveSummary"].toString(),
+                                                  activeUiLanguage.load());
             const auto volumes = button.getProperties()["liveVolumes"].toString();
             const auto movingLayers = static_cast<int>(button.getProperties()["liveMovingLayers"]);
             auto summaryBounds = juce::Rectangle<float>(14, volumes.isEmpty() ? h * 0.78f : h * 0.70f,
                                                         w - 28, volumes.isEmpty() ? h * 0.12f : h * 0.08f);
-            if (summary.endsWith("CAMADA") || summary.endsWith("CAMADAS"))
+            if (summary.endsWith("CAMADA") || summary.endsWith("CAMADAS")
+                || summary.endsWith("LAYER") || summary.endsWith("LAYERS")
+                || summary.endsWith("CAPA") || summary.endsWith("CAPAS"))
             {
                 const float iconX=w*0.5f-70.0f, iconY=summaryBounds.getCentreY()-7.0f;
                 juce::Path layers;
@@ -269,14 +1162,20 @@ public:
         g.drawVerticalLine(static_cast<int>(centreX), static_cast<float>(y + 7),
                            static_cast<float>(y + height - 7));
 
-        const auto thumb = juce::Rectangle<float>(centreX - 15.0f, sliderPos - 11.0f, 30.0f, 22.0f);
+        const auto compactThumb = static_cast<bool>(slider.getProperties()["compactLayerFader"]);
+        const auto thumbWidth = compactThumb ? 23.0f : 30.0f;
+        const auto thumbHeight = compactThumb ? 16.0f : 22.0f;
+        const auto thumb = juce::Rectangle<float>(centreX - thumbWidth * 0.5f,
+                                                  sliderPos - thumbHeight * 0.5f,
+                                                  thumbWidth, thumbHeight);
         g.setGradientFill(juce::ColourGradient(juce::Colour(0xffeef1f2), thumb.getX(), thumb.getY(),
                                                juce::Colour(0xff929a9f), thumb.getRight(), thumb.getY(), false));
         g.fillRoundedRectangle(thumb, 1.5f);
         g.setColour(juce::Colour(0xff626b70));
         g.drawRoundedRectangle(thumb, 1.5f, 1.0f);
         g.setColour(juce::Colour(0xff555d62));
-        for (int offset = -6; offset <= 6; offset += 4)
+        const auto grooveExtent = compactThumb ? 4 : 6;
+        for (int offset = -grooveExtent; offset <= grooveExtent; offset += 4)
             g.drawHorizontalLine(static_cast<int>(sliderPos) + offset, thumb.getX() + 3.0f,
                                  thumb.getRight() - 3.0f);
     }
@@ -915,14 +1814,16 @@ public:
         drawBandNode(g, graph, toX(highFrequency), toY(highGain), "3");
         g.setColour(juce::Colour(text));
         g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-        g.drawText(master ? "EQ PARAMETRICO MASTER" : "EQ PARAMETRICO DA LAYER", 42, 3, getWidth() - 84, 18,
+        g.drawText(localizedUiText(master ? "EQ PARAMETRICO MASTER" : "EQ PARAMETRICO DA LAYER",
+                                   activeUiLanguage.load()),
+                   42, 3, getWidth() - 84, 18,
                    juce::Justification::centred);
         g.setFont(juce::FontOptions(10.0f));
         g.setColour(juce::Colour(mutedText));
-        g.drawText("Arraste os pontos para ajustar frequencia e ganho", 42, getHeight() - 18,
+        g.drawText(localizedUiText("Arraste os pontos para ajustar frequencia e ganho", activeUiLanguage.load()), 42, getHeight() - 18,
                    getWidth() - 84, 14, juce::Justification::centred);
         g.setColour(juce::Colour(0xff74c8e6).withAlpha(0.9f));
-        g.drawText("ANALISADOR MASTER", 10, 4, 120, 14, juce::Justification::left);
+        g.drawText(localizedUiText("ANALISADOR MASTER", activeUiLanguage.load()), 10, 4, 120, 14, juce::Justification::left);
     }
 
     void mouseDown(const juce::MouseEvent& event) override
@@ -1235,12 +2136,12 @@ public:
                            area.getHeight() - 58.0f, reduction);
         g.setColour(juce::Colour(text));
         g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-        g.drawText("COMPRESSOR DA LAYER", juce::roundToInt(area.getX()), 4,
+        g.drawText(localizedUiText("COMPRESSOR DA LAYER", activeUiLanguage.load()), juce::roundToInt(area.getX()), 4,
                    juce::roundToInt(area.getWidth()), 18,
                    juce::Justification::centred);
         g.setFont(juce::FontOptions(9.0f));
         g.setColour(juce::Colour(mutedText));
-        g.drawText("CURVA", juce::roundToInt(graph.getX()), juce::roundToInt(area.getBottom() - 17.0f),
+        g.drawText(localizedUiText("CURVA", activeUiLanguage.load()), juce::roundToInt(graph.getX()), juce::roundToInt(area.getBottom() - 17.0f),
                    juce::roundToInt(graph.getWidth()), 14,
                    juce::Justification::centred);
         g.setColour(juce::Colour(yellow));
@@ -1388,10 +2289,10 @@ private:
     void refresh()
     {
         const auto config = processor.layerConfig(index);
-        highPass.setButtonText(config.highPassHz <= 20.5f ? "HIGH PASS: OFF"
-            : "HIGH PASS: " + juce::String((int) config.highPassHz) + " Hz");
-        lowPass.setButtonText(config.lowPassHz >= 19950.0f ? "LOW PASS: OFF"
-            : "LOW PASS: " + juce::String((int) (config.lowPassHz / 1000.0f)) + " kHz");
+        highPass.setButtonText(localizedUiText(config.highPassHz <= 20.5f ? "HIGH PASS: OFF"
+            : "HIGH PASS: " + juce::String((int) config.highPassHz) + " Hz", activeUiLanguage.load()));
+        lowPass.setButtonText(localizedUiText(config.lowPassHz >= 19950.0f ? "LOW PASS: OFF"
+            : "LOW PASS: " + juce::String((int) (config.lowPassHz / 1000.0f)) + " kHz", activeUiLanguage.load()));
     }
 
     void choose(bool high)
@@ -1454,7 +2355,9 @@ private:
             "layer" + juce::String(index + 1) + "ModulationEnabled");
         const auto enabled = value == nullptr || value->load() >= 0.5f;
         button.setToggleState(enabled, juce::dontSendNotification);
-        button.setButtonText(enabled ? "MODULATION DO TECLADO: ON" : "MODULATION DO TECLADO: OFF");
+        button.setButtonText(localizedUiText(enabled ? "MODULATION DO TECLADO: ON"
+                                                     : "MODULATION DO TECLADO: OFF",
+                                             activeUiLanguage.load()));
         button.setColour(juce::TextButton::buttonColourId,
                          enabled ? juce::Colour(0xff1b554e) : juce::Colour(panelLight));
     }
@@ -1683,7 +2586,9 @@ public:
             g.fillAll(juce::Colour(0xff151f28));
             g.setColour(juce::Colour(mutedText));
             g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
-            g.drawText(initial.browserCompatible ? "PRESET ANALOG - BROWSER 12 dB" : "PRESET ANALOG - LEGADO",
+            g.drawText(localizedUiText(initial.browserCompatible ? "PRESET ANALOG - BROWSER 12 dB"
+                                                                 : "PRESET ANALOG - LEGADO",
+                                        activeUiLanguage.load()),
                        12, 8, getWidth() - 24, 16, juce::Justification::left);
             return;
         }
@@ -1699,10 +2604,13 @@ public:
 
         g.setColour(juce::Colour(text));
         g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
-        g.drawText("CLASSIC KEYS ANALOG", 22, 13, 250, 20, juce::Justification::left);
+        g.drawText(localizedUiText("CLASSIC KEYS ANALOG", activeUiLanguage.load()),
+                   22, 13, 250, 20, juce::Justification::left);
         g.setColour(juce::Colour(mutedText));
         g.setFont(juce::FontOptions(9.0f));
-        g.drawText(initial.browserCompatible ? "BROWSER 12 dB - SOM APROVADO" : "OSCILLATOR - FILTER - MODULATION",
+        g.drawText(localizedUiText(initial.browserCompatible ? "BROWSER 12 dB - SOM APROVADO"
+                                                             : "OSCILLATOR - FILTER - MODULATION",
+                                   activeUiLanguage.load()),
                    22, 33, 250, 12, juce::Justification::left);
 
         const int left = 14, top = 62;
@@ -1749,7 +2657,8 @@ public:
         g.strokePath(waveform, juce::PathStrokeType(1.5f));
         g.setColour(juce::Colour(mutedText));
         g.setFont(juce::FontOptions(8.0f, juce::Font::bold));
-        g.drawText("OSCILLOSCOPE", scopeCard.getX(), scope.getBottom() + 7.0f,
+        g.drawText(localizedUiText("OSCILLOSCOPE", activeUiLanguage.load()),
+                   scopeCard.getX(), scope.getBottom() + 7.0f,
                    scopeCard.getWidth(), 12.0f, juce::Justification::centred);
     }
 
@@ -1890,7 +2799,7 @@ public:
                 .retainCharacters("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_()");
             const auto destination = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
                 .getChildFile(name + ".ckprogram");
-            chooser = std::make_unique<juce::FileChooser>("Exportar Preset Classic Player",
+            chooser = std::make_unique<juce::FileChooser>(localizedUiText("Exportar Preset Classic Player", activeUiLanguage.load()),
                                                           destination, "*.ckprogram");
             const juce::Component::SafePointer<EngineProgramSavePanel> safe(this);
             chooser->launchAsync(juce::FileBrowserComponent::saveMode
@@ -1924,6 +2833,8 @@ class Sf2EditorPanel final : public juce::Component
 public:
     Sf2EditorPanel(ClassicPlayerAudioProcessor& p, int layer) : processor(p), index(layer)
     {
+        for (auto* box : { &categoryBox, &libraryBox, &presetBox, &deviceBox })
+            box->getProperties().set("uiDataItems", true);
         for (auto* label : { &categoryLabel, &libraryLabel, &presetLabel, &modeLabel,
                              &sustainLabel, &channelLabel, &deviceLabel, &octaveLabel,
                              &rangeLabel, &velocityLabel })
@@ -1971,7 +2882,7 @@ public:
         flatButton(importButton); flatButton(deleteButton);
         importButton.onClick = [this]
         {
-            chooser = std::make_unique<juce::FileChooser>("Importar SoundFont", juce::File{}, "*.sf2");
+            chooser = std::make_unique<juce::FileChooser>(localizedUiText("Importar SoundFont", activeUiLanguage.load()), juce::File{}, "*.sf2");
             chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                 [this](const juce::FileChooser& c)
                 {
@@ -2164,6 +3075,7 @@ public:
     LayerRoutingEditorPanel(ClassicPlayerAudioProcessor& p, int layer)
         : processor(p), index(layer)
     {
+        deviceBox.getProperties().set("uiDataItems", true);
         const std::array<std::pair<juce::Label*, const char*>, 8> fields {{
             { &modeLabel, "MODO" }, { &sustainLabel, "SUSTAIN" },
             { &channelLabel, "CANAL MIDI" }, { &deviceLabel, "ENTRADA MIDI" },
@@ -2351,9 +3263,10 @@ private:
             const auto cc = processor.midiLearnCC(index, targets[(size_t) i]);
             const auto channel = processor.midiLearnChannel(index, targets[(size_t) i]);
             const auto learning = processor.isMidiLearning(index, targets[(size_t) i]);
-            buttons[(size_t) i].setButtonText(learning ? "MOVA O CC"
+            buttons[(size_t) i].setButtonText(localizedUiText(learning ? "MOVA O CC"
                 : cc < 0 ? "LEARN" : "CC " + juce::String(cc)
-                    + (channel > 0 ? " C" + juce::String(channel) : juce::String{}));
+                    + (channel > 0 ? " C" + juce::String(channel) : juce::String{}),
+                activeUiLanguage.load()));
         }
     }
 
@@ -2370,6 +3283,8 @@ public:
 
     Dx7EditorPanel(ClassicPlayerAudioProcessor& p, int layer) : processor(p), index(layer)
     {
+        bankBox.getProperties().set("uiDataItems", true);
+        patchBox.getProperties().set("uiDataItems", true);
         patchBox.setLookAndFeel(&dx7PatchLookAndFeel);
         bankLabel.setText("BANCO DX7", juce::dontSendNotification);
         patchLabel.setText("TIMBRE DX7", juce::dontSendNotification);
@@ -2470,7 +3385,7 @@ private:
     void chooseDx7()
     {
         fileChooser = std::make_unique<juce::FileChooser>(
-            "Escolha um arquivo DX7 SysEx", juce::File{}, "*.syx;*.SYX");
+            localizedUiText("Escolha um arquivo DX7 SysEx", activeUiLanguage.load()), juce::File{}, "*.syx;*.SYX");
         fileChooser->launchAsync(juce::FileBrowserComponent::openMode
                                  | juce::FileBrowserComponent::canSelectFiles,
             [this](const juce::FileChooser& chooser)
@@ -2624,6 +3539,7 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
     {
         auto& trigger = pads[(size_t) pad];
         trigger.setName("DRUM_PAD_" + juce::String(pad + 1));
+        trigger.getProperties().set("uiDataText", true);
         trigger.setButtonText("PAD " + juce::String(pad + 1));
         trigger.setTooltip("Clique para tocar este pad");
         // Loaded pads receive unique colours in refresh(); empty pads stay neutral.
@@ -2653,6 +3569,19 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
             refresh();
         };
         addAndMakeVisible(learn);
+
+        auto& padVolume = padVolumes[(size_t) pad];
+        padVolume.setSliderStyle(juce::Slider::LinearHorizontal);
+        padVolume.setRange(0.0, 100.0, 1.0);
+        padVolume.setTextBoxStyle(juce::Slider::TextBoxRight, false, 44, 18);
+        padVolume.setTextValueSuffix("%");
+        padVolume.setTooltip("Volume individual deste pad");
+        padVolume.onValueChange = [this, pad]
+        {
+            if (!continuous())
+                processor.setDrumPadVolume(pad, static_cast<float>(padVolumes[(size_t) pad].getValue() / 100.0));
+        };
+        addAndMakeVisible(padVolume);
     }
     flatButton(stopButton);addAndMakeVisible(stopButton);
     for(auto* button:{&stopLearn,&volumeLearnButton,&muteLearnButton}){flatButton(*button);addAndMakeVisible(*button);}
@@ -2680,6 +3609,7 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::setControlsVisible(bool sh
         pads[(size_t)pad].setVisible(pad<padCount());
         loadButtons[(size_t) pad].setVisible(controlsVisible && pad<padCount());
         learnButtons[(size_t) pad].setVisible(controlsVisible && pad<padCount());
+        padVolumes[(size_t) pad].setVisible(controlsVisible && !continuous() && pad<padCount());
     }
     stopButton.setVisible(continuous());stopLearn.setVisible(controlsVisible&&continuous());
     fadeSlider.setVisible(controlsVisible&&continuous());volumeLearnButton.setVisible(controlsVisible);
@@ -2690,7 +3620,7 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::setControlsVisible(bool sh
 void ClassicPlayerAudioProcessorEditor::DrumPadPanel::chooseSample(int pad)
 {
     fileChooser = std::make_unique<juce::FileChooser>(
-        "Carregar áudio do pad", juce::File{}, "*.mp3;*.wav;*.aiff;*.flac");
+        localizedUiText("Carregar áudio do pad", activeUiLanguage.load()), juce::File{}, "*.mp3;*.wav;*.aiff;*.flac");
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode
                              | juce::FileBrowserComponent::canSelectFiles,
         [this, pad](const juce::FileChooser& chooser)
@@ -2710,16 +3640,23 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::chooseSample(int pad)
 void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
 {
     const auto volumeCC=processor.midiLearnCC(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume);
-    volumeLearnButton.setButtonText(processor.isMidiLearning(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume)
-        ? "VOLUME: MOVA O CC" : volumeCC>=0 ? "VOLUME: CC "+juce::String(volumeCC) : "LEARN VOLUME");
+    volumeLearnButton.setButtonText(localizedUiText(
+        processor.isMidiLearning(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume)
+            ? "VOLUME: MOVA O CC" : volumeCC>=0 ? "VOLUME: CC "+juce::String(volumeCC) : "LEARN VOLUME",
+        activeUiLanguage.load()));
     const auto muteTarget = ClassicPlayerAudioProcessor::LearnTarget::mute;
     const auto muteCC = processor.midiLearnCC(layerIndex, muteTarget);
-    muteLearnButton.setButtonText(processor.isMidiLearning(layerIndex, muteTarget) ? "MUTE: MOVA O CC"
-        : muteCC >= 0 ? "MUTE: CC " + juce::String(muteCC) : "LEARN MUTE");
+    muteLearnButton.setButtonText(localizedUiText(
+        processor.isMidiLearning(layerIndex, muteTarget) ? "MUTE: MOVA O CC"
+            : muteCC >= 0 ? "MUTE: CC " + juce::String(muteCC) : "LEARN MUTE",
+        activeUiLanguage.load()));
     if(continuous())
     {
         const int cc=processor.continuousPads(layerIndex).mapping(12);
-        stopLearn.setButtonText(processor.continuousPads(layerIndex).learningTarget()==12 ? "STOP: MOVA O CC" : cc>=0 ? "STOP: CC "+juce::String(cc) : "LEARN STOP");
+        stopLearn.setButtonText(localizedUiText(
+            processor.continuousPads(layerIndex).learningTarget()==12 ? "STOP: MOVA O CC"
+                : cc>=0 ? "STOP: CC "+juce::String(cc) : "LEARN STOP",
+            activeUiLanguage.load()));
     }
     for (int pad = 0; pad < padCount(); ++pad)
     {
@@ -2735,9 +3672,12 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
         trigger.setColour(juce::TextButton::textColourOffId, samplePath.isNotEmpty() || active ? juce::Colour(0xff15191d) : juce::Colour(text));
         const int cc=continuous()?processor.continuousPads(layerIndex).mapping(pad):-1;
         const auto mapping = continuous() ? (cc>=0?"CC "+juce::String(cc):juce::String{}) : processor.drumPadMidiMapping(pad);
-        learnButtons[(size_t) pad].setButtonText(
+        learnButtons[(size_t) pad].setButtonText(localizedUiText(
             (continuous()?processor.continuousPads(layerIndex).learningTarget()==pad:processor.isDrumPadMidiLearning(pad)) ? "MOVA PAD"
-            : mapping.isNotEmpty() ? mapping : "LEARN");
+            : mapping.isNotEmpty() ? mapping : "LEARN", activeUiLanguage.load()));
+        if (!continuous() && !padVolumes[(size_t) pad].isMouseButtonDown())
+            padVolumes[(size_t) pad].setValue(processor.drumPadVolume(pad) * 100.0f,
+                                               juce::dontSendNotification);
     }
 }
 
@@ -2770,8 +3710,13 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
         // vertically misaligned in the editor dialog.
         auto padAreaBounds = cellInner;
         juce::Rectangle<int> buttons;
+        juce::Rectangle<int> volumeRow;
         if (controlsVisible)
-            buttons = padAreaBounds.removeFromBottom(31);
+        {
+            buttons = padAreaBounds.removeFromBottom(25);
+            if (!continuous())
+                volumeRow = padAreaBounds.removeFromBottom(22);
+        }
         // Wide, shallow pad bodies keep each LOAD/LEARN pair in its own column.
         const auto padHeight = juce::jmin(86, padAreaBounds.getHeight());
         auto padArea = padAreaBounds.withHeight(padHeight);
@@ -2779,12 +3724,14 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
         if (controlsVisible)
         {
             pads[(size_t) pad].setBounds(padArea);
+            padVolumes[(size_t) pad].setBounds(volumeRow.reduced(1, 1));
             loadButtons[(size_t) pad].setBounds(buttons.removeFromLeft(buttons.getWidth() / 2).reduced(1, 0));
             learnButtons[(size_t) pad].setBounds(buttons.reduced(1, 0));
         }
         else
         {
             pads[(size_t) pad].setBounds(padArea);
+            padVolumes[(size_t) pad].setBounds({});
             loadButtons[(size_t) pad].setBounds({});
             learnButtons[(size_t) pad].setBounds({});
         }
@@ -2795,6 +3742,10 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     ClassicPlayerAudioProcessor& p, int layerIndex, std::function<void()> mixChanged)
     : processor(p), index(layerIndex), mixStateChanged(std::move(mixChanged)), drumPadPanel(p,layerIndex)
 {
+        for (auto* box : { &externalInstrumentBox, &dx7LibraryBox, &dx7PatchBox,
+                       &categoryBox,
+                       &libraryBox, &presetBox, &midiDevice })
+        box->getProperties().set("uiDataItems", true);
     layerTitle.setText("LAYER " + juce::String(index + 1), juce::dontSendNotification);
     layerTitle.setFont(juce::FontOptions(14.0f, juce::Font::bold));
     layerTitle.setColour(juce::Label::textColourId, juce::Colour(text));
@@ -2805,7 +3756,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     addAndMakeVisible(drumPadPanel);
     drumPadPanel.setVisible(false);
 
-    for (auto* button : { &muteButton, &soloButton, &resetButton, &removeButton, &editButton, &loadButton,
+    for (auto* button : { &muteButton, &soloButton, &resetButton, &editButton, &loadButton,
                           &externalInstrumentButton, &dx7Button, &deleteDx7LibraryButton, &openExternalEditorButton, &deleteLibraryButton })
     {
         flatButton(*button);
@@ -2856,14 +3807,6 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
             return;
         }
         showLayerEditor();
-    };
-    removeButton.setTooltip("Excluir esta layer");
-    removeButton.onClick = [this]
-    {
-        // The editor belongs to the hosted instrument and must close before
-        // the layer releases or moves that instrument.
-        externalEditorWindow.reset();
-        if (removeLayerCallback) removeLayerCallback();
     };
     loadButton.onClick = [this] { chooseSoundFont(); };
     externalInstrumentButton.onClick = [this] { chooseExternalInstrument(); };
@@ -2924,12 +3867,15 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     deleteLibraryButton.setEnabled(false);
 
     fileLabel.setJustificationType(juce::Justification::centred);
+    fileLabel.getProperties().set("uiDataText", true);
     fileLabel.setMinimumHorizontalScale(0.6f);
     fileLabel.setFont(juce::FontOptions(12.0f, juce::Font::bold));
     addAndMakeVisible(fileLabel);
     sourceSummary.setJustificationType(juce::Justification::centred);
+    sourceSummary.getProperties().set("uiDataText", true);
+    sourceSummary.getProperties().set("uiDataTooltip", true);
     sourceSummary.setColour(juce::Label::textColourId, juce::Colour(text));
-    sourceSummary.setFont(juce::FontOptions(14.0f, juce::Font::bold));
+    sourceSummary.setFont(juce::FontOptions(17.0f, juce::Font::bold));
     sourceSummary.setMinimumHorizontalScale(0.45f);
     addAndMakeVisible(sourceSummary);
     for (const auto& category : ClassicPlayerAudioProcessor::soundFontCategories())
@@ -2953,6 +3899,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
 
     gain.setSliderStyle(juce::Slider::LinearVertical);
     gain.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 58, 18);
+    gain.getProperties().set("compactLayerFader", true);
     gain.setColour(juce::Slider::trackColourId, juce::Colour(teal));
     gain.setColour(juce::Slider::thumbColourId, juce::Colour(0xffd8dde0));
     addAndMakeVisible(gain);
@@ -3374,7 +4321,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::saveLayerPreset()
     const auto defaultFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
         .getChildFile("Classic Player " + typeName + ".cklayer");
     fileChooser = std::make_unique<juce::FileChooser>(
-        "Exportar preset da layer", defaultFile, "*.cklayer");
+        localizedUiText("Exportar preset da layer", activeUiLanguage.load()), defaultFile, "*.cklayer");
     const juce::Component::SafePointer<LayerStrip> safe(this);
     fileChooser->launchAsync(juce::FileBrowserComponent::saveMode
                            | juce::FileBrowserComponent::canSelectFiles
@@ -3396,7 +4343,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::saveLayerPreset()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::loadLayerPreset()
 {
     fileChooser = std::make_unique<juce::FileChooser>(
-        "Importar preset da layer", juce::File{}, "*.cklayer");
+        localizedUiText("Importar preset da layer", activeUiLanguage.load()), juce::File{}, "*.cklayer");
     const juce::Component::SafePointer<LayerStrip> safe(this);
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode
                            | juce::FileBrowserComponent::canSelectFiles,
@@ -3420,7 +4367,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::saveEffectPreset(const juce:
     const auto defaultFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
         .getChildFile("Classic Player " + effect + extension);
     fileChooser = std::make_unique<juce::FileChooser>(
-        "Exportar preset de " + effect, defaultFile, "*" + extension);
+        localizedUiText("Exportar preset de " + effect, activeUiLanguage.load()), defaultFile, "*" + extension);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     fileChooser->launchAsync(juce::FileBrowserComponent::saveMode
                            | juce::FileBrowserComponent::canSelectFiles
@@ -3687,6 +4634,25 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showChorusEditor()
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDown(const juce::MouseEvent& event)
 {
+    if (event.mods.isPopupMenu())
+    {
+        juce::PopupMenu menu;
+        menu.addItem(1, localizedUiText("Excluir layer", activeUiLanguage.load()));
+        const juce::Component::SafePointer<LayerStrip> safe(this);
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
+                           [safe](int result)
+        {
+            if (result != 1 || safe == nullptr) return;
+
+            // A hosted instrument editor must close before its layer is
+            // released, just as it did with the old X button.
+            safe->externalEditorWindow.reset();
+            if (safe->removeLayerCallback) safe->removeLayerCallback();
+        });
+        draggingLayerTitle = false;
+        return;
+    }
+
     draggingLayerTitle = event.originalComponent == &layerTitle && event.mods.isLeftButtonDown();
     if (draggingLayerTitle)
         layerDragger.startDraggingComponent(this, event.getEventRelativeTo(this));
@@ -3711,18 +4677,27 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseUp(const juce::MouseEve
 void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
+    const auto accent = layerAccentColour(index);
     const auto drumLayer = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::drumPads || processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::continuousPads;
     g.setColour(juce::Colour(panel));
     if (drumLayer)
     {
         g.fillRoundedRectangle(bounds, 7.0f);
-        g.setColour(juce::Colour(line));
-        g.drawRoundedRectangle(bounds.reduced(0.5f), 7.0f, 1.0f);
+        g.setColour(accent);
+        g.drawRoundedRectangle(bounds.reduced(1.0f), 7.0f, 2.0f);
         return;
     }
     g.fillRoundedRectangle(bounds, 7.0f);
-    g.setColour(juce::Colour(line));
-    g.drawRoundedRectangle(bounds.reduced(0.5f), 7.0f, 1.0f);
+    g.setColour(accent);
+    g.drawRoundedRectangle(bounds.reduced(1.0f), 7.0f, 2.0f);
+    const auto type = processor.layerType(index);
+    auto category = type == ClassicPlayerAudioProcessor::LayerType::sf2 ? categoryBox.getText()
+                  : type == ClassicPlayerAudioProcessor::LayerType::dx7 ? "DX7"
+                  : type == ClassicPlayerAudioProcessor::LayerType::hammond ? "Hammond"
+                  : type == ClassicPlayerAudioProcessor::LayerType::analog ? "Moog Analog"
+                  : type == ClassicPlayerAudioProcessor::LayerType::vst ? "Synth"
+                  : "Efeitos";
+    drawCategoryArtwork(g, categoryArtworkBounds, category, accent);
     g.setColour(juce::Colour(mutedText));
     g.setFont(9.0f);
     const auto scaleX = gain.getRight() - 22;
@@ -3750,15 +4725,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
 {
     auto area = getLocalBounds().reduced(9);
     auto top = area.removeFromTop(25);
-    layerTitle.setBounds(top.removeFromLeft(72));
-    muteButton.setBounds(top.removeFromLeft(30).reduced(1));
-    soloButton.setBounds(top.removeFromLeft(30).reduced(1));
-    removeButton.setBounds(top.removeFromRight(28).reduced(1));
+    layerTitle.setBounds(top.removeFromLeft(juce::jmin(68, juce::jmax(54, top.getWidth() - 54))));
+    muteButton.setBounds(top.removeFromLeft(27).reduced(1));
+    soloButton.setBounds(top.removeFromLeft(27).reduced(1));
     auto layerActions = area.removeFromTop(25);
     editButton.setBounds(layerActions.removeFromLeft(70).reduced(1));
     resetButton.setBounds(layerActions.removeFromRight(52).reduced(1));
-    area.removeFromTop(4);
-    auto summaryRow = area.removeFromTop(30);
+    area.removeFromTop(5);
+    categoryArtworkBounds = area.removeFromTop(60).reduced(1, 0);
+    area.removeFromTop(5);
+    auto summaryRow = area.removeFromTop(32);
     sourceSummary.setBounds(summaryRow.reduced(2, 0));
     area.removeFromTop(4);
     const auto type = processor.layerType(index);
@@ -3900,7 +4876,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
 {
-    fileChooser = std::make_unique<juce::FileChooser>("Escolha um SoundFont", juce::File{}, "*.sf2;*.SF2");
+    fileChooser = std::make_unique<juce::FileChooser>(localizedUiText("Escolha um SoundFont", activeUiLanguage.load()), juce::File{}, "*.sf2;*.SF2");
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode |
                              juce::FileBrowserComponent::canSelectFiles,
         [this](const juce::FileChooser& chooser)
@@ -3909,7 +4885,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
             if (file == juce::File{}) return;
             externalEditorWindow.reset();
             loadButton.setEnabled(false);
-            fileLabel.setText("Carregando...", juce::dontSendNotification);
+            fileLabel.setText(localizedUiText("Carregando...", activeUiLanguage.load()), juce::dontSendNotification);
             juce::File importedFile;
             auto result = processor.importSoundFont(file, categoryBox.getText(), importedFile);
             if (result.wasOk()) result = processor.loadSoundFont(index, importedFile);
@@ -3954,7 +4930,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseExternalInstrument()
    #else
     const auto filters = "*.vst3";
    #endif
-    fileChooser = std::make_unique<juce::FileChooser>("Escolha um instrumento virtual",
+    fileChooser = std::make_unique<juce::FileChooser>(localizedUiText("Escolha um instrumento virtual", activeUiLanguage.load()),
                                                       juce::File{}, filters);
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode
                              | juce::FileBrowserComponent::canSelectFiles
@@ -3965,7 +4941,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseExternalInstrument()
             if (file == juce::File{}) return;
             externalEditorWindow.reset();
             externalInstrumentButton.setEnabled(false);
-            fileLabel.setText("Carregando instrumento...", juce::dontSendNotification);
+            fileLabel.setText(localizedUiText("Carregando instrumento...", activeUiLanguage.load()), juce::dontSendNotification);
             const auto result = processor.loadExternalInstrument(index, file);
             externalInstrumentButton.setEnabled(true);
             if (result.failed())
@@ -3977,7 +4953,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseExternalInstrument()
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseDx7()
 {
-    fileChooser = std::make_unique<juce::FileChooser>("Escolha um arquivo DX7 SysEx",
+    fileChooser = std::make_unique<juce::FileChooser>(localizedUiText("Escolha um arquivo DX7 SysEx", activeUiLanguage.load()),
                                                       juce::File{}, "*.syx;*.SYX");
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode
                              | juce::FileBrowserComponent::canSelectFiles,
@@ -3986,7 +4962,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseDx7()
             const auto file = chooser.getResult();
             if (file == juce::File{}) return;
             dx7Button.setEnabled(false);
-            fileLabel.setText("Importando DX7...", juce::dontSendNotification);
+            fileLabel.setText(localizedUiText("Importando DX7...", activeUiLanguage.load()), juce::dontSendNotification);
             juce::File importedFile;
             auto result = processor.importDx7Bank(file, importedFile);
             if (result.wasOk()) result = processor.loadDx7(index, importedFile);
@@ -4052,7 +5028,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
                           juce::dontSendNotification);
     if (isDrumPads)
     {
-        sourceSummary.setText(type==ClassicPlayerAudioProcessor::LayerType::continuousPads ? "PAD CONTINUO" : "DRUM PADS",juce::dontSendNotification);
+        sourceSummary.setText(localizedUiText(
+            type==ClassicPlayerAudioProcessor::LayerType::continuousPads ? "PAD CONTINUO" : "DRUM PADS",
+            activeUiLanguage.load()), juce::dontSendNotification);
         const std::initializer_list<juce::Component*> controls {
             &loadButton, &externalInstrumentButton, &dx7Button, &deleteDx7LibraryButton,
             &openExternalEditorButton, &deleteLibraryButton, &categoryBox, &libraryBox,
@@ -4096,9 +5074,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     }
     sourceSummary.setVisible(false);
     fileLabel.setVisible(true);
-    if (isHammond) fileLabel.setText("HAMMOND", juce::dontSendNotification);
+    if (isHammond) fileLabel.setText(localizedUiText("HAMMOND", activeUiLanguage.load()), juce::dontSendNotification);
     if (isAnalog)
-        fileLabel.setText("CLASSIC KEYS ANALOG", juce::dontSendNotification);
+        fileLabel.setText(localizedUiText("CLASSIC KEYS ANALOG", activeUiLanguage.load()), juce::dontSendNotification);
     resized();
 }
 
@@ -4324,7 +5302,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
         drumPadPanel.refresh();
         // Drum-pad layers do not use a SoundFont.  Keep the source label
         // explicit so the mixer never presents them as an empty SF2 layer.
-        fileLabel.setText(type==ClassicPlayerAudioProcessor::LayerType::continuousPads ? "PAD CONTINUO" : "DRUM PADS", juce::dontSendNotification);
+        fileLabel.setText(localizedUiText(
+            type==ClassicPlayerAudioProcessor::LayerType::continuousPads ? "PAD CONTINUO" : "DRUM PADS",
+            activeUiLanguage.load()), juce::dontSendNotification);
         fileLabel.setColour(juce::Label::backgroundColourId, juce::Colour(yellow));
         fileLabel.setColour(juce::Label::textColourId, juce::Colours::black);
         sourceSummary.setTooltip(fileLabel.getText());
@@ -4353,18 +5333,23 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
         : type == ClassicPlayerAudioProcessor::LayerType::vst ? externalName.isNotEmpty()
         : type == ClassicPlayerAudioProcessor::LayerType::dx7 ? processor.hasDx7(index)
         : type == ClassicPlayerAudioProcessor::LayerType::hammond || processor.hasAnalogSynth(index);
-    fileLabel.setText(type == ClassicPlayerAudioProcessor::LayerType::sf2
-                        ? (path.isNotEmpty() ? juce::File(path).getFileName() : "Sem SoundFont")
-                        : type == ClassicPlayerAudioProcessor::LayerType::vst
-                            ? (externalName.isNotEmpty() ? externalName : "Sem VST")
-                            : type == ClassicPlayerAudioProcessor::LayerType::dx7
-                                ? (dx7Name.isNotEmpty() ? dx7Name : "Sem DX7")
-                                : type == ClassicPlayerAudioProcessor::LayerType::hammond ? "HAMMOND" : "CLASSIC KEYS ANALOG",
-                      juce::dontSendNotification);
+    const auto sourceLabel = type == ClassicPlayerAudioProcessor::LayerType::sf2
+        ? (path.isNotEmpty() ? juce::File(path).getFileNameWithoutExtension()
+                             : localizedUiText("Sem SoundFont", activeUiLanguage.load()))
+        : type == ClassicPlayerAudioProcessor::LayerType::vst
+            ? (externalName.isNotEmpty() ? externalName
+                                         : localizedUiText("Sem VST", activeUiLanguage.load()))
+            : type == ClassicPlayerAudioProcessor::LayerType::dx7
+                ? (dx7Name.isNotEmpty() ? dx7Name
+                                        : localizedUiText("Sem DX7", activeUiLanguage.load()))
+                : type == ClassicPlayerAudioProcessor::LayerType::hammond
+                    ? "HAMMOND" : "CLASSIC KEYS ANALOG";
+    fileLabel.setText(sourceLabel, juce::dontSendNotification);
     fileLabel.setColour(juce::Label::backgroundColourId,
                         hasSource ? juce::Colour(yellow) : juce::Colour(0xff0b1218));
     fileLabel.setColour(juce::Label::textColourId,
                         hasSource ? juce::Colours::black : juce::Colour(mutedText));
+    sourceSummary.setText(sourceLabel, juce::dontSendNotification);
     sourceSummary.setTooltip(fileLabel.getText());
     openExternalEditorButton.setEnabled(processor.supportsExternalInstruments()
                                         && processor.hasExternalInstrument(index));
@@ -4386,6 +5371,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
     highNote.setSelectedId(config.highNote + 1, juce::dontSendNotification);
     velocityCurve.setSelectedId(config.velocityCurve + 1, juce::dontSendNotification);
     updateSourceTypeVisibility();
+    repaint();
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::applyConfig()
@@ -4468,7 +5454,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMidiLearnState()
         const auto channel = processor.midiLearnChannel(index, target);
         const auto mappingText = cc < 0 ? juce::String("LEARN")
             : "CC " + juce::String(cc) + (channel > 0 ? " C" + juce::String(channel) : juce::String{});
-        button->setButtonText(learning ? "MOVA O CC" : mappingText);
+        button->setButtonText(localizedUiText(learning ? "MOVA O CC" : mappingText,
+                                              activeUiLanguage.load()));
         button->setColour(juce::TextButton::buttonColourId,
                           learning ? juce::Colour(yellow)
                                    : cc >= 0 ? juce::Colour(0xff1b554e) : juce::Colour(panelLight));
@@ -4481,6 +5468,8 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     : AudioProcessorEditor(&p), classicProcessor(p), keyboard(p.keyboardState)
 {
     juce::Logger::writeToLog("Editor Classic Player inicializado");
+    uiLanguage = readUiLanguagePreference();
+    activeUiLanguage.store(uiLanguage);
     setLookAndFeel(&classicLookAndFeel);
     setOpaque(true);
 #if JucePlugin_Build_Standalone
@@ -4517,7 +5506,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     addAndMakeVisible(title);
     subtitle.setText("CLASSIC KEYS SF2 WORKSTATION", juce::dontSendNotification);
     subtitle.setColour(juce::Label::textColourId, juce::Colour(mutedText));
-    addAndMakeVisible(subtitle); userLabel.setColour(juce::Label::textColourId, juce::Colour(teal)); userLabel.setFont(juce::FontOptions(11.0f, juce::Font::bold)); userLabel.setJustificationType(juce::Justification::topLeft); userLabel.setText(accountIdentityText(), juce::dontSendNotification); addAndMakeVisible(userLabel);
+    addAndMakeVisible(subtitle); userLabel.getProperties().set("uiDataText", true); userLabel.setColour(juce::Label::textColourId, juce::Colour(teal)); userLabel.setFont(juce::FontOptions(11.0f, juce::Font::bold)); userLabel.setJustificationType(juce::Justification::topLeft); userLabel.setText(accountIdentityText(), juce::dontSendNotification); addAndMakeVisible(userLabel);
     chordLabel.setText("-", juce::dontSendNotification);
     chordLabel.setFont(juce::FontOptions(36.0f, juce::Font::bold));
     chordLabel.setJustificationType(juce::Justification::centred);
@@ -4578,6 +5567,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     };
     addAndMakeVisible(accidentalStyleBox);
 
+    programBox.getProperties().set("uiDataItems", true);
     programBox.setEditableText(true);
     programBox.setTextWhenNothingSelected("NOVO PROGRAMA");
     programBox.setTooltip("Selecione uma performance para carregá-la imediatamente; digite um nome para salvar uma nova");
@@ -4614,12 +5604,12 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     addLayerButton.onClick = [this]
     {
         juce::PopupMenu menu;
-        menu.addItem(1, "Layer SF2");
-        menu.addItem(2, "Layer DX7 (.syx)");
-        menu.addItem(3, "Classic Keys Analog");
-        menu.addItem(4, "Layer Drum Pads (8)");
-        menu.addItem(5, "Hammond");
-        menu.addItem(6, "Pad Continuo (12)");
+        menu.addItem(1, localizedUiText("Layer SF2", uiLanguage));
+        menu.addItem(2, localizedUiText("Layer DX7 (.syx)", uiLanguage));
+        menu.addItem(3, localizedUiText("Classic Keys Analog", uiLanguage));
+        menu.addItem(4, localizedUiText("Layer Drum Pads (8)", uiLanguage));
+        menu.addItem(5, localizedUiText("Hammond", uiLanguage));
+        menu.addItem(6, localizedUiText("Pad Continuo (12)", uiLanguage));
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addLayerButton),
             [safeThis = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this)](int choice)
             {
@@ -4642,8 +5632,9 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
         if (classicProcessor.isAudioRecording())
         {
             classicProcessor.stopAudioRecording();
-            recordingStatus.setText("WAV + MIDI salvos na Area de Trabalho", juce::dontSendNotification);
-            recordingButton.setButtonText("GRAVAR WAV+MIDI");
+            recordingStatus.setText(localizedUiText("WAV + MIDI salvos na Area de Trabalho", activeUiLanguage.load()),
+                                     juce::dontSendNotification);
+            recordingButton.setButtonText(localizedUiText("GRAVAR WAV+MIDI", activeUiLanguage.load()));
             return;
         }
 
@@ -4655,8 +5646,8 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
             return;
         }
         recordingStartedAtMs = juce::Time::currentTimeMillis();
-        recordingStatus.setText("GRAVANDO 00:00", juce::dontSendNotification);
-        recordingButton.setButtonText("PARAR");
+        recordingStatus.setText(localizedUiText("GRAVANDO 00:00", activeUiLanguage.load()), juce::dontSendNotification);
+        recordingButton.setButtonText(localizedUiText("PARAR", activeUiLanguage.load()));
     };
     addAndMakeVisible(recordingButton);
     recordingStatus.setJustificationType(juce::Justification::centredLeft);
@@ -4678,13 +5669,15 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
 
     flatButton(keyboardVisibilityButton);
     keyboardVisibilityButton.setTooltip("Mostrar ou ocultar o teclado virtual para liberar espaço para as layers");
-    keyboardVisibilityButton.setButtonText(virtualKeyboardVisible ? "OCULTAR TECLADO"
-                                                                   : "MOSTRAR TECLADO");
+        keyboardVisibilityButton.setButtonText(localizedUiText(virtualKeyboardVisible ? "OCULTAR TECLADO"
+                                                                                      : "MOSTRAR TECLADO",
+                                                               activeUiLanguage.load()));
     keyboardVisibilityButton.onClick = [this]
     {
         virtualKeyboardVisible = !virtualKeyboardVisible;
-        keyboardVisibilityButton.setButtonText(virtualKeyboardVisible ? "OCULTAR TECLADO"
-                                                                       : "MOSTRAR TECLADO");
+        keyboardVisibilityButton.setButtonText(localizedUiText(virtualKeyboardVisible ? "OCULTAR TECLADO"
+                                                                                      : "MOSTRAR TECLADO",
+                                                               activeUiLanguage.load()));
         keyboard.setVisible(virtualKeyboardVisible && !showingLiveSet);
         classicProcessor.parameters.state.setProperty(
             "uiVirtualKeyboardVisible", virtualKeyboardVisible, nullptr);
@@ -4697,6 +5690,21 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     audioMidiSettingsButton.onClick = [this] { showAudioMidiSettings(); };
     addChildComponent(audioMidiSettingsButton);
 
+    languageSelector.addItem("PT - Português", 1);
+    languageSelector.addItem("EN - English", 2);
+    languageSelector.addItem("ES - Español", 3);
+    languageSelector.setSelectedId(uiLanguage + 1, juce::dontSendNotification);
+    languageSelector.setTooltip("Selecionar idioma / Select language / Seleccionar idioma");
+    languageSelector.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
+    languageSelector.setColour(juce::ComboBox::textColourId, juce::Colour(text));
+    languageSelector.setColour(juce::ComboBox::outlineColourId, juce::Colour(line));
+    languageSelector.onChange = [this]
+    {
+        const auto selected = languageSelector.getSelectedId();
+        if (selected >= 1 && selected <= 3) setUiLanguage(selected - 1);
+    };
+    addAndMakeVisible(languageSelector);
+
     flatButton(liveSetButton);
     liveSetButton.onClick = [this] { showLiveSet(!showingLiveSet); };
     addAndMakeVisible(liveSetButton);
@@ -4705,7 +5713,8 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     editLiveSetButton.onClick = [this]
     {
         editingLiveSet = !editingLiveSet;
-        editLiveSetButton.setButtonText(editingLiveSet ? "CONCLUIR EDICAO" : "EDITAR LIVE SET");
+        editLiveSetButton.setButtonText(localizedUiText(editingLiveSet ? "CONCLUIR EDICAO" : "EDITAR LIVE SET",
+                                                        activeUiLanguage.load()));
         refreshLiveSet();
         resized();
     };
@@ -4723,20 +5732,28 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     };
     liveSettingsButton.onClick = [this] {
         juce::PopupMenu menu;
+        juce::PopupMenu languageMenu;
+        languageMenu.addItem(10, "Português", uiLanguage == 0);
+        languageMenu.addItem(11, "English", uiLanguage == 1);
+        languageMenu.addItem(12, "Español", uiLanguage == 2);
+        menu.addSubMenu(localizedUiText("IDIOMA / LANGUAGE / IDIOMA", uiLanguage), languageMenu);
+        menu.addSeparator();
         if (classicProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
         {
-            menu.addItem(3, "Audio / MIDI");
+            menu.addItem(3, localizedUiText("Audio / MIDI", uiLanguage));
             menu.addSeparator();
         }
-        menu.addItem(1, "Equalizador master");
-        menu.addItem(2, classicProcessor.isMasterMidiLearning() ? "Cancelar MIDI Learn do volume master"
-                                                              : "MIDI Learn do volume master");
+        menu.addItem(1, localizedUiText("Equalizador master", uiLanguage));
+        menu.addItem(2, localizedUiText(classicProcessor.isMasterMidiLearning()
+                                             ? "CANCELAR MIDI LEARN DO VOLUME MASTER"
+                                             : "MIDI LEARN DO VOLUME MASTER", uiLanguage));
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(liveSettingsButton),
             [safe = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this)](int id) {
                 if (safe == nullptr) return;
                 if (id == 1) safe->masterEqButton.triggerClick();
                 if (id == 2) safe->masterLearnButton.triggerClick();
                 if (id == 3) safe->showAudioMidiSettings();
+                if (id >= 10 && id <= 12) safe->setUiLanguage(id - 10);
             });
     };
 
@@ -4756,6 +5773,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     {
         auto& button = liveSetSlotButtons[(size_t) slot];
         button.setName("LIVE_SLOT_" + juce::String(slot));
+        button.getProperties().set("uiDataText", true);
         flatButton(button);
         button.onClick = [this, slot]
         {
@@ -4863,6 +5881,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     activationPanel.addAndMakeVisible(activationStatus);
     activationPanel.setVisible(!classicProcessor.isActivated());
     activationPanel.toFront(false);
+    if (activationPanel.isVisible()) languageSelector.toFront(false);
     
         validateStoredOnlineSession();
 
@@ -4880,6 +5899,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     const auto initialHeight = juce::roundToInt(static_cast<float>(available.getHeight()) * 0.88f);
     setSize(juce::jmin(1600, juce::jmax(900, initialWidth)),
             juce::jmin(900, juce::jmax(600, initialHeight)));
+    applyUiLanguage();
     startTimerHz(20);
 }
 
@@ -5185,7 +6205,7 @@ void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
         g.drawRoundedRectangle(juce::Rectangle<float>(14, (float)getHeight()-76, (float)getWidth()-28, 62), 5, 1);
         g.setColour(juce::Colour(text));
         g.setFont(juce::FontOptions(34.0f, juce::Font::bold));
-        g.drawText("LIVE SET", getWidth()/2-130, 12, 260, 56, juce::Justification::centred);
+        g.drawText(localizedUiText("LIVE SET", activeUiLanguage.load()), getWidth()/2-130, 12, 260, 56, juce::Justification::centred);
         const int start = getWidth()/2-100;
         for (int i=0; i<ClassicPlayerAudioProcessor::liveSetBankCount; ++i)
         {
@@ -5202,7 +6222,8 @@ void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawHorizontalLine(getHeight() - 66, 18.0f, (float) getWidth() - 18.0f);
     g.setColour(juce::Colour(mutedText));
     g.setFont(10.5f);
-    g.drawText("Copyright 2026 Willam Silva & Classic Keys. Todos os direitos reservados.",
+        g.drawText(localizedUiText("Copyright 2026 Willam Silva & Classic Keys. Todos os direitos reservados.",
+                                   activeUiLanguage.load()),
                305, getHeight() - 49, getWidth() - 610, 28, juce::Justification::centred);
 }
 
@@ -5248,6 +6269,8 @@ void ClassicPlayerAudioProcessorEditor::resized()
     // Anchor MISTO to the header rather than the consumed button-row bounds.
     accidentalStyleBox.setBounds(colourControls.getX(), header.getY() + 76,
                                  buttonWidth - 2, 32);
+    languageSelector.setBounds(accidentalStyleBox.getRight() + 6, header.getY() + 76, 120, 32);
+    languageSelector.setVisible(true);
 
     auto programArea = chordArea.removeFromBottom(54);
     programBox.setBounds(programArea.removeFromTop(28).reduced(1, 0));
@@ -5280,6 +6303,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
 
     if (showingLiveSet)
     {
+        languageSelector.setVisible(false);
         auto liveArea = getLocalBounds().reduced(14);
         auto liveHeader = liveArea.removeFromTop(84);
         appIcon.setBounds(18, 14, 54, 54);
@@ -5337,7 +6361,10 @@ void ClassicPlayerAudioProcessorEditor::resized()
     activationPanel.setBounds(getLocalBounds());
     activationBackdrop.setBounds(activationPanel.getLocalBounds());
     if (activationPanel.isVisible())
+    {
         activationPanel.toFront(false);
+        languageSelector.toFront(false);
+    }
     auto activation = activationPanel.getLocalBounds().withSizeKeepingCentre(
         juce::jmin(650, getWidth() - 60), 360);
     activationTitle.setBounds(activation.removeFromTop(58));
@@ -5356,18 +6383,19 @@ void ClassicPlayerAudioProcessorEditor::resized()
 void ClassicPlayerAudioProcessorEditor::timerCallback()
 {
     const auto panicCC = classicProcessor.panicMidiLearnCC();
-    panicLearnButton.setButtonText(classicProcessor.isPanicMidiLearning() ? "MOVA O CC"
-        : panicCC < 0 ? "LEARN" : "CC " + juce::String(panicCC));
+    panicLearnButton.setButtonText(localizedUiText(classicProcessor.isPanicMidiLearning() ? "MOVA O CC"
+        : panicCC < 0 ? "LEARN" : "CC " + juce::String(panicCC), activeUiLanguage.load()));
     panicLearnButton.setColour(juce::TextButton::buttonColourId,
         classicProcessor.isPanicMidiLearning() ? juce::Colour(yellow)
                                                : panicCC >= 0 ? juce::Colour(0xff1b554e)
                                                               : juce::Colour(panelLight));
     const auto masterCC = classicProcessor.masterMidiLearnCC();
-    masterLearnButton.setButtonText(classicProcessor.isMasterMidiLearning() ? "MOVE CC"
-        : masterCC < 0 ? "LEARN" : "CC " + juce::String(masterCC));
+    masterLearnButton.setButtonText(localizedUiText(classicProcessor.isMasterMidiLearning() ? "MOVE CC"
+        : masterCC < 0 ? "LEARN" : "CC " + juce::String(masterCC), activeUiLanguage.load()));
     if (showingLiveSet)
-        masterLabel.setText(classicProcessor.isMasterMidiLearning() ? "MOVA UM CC"
-            : masterCC < 0 ? "VOLUME" : "VOLUME / CC " + juce::String(masterCC), juce::dontSendNotification);
+        masterLabel.setText(localizedUiText(classicProcessor.isMasterMidiLearning() ? "MOVA UM CC"
+            : masterCC < 0 ? "VOLUME" : "VOLUME / CC " + juce::String(masterCC), activeUiLanguage.load()),
+            juce::dontSendNotification);
     classicProcessor.consumeMidiControlUpdates();
     if (showingLiveSet)
         refreshLiveSetVolumeIndicators();
@@ -5394,6 +6422,7 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
     if (++timerTicks >= 20)
     {
         timerTicks = 0;
+        applyUiLanguage();
         const auto activeCount = classicProcessor.activeLayerCount();
         if (displayedLayerCount != activeCount)
         {
@@ -5410,10 +6439,10 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
     if (classicProcessor.isAudioRecording())
     {
         const auto elapsed = juce::jmax<juce::int64>(0, juce::Time::currentTimeMillis() - recordingStartedAtMs) / 1000;
-        recordingStatus.setText("GRAVANDO " + juce::String(elapsed / 60).paddedLeft('0', 2)
-                                + ":" + juce::String(elapsed % 60).paddedLeft('0', 2),
+        recordingStatus.setText(localizedUiText("GRAVANDO " + juce::String(elapsed / 60).paddedLeft('0', 2)
+                                + ":" + juce::String(elapsed % 60).paddedLeft('0', 2), activeUiLanguage.load()),
                                 juce::dontSendNotification);
-        recordingButton.setButtonText("PARAR");
+        recordingButton.setButtonText(localizedUiText("PARAR", activeUiLanguage.load()));
     }
 }
 
@@ -5551,7 +6580,7 @@ void ClassicPlayerAudioProcessorEditor::exportProgram()
     const auto defaultFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
         .getChildFile(name + ".ckprogram");
     programFileChooser = std::make_unique<juce::FileChooser>(
-        "Exportar performance Classic Player", defaultFile, "*.ckprogram");
+        localizedUiText("Exportar performance Classic Player", uiLanguage), defaultFile, "*.ckprogram");
     programFileChooser->launchAsync(
         juce::FileBrowserComponent::saveMode
         | juce::FileBrowserComponent::canSelectFiles
@@ -5576,7 +6605,7 @@ void ClassicPlayerAudioProcessorEditor::exportProgram()
 void ClassicPlayerAudioProcessorEditor::importProgramFile()
 {
     programFileChooser = std::make_unique<juce::FileChooser>(
-        "Importar performance Classic Player", juce::File{}, "*.ckprogram");
+        localizedUiText("Importar performance Classic Player", uiLanguage), juce::File{}, "*.ckprogram");
     programFileChooser->launchAsync(
         juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
         [this](const juce::FileChooser& chooser)
@@ -5698,13 +6727,47 @@ void ClassicPlayerAudioProcessorEditor::showAudioMidiSettings()
    #endif
 }
 
+void ClassicPlayerAudioProcessorEditor::setUiLanguage(int language)
+{
+    uiLanguage = juce::jlimit(0, 2, language);
+    activeUiLanguage.store(uiLanguage);
+    languageSelector.setSelectedId(uiLanguage + 1, juce::dontSendNotification);
+    writeUiLanguagePreference(uiLanguage);
+    applyUiLanguage();
+    repaint();
+}
+
+void ClassicPlayerAudioProcessorEditor::applyUiLanguage()
+{
+    uiLanguage = juce::jlimit(0, 2, activeUiLanguage.load());
+    languageSelector.setSelectedId(uiLanguage + 1, juce::dontSendNotification);
+    applyUiLanguageToComponentTree(*this, uiLanguage);
+
+    // Layer editors and Classic Player's own error/confirmation alerts are
+    // separate desktop windows rather than children of the plug-in component.
+    // A host shares JUCE's Desktop, so leave unrelated host dialogs alone.
+    auto& desktop = juce::Desktop::getInstance();
+    for (int index = 0; index < desktop.getNumComponents(); ++index)
+    {
+        if (auto* window = desktop.getComponent(index))
+        {
+            const bool isOurLayerEditor = dynamic_cast<LayerEditorWindow*>(window) != nullptr;
+            const bool isOurAlert = dynamic_cast<juce::AlertWindow*>(window) != nullptr
+                                 && isClassicPlayerAlertTitle(window->getName());
+            if (isOurLayerEditor || isOurAlert || window->getName() == "Hammond")
+                applyUiLanguageToComponentTree(*window, uiLanguage);
+        }
+    }
+}
+
 void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
 {
     showingLiveSet = show;
     title.setColour(juce::Label::textColourId, juce::Colour(show ? text : teal));
-    subtitle.setText(show ? "SONS QUE INSPIRAM" : "CLASSIC KEYS SF2 WORKSTATION", juce::dontSendNotification);
+    subtitle.setText(localizedUiText(show ? "SONS QUE INSPIRAM" : "CLASSIC KEYS SF2 WORKSTATION",
+                                     activeUiLanguage.load()), juce::dontSendNotification);
     subtitle.setColour(juce::Label::textColourId, juce::Colour(show ? teal : mutedText));
-    liveSetButton.setButtonText(show ? "VOLTAR" : "LIVE SET");
+    liveSetButton.setButtonText(localizedUiText(show ? "VOLTAR" : "LIVE SET", activeUiLanguage.load()));
     layerViewport.setVisible(!show);
     keyboard.setVisible(!show && virtualKeyboardVisible);
     keyboardVisibilityButton.setVisible(!show);
@@ -5723,7 +6786,8 @@ void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
     masterLabel.setVisible(true);
     master.setSliderStyle(show ? juce::Slider::LinearHorizontal : juce::Slider::RotaryHorizontalVerticalDrag);
     master.setTextBoxStyle(show ? juce::Slider::NoTextBox : juce::Slider::TextBoxBelow, false, 64, 18);
-    master.setTooltip(show ? "Volume master — use CONFIGURACOES para MIDI Learn" : "Volume master");
+    master.setTooltip(localizedUiText(show ? "Volume master — use CONFIGURACOES para MIDI Learn"
+                                           : "Volume master", activeUiLanguage.load()));
     livePreviousButton.setVisible(show);
     liveNextButton.setVisible(show);
     liveSettingsButton.setVisible(show);
@@ -5779,14 +6843,16 @@ void ClassicPlayerAudioProcessorEditor::refreshLiveSet()
                          active ? juce::Colour(yellow) : juce::Colour(teal));
         button.setColour(juce::TextButton::textColourOffId,
                          active ? juce::Colour(background) : juce::Colour(text));
-        button.setTooltip(editingLiveSet ? "Clique para atribuir uma programação salva"
-                                         : (name.isEmpty() ? "Posição vazia" : "Carregar " + name));
+        button.setTooltip(localizedUiText(editingLiveSet ? "Clique para atribuir uma programação salva"
+            : (name.isEmpty() ? "Posição vazia" : "Carregar " + name), activeUiLanguage.load()));
 
         auto& learnButton = liveSetSlotLearnButtons[(size_t) slot];
         learnButton.setVisible(showingLiveSet && editingLiveSet);
         const auto cc = classicProcessor.liveSetSlotMidiLearnCC(activeLiveSetBank, slot);
         const auto learning = classicProcessor.isLiveSetSlotMidiLearning(activeLiveSetBank, slot);
-        learnButton.setButtonText(learning ? "AGUARDANDO..." : (cc >= 0 ? "CC " + juce::String(cc) : "LEARN CC"));
+        learnButton.setButtonText(localizedUiText(
+            learning ? "AGUARDANDO..." : (cc >= 0 ? "CC " + juce::String(cc) : "LEARN CC"),
+            activeUiLanguage.load()));
         learnButton.setColour(juce::TextButton::buttonColourId,
                               learning ? juce::Colour(teal) : juce::Colour(panelLight));
         learnButton.setColour(juce::TextButton::textColourOffId,
@@ -5855,7 +6921,7 @@ void ClassicPlayerAudioProcessorEditor::chooseLiveSetSlot(int slot)
 {
     refreshProgramLibrary();
     juce::PopupMenu menu;
-    menu.addItem(1, "Limpar posição");
+    menu.addItem(1, localizedUiText("Limpar posição", uiLanguage));
     menu.addSeparator();
     for (int item = 0; item < programFiles.size(); ++item)
         menu.addItem(item + 2, programFiles.getReference(item).getFileNameWithoutExtension());
@@ -6048,18 +7114,16 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
     // channels merely to fill the viewport.
     const auto availableWidth = juce::jmax(1,
         layerViewport.getWidth() - layerViewport.getScrollBarThickness());
-    const int columns = availableWidth >= 1000 ? 8
-                       : availableWidth >= 720  ? 4
-                       : availableWidth >= 450  ? 2
-                                                  : 1;
     constexpr int expandedHeight = 590;
     const auto viewportHeight = layerViewport.getHeight()
         - layerViewport.getScrollBarThickness();
     // Mixer-style channels fill the complete area above the keyboard instead
     // of collapsing into short horizontal cards at the top.
     const int compactHeight = juce::jmax(148, viewportHeight - gap * 2);
-    const auto stripWidth = juce::jmax(150,
-        (layerViewport.getWidth() - gap * (columns - 1)) / columns);
+    // Match the new slim-channel design. Fixed-width compact strips preserve
+    // the proportions of the artwork and fader instead of stretching to fill a row.
+    constexpr int compactStripWidth = 142;
+    const auto stripWidth = juce::jmin(availableWidth, compactStripWidth);
     // Pack variable-width pad strips without stretching ordinary instruments.
     std::vector<juce::Rectangle<int>> bounds;
     int x=0, y=gap, rowHeight=0, contentWidth=availableWidth;
@@ -6150,6 +7214,7 @@ void ClassicPlayerAudioProcessorEditor::validateStoredOnlineSession()
                     safe->classicProcessor.refreshActivation();
                     safe->activationPanel.setVisible(true);
                     safe->activationPanel.toFront(false);
+                    safe->languageSelector.toFront(false);
                     safe->activationStatus.setColour(juce::Label::textColourId, juce::Colours::salmon);
                     safe->activationStatus.setText(error.isNotEmpty() ? error
                         : juce::String::fromUTF8("Faça login para ativar este computador."),
@@ -6198,7 +7263,12 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
         juce::Label heading;
     };
     auto content=std::make_unique<Content>();
-    content->add(new HammondEditorPanel(processor,index),220);
+    auto* hammondPanel = new HammondEditorPanel(processor,index);
+    hammondPanel->setUiTextTranslator([](const juce::String& value)
+    {
+        return localizedUiText(value, activeUiLanguage.load());
+    });
+    content->add(hammondPanel,220);
     content->add(new EngineProgramSavePanel(processor,index,"Hammond"),28);
     content->add(new LayerPresetFilePanel(std::move(saveLayerCallback),
                                           std::move(loadLayerCallback)),28);
@@ -6242,13 +7312,22 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showHammondEditor()
             setLookAndFeel(&classicLookAndFeel);
             setUsingNativeTitleBar(true);
             setContentOwned(content.release(),false);
-            const auto* display=juce::Desktop::getInstance().getDisplays().getPrimaryDisplay();
-            const auto screen=display!=nullptr?display->userArea:juce::Rectangle<int>(0,0,1280,800);
-            const auto app=owner!=nullptr&&owner->getTopLevelComponent()!=nullptr
-                ? owner->getTopLevelComponent()->getScreenBounds().getIntersection(screen):screen;
-            const auto width=juce::jmin(740,app.getWidth()-16);
-            const auto height=juce::jmin(580,app.getHeight()-16);
-            setBounds(app.getCentreX()-width/2,app.getCentreY()-height/2,width,height);
+            auto& displays=juce::Desktop::getInstance().getDisplays();
+            const auto appBounds=owner!=nullptr&&owner->getTopLevelComponent()!=nullptr
+                ? owner->getTopLevelComponent()->getScreenBounds():juce::Rectangle<int>{};
+            const auto* display=appBounds.isEmpty()?displays.getPrimaryDisplay()
+                                                    :displays.getDisplayForRect(appBounds);
+            const auto screen=display!=nullptr?display->userArea.toNearestInt()
+                                               :juce::Rectangle<int>(0,0,1280,800);
+            const auto usable=screen.reduced(8);
+            const auto visibleAppBounds=appBounds.getIntersection(screen);
+            const auto centre=visibleAppBounds.isEmpty()?screen.getCentre()
+                                                        :visibleAppBounds.getCentre();
+            const auto width=juce::jmax(1,juce::jmin(740,usable.getWidth()));
+            const auto height=juce::jmax(1,juce::jmin(580,usable.getHeight()));
+            const auto x=juce::jlimit(usable.getX(),usable.getRight()-width,centre.x-width/2);
+            const auto y=juce::jlimit(usable.getY(),usable.getBottom()-height,centre.y-height/2);
+            setBounds(x,y,width,height);
         }
         ~Window() override { clearContentComponent();setLookAndFeel(nullptr); }
         void resized() override

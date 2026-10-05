@@ -191,6 +191,8 @@ public:
     static constexpr int drumPadCount = 8;
     juce::String drumPadName(int pad) const;
     juce::String drumPadPath(int pad) const;
+    float drumPadVolume(int pad) const;
+    void setDrumPadVolume(int pad, float normalizedVolume);
     int drumPadMidiCC(int pad) const;
     juce::String drumPadMidiMapping(int pad) const;
     bool isDrumPadPlaying(int pad) const;
@@ -343,6 +345,7 @@ private:
         std::atomic<int> midiCC { -1 };
         std::atomic<int> midiNote { -1 };
         std::atomic<bool> learning { false };
+        std::atomic<float> volume { 1.0f };
     };
     std::array<DrumPadState, drumPadCount> drumPads;
     friend struct DrumPadRegressionAccess;

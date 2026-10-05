@@ -392,6 +392,10 @@ struct DrumPadRegressionAccess
         };
         gain(100);check(std::abs(block()-.25f)<1e-6,"drum unity gain");
         check(std::abs(p->layerPeak(0)-.25f)<1e-6,"drum meter unity gain");
+        p->setDrumPadVolume(0,.4f);pad.position.store(0);
+        check(std::abs(block()-.1f)<1e-6,"individual drum pad volume");
+        check(std::abs(p->layerPeak(0)-.1f)<1e-6,"drum meter ignores individual pad volume");
+        p->setDrumPadVolume(0,1.f);pad.position.store(0);
         gain(50);const auto transition=block();check(transition>.125f&&transition<.25f,"drum gain not smoothed");
         for(int i=0;i<10;++i)block();
         check(std::abs(block()-.125f)<1e-6,"drum half gain");
@@ -406,9 +410,12 @@ struct DrumPadRegressionAccess
         for(int i=0;i<10;++i)block();check(std::abs(block())<1e-6,"drum layer mute ignored");
         config.enabled=true;p->setLayerConfig(0,config);for(int i=0;i<10;++i)block();
         check(std::abs(block()-.125f)<1e-6,"drum layer unmute failed");
+        p->setDrumPadVolume(0,.37f);
         juce::MemoryBlock state;p->getStateInformation(state);
         p->setStateInformation(state.getData(),(int)state.getSize());
         check(std::abs(p->parameters.getRawParameterValue("layer1Gain")->load()-50)<1e-6,"drum gain persistence");
+        check(std::abs(p->drumPadVolume(0)-.37f)<1e-6,"individual drum pad volume persistence");
+        p->setDrumPadVolume(0,1.f);
         check(p->moveLayerVisually(0,2),"visual layer move failed");
         check(p->visualLayerAt(0)==1 && p->visualLayerAt(1)==2 && p->visualLayerAt(2)==0,
               "visual layer order incorrect");
