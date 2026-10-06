@@ -5,6 +5,7 @@
 #include "PluginProcessor.h"
 #include "ChordDetector.h"
 #include "MidiLearnButton.h"
+#include "UpdateChecker.h"
 #include <array>
 #include <atomic>
 
@@ -41,6 +42,15 @@ private:
         void setActiveColour(juce::Colour colour);
     private:
         static juce::String noteLabel(int);
+    };
+
+    class CpuMeter final : public juce::Component, public juce::SettableTooltipClient
+    {
+    public:
+        void setUsage(double usage);
+        void paint(juce::Graphics&) override;
+    private:
+        int percentage = 0;
     };
 
     class DrumPadPanel final : public juce::Component, private juce::Timer
@@ -242,6 +252,9 @@ private:
     void validateStoredOnlineSession();
     void showMasterEqEditor();
     void showMasterLimiterEditor();
+    void checkForUpdates(bool manual);
+    void refreshUpdateNotice();
+    void showUpdateDetails();
     juce::String detectedChord() const;
 
     ClassicPlayerAudioProcessor& classicProcessor;
@@ -285,6 +298,12 @@ private:
     juce::TextButton masterLimiterButton { "LIM" };
     MidiLearnButton masterLearnButton { "LEARN" };
     LevelMeter masterMeter;
+    CpuMeter cpuMeter;
+    juce::TextButton updateButton { "ATUALIZACOES" };
+    ClassicPlayerUpdateChecker updateChecker;
+    ClassicPlayerUpdateChecker::Result latestUpdate;
+    double nextUpdateCheckMs = 0.0;
+    bool manualUpdateCheck = false, updateDismissed = false;
     juce::ImageComponent appIcon;
     juce::ImageComponent classicKeysLogo;
     juce::ImageComponent willamSilvaLogo;

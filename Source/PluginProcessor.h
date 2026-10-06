@@ -43,6 +43,11 @@ public:
     void releaseResources() override;
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    double audioCpuUsagePercent() const noexcept
+    {
+        return juce::Time::getMillisecondCounter() - lastAudioBlockMs.load(std::memory_order_relaxed) > 1000
+            ? 0.0 : audioLoad.getLoadAsPercentage();
+    }
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -265,6 +270,8 @@ private:
     std::array<std::atomic<float>, Sf2Engine::layerCount> externalPeaks {};
     std::array<int, Sf2Engine::layerCount> lastExternalPortamento {};
     double currentSampleRate = 44100.0;
+    juce::AudioProcessLoadMeasurer audioLoad;
+    std::atomic<juce::uint32> lastAudioBlockMs { 0 };
     int currentBlockSize = 512;
     juce::dsp::Limiter<float> outputLimiter;
     std::atomic<float> limiterInputPeak { 0.0f }, limiterOutputPeak { 0.0f }, limiterReduction { 0.0f };

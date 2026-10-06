@@ -322,6 +322,15 @@ struct UiTranslation
 // across the standalone app and plug-in formats; audio terms such as MIDI,
 // REVERB, CUTOFF and PANIC intentionally remain industry-standard labels.
 static constexpr UiTranslation uiTranslations[] {
+    { "ATUALIZACOES", "UPDATES", "ACTUALIZACIONES" },
+    { "VERIFICANDO...", "CHECKING...", "COMPROBANDO..." },
+    { "ATUALIZACAO DISPONIVEL", "UPDATE AVAILABLE", "ACTUALIZACIÓN DISPONIBLE" },
+    { "BAIXAR ATUALIZACAO", "DOWNLOAD UPDATE", "DESCARGAR ACTUALIZACIÓN" },
+    { "MAIS TARDE", "LATER", "MÁS TARDE" },
+    { "NOTAS DA VERSAO", "RELEASE NOTES", "NOTAS DE LA VERSIÓN" },
+    { "Sua versão está atualizada.", "Your version is up to date.", "Tu versión está actualizada." },
+    { "Não foi possível verificar as atualizações. Tente novamente mais tarde.", "Could not check for updates. Try again later.", "No se pudieron comprobar las actualizaciones. Inténtalo más tarde." },
+    { "Carga do processamento de áudio do Classic Player. 100% indica que o tempo disponível para o buffer foi consumido.", "Classic Player audio processing load. 100% means the available buffer time was used.", "Carga de procesamiento de audio de Classic Player. 100% indica que se utilizó todo el tiempo disponible del búfer." },
     { "CONFIGURACOES", "SETTINGS", "CONFIGURACIÓN" },
     { "SONS QUE INSPIRAM", "SOUNDS THAT INSPIRE", "SONIDOS QUE INSPIRAN" },
     { "NOVO", "NEW", "NUEVO" }, { "SALVAR", "SAVE", "GUARDAR" },
@@ -3815,6 +3824,35 @@ void ClassicPlayerAudioProcessorEditor::LevelMeter::paint(juce::Graphics& g)
     g.fillRect(fill);
 }
 
+void ClassicPlayerAudioProcessorEditor::CpuMeter::setUsage(double usage)
+{
+    const auto next = juce::jlimit(0, 100, juce::roundToInt(usage));
+    if (percentage != next)
+    {
+        percentage = next;
+        repaint();
+    }
+}
+
+void ClassicPlayerAudioProcessorEditor::CpuMeter::paint(juce::Graphics& g)
+{
+    auto bounds = getLocalBounds().toFloat();
+    g.setColour(juce::Colour(panel));
+    g.fillRoundedRectangle(bounds, 4.0f);
+    g.setColour(juce::Colour(paletteLine));
+    g.drawRoundedRectangle(bounds.reduced(0.5f), 4.0f, 1.0f);
+    auto bar = bounds.reduced(5.0f, 4.0f);
+    auto label = bar.removeFromLeft(62.0f);
+    g.setColour(juce::Colour(text));
+    g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+    g.drawText("CPU " + juce::String(percentage) + "%", label, juce::Justification::centredLeft);
+    g.setColour(juce::Colour(background));
+    g.fillRoundedRectangle(bar, 2.0f);
+    g.setColour(percentage >= 90 ? juce::Colour(0xffe14d45)
+                               : percentage >= 70 ? juce::Colour(yellow) : juce::Colour(teal));
+    g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * (float) percentage / 100.0f), 2.0f);
+}
+
 ClassicPlayerAudioProcessorEditor::NamedKeyboard::NamedKeyboard(juce::MidiKeyboardState& state)
     : MidiKeyboardComponent(state, juce::MidiKeyboardComponent::horizontalKeyboard)
 {
@@ -4971,6 +5009,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDown(const juce::MouseE
 {
     if (event.mods.isPopupMenu())
     {
+        // This strip listens to descendants for layer dragging. LEARN owns
+        // its context menu, so the recursive listener must not open another.
+        for (auto* source = event.originalComponent; source != nullptr && source != this;
+             source = source->getParentComponent())
+            if (dynamic_cast<MidiLearnButton*>(source) != nullptr)
+                return;
         juce::PopupMenu menu;
         juce::PopupMenu outlineMenu;
         const auto language = activeUiLanguage.load();
@@ -6268,6 +6312,16 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     masterLearnButton.onClearMapping = [this] { classicProcessor.resetMasterMidiLearn(); };
     addAndMakeVisible(masterLearnButton);
     addAndMakeVisible(masterMeter);
+    cpuMeter.setTooltip(juce::String::fromUTF8("Carga do processamento de áudio do Classic Player. 100% indica que o tempo disponível para o buffer foi consumido."));
+    addAndMakeVisible(cpuMeter);
+    flatButton(updateButton);
+    updateButton.onClick = [this]
+    {
+        if (latestUpdate.available) showUpdateDetails();
+        else checkForUpdates(true);
+    };
+    addAndMakeVisible(updateButton);
+    nextUpdateCheckMs = juce::Time::getMillisecondCounterHiRes() + 10000.0;
     masterAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         classicProcessor.parameters, "master", master);
 
@@ -6744,6 +6798,8 @@ void ClassicPlayerAudioProcessorEditor::resized()
 
     area.removeFromTop(12);
     auto footer = area.removeFromBottom(54);
+    cpuMeter.setBounds(footer.getX(), footer.getY() + 29, 138, 22);
+    updateButton.setBounds(footer.getX() + 148, footer.getY() + 29, 140, 22);
     auto panicArea = footer.removeFromRight(166).removeFromBottom(28);
     panicLearnButton.setBounds(panicArea.removeFromRight(78).reduced(1, 0));
     panicButton.setBounds(panicArea.reduced(1, 0));
@@ -6766,6 +6822,8 @@ void ClassicPlayerAudioProcessorEditor::resized()
         languageSelector.setVisible(false);
         auto liveArea = getLocalBounds().reduced(14);
         auto liveHeader = liveArea.removeFromTop(84);
+        cpuMeter.setBounds(350, 20, 140, 22);
+        updateButton.setBounds(350, 48, 140, 22);
         appIcon.setBounds(18, 14, 54, 54);
         title.setBounds(82, 20, 260, 28);
         subtitle.setBounds(82, 47, 260, 20); userLabel.setBounds(82, 66, 260, 32); userLabel.setVisible(userLabel.getText().isNotEmpty());
@@ -6840,8 +6898,78 @@ void ClassicPlayerAudioProcessorEditor::resized()
     keyboard.setKeyWidth(juce::jmax(11.0f, static_cast<float>(keyboard.getWidth()) / 52.0f));
 }
 
+void ClassicPlayerAudioProcessorEditor::checkForUpdates(bool manual)
+{
+    nextUpdateCheckMs = juce::Time::getMillisecondCounterHiRes() + 6.0 * 60.0 * 60.0 * 1000.0;
+    if (updateChecker.start())
+    {
+        manualUpdateCheck = manual;
+        refreshUpdateNotice();
+    }
+}
+
+void ClassicPlayerAudioProcessorEditor::refreshUpdateNotice()
+{
+    const bool announce = latestUpdate.available && !updateDismissed;
+    setButtonTextIfChanged(updateButton, localizedUiText(updateChecker.isChecking() ? "VERIFICANDO..."
+        : announce ? "ATUALIZACAO DISPONIVEL" : "ATUALIZACOES", uiLanguage));
+    updateButton.setEnabled(!updateChecker.isChecking());
+    setButtonColourIfChanged(updateButton, juce::TextButton::buttonColourId,
+                             juce::Colour(announce ? teal : panelLight));
+    setButtonColourIfChanged(updateButton, juce::TextButton::textColourOffId,
+                             juce::Colour(announce ? background : text));
+    updateButton.setTooltip(latestUpdate.available ? "Classic Player " + latestUpdate.version
+        : localizedUiText("ATUALIZACOES", uiLanguage) + " — " JucePlugin_VersionString);
+    cpuMeter.setTooltip(localizedUiText("Carga do processamento de áudio do Classic Player. 100% indica que o tempo disponível para o buffer foi consumido.", uiLanguage));
+}
+
+void ClassicPlayerAudioProcessorEditor::showUpdateDetails()
+{
+    auto* window = new juce::AlertWindow(localizedUiText("ATUALIZACAO DISPONIVEL", uiLanguage),
+        "Classic Player " + latestUpdate.version + "\n\n" + latestUpdate.notes,
+        juce::MessageBoxIconType::InfoIcon);
+    window->setLookAndFeel(&classicLookAndFeel);
+    applyUiSkinToComponentTree(*window, uiPalettes[(size_t) activeUiPalette]);
+    window->addButton(localizedUiText("BAIXAR ATUALIZACAO", uiLanguage), 1);
+    if (latestUpdate.notesUrl.isNotEmpty())
+        window->addButton(localizedUiText("NOTAS DA VERSAO", uiLanguage), 2);
+    window->addButton(localizedUiText("MAIS TARDE", uiLanguage), 0,
+                      juce::KeyPress(juce::KeyPress::escapeKey));
+    const auto download = latestUpdate.downloadUrl;
+    const auto notes = latestUpdate.notesUrl;
+    const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
+    window->enterModalState(true, juce::ModalCallbackFunction::create([safe, download, notes](int selected)
+    {
+        if (selected == 1) juce::URL(download).launchInDefaultBrowser();
+        if (selected == 2) juce::URL(notes).launchInDefaultBrowser();
+        if (safe != nullptr && selected == 0)
+        {
+            safe->updateDismissed = true;
+            safe->refreshUpdateNotice();
+        }
+    }), true);
+}
+
 void ClassicPlayerAudioProcessorEditor::timerCallback()
 {
+    cpuMeter.setUsage(classicProcessor.audioCpuUsagePercent());
+    ClassicPlayerUpdateChecker::Result updateResult;
+    if (updateChecker.takeResult(updateResult))
+    {
+        latestUpdate = std::move(updateResult);
+        updateDismissed = false;
+        refreshUpdateNotice();
+        if (manualUpdateCheck && latestUpdate.available)
+            showUpdateDetails();
+        else if (manualUpdateCheck)
+            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                localizedUiText("ATUALIZACOES", uiLanguage),
+                localizedUiText(latestUpdate.succeeded ? "Sua versão está atualizada."
+                    : "Não foi possível verificar as atualizações. Tente novamente mais tarde.", uiLanguage));
+        manualUpdateCheck = false;
+    }
+    if (juce::Time::getMillisecondCounterHiRes() >= nextUpdateCheckMs)
+        checkForUpdates(false);
     const auto panicCC = classicProcessor.panicMidiLearnCC();
     setButtonTextIfChanged(panicLearnButton, localizedUiText(classicProcessor.isPanicMidiLearning() ? "MOVA O CC"
         : panicCC < 0 ? "LEARN" : "CC " + juce::String(panicCC), activeUiLanguage.load()));
@@ -7250,6 +7378,7 @@ void ClassicPlayerAudioProcessorEditor::applyUiLanguage()
     uiLanguage = juce::jlimit(0, 2, activeUiLanguage.load());
     languageSelector.setSelectedId(uiLanguage + 1, juce::dontSendNotification);
     applyUiLanguageToComponentTree(*this, uiLanguage);
+    refreshUpdateNotice();
 
     // Layer editors and Classic Player's own error/confirmation alerts are
     // separate desktop windows rather than children of the plug-in component.

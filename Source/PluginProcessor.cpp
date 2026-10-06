@@ -354,6 +354,8 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     currentSampleRate = sampleRate;
     analyserSampleRate.store(sampleRate, std::memory_order_relaxed);
     currentBlockSize = samplesPerBlock;
+    audioLoad.reset(sampleRate, samplesPerBlock);
+    lastAudioBlockMs.store(0, std::memory_order_relaxed);
     spectrumWritePosition.store(0, std::memory_order_relaxed);
     for (auto& sample : spectrumSamples) sample.store(0.0f, std::memory_order_relaxed);
     engine.prepare(sampleRate, samplesPerBlock);
@@ -420,6 +422,8 @@ bool ClassicPlayerAudioProcessor::isBusesLayoutSupported(const BusesLayout& layo
 
 void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
+    juce::AudioProcessLoadMeasurer::ScopedTimer cpuTimer(audioLoad, buffer.getNumSamples());
+    lastAudioBlockMs.store(juce::Time::getMillisecondCounter(), std::memory_order_relaxed);
     juce::ScopedNoDenormals noDenormals;
 
     // Always consume MIDI before checking activation.  Besides driving the

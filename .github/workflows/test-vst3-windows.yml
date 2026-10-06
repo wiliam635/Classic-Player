@@ -39,7 +39,16 @@ jobs:
 
       - name: Build standalone and VST3
         shell: pwsh
-        run: cmake --build build\windows-x64 --target ClassicPlayer_Standalone ClassicPlayer_VST3 ClassicPlayerVst3HostSmokeTest ClassicPlayerHammondTest --config Release --parallel 2
+        run: cmake --build build\windows-x64 --target ClassicPlayer_Standalone ClassicPlayer_VST3 ClassicPlayerVst3HostSmokeTest ClassicPlayerHammondTest ClassicPlayerUpdateCheckerTest --config Release --parallel 2
+
+      - name: Verify update feed validation
+        shell: pwsh
+        run: |
+          $test = Get-ChildItem "build\windows-x64" -Recurse -Filter "ClassicPlayerUpdateCheckerTest.exe" -File |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $test) { throw "Teste das atualizacoes ausente" }
+          & $test
+          if ($LASTEXITCODE -ne 0) { throw "Falha na validacao de versoes ou downloads" }
 
       - name: Verify saved effects return through menu and Live Set
         shell: pwsh

@@ -16,6 +16,8 @@ option(CLASSIC_PLAYER_FETCH_JUCE "Download JUCE when JUCE_DIR is not supplied" O
 option(CLASSIC_PLAYER_STANDALONE_ONLY "Build only the standalone application" OFF)
 option(CLASSIC_PLAYER_BUILD_TESTS "Build the native SF2 smoke test" OFF)
 option(CLASSIC_PLAYER_BUILD_WEBUI_APP "Build the legacy WebUI standalone application instead of the native editor" OFF)
+set(CLASSIC_PLAYER_UPDATE_FEED_URL "https://licenca.classickeys.com.br/updates/classic-player.json"
+    CACHE STRING "Public HTTPS manifest for stable Classic Player updates")
 
 if(DEFINED JUCE_DIR)
     add_subdirectory("${JUCE_DIR}" JUCE)
@@ -117,6 +119,8 @@ target_sources(ClassicPlayer PRIVATE
     Source/PluginProcessor.h
     Source/PluginEditor.cpp
     Source/PluginEditor.h
+    Source/UpdateChecker.cpp
+    Source/UpdateChecker.h
     Source/Sf2Engine.cpp
     Source/Sf2Engine.h
     Source/Dx7Engine.cpp
@@ -146,6 +150,7 @@ target_include_directories(ClassicPlayer PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/msfa")
 
 target_compile_definitions(ClassicPlayer PUBLIC
+    CLASSIC_PLAYER_UPDATE_FEED_URL="${CLASSIC_PLAYER_UPDATE_FEED_URL}"
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_PLUGINHOST_VST3=1
@@ -257,6 +262,14 @@ if(CLASSIC_PLAYER_BUILD_TESTS)
     target_link_libraries(ClassicPlayerMasterMidiTest PRIVATE ClassicPlayer ${CLASSIC_PLAYER_FLUID_TARGET}
         juce::juce_audio_utils juce::juce_dsp)
     add_test(NAME master-midi COMMAND ClassicPlayerMasterMidiTest)
+    juce_add_console_app(ClassicPlayerUpdateCheckerTest PRODUCT_NAME "Classic Player Update Checker Test")
+    target_sources(ClassicPlayerUpdateCheckerTest PRIVATE
+        Source/UpdateCheckerRegressionTest.cpp Source/UpdateChecker.cpp)
+    target_compile_definitions(ClassicPlayerUpdateCheckerTest PRIVATE
+        JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0 JucePlugin_VersionString="${PROJECT_VERSION}"
+        CLASSIC_PLAYER_UPDATE_FEED_URL="${CLASSIC_PLAYER_UPDATE_FEED_URL}")
+    target_link_libraries(ClassicPlayerUpdateCheckerTest PRIVATE juce::juce_core)
+    add_test(NAME update-feed COMMAND ClassicPlayerUpdateCheckerTest)
     juce_add_console_app(ClassicPlayerAudioRegressionTest PRODUCT_NAME "Classic Player Audio Regression Test")
     target_sources(ClassicPlayerAudioRegressionTest PRIVATE
         Source/AudioRegressionTest.cpp Source/AnalogSynthEngine.cpp Source/Dx7Engine.cpp
