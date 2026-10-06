@@ -179,6 +179,7 @@ struct LiveSetLayoutRegressionAccess
 {
     static void silverUi(const char* screenshot, int skin = 5)
     {
+        std::cerr << "[ui-regression] preparing isolated processor" << std::endl;
         juce::TemporaryFile storage;
         const auto root = storage.getFile();
         check(root.createDirectory().wasOk(), "Silver UI temporary storage");
@@ -187,35 +188,43 @@ struct LiveSetLayoutRegressionAccess
         processor.setLayerType(0, ClassicPlayerAudioProcessor::LayerType::hammond);
         processor.setLayerType(1, ClassicPlayerAudioProcessor::LayerType::analog);
         processor.setLayerType(2, ClassicPlayerAudioProcessor::LayerType::dx7);
-        ClassicPlayerAudioProcessorEditor editor(processor);
-        editor.activationPanel.setVisible(false);
-        editor.setUiSkin(skin, false);
-        for (const auto size : { juce::Point<int>(900, 600), juce::Point<int>(1280, 720) })
         {
-            editor.setSize(size.x, size.y);
-            check(editor.languageSelector.getNumChildComponents() == 3, "Three language flags required");
-            for (int language = 1; language <= 3; ++language)
+            std::cerr << "[ui-regression] constructing editor" << std::endl;
+            // Keep the UI regression offline and prevent a license-validation
+            // worker from outliving the short-lived test editor on CI runners.
+            ClassicPlayerAudioProcessorEditor editor(processor, false);
+            editor.activationPanel.setVisible(false);
+            std::cerr << "[ui-regression] applying skin " << skin << std::endl;
+            editor.setUiSkin(skin, false);
+            for (const auto size : { juce::Point<int>(900, 600), juce::Point<int>(1280, 720) })
             {
-                editor.languageSelector.setSelectedId(language, juce::dontSendNotification);
-                int selected = 0;
-                for (auto* child : editor.languageSelector.getChildren())
+                std::cerr << "[ui-regression] checking layout " << size.x << 'x' << size.y << std::endl;
+                editor.setSize(size.x, size.y);
+                check(editor.languageSelector.getNumChildComponents() == 3, "Three language flags required");
+                for (int language = 1; language <= 3; ++language)
                 {
-                    check(editor.languageSelector.getLocalBounds().contains(child->getBounds()), "Language flag clipped");
-                    check(child->getWidth() >= 35 && child->getHeight() >= 26, "Language flag too small");
-                    if (auto* button = dynamic_cast<juce::Button*>(child)) selected += button->getToggleState() ? 1 : 0;
+                    editor.languageSelector.setSelectedId(language, juce::dontSendNotification);
+                    int selected = 0;
+                    for (auto* child : editor.languageSelector.getChildren())
+                    {
+                        check(editor.languageSelector.getLocalBounds().contains(child->getBounds()), "Language flag clipped");
+                        check(child->getWidth() >= 35 && child->getHeight() >= 26, "Language flag too small");
+                        if (auto* button = dynamic_cast<juce::Button*>(child)) selected += button->getToggleState() ? 1 : 0;
+                    }
+                    check(selected == 1 && editor.languageSelector.getSelectedId() == language, "Flag selection is not exclusive");
                 }
-                check(selected == 1 && editor.languageSelector.getSelectedId() == language, "Flag selection is not exclusive");
+                check(editor.getLocalBounds().contains(editor.cpuMeter.getBounds()), "CPU meter clipped");
             }
-            check(editor.getLocalBounds().contains(editor.cpuMeter.getBounds()), "CPU meter clipped");
+            editor.languageSelector.setSelectedId(editor.uiLanguage + 1, juce::dontSendNotification);
+            if (screenshot != nullptr)
+            {
+                juce::FileOutputStream stream { juce::File(screenshot) };
+                juce::PNGImageFormat png;
+                check(stream.openedOk() && png.writeImageToStream(
+                    editor.createComponentSnapshot(editor.getLocalBounds()), stream), "Silver UI screenshot");
+            }
         }
-        editor.languageSelector.setSelectedId(editor.uiLanguage + 1, juce::dontSendNotification);
-        if (screenshot != nullptr)
-        {
-            juce::FileOutputStream stream { juce::File(screenshot) };
-            juce::PNGImageFormat png;
-            check(stream.openedOk() && png.writeImageToStream(
-                editor.createComponentSnapshot(editor.getLocalBounds()), stream), "Silver UI screenshot");
-        }
+        std::cerr << "[ui-regression] editor destroyed" << std::endl;
         std::cout << "Silver skin and language flags layout passed\n";
     }
 

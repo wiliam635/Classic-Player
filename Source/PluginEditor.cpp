@@ -6186,7 +6186,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMidiLearnState()
     }
 }
 
-ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlayerAudioProcessor& p)
+ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
+    ClassicPlayerAudioProcessor& p, bool shouldValidateOnlineSession)
     : AudioProcessorEditor(&p), classicProcessor(p), keyboard(p.keyboardState)
 {
     juce::Logger::writeToLog("Editor Classic Player inicializado");
@@ -6649,7 +6650,8 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     activationPanel.toFront(false);
     if (activationPanel.isVisible()) languageSelector.toFront(false);
     
-        validateStoredOnlineSession();
+        if (shouldValidateOnlineSession)
+            validateStoredOnlineSession();
 
     // setSize() invokes resized() immediately. All layer strips must exist
     // before that callback can lay them out.

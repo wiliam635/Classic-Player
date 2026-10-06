@@ -15,7 +15,8 @@ class ClassicPlayerAudioProcessorEditor final : public juce::AudioProcessorEdito
                                                 private juce::AsyncUpdater
 {
 public:
-    explicit ClassicPlayerAudioProcessorEditor(ClassicPlayerAudioProcessor&);
+    explicit ClassicPlayerAudioProcessorEditor(ClassicPlayerAudioProcessor&,
+                                                bool shouldValidateOnlineSession = true);
     ~ClassicPlayerAudioProcessorEditor() override;
     void paint(juce::Graphics&) override;
     void resized() override;
