@@ -7,6 +7,7 @@
 #include "TransportState.h"
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -52,6 +53,11 @@ public:
     int64_t recordedSamples() const noexcept { return recorder.recordedSamples(); }
     float channelPreFaderPeak() const noexcept { return channelPrePeak.load(std::memory_order_relaxed); }
     float channelPostFaderPeak() const noexcept { return channelPostPeak.load(std::memory_order_relaxed); }
+    float trackPostFaderPeak(int index) const noexcept
+    {
+        return juce::isPositiveAndBelow(index, maxTrackChannels)
+            ? trackPostPeaks[static_cast<std::size_t>(index)].load(std::memory_order_relaxed) : 0.0f;
+    }
     float masterPeak() const noexcept { return masterPeakValue.load(std::memory_order_relaxed); }
     juce::AudioDeviceManager& deviceManager() noexcept { return deviceManagerValue; }
 
@@ -109,6 +115,8 @@ private:
     std::array<std::atomic<float>, maxTrackChannels> trackPans {};
     std::array<std::atomic<bool>, maxTrackChannels> trackMuted {};
     std::array<std::atomic<bool>, maxTrackChannels> trackSoloed {};
+    std::array<std::atomic<float>, maxTrackChannels> trackPrePeaks {};
+    std::array<std::atomic<float>, maxTrackChannels> trackPostPeaks {};
     std::atomic<int> trackCount { 0 };
     std::atomic<bool> anyTrackIsSoloed { false };
     std::atomic<float> masterGain { 1.0f };

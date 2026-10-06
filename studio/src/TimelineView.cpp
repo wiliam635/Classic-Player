@@ -7,7 +7,8 @@ namespace classicplayer
 namespace
 {
 constexpr auto headerHeight = 24.0f;
-constexpr auto nameWidth = 150.0f;
+constexpr auto nameWidth = 210.0f;
+constexpr auto controlSize = 21.0f;
 constexpr auto minimumSecondsPerScreen = 2.0;
 constexpr auto maximumSecondsPerScreen = 600.0;
 }
@@ -217,6 +218,26 @@ void TimelineView::mouseDown(const juce::MouseEvent& event)
     selectTrack(track);
     if (point.x < timeline.getX())
     {
+        auto& sessionTrack = sessionState.tracks.getReference(track);
+        const auto rowHeight = timeline.getHeight()
+            / static_cast<float>(juce::jmax(1, sessionState.tracks.size()));
+        const auto rowTop = timeline.getY() + rowHeight * static_cast<float>(track);
+        const auto controlY = rowTop + (rowHeight - controlSize) * 0.5f;
+        const auto muteBounds = juce::Rectangle<float>(8.0f, controlY, controlSize, controlSize);
+        const auto soloBounds = juce::Rectangle<float>(34.0f, controlY, controlSize, controlSize);
+
+        if (muteBounds.contains(point))
+        {
+            sessionTrack.muted = ! sessionTrack.muted;
+            if (onTrackStateChanged)
+                onTrackStateChanged(track);
+        }
+        else if (soloBounds.contains(point))
+        {
+            sessionTrack.solo = ! sessionTrack.solo;
+            if (onTrackStateChanged)
+                onTrackStateChanged(track);
+        }
         repaint();
         return;
     }
@@ -369,10 +390,29 @@ void TimelineView::paint(juce::Graphics& graphics)
 
         const auto name = trackIndex < sessionState.tracks.size()
                               ? sessionState.tracks[trackIndex].name : juce::String("Track");
+        const auto hasTrack = trackIndex < sessionState.tracks.size();
+        const auto* sessionTrack = hasTrack ? &sessionState.tracks.getReference(trackIndex) : nullptr;
+        const auto controlY = row.getY() + (row.getHeight() - controlSize) * 0.5f;
+        const auto drawTrackButton = [&graphics, controlY](float x, const char* text, bool active,
+                                                           juce::Colour activeColour)
+        {
+            const auto button = juce::Rectangle<float>(x, controlY, controlSize, controlSize);
+            graphics.setColour(active ? activeColour : juce::Colour(0xff26353d));
+            graphics.fillRoundedRectangle(button, 3.0f);
+            graphics.setColour(active ? juce::Colours::white : juce::Colour(0xff90a6ae));
+            graphics.drawRoundedRectangle(button, 3.0f, 1.0f);
+            graphics.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+            graphics.drawText(text, button.toNearestInt(), juce::Justification::centred);
+        };
+        drawTrackButton(8.0f, "M", sessionTrack != nullptr && sessionTrack->muted,
+                        juce::Colour(0xffb64d58));
+        drawTrackButton(34.0f, "S", sessionTrack != nullptr && sessionTrack->solo,
+                        juce::Colour(0xffc69235));
+
         graphics.setColour(selected ? juce::Colour(0xffeaffff) : juce::Colour(0xffb2cbd1));
-        graphics.setFont(juce::FontOptions(11.0f, selected ? juce::Font::bold : juce::Font::plain));
-        graphics.drawText(name, 10, static_cast<int>(row.getY()),
-                          static_cast<int>(nameWidth - 14.0f), static_cast<int>(row.getHeight()),
+        graphics.setFont(juce::FontOptions(12.0f, selected ? juce::Font::bold : juce::Font::plain));
+        graphics.drawText(name, 64, static_cast<int>(row.getY()),
+                          static_cast<int>(nameWidth - 74.0f), static_cast<int>(row.getHeight()),
                           juce::Justification::centredLeft, true);
 
         if (trackIndex >= sessionState.tracks.size())

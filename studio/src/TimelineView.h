@@ -33,6 +33,8 @@ public:
     std::function<void()> onSessionEdited;
     std::function<void(int)> onTrackSelected;
     std::function<void(const juce::String&)> onClipSelected;
+    // Raised after the timeline's compact M/S controls alter a track.
+    std::function<void(int)> onTrackStateChanged;
 
 private:
     struct ClipLocation

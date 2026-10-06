@@ -11,45 +11,327 @@ juce::String cpText(const char* value)
     return juce::String::fromUTF8(value);
 }
 
+class MixerView final : public juce::Component
+{
+public:
+    MixerView(MixerState& mixerToUse, AudioEngine& audioToUse)
+        : mixerState(mixerToUse), audioEngine(audioToUse)
+    {
+        setOpaque(true);
+    }
+
+    std::function<void(int)> onChannelChanged;
+
+    void refresh() { repaint(); }
+    void setSelectedTrack(int index) noexcept
+    {
+        selectedTrackIndex = mixerState.size() <= 0
+            ? 0 : juce::jlimit(0, mixerState.size() - 1, index);
+        repaint();
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        const auto area = getLocalBounds().toFloat();
+        g.fillAll(juce::Colour(0xff171b1e));
+        g.setColour(juce::Colour(0xff343d42));
+        g.drawHorizontalLine(0, 0.0f, area.getWidth());
+
+        const auto trackCount = mixerState.size();
+        const auto titleHeight = 23.0f;
+        const auto rightMargin = 12.0f;
+        const auto masterWidth = 76.0f;
+        const auto trackWidth = trackCount > 0
+            ? juce::jlimit(64.0f, 120.0f,
+                           (area.getWidth() - masterWidth - rightMargin * 2.0f)
+                               / static_cast<float>(trackCount))
+            : 80.0f;
+        g.setColour(juce::Colour(0xffbac4c8));
+        g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+        g.drawText("MIXER", 12, 3, 80, 16, juce::Justification::centredLeft);
+
+        for (int index = 0; index < trackCount; ++index)
+        {
+            const auto& channel = mixerState.get(index);
+            const auto x = rightMargin + trackWidth * static_cast<float>(index);
+            auto strip = juce::Rectangle<float>(x + 2.0f, titleHeight, trackWidth - 4.0f,
+                                                area.getHeight() - titleHeight - 5.0f);
+            const auto selected = index == selectedTrackIndex;
+            g.setColour(selected ? juce::Colour(0xff293a42) : juce::Colour(0xff22282c));
+            g.fillRoundedRectangle(strip, 4.0f);
+            g.setColour(selected ? juce::Colour(0xff168b99) : juce::Colour(0xff39454b));
+            g.drawRoundedRectangle(strip, 4.0f, selected ? 1.5f : 1.0f);
+
+            const auto nameBounds = strip.withY(titleHeight + 3.0f).withHeight(16.0f).reduced(3.0f, 0.0f);
+            g.setColour(juce::Colour(0xffe0e7e9));
+            g.setFont(juce::FontOptions(10.0f, selected ? juce::Font::bold : juce::Font::plain));
+            g.drawText(channel.name, nameBounds.toNearestInt(), juce::Justification::centred, true);
+
+            const auto buttonY = titleHeight + 22.0f;
+            drawToggle(g, x + trackWidth * 0.5f - 24.0f, buttonY, "M", channel.muted,
+                       juce::Colour(0xffaa4c57));
+            drawToggle(g, x + trackWidth * 0.5f + 2.0f, buttonY, "S", channel.solo,
+                       juce::Colour(0xffbb8a33));
+
+            const auto panY = titleHeight + 56.0f;
+            g.setColour(juce::Colour(0xff87979d));
+            g.setFont(juce::FontOptions(9.0f));
+            g.drawText("PAN " + juce::String(channel.pan, 2),
+                       static_cast<int>(x + 2.0f), static_cast<int>(panY - 5.0f),
+                       static_cast<int>(trackWidth - 4.0f), 13, juce::Justification::centred);
+            g.setColour(juce::Colour(0xff46545b));
+            g.fillRoundedRectangle(x + 8.0f, panY + 11.0f, trackWidth - 16.0f, 3.0f, 1.5f);
+            const auto panPosition = (channel.pan + 1.0f) * 0.5f;
+            g.setColour(juce::Colour(0xff18bdc8));
+            g.fillEllipse(x + 7.0f + panPosition * (trackWidth - 18.0f), panY + 7.0f, 10.0f, 10.0f);
+
+            const auto faderTop = titleHeight + 85.0f;
+            const auto faderBottom = area.getHeight() - 28.0f;
+            const auto faderX = x + trackWidth * 0.64f;
+            const auto meterX = x + 8.0f;
+            g.setColour(juce::Colour(0xff080c0e));
+            g.fillRoundedRectangle(faderX - 2.0f, faderTop, 4.0f,
+                                   juce::jmax(12.0f, faderBottom - faderTop), 2.0f);
+            g.setColour(juce::Colour(0xff52636a));
+            g.drawVerticalLine(static_cast<int>(faderX), faderTop, faderBottom);
+            const auto faderFraction = juce::jlimit(0.0f, 1.0f, (12.0f - channel.gainDb) / 72.0f);
+            const auto thumbY = faderTop + faderFraction * (faderBottom - faderTop - 10.0f);
+            g.setColour(juce::Colour(0xffd1dadd));
+            g.fillRoundedRectangle(faderX - trackWidth * 0.19f, thumbY,
+                                   trackWidth * 0.38f, 10.0f, 2.0f);
+            g.setColour(juce::Colour(0xff536169));
+            g.drawRoundedRectangle(faderX - trackWidth * 0.19f, thumbY,
+                                   trackWidth * 0.38f, 10.0f, 2.0f, 1.0f);
+
+            const auto meterHeight = juce::jmax(0.0f, faderBottom - faderTop);
+            const auto peak = juce::jlimit(0.0f, 1.0f, audioEngine.trackPostFaderPeak(index));
+            const auto litHeight = meterHeight * peak;
+            g.setColour(juce::Colour(0xff11181b));
+            g.fillRoundedRectangle(meterX, faderTop, 6.0f, meterHeight, 2.0f);
+            g.setColour(peak > 0.92f ? juce::Colour(0xffe39b37) : juce::Colour(0xff1ac0a0));
+            g.fillRoundedRectangle(meterX, faderBottom - litHeight, 6.0f, litHeight, 2.0f);
+
+            g.setColour(juce::Colour(0xffdce5e7));
+            g.setFont(juce::FontOptions(9.0f));
+            g.drawText(juce::String(channel.gainDb, 1) + " dB",
+                       static_cast<int>(x + 3.0f), static_cast<int>(area.getHeight() - 23.0f),
+                       static_cast<int>(trackWidth - 6.0f), 15, juce::Justification::centred);
+        }
+
+        const auto masterX = area.getWidth() - masterWidth - rightMargin;
+        auto masterStrip = juce::Rectangle<float>(masterX, titleHeight, masterWidth,
+                                                  area.getHeight() - titleHeight - 5.0f);
+        g.setColour(juce::Colour(0xff263035));
+        g.fillRoundedRectangle(masterStrip, 4.0f);
+        g.setColour(juce::Colour(0xff62727a));
+        g.drawRoundedRectangle(masterStrip, 4.0f, 1.0f);
+        g.setColour(juce::Colour(0xfff1f5f6));
+        g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+        g.drawText("MASTER", masterStrip.withY(titleHeight + 3.0f).withHeight(16.0f).toNearestInt(),
+                   juce::Justification::centred);
+        g.setColour(juce::Colour(0xff11181b));
+        const auto masterFaderTop = titleHeight + 35.0f;
+        const auto masterFaderBottom = area.getHeight() - 28.0f;
+        const auto masterFaderX = masterStrip.getCentreX() + 7.0f;
+        g.fillRoundedRectangle(masterFaderX - 2.0f, masterFaderTop, 4.0f,
+                               juce::jmax(12.0f, masterFaderBottom - masterFaderTop), 2.0f);
+        const auto masterFraction = juce::jlimit(0.0f, 1.0f,
+                (12.0f - mixerState.masterGainDb()) / 72.0f);
+        const auto masterThumbY = masterFaderTop
+            + masterFraction * (masterFaderBottom - masterFaderTop - 10.0f);
+        g.setColour(juce::Colour(0xffd1dadd));
+        g.fillRoundedRectangle(masterFaderX - 18.0f, masterThumbY, 36.0f, 10.0f, 2.0f);
+        const auto masterPeak = juce::jlimit(0.0f, 1.0f, audioEngine.masterPeak());
+        const auto masterMeterHeight = masterFaderBottom - masterFaderTop;
+        g.setColour(juce::Colour(0xff101619));
+        g.fillRoundedRectangle(masterX + 10.0f, masterFaderTop, 6.0f, masterMeterHeight, 2.0f);
+        g.setColour(masterPeak > 0.92f ? juce::Colour(0xffe39b37) : juce::Colour(0xff1ac0a0));
+        g.fillRoundedRectangle(masterX + 10.0f, masterFaderBottom - masterMeterHeight * masterPeak,
+                               6.0f, masterMeterHeight * masterPeak, 2.0f);
+        g.setColour(juce::Colour(0xffdce5e7));
+        g.setFont(juce::FontOptions(9.0f));
+        g.drawText(juce::String(mixerState.masterGainDb(), 1) + " dB",
+                   masterStrip.withY(area.getHeight() - 23.0f).withHeight(15.0f).toNearestInt(),
+                   juce::Justification::centred);
+    }
+
+    void mouseDown(const juce::MouseEvent& event) override
+    {
+        dragTarget = DragTarget::none;
+        dragTrackIndex = -1;
+        const auto trackCount = mixerState.size();
+        const auto area = getLocalBounds().toFloat();
+        const auto width = trackCount > 0
+            ? juce::jlimit(64.0f, 120.0f, (area.getWidth() - 100.0f)
+                                                  / static_cast<float>(trackCount))
+            : 80.0f;
+        const auto index = event.position.x >= 12.0f
+            ? static_cast<int>((event.position.x - 12.0f) / width) : -1;
+        if (index >= 0 && index < trackCount)
+        {
+            selectedTrackIndex = index;
+            const auto localX = event.position.x - (12.0f + width * static_cast<float>(index));
+            const auto buttonY = 45.0f;
+            if (event.position.y >= buttonY && event.position.y <= buttonY + 22.0f)
+            {
+                if (localX >= width * 0.5f - 24.0f && localX < width * 0.5f - 2.0f)
+                    mixerState.get(index).muted = ! mixerState.get(index).muted;
+                else if (localX >= width * 0.5f + 2.0f && localX < width * 0.5f + 24.0f)
+                    mixerState.get(index).solo = ! mixerState.get(index).solo;
+                else
+                    dragTarget = DragTarget::none;
+                if (onChannelChanged)
+                    onChannelChanged(index);
+                repaint();
+                return;
+            }
+
+            const auto panLeft = 8.0f;
+            const auto panRight = width - 8.0f;
+            const auto faderLeft = width * 0.45f;
+            const auto faderRight = width * 0.84f;
+            if (event.position.y >= 76.0f && event.position.y <= 101.0f
+                && localX >= panLeft && localX <= panRight)
+                dragTarget = DragTarget::pan;
+            else if (event.position.y >= 105.0f && localX >= faderLeft && localX <= faderRight)
+                dragTarget = DragTarget::trackGain;
+            else
+                dragTarget = DragTarget::none;
+            dragTrackIndex = index;
+            if (dragTarget != DragTarget::none)
+                updateDraggedValue(event.position);
+            if (onChannelChanged)
+                onChannelChanged(index);
+            repaint();
+            return;
+        }
+
+        const auto masterFaderX = area.getWidth() - 43.0f;
+        if (event.position.x >= masterFaderX - 18.0f && event.position.x <= masterFaderX + 18.0f
+            && event.position.y >= 55.0f)
+        {
+            dragTarget = DragTarget::masterGain;
+            dragTrackIndex = -1;
+            updateDraggedValue(event.position);
+            if (onChannelChanged)
+                onChannelChanged(-1);
+            repaint();
+        }
+    }
+
+    void mouseDrag(const juce::MouseEvent& event) override
+    {
+        if (dragTarget == DragTarget::none)
+            return;
+        updateDraggedValue(event.position);
+        if (onChannelChanged)
+            onChannelChanged(dragTrackIndex);
+        repaint();
+    }
+
+    void mouseUp(const juce::MouseEvent&) override { dragTarget = DragTarget::none; }
+
+private:
+    enum class DragTarget { none, trackGain, pan, masterGain };
+
+    static void drawToggle(juce::Graphics& g, float x, float y, const char* text,
+                           bool active, juce::Colour activeColour)
+    {
+        const auto bounds = juce::Rectangle<float>(x, y, 20.0f, 18.0f);
+        g.setColour(active ? activeColour : juce::Colour(0xff303a40));
+        g.fillRoundedRectangle(bounds, 3.0f);
+        g.setColour(active ? juce::Colours::white : juce::Colour(0xffa6b4b9));
+        g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+        g.drawText(text, bounds.toNearestInt(), juce::Justification::centred);
+    }
+
+    void updateDraggedValue(juce::Point<float> point)
+    {
+        const auto height = static_cast<float>(getHeight());
+        if (dragTarget == DragTarget::pan && dragTrackIndex >= 0
+            && juce::isPositiveAndBelow(dragTrackIndex, mixerState.size()))
+        {
+            const auto trackCount = mixerState.size();
+            const auto width = juce::jlimit(64.0f, 120.0f,
+                (static_cast<float>(getWidth()) - 100.0f) / static_cast<float>(trackCount));
+            const auto stripX = 12.0f + width * static_cast<float>(dragTrackIndex);
+            mixerState.get(dragTrackIndex).pan = juce::jlimit(-1.0f, 1.0f,
+                ((point.x - (stripX + 8.0f)) / juce::jmax(1.0f, width - 16.0f)) * 2.0f - 1.0f);
+            return;
+        }
+
+        if (dragTarget == DragTarget::trackGain && dragTrackIndex >= 0
+            && juce::isPositiveAndBelow(dragTrackIndex, mixerState.size()))
+        {
+            const auto top = 108.0f;
+            const auto bottom = height - 31.0f;
+            const auto fraction = juce::jlimit(0.0f, 1.0f, (point.y - top) / juce::jmax(1.0f, bottom - top));
+            mixerState.get(dragTrackIndex).gainDb = 12.0f - fraction * 72.0f;
+            return;
+        }
+
+        if (dragTarget == DragTarget::masterGain)
+        {
+            const auto top = 59.0f;
+            const auto bottom = height - 31.0f;
+            const auto fraction = juce::jlimit(0.0f, 1.0f, (point.y - top) / juce::jmax(1.0f, bottom - top));
+            mixerState.setMasterGainDb(12.0f - fraction * 72.0f);
+        }
+    }
+
+    MixerState& mixerState;
+    AudioEngine& audioEngine;
+    int selectedTrackIndex { 0 };
+    int dragTrackIndex { -1 };
+    DragTarget dragTarget { DragTarget::none };
+};
+
 class StudioCanvas final : public juce::Component
 {
 public:
+    std::function<void(juce::Rectangle<int>)> onLayout;
+
+    void resized() override
+    {
+        if (onLayout)
+            onLayout(getLocalBounds());
+    }
+
     void paint(juce::Graphics& g) override
     {
-        const auto bounds = getLocalBounds().toFloat();
-        g.fillAll(juce::Colour(0xff08151e));
+        const auto bounds = getLocalBounds();
+        const auto width = bounds.getWidth();
+        const auto height = bounds.getHeight();
+        const auto topBarBottom = 104;
+        const auto mixerTop = juce::jmax(430, height - 214);
 
-        g.setColour(juce::Colour(0xff0c202d));
-        g.fillRoundedRectangle(bounds.reduced(14.0f).withHeight(84.0f), 10.0f);
-        g.setColour(juce::Colour(0xff12c8cf));
-        g.fillRoundedRectangle(bounds.reduced(14.0f).withHeight(3.0f).translated(0.0f, 95.0f), 1.5f);
+        g.fillAll(juce::Colour(0xff101316));
 
-        const auto panel = juce::Colour(0xff102632);
-        const auto panelAlt = juce::Colour(0xff0d202c);
-        g.setColour(panel);
-        g.fillRoundedRectangle(14.0f, 112.0f, bounds.getWidth() - 28.0f, 104.0f, 10.0f);
-        g.fillRoundedRectangle(14.0f, 228.0f, bounds.getWidth() - 28.0f, 142.0f, 10.0f);
-        g.fillRoundedRectangle(14.0f, 382.0f, bounds.getWidth() - 28.0f, 120.0f, 10.0f);
-        g.setColour(panelAlt);
-        g.fillRoundedRectangle(14.0f, 514.0f, bounds.getWidth() - 28.0f,
-                               juce::jmax(140.0f, bounds.getHeight() - 528.0f), 10.0f);
+        // This follows the conventional DAW hierarchy: a compact transport
+        // strip, a large arrangement workspace and a permanently visible
+        // mixer dock. The high-contrast dividers keep the three work areas
+        // legible on small laptop displays as well as full-size monitors.
+        g.setColour(juce::Colour(0xff20262a));
+        g.fillRect(0, 0, width, topBarBottom);
+        g.setColour(juce::Colour(0xff181d21));
+        g.fillRect(0, topBarBottom, width, mixerTop - topBarBottom);
+        g.setColour(juce::Colour(0xff20262a));
+        g.fillRect(0, mixerTop, width, height - mixerTop);
 
-        g.setColour(juce::Colour(0xff1c4051));
-        g.drawHorizontalLine(112, 28.0f, bounds.getWidth() - 28.0f);
-        g.drawHorizontalLine(228, 28.0f, bounds.getWidth() - 28.0f);
-        g.drawHorizontalLine(382, 28.0f, bounds.getWidth() - 28.0f);
-        g.drawHorizontalLine(514, 28.0f, bounds.getWidth() - 28.0f);
+        g.setColour(juce::Colour(0xff0a9bad));
+        g.fillRect(0, topBarBottom - 2, width, 2);
+        g.setColour(juce::Colour(0xff384248));
+        g.drawHorizontalLine(mixerTop, 0.0f, static_cast<float>(width));
 
-        g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-        g.setColour(juce::Colour(0xff52dbe0));
-        g.drawText("STUDIO / INSTRUMENT", 30, 119, 220, 18, juce::Justification::left);
-        g.drawText("SESSION / TRANSPORT", 30, 235, 220, 18, juce::Justification::left);
-        g.drawText("MIXER / MONITORING", 30, 389, 220, 18, juce::Justification::left);
-        g.drawText("ARRANGEMENT / TIMELINE", 30, 521, 260, 18, juce::Justification::left);
-        g.setColour(juce::Colour(0xff8fb5bf));
-        g.setFont(juce::FontOptions(12.0f));
-        g.drawText("AUDIO WORKSTATION", bounds.getWidth() - 190.0f, 39.0f, 150.0f, 20.0f,
-                   juce::Justification::right);
+        g.setColour(juce::Colour(0xffaebbc1));
+        g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+        g.drawText("ARRANGEMENT", 18, topBarBottom + 1, 150, 14, juce::Justification::centredLeft);
+        g.drawText("MIXER", 18, mixerTop + 4, 100, 14, juce::Justification::centredLeft);
+
+        g.setColour(juce::Colour(0xff78929b));
+        g.setFont(juce::FontOptions(9.0f));
+        g.drawText("CLASSIC PLAYER STUDIO", width - 220, 13, 200, 16,
+                   juce::Justification::centredRight);
     }
 };
 
@@ -102,7 +384,8 @@ public:
                AudioEngine& audioToUse)
         : DocumentWindow("Classic Player Studio", juce::Colour(0xff08151e), DocumentWindow::allButtons),
           sessionState(sessionToUse), transportState(transportToUse), timelineView(sessionToUse, transportToUse),
-          mixerState(mixerToUse), instrumentHost(hostToUse), audioEngine(audioToUse)
+          mixerState(mixerToUse), instrumentHost(hostToUse), audioEngine(audioToUse),
+          mixerView(mixerToUse, audioToUse)
     {
         setLookAndFeel(&lookAndFeel);
         auto* content = new StudioCanvas();
@@ -124,7 +407,8 @@ public:
         mixerSummary.setBounds(30, 102, 760, 24);
         content->addAndMakeVisible(mixerSummary);
 
-        scanPlugins.setButtonText("SCAN INSTRUMENTS");
+        scanPlugins.setButtonText("SCAN");
+        scanPlugins.setTooltip("Scan installed VST3 and AU instruments");
         scanPlugins.onClick = [this]
         {
             availableInstruments = instrumentHost.scanInstalledInstruments();
@@ -137,7 +421,8 @@ public:
         scanPlugins.setBounds(30, 168, 190, 36);
         content->addAndMakeVisible(scanPlugins);
 
-        loadPlugin.setButtonText("LOAD FIRST INSTRUMENT");
+        loadPlugin.setButtonText("LOAD INST");
+        loadPlugin.setTooltip("Load the first available instrument");
         loadPlugin.onClick = [this]
         {
             audioEngine.stop();
@@ -182,13 +467,15 @@ public:
             {
                 selectedTrackIndex = trackSelector.getSelectedId() - 1;
                 timelineView.setSelectedTrack(selectedTrackIndex);
+                syncMixerControlsFromState();
             }
             refreshTimelineSummary();
         };
         trackSelector.setBounds(120, 214, 260, 36);
         content->addAndMakeVisible(trackSelector);
 
-        addAudioTrack.setButtonText("ADD AUDIO TRACK");
+        addAudioTrack.setButtonText("+ TRACK");
+        addAudioTrack.setTooltip("Add a new audio track");
         addAudioTrack.onClick = [this]
         {
             SessionTrack track;
@@ -204,7 +491,8 @@ public:
         addAudioTrack.setBounds(390, 214, 155, 36);
         content->addAndMakeVisible(addAudioTrack);
 
-        removeTrack.setButtonText("REMOVE AUDIO TRACK");
+        removeTrack.setButtonText("REMOVE");
+        removeTrack.setTooltip("Remove the selected audio track");
         removeTrack.onClick = [this]
         {
             if (selectedTrackIndex <= 0 || selectedTrackIndex >= sessionState.tracks.size())
@@ -225,7 +513,8 @@ public:
         removeTrack.setBounds(555, 214, 175, 36);
         content->addAndMakeVisible(removeTrack);
 
-        newSession.setButtonText("NEW SESSION");
+        newSession.setButtonText("NEW");
+        newSession.setTooltip("Create a new session");
         newSession.onClick = [this]
         {
             finishActiveRecording();
@@ -245,7 +534,8 @@ public:
         newSession.setBounds(30, 268, 120, 36);
         content->addAndMakeVisible(newSession);
 
-        openSession.setButtonText("OPEN SESSION");
+        openSession.setButtonText("OPEN");
+        openSession.setTooltip("Open a saved session");
         openSession.onClick = [this]
         {
             finishActiveRecording();
@@ -291,7 +581,8 @@ public:
         openSession.setBounds(160, 268, 130, 36);
         content->addAndMakeVisible(openSession);
 
-        saveSession.setButtonText("SAVE SESSION");
+        saveSession.setButtonText("SAVE");
+        saveSession.setTooltip("Save the current session");
         saveSession.onClick = [this]
         {
             auto chooser = std::make_shared<juce::FileChooser>(
@@ -322,7 +613,8 @@ public:
         saveSession.setBounds(300, 268, 130, 36);
         content->addAndMakeVisible(saveSession);
 
-        startAudio.setButtonText("START AUDIO");
+        startAudio.setButtonText("AUDIO ON");
+        startAudio.setTooltip("Start the audio device");
         startAudio.onClick = [this]
         {
             juce::String error;
@@ -339,7 +631,8 @@ public:
         startAudio.setBounds(440, 268, 130, 36);
         content->addAndMakeVisible(startAudio);
 
-        stopAudio.setButtonText("STOP AUDIO");
+        stopAudio.setButtonText("AUDIO OFF");
+        stopAudio.setTooltip("Stop audio and finish the current recording");
         stopAudio.onClick = [this]
         {
             finishActiveRecording();
@@ -370,7 +663,7 @@ public:
         stop.setBounds(250, 316, 100, 36);
         content->addAndMakeVisible(stop);
 
-        recordAudio.setButtonText("RECORD INPUT");
+        recordAudio.setButtonText("REC");
         recordAudio.onClick = [this]
         {
             auto chooser = std::make_shared<juce::FileChooser>(
@@ -416,7 +709,7 @@ public:
         recordAudio.setBounds(30, 360, 130, 36);
         content->addAndMakeVisible(recordAudio);
 
-        stopRecording.setButtonText("STOP RECORDING");
+        stopRecording.setButtonText("STOP REC");
         stopRecording.onClick = [this]
         {
             finishActiveRecording();
@@ -429,60 +722,12 @@ public:
         recordingSummary.setBounds(330, 364, 800, 28);
         content->addAndMakeVisible(recordingSummary);
 
-        trackGainLabel.setText("TRACK GAIN", juce::dontSendNotification);
-        trackPanLabel.setText("TRACK PAN", juce::dontSendNotification);
-        masterGainLabel.setText("MASTER", juce::dontSendNotification);
-        for (auto* label : { &trackGainLabel, &trackPanLabel, &masterGainLabel })
-        {
-            label->setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-            content->addAndMakeVisible(*label);
-        }
-        trackGainLabel.setBounds(30, 408, 120, 22);
-        trackPanLabel.setBounds(230, 408, 120, 22);
-        masterGainLabel.setBounds(430, 408, 120, 22);
-
-        setupSlider(trackGain, -60.0, 12.0, 0.0, " dB");
-        setupSlider(trackPan, -1.0, 1.0, 0.0, "");
-        setupSlider(masterGain, -60.0, 12.0, 0.0, " dB");
-        trackGain.setBounds(30, 432, 170, 28);
-        trackPan.setBounds(230, 432, 170, 28);
-        masterGain.setBounds(430, 432, 170, 28);
-        content->addAndMakeVisible(trackGain);
-        content->addAndMakeVisible(trackPan);
-        content->addAndMakeVisible(masterGain);
-
-        muteTrack.setButtonText("MUTE TRACK 1");
-        soloTrack.setButtonText("SOLO TRACK 1");
-        muteTrack.setClickingTogglesState(true);
-        soloTrack.setClickingTogglesState(true);
-        muteTrack.onClick = [this]
-        {
-            if (mixerState.size() > 0)
-                mixerState.get(0).muted = muteTrack.getToggleState();
-            syncSessionFromMixer();
-            audioEngine.refreshMixerSnapshot();
-        };
-        soloTrack.onClick = [this]
-        {
-            if (mixerState.size() > 0)
-                mixerState.get(0).solo = soloTrack.getToggleState();
-            syncSessionFromMixer();
-            audioEngine.refreshMixerSnapshot();
-        };
-        muteTrack.setBounds(620, 412, 130, 28);
-        soloTrack.setBounds(760, 412, 120, 28);
-        content->addAndMakeVisible(muteTrack);
-        content->addAndMakeVisible(soloTrack);
-
-        meterSummary.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-        meterSummary.setBounds(30, 474, 1120, 24);
-        content->addAndMakeVisible(meterSummary);
-
         timelineSummary.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
         timelineSummary.setBounds(30, 540, 1120, 24);
         content->addAndMakeVisible(timelineSummary);
 
-        importAudio.setButtonText("IMPORT AUDIO");
+        importAudio.setButtonText("IMPORT");
+        importAudio.setTooltip("Import WAV, AIFF or FLAC audio");
         importAudio.onClick = [this]
         {
             auto chooser = std::make_shared<juce::FileChooser>(
@@ -536,7 +781,16 @@ public:
         {
             selectedTrackIndex = trackIndex;
             trackSelector.setSelectedId(trackIndex + 1, juce::dontSendNotification);
+            syncMixerControlsFromState();
             refreshTimelineSummary();
+        };
+        timelineView.onTrackStateChanged = [this](int trackIndex)
+        {
+            selectedTrackIndex = trackIndex;
+            trackSelector.setSelectedId(trackIndex + 1, juce::dontSendNotification);
+            mixerState.syncFromSession(sessionState.tracks);
+            syncMixerControlsFromState();
+            audioEngine.refreshMixerSnapshot();
         };
         timelineView.onClipSelected = [this](const juce::String& clipName)
         {
@@ -552,45 +806,119 @@ public:
         timelineView.setBounds(30, 610, 1120, 185);
         content->addAndMakeVisible(timelineView);
 
+        mixerView.onChannelChanged = [this](int trackIndex)
+        {
+            if (trackIndex >= 0 && trackIndex < sessionState.tracks.size())
+            {
+                selectedTrackIndex = trackIndex;
+                trackSelector.setSelectedId(trackIndex + 1, juce::dontSendNotification);
+                timelineView.setSelectedTrack(trackIndex);
+                syncSessionFromMixer();
+            }
+            audioEngine.refreshMixerSnapshot();
+            mixerView.refresh();
+        };
+        content->addAndMakeVisible(mixerView);
+
         for (auto* label : { &status, &mixerSummary, &pluginSummary, &audioSummary,
-                             &recordingSummary, &meterSummary, &timelineSummary })
+                             &recordingSummary, &timelineSummary })
         {
             label->setFont(juce::FontOptions(14.0f));
         }
 
+        content->onLayout = [this](juce::Rectangle<int> bounds) { layoutWorkspace(bounds); };
         startTimerHz(20);
         setContentOwned(content, true);
         refreshTrackSelector();
+        syncMixerControlsFromState();
         refreshTimelineSummary();
-        centreWithSize(1180, 850);
-        // The first Studio build was freely resizable while most controls had
-        // fixed coordinates, which produced a large empty grey area.  Keep a
-        // deliberate, balanced workspace until the responsive layout pass is
-        // implemented.
-        setResizable(false, false);
+        centreWithSize(1280, 800);
+        setResizeLimits(980, 640, 2560, 1600);
+        setResizable(true, true);
         setUsingNativeTitleBar(true);
     }
 private:
-    void setupSlider(juce::Slider& slider, double minimum, double maximum,
-                     double initial, const juce::String& suffix)
+    int selectedMixerChannel() const noexcept
     {
-        slider.setSliderStyle(juce::Slider::LinearHorizontal);
-        slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 22);
-        slider.setRange(minimum, maximum, 0.01);
-        slider.setValue(initial, juce::dontSendNotification);
-        slider.setTextValueSuffix(suffix);
-        slider.onValueChange = [this]
-        {
-            if (mixerState.size() <= 0)
-                return;
+        return mixerState.size() <= 0
+            ? 0
+            : juce::jlimit(0, mixerState.size() - 1, selectedTrackIndex);
+    }
 
-            auto& channel = mixerState.get(0);
-            channel.gainDb = static_cast<float>(trackGain.getValue());
-            channel.pan = static_cast<float>(trackPan.getValue());
-            mixerState.setMasterGainDb(static_cast<float>(masterGain.getValue()));
-            syncSessionFromMixer();
-            audioEngine.refreshMixerSnapshot();
-        };
+    void layoutWorkspace(juce::Rectangle<int> bounds)
+    {
+        const auto width = bounds.getWidth();
+        const auto height = bounds.getHeight();
+        const auto margin = 16;
+        const auto mixerTop = juce::jmax(430, height - 214);
+
+        // Compact, always-visible DAW toolbar.
+        title.setBounds(margin, 10, 255, 28);
+        status.setBounds(margin, 40, 290, 20);
+        mixerSummary.setBounds(margin, 62, 300, 18);
+
+        const auto compact = width < 1240;
+        auto toolbarX = compact ? 280 : 320;
+        const auto sessionButtonWidth = compact ? 58 : 76;
+        const auto utilityButtonWidth = compact ? 68 : 110;
+        const auto pluginButtonWidth = compact ? 82 : 128;
+        newSession.setBounds(toolbarX, 16, sessionButtonWidth, 28);
+        toolbarX += sessionButtonWidth + 5;
+        openSession.setBounds(toolbarX, 16, sessionButtonWidth, 28);
+        toolbarX += sessionButtonWidth + 5;
+        saveSession.setBounds(toolbarX, 16, sessionButtonWidth, 28);
+        toolbarX += sessionButtonWidth + 6;
+        scanPlugins.setBounds(toolbarX, 16, utilityButtonWidth, 28);
+        toolbarX += utilityButtonWidth + 5;
+        loadPlugin.setBounds(toolbarX, 16, pluginButtonWidth, 28);
+
+        const auto compactTransport = compact;
+        const auto transportButton = compactTransport ? 44 : 64;
+        const auto transportGap = compactTransport ? 4 : 6;
+        const auto recordButton = compactTransport ? 50 : 64;
+        const auto stopRecordButton = compactTransport ? 68 : 100;
+        const auto transportWidth = transportButton * 3 + recordButton + stopRecordButton
+                                    + transportGap * 4;
+        auto transportX = juce::jmax(toolbarX + pluginButtonWidth + 12,
+                                     width - margin - transportWidth);
+        play.setBounds(transportX, 16, transportButton, 28);
+        transportX += transportButton + transportGap;
+        pause.setBounds(transportX, 16, transportButton, 28);
+        transportX += transportButton + transportGap;
+        stop.setBounds(transportX, 16, transportButton, 28);
+        transportX += transportButton + transportGap;
+        recordAudio.setBounds(transportX, 16, recordButton, 28);
+        transportX += recordButton + transportGap;
+        stopRecording.setBounds(transportX, 16, stopRecordButton, 28);
+        recordAudio.setButtonText(compact ? "REC" : "RECORD");
+        stopRecording.setButtonText(compact ? "STOP REC" : "STOP RECORDING");
+
+        startAudio.setBounds(width - margin - 176, 56, 84, 26);
+        stopAudio.setBounds(width - margin - 86, 56, 70, 26);
+        audioSummary.setBounds(toolbarX, 58, juce::jmax(100, width - toolbarX - 205), 22);
+        pluginSummary.setBounds(toolbarX, 80, juce::jmax(140, width - toolbarX - 280), 18);
+        recordingSummary.setBounds(width - 270, 80, 254, 18);
+
+        // Arrangement toolbar: track focus, editing and navigation tools.
+        trackLabel.setBounds(margin, 122, 50, 22);
+        trackSelector.setBounds(margin + 52, 118, 176, 28);
+        addAudioTrack.setBounds(margin + 234, 118, 84, 28);
+        removeTrack.setBounds(margin + 324, 118, 92, 28);
+        importAudio.setBounds(margin + 428, 118, 100, 28);
+        deleteTimelineClip.setBounds(margin + 534, 118, 94, 28);
+        timelineZoomOut.setBounds(margin + 640, 118, 62, 28);
+        timelineZoomIn.setBounds(margin + 708, 118, 62, 28);
+        timelineFit.setBounds(margin + 776, 118, 78, 28);
+        timelineSummary.setBounds(margin + 870, 122,
+                                  juce::jmax(72, width - (margin + 886)), 20);
+
+        timelineView.setBounds(margin, 154, width - margin * 2,
+                               juce::jmax(250, mixerTop - 168));
+
+        // Docked mixer. The selected channel has direct controls while every
+        // track remains selectable/muteable/soloable from the arrangement.
+        mixerView.setBounds(margin, mixerTop + 23, width - margin * 2,
+                            juce::jmax(150, height - mixerTop - 23));
     }
 
     void syncSessionFromMixer()
@@ -598,8 +926,9 @@ private:
         if (sessionState.tracks.isEmpty() || mixerState.size() <= 0)
             return;
 
-        const auto& channel = mixerState.get(0);
-        auto& track = sessionState.tracks.getReference(0);
+        const auto channelIndex = selectedMixerChannel();
+        const auto& channel = mixerState.get(channelIndex);
+        auto& track = sessionState.tracks.getReference(channelIndex);
         track.volume = channel.linearGain();
         track.pan = channel.pan;
         track.muted = channel.muted;
@@ -608,15 +937,7 @@ private:
 
     void syncMixerControlsFromState()
     {
-        if (mixerState.size() <= 0)
-            return;
-
-        const auto& channel = mixerState.get(0);
-        trackGain.setValue(channel.gainDb, juce::dontSendNotification);
-        trackPan.setValue(channel.pan, juce::dontSendNotification);
-        masterGain.setValue(mixerState.masterGainDb(), juce::dontSendNotification);
-        muteTrack.setToggleState(channel.muted, juce::dontSendNotification);
-        soloTrack.setToggleState(channel.solo, juce::dontSendNotification);
+        mixerView.setSelectedTrack(selectedTrackIndex);
         audioEngine.refreshMixerSnapshot();
     }
 
@@ -727,6 +1048,7 @@ private:
         {
             trackSelector.setSelectedId(selectedTrackIndex + 1, juce::dontSendNotification);
             timelineView.setSelectedTrack(selectedTrackIndex);
+            mixerView.setSelectedTrack(selectedTrackIndex);
         }
     }
 
@@ -797,23 +1119,11 @@ private:
                              juce::dontSendNotification);
         if (mixerState.size() > 0)
         {
-            const auto& channel = mixerState.get(0);
-            if (! trackGain.isMouseButtonDown())
-                trackGain.setValue(channel.gainDb, juce::dontSendNotification);
-            if (! trackPan.isMouseButtonDown())
-                trackPan.setValue(channel.pan, juce::dontSendNotification);
-            if (! masterGain.isMouseButtonDown())
-                masterGain.setValue(mixerState.masterGainDb(), juce::dontSendNotification);
-            muteTrack.setToggleState(channel.muted, juce::dontSendNotification);
-            soloTrack.setToggleState(channel.solo, juce::dontSendNotification);
+            const auto& channel = mixerState.get(selectedMixerChannel());
+            status.setText(status.getText() + " · " + channel.name,
+                           juce::dontSendNotification);
         }
-        meterSummary.setText("METERS · track pre "
-                                 + juce::String(audioEngine.channelPreFaderPeak(), 3)
-                                 + " · track post "
-                                 + juce::String(audioEngine.channelPostFaderPeak(), 3)
-                                 + " · master "
-                                 + juce::String(audioEngine.masterPeak(), 3),
-                             juce::dontSendNotification);
+        mixerView.refresh();
     }
 public:
     ~MainWindow() override
@@ -828,8 +1138,8 @@ public:
     MixerState& mixerState;
     InstrumentHost& instrumentHost;
     AudioEngine& audioEngine;
+    MixerView mixerView;
     juce::Label title, status, mixerSummary;
-    juce::Label trackGainLabel, trackPanLabel, masterGainLabel, meterSummary;
     juce::Label pluginSummary;
     juce::Label audioSummary;
     juce::Label recordingSummary;
@@ -842,8 +1152,6 @@ public:
     juce::TextButton addAudioTrack, removeTrack;
     juce::TextButton importAudio, deleteTimelineClip, timelineZoomOut, timelineZoomIn, timelineFit;
     juce::ComboBox trackSelector;
-    juce::Slider trackGain, trackPan, masterGain;
-    juce::ToggleButton muteTrack, soloTrack;
     juce::AudioFormatManager importFormatManager;
     juce::Array<juce::PluginDescription> availableInstruments;
     bool activeRecording { false };

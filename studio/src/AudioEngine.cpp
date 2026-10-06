@@ -19,6 +19,8 @@ AudioEngine::AudioEngine(Session& sessionToUse, TransportState& transportToUse,
         trackPans[static_cast<size_t>(i)].store(0.0f, std::memory_order_relaxed);
         trackMuted[static_cast<size_t>(i)].store(false, std::memory_order_relaxed);
         trackSoloed[static_cast<size_t>(i)].store(false, std::memory_order_relaxed);
+        trackPrePeaks[static_cast<size_t>(i)].store(0.0f, std::memory_order_relaxed);
+        trackPostPeaks[static_cast<size_t>(i)].store(0.0f, std::memory_order_relaxed);
     }
 
     std::shared_ptr<const ClipPlaybackState> empty = std::make_shared<ClipPlaybackState>();
@@ -71,6 +73,8 @@ void AudioEngine::refreshMixerSnapshot() noexcept
         trackPans[index].store(0.0f, std::memory_order_relaxed);
         trackMuted[index].store(false, std::memory_order_relaxed);
         trackSoloed[index].store(false, std::memory_order_relaxed);
+        trackPrePeaks[index].store(0.0f, std::memory_order_relaxed);
+        trackPostPeaks[index].store(0.0f, std::memory_order_relaxed);
     }
 
     trackCount.store(count, std::memory_order_release);
@@ -323,6 +327,12 @@ void AudioEngine::audioDeviceIOCallbackWithContext(
     const auto clipState = std::atomic_load_explicit(&clipPlaybackState,
                                                      std::memory_order_acquire);
     const auto count = trackCount.load(std::memory_order_acquire);
+    for (int trackIndex = 0; trackIndex < count; ++trackIndex)
+    {
+        const auto index = static_cast<size_t>(trackIndex);
+        trackPrePeaks[index].store(0.0f, std::memory_order_relaxed);
+        trackPostPeaks[index].store(0.0f, std::memory_order_relaxed);
+    }
 
     if (isPlaying && clipState != nullptr)
     {
@@ -338,7 +348,15 @@ void AudioEngine::audioDeviceIOCallbackWithContext(
             clipScratchBuffer.clear();
             mixClipSources(clipScratchBuffer, *clipState, trackIndex,
                            timelineStartSample, numSamples);
+            trackPrePeaks[static_cast<size_t>(trackIndex)].store(
+                clipScratchBuffer.getNumChannels() > 0
+                    ? clipScratchBuffer.getMagnitude(0, numSamples) : 0.0f,
+                std::memory_order_relaxed);
             processTrackBuffer(clipScratchBuffer, trackIndex, numSamples);
+            trackPostPeaks[static_cast<size_t>(trackIndex)].store(
+                clipScratchBuffer.getNumChannels() > 0
+                    ? clipScratchBuffer.getMagnitude(0, numSamples) : 0.0f,
+                std::memory_order_relaxed);
             for (int channel = 0; channel < output.getNumChannels(); ++channel)
             {
                 const auto sourceChannel = juce::jmin(channel,
@@ -352,11 +370,13 @@ void AudioEngine::audioDeviceIOCallbackWithContext(
     // measured before and after the track gain/pan/mute processing.
     const auto preFaderPeak = output.getNumChannels() > 0
         ? output.getMagnitude(0, numSamples) : 0.0f;
+    trackPrePeaks[0].store(preFaderPeak, std::memory_order_relaxed);
     channelPrePeak.store(preFaderPeak, std::memory_order_relaxed);
     processTrackBuffer(output, 0, numSamples);
-    channelPostPeak.store(output.getNumChannels() > 0
-                              ? output.getMagnitude(0, numSamples) : 0.0f,
-                          std::memory_order_relaxed);
+    const auto postFaderPeak = output.getNumChannels() > 0
+        ? output.getMagnitude(0, numSamples) : 0.0f;
+    trackPostPeaks[0].store(postFaderPeak, std::memory_order_relaxed);
+    channelPostPeak.store(postFaderPeak, std::memory_order_relaxed);
 
     output.applyGain(masterGain.load(std::memory_order_relaxed));
     masterPeakValue.store(output.getNumChannels() > 0
