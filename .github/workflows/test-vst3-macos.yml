@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       final_release:
-        description: Publicar somente o instalador final 2.0.1
+        description: Publicar somente o instalador final 2.0.2
         type: boolean
         default: false
   push:
@@ -91,15 +91,15 @@ jobs:
         if: ${{ inputs.final_release != true }}
         uses: actions/upload-artifact@v4
         with:
-          name: Classic-Player-2.0.1-VST3-AU-teste-${{ github.run_number }}-macOS-Universal
+          name: Classic-Player-2.0.2-VST3-AU-teste-${{ github.run_number }}-macOS-Universal
           if-no-files-found: error
           path: |
-            outputs/vst3-test/Classic-Player-2.0.1-Standalone-VST3-AU-teste-macOS-Universal.pkg
+            outputs/vst3-test/Classic-Player-2.0.2-Standalone-VST3-AU-teste-macOS-Universal.pkg
 
       - name: Upload final installer
         if: ${{ inputs.final_release == true }}
         uses: actions/upload-artifact@v4
         with:
-          name: Classic-Player-2.0.1-macOS-Universal
+          name: Classic-Player-2.0.2-macOS-Universal
           if-no-files-found: error
-          path: outputs/vst3-test/Classic-Player-2.0.1-macOS-Universal.pkg
+          path: outputs/vst3-test/Classic-Player-2.0.2-macOS-Universal.pkg

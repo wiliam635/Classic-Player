@@ -5302,6 +5302,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showQuickPresetMenu()
     {
         if (safe == nullptr) return;
         safe->quickPresetMenuOpen = false;
+        // Some native menu backends keep the popup visible after invoking an
+        // item callback. Explicitly dismiss the whole menu stack so choosing
+        // a timbre is a one-click action for SF2, DX7, Hammond and Moog.
+        juce::PopupMenu::dismissAllActiveMenus();
         if (selected == 0 || safe->processor.layerType(safe->index) != type) return;
         auto& p = safe->processor;
         const int layer = safe->index;
