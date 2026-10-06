@@ -642,6 +642,7 @@ private:
             const auto target = juce::jlimit(0, sessionState.tracks.size() - 1, selectedTrackIndex);
             sessionState.tracks.getReference(target).clips.add(std::move(clip));
             reloadSessionAudio();
+            timelineView.showAll();
             recordingSummary.setText(cpText("Gravação adicionada à ") + sessionState.tracks[target].name
                                          + ": " + file.getFileName(),
                                      juce::dontSendNotification);
