@@ -36,12 +36,13 @@ struct UiPalette
     juce::uint32 background, panel, panelLight, line, accent, highlight, text, mutedText;
 };
 
-static constexpr std::array<UiPalette, 5> uiPalettes {{
+static constexpr std::array<UiPalette, 6> uiPalettes {{
     { 0xff091018, 0xff151f28, 0xff202c35, 0xff33414c, 0xff13b8ad, 0xffffd84a, 0xffedf4f7, 0xff9eabb5 },
     { 0xff050608, 0xff101216, 0xff1c2025, 0xff565e66, 0xffbec5cc, 0xfff3f5f6, 0xfff6f7f8, 0xffb1b7bd },
     { 0xff22040b, 0xff3b0912, 0xff60101e, 0xff8d7f82, 0xffd51b38, 0xffbec3c8, 0xfffaf7f8, 0xffc9bfc2 },
     { 0xff0d1027, 0xff151a35, 0xff202747, 0xff5d5b88, 0xff6549cf, 0xfff5f2ff, 0xfffbfaff, 0xffc8c4df },
-    { 0xffe9eef4, 0xfff6f8fb, 0xffd6e0ec, 0xff6c849d, 0xff126dbe, 0xff3b92dd, 0xff14273b, 0xff4c6073 }
+    { 0xffe9eef4, 0xfff6f8fb, 0xffd6e0ec, 0xff6c849d, 0xff126dbe, 0xff3b92dd, 0xff14273b, 0xff4c6073 },
+    { 0xff9fa5ad, 0xffc8cdd2, 0xffe0e3e7, 0xff717982, 0xff245e83, 0xffe9bc36, 0xff16222c, 0xff394853 }
 }};
 int activeUiPalette = 0;
 juce::uint32 background = uiPalettes[0].background;
@@ -52,6 +53,32 @@ juce::uint32 teal = uiPalettes[0].accent;
 juce::uint32 yellow = uiPalettes[0].highlight;
 juce::uint32 text = uiPalettes[0].text;
 juce::uint32 mutedText = uiPalettes[0].mutedText;
+
+void paintBrushedSteel(juce::Graphics& g, juce::Rectangle<float> bounds)
+{
+    juce::ColourGradient finish(juce::Colour(0xffa1a7ae), bounds.getX(), bounds.getY(),
+                               juce::Colour(0xffa4aab2), bounds.getRight(), bounds.getY(), false);
+    finish.addColour(0.25, juce::Colour(0xffdce0e4));
+    finish.addColour(0.53, juce::Colour(0xffb3bac1));
+    finish.addColour(0.72, juce::Colour(0xffedf0f2));
+    g.setGradientFill(finish); g.fillRect(bounds);
+    static const auto grain = []
+    {
+        juce::Image image(juce::Image::ARGB, 512, 128, true);
+        juce::Graphics texture(image);
+        juce::Random random(1573);
+        for (int row = 0; row < 128; ++row)
+            for (int x = 0; x < 512;)
+            {
+                const auto width = 8 + random.nextInt(48);
+                texture.setColour((random.nextBool() ? juce::Colours::white : juce::Colours::black)
+                    .withAlpha(0.025f + random.nextFloat() * 0.035f));
+                texture.fillRect(x, row, width, 1); x += width;
+            }
+        return image;
+    }();
+    g.setTiledImageFill(grain, 0, 0, 1.0f); g.fillRect(bounds);
+}
 
 void setUiPalette(int index)
 {
@@ -322,6 +349,7 @@ struct UiTranslation
 // across the standalone app and plug-in formats; audio terms such as MIDI,
 // REVERB, CUTOFF and PANIC intentionally remain industry-standard labels.
 static constexpr UiTranslation uiTranslations[] {
+    { "PRATEADO", "SILVER", "PLATEADO" },
     { "ATUALIZACOES", "UPDATES", "ACTUALIZACIONES" },
     { "VERIFICANDO...", "CHECKING...", "COMPROBANDO..." },
     { "ATUALIZACAO DISPONIVEL", "UPDATE AVAILABLE", "ACTUALIZACIÓN DISPONIBLE" },
@@ -968,6 +996,26 @@ juce::PropertiesFile::Options uiLanguageFileOptions()
 int readUiLanguagePreference()
 {
     juce::PropertiesFile settings(uiLanguageFileOptions());
+    {
+       #if JUCE_MAC
+        const juce::File folder("/Library/Application Support/Classic Keys/Classic Player");
+       #else
+        const auto folder = juce::File::getSpecialLocation(juce::File::commonApplicationDataDirectory)
+            .getChildFile("Classic Keys/Classic Player");
+       #endif
+        const auto marker = folder.getChildFile("installation-language.txt");
+        const auto installed = marker.loadFileAsString().trim();
+        if (installed == "brazilianportuguese" || installed == "english" || installed == "spanish")
+        {
+            const auto installation = juce::String(marker.getLastModificationTime().toMilliseconds()) + ":" + installed;
+            if (settings.getValue("installationLanguageApplied") != installation)
+            {
+                settings.setValue("uiLanguage", installed == "english" ? 1 : installed == "spanish" ? 2 : 0);
+                settings.setValue("installationLanguageApplied", installation);
+                settings.saveIfNeeded();
+            }
+        }
+    }
     return juce::jlimit(0, 2, settings.getIntValue("uiLanguage", 0));
 }
 
@@ -1039,7 +1087,9 @@ void applyUiSkinToComponentTree(juce::Component& component, const UiPalette& new
     // sync with the active palette as well as their embedded controls.
     if (dynamic_cast<juce::AlertWindow*>(&component) != nullptr)
     {
-        component.setColour(juce::AlertWindow::backgroundColourId, juce::Colour(newPalette.panel));
+        component.setColour(juce::AlertWindow::backgroundColourId,
+            newPalette.background == uiPalettes[5].background ? juce::Colours::transparentBlack
+                                                             : juce::Colour(newPalette.panel));
         component.setColour(juce::AlertWindow::textColourId, juce::Colour(newPalette.text));
         component.setColour(juce::AlertWindow::outlineColourId, juce::Colour(newPalette.line));
     }
@@ -1299,6 +1349,13 @@ public:
     {
         if (!button.getName().startsWith("LIVE_SLOT_"))
             juce::LookAndFeel_V4::drawButtonText(g, button, over, down);
+    }
+
+    void drawAlertBox(juce::Graphics& g, juce::AlertWindow& alert,
+                      const juce::Rectangle<int>& textArea, juce::TextLayout& layout) override
+    {
+        if (activeUiPalette == 5) paintBrushedSteel(g, alert.getLocalBounds().toFloat());
+        juce::LookAndFeel_V4::drawAlertBox(g, alert, textArea, layout);
     }
 
     void drawButtonBackground(juce::Graphics& g, juce::Button& button,
@@ -3800,6 +3857,85 @@ private:
 };
 }
 
+ClassicPlayerAudioProcessorEditor::LanguageFlags::LanguageFlags()
+{
+    for (int i = 0; i < 3; ++i)
+    {
+        buttons[(size_t) i] = std::make_unique<Flag>(i);
+        buttons[(size_t) i]->onClick = [this, i]
+        {
+            setSelectedId(i + 1, juce::dontSendNotification);
+            if (onChange) onChange();
+        };
+        addAndMakeVisible(*buttons[(size_t) i]);
+    }
+}
+void ClassicPlayerAudioProcessorEditor::LanguageFlags::addItem(const juce::String& name, int id)
+{
+    if (!juce::isPositiveAndBelow(id - 1, 3)) return;
+    buttons[(size_t) (id - 1)]->setName(name);
+    buttons[(size_t) (id - 1)]->setTooltip(name);
+}
+void ClassicPlayerAudioProcessorEditor::LanguageFlags::setSelectedId(int id, juce::NotificationType notification)
+{
+    if (id < 1 || id > 3) return;
+    selected = id;
+    for (int i = 0; i < 3; ++i)
+        buttons[(size_t) i]->setToggleState(i + 1 == id, juce::dontSendNotification);
+    if (notification != juce::dontSendNotification && onChange) onChange();
+}
+void ClassicPlayerAudioProcessorEditor::LanguageFlags::resized()
+{
+    for (int i = 0; i < 3; ++i)
+        buttons[(size_t) i]->setBounds(i * getWidth() / 3, 0,
+            (i + 1) * getWidth() / 3 - i * getWidth() / 3, getHeight());
+}
+void ClassicPlayerAudioProcessorEditor::LanguageFlags::Flag::paintButton(juce::Graphics& g, bool over, bool)
+{
+    auto area = getLocalBounds().toFloat().reduced(2.0f);
+    g.setColour(juce::Colour(panelLight).brighter(over ? 0.12f : 0.0f));
+    g.fillRoundedRectangle(area, 3.0f);
+    g.setColour(juce::Colour(getToggleState() ? teal : paletteLine));
+    g.drawRoundedRectangle(area, 3.0f, getToggleState() ? 2.0f : 1.0f);
+    auto flag = area.reduced(4.0f, 3.0f);
+    auto label = flag.removeFromBottom(9.0f);
+    flag = flag.withSizeKeepingCentre(juce::jmin(27.0f, flag.getWidth()), juce::jmin(15.0f, flag.getHeight()));
+    if (index == 0)
+    {
+        g.setColour(juce::Colour(0xff009b3a)); g.fillRect(flag);
+        juce::Path diamond;
+        diamond.startNewSubPath(flag.getCentreX(), flag.getY() + 1);
+        diamond.lineTo(flag.getRight() - 1, flag.getCentreY());
+        diamond.lineTo(flag.getCentreX(), flag.getBottom() - 1);
+        diamond.lineTo(flag.getX() + 1, flag.getCentreY()); diamond.closeSubPath();
+        g.setColour(juce::Colour(0xffffdf00)); g.fillPath(diamond);
+        g.setColour(juce::Colour(0xff002776)); g.fillEllipse(flag.withSizeKeepingCentre(8.0f, 8.0f));
+    }
+    else if (index == 1)
+    {
+        g.setColour(juce::Colours::white); g.fillRect(flag);
+        g.setColour(juce::Colour(0xffb22234));
+        for (int stripe = 0; stripe < 13; stripe += 2)
+            g.fillRect(flag.getX(), flag.getY() + flag.getHeight() * (float) stripe / 13.0f,
+                       flag.getWidth(), flag.getHeight() / 13.0f);
+        g.setColour(juce::Colour(0xff3c3b6e));
+        g.fillRect(flag.withWidth(flag.getWidth() * 0.45f).withHeight(flag.getHeight() * 0.54f));
+        g.setColour(juce::Colours::white);
+        for (int row = 0; row < 3; ++row)
+            for (int column = 0; column < 4; ++column)
+                g.fillEllipse(flag.getX() + 1 + (float) column * 2.5f,
+                              flag.getY() + 1 + (float) row * 2.0f, 1.0f, 1.0f);
+    }
+    else
+    {
+        g.setColour(juce::Colour(0xffaa151b)); g.fillRect(flag);
+        g.setColour(juce::Colour(0xfff1bf00)); g.fillRect(flag.reduced(0.0f, flag.getHeight() * 0.25f));
+    }
+    g.setColour(juce::Colour(uiPalettes[(size_t) activeUiPalette].text));
+    g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+    g.drawText(index == 0 ? "BR" : index == 1 ? "US" : "ES", label, juce::Justification::centred);
+}
+
 void ClassicPlayerAudioProcessorEditor::LevelMeter::setLevel(float newLevel)
 {
     newLevel = juce::jlimit(0.0f, 1.0f, newLevel);
@@ -5092,9 +5228,114 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDown(const juce::MouseE
         return;
     }
 
+    if (event.mods.isLeftButtonDown()
+        && categoryArtworkBounds.contains(event.getEventRelativeTo(this).position.toInt()))
+    {
+        showQuickPresetMenu();
+        return;
+    }
     draggingLayerTitle = event.originalComponent == &layerTitle && event.mods.isLeftButtonDown();
     if (draggingLayerTitle)
         layerDragger.startDraggingComponent(this, event.getEventRelativeTo(this));
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::showQuickPresetMenu()
+{
+    if (quickPresetMenuOpen) return;
+    const auto type = processor.layerType(index);
+    const auto sourcePath = type == ClassicPlayerAudioProcessor::LayerType::sf2 ? processor.soundFontPath(index)
+        : type == ClassicPlayerAudioProcessor::LayerType::dx7 ? processor.dx7Path(index) : juce::String{};
+    if (type == ClassicPlayerAudioProcessor::LayerType::vst)
+    {
+        openExternalInstrumentEditor();
+        return;
+    }
+    juce::PopupMenu menu;
+    juce::Array<juce::File> banks;
+    std::vector<Sf2Engine::Preset> sf2Presets;
+    if (type == ClassicPlayerAudioProcessor::LayerType::sf2)
+    {
+        menu.addSectionHeader(categoryBox.getText());
+        sf2Presets = processor.layerPresets(index);
+        for (int i = 0; i < (int) sf2Presets.size(); ++i)
+            menu.addItem(i + 1, sf2Presets[(size_t) i].name, true,
+                sf2Presets[(size_t) i].bank == processor.layerPresetBank(index)
+                && sf2Presets[(size_t) i].program == processor.layerPresetProgram(index));
+        banks = processor.librarySoundFonts(selectedCategoryId(categoryBox));
+    }
+    else if (type == ClassicPlayerAudioProcessor::LayerType::dx7)
+    {
+        for (int i = 0; i < processor.dx7PatchCount(index); ++i)
+            menu.addItem(i + 1, processor.dx7PatchName(index, i), true, i == processor.dx7SelectedPatch(index));
+        banks = processor.libraryDx7Banks();
+    }
+    else if (type == ClassicPlayerAudioProcessor::LayerType::hammond)
+    {
+        const auto names = HammondEngine::presetNames();
+        for (int i = 0; i < names.size(); ++i)
+            menu.addItem(i + 1, names[i], true, i == processor.hammondConfig(index).preset);
+    }
+    else if (type == ClassicPlayerAudioProcessor::LayerType::analog)
+    {
+        for (int i = 0; i < (int) AnalogBrowserPresets::bank.size(); ++i)
+            menu.addItem(i + 1, AnalogBrowserPresets::bank[(size_t) i].name);
+    }
+    if (!banks.isEmpty())
+    {
+        juce::PopupMenu bankMenu;
+        for (int i = 0; i < banks.size(); ++i)
+            bankMenu.addItem(100000 + i, banks[i].getFileNameWithoutExtension());
+        menu.addSeparator();
+        menu.addSubMenu(localizedUiText(type == ClassicPlayerAudioProcessor::LayerType::sf2
+            ? "SF2 LIBRARY" : "DX7", activeUiLanguage.load()), bankMenu);
+    }
+    if (menu.getNumItems() == 0)
+        menu.addItem(999999, localizedUiText("CATEGORIA VAZIA", activeUiLanguage.load()), false);
+    quickPresetMenuOpen = true;
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withTargetScreenArea(
+        localAreaToGlobal(categoryArtworkBounds)), [safe, type, sourcePath, banks, sf2Presets](int selected)
+    {
+        if (safe == nullptr) return;
+        safe->quickPresetMenuOpen = false;
+        if (selected == 0 || safe->processor.layerType(safe->index) != type) return;
+        auto& p = safe->processor;
+        const int layer = safe->index;
+        if (selected >= 100000 && juce::isPositiveAndBelow(selected - 100000, banks.size()))
+        {
+            const auto result = type == ClassicPlayerAudioProcessor::LayerType::sf2
+                ? p.loadSoundFont(layer, banks[selected - 100000]) : p.loadDx7(layer, banks[selected - 100000]);
+            safe->refresh();
+            if (result.wasOk()) safe->showQuickPresetMenu();
+            else juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                localizedUiText(type == ClassicPlayerAudioProcessor::LayerType::sf2
+                    ? "Falha ao carregar SF2" : "Falha ao carregar DX7", activeUiLanguage.load()), result.getErrorMessage());
+            return;
+        }
+        const int preset = selected - 1;
+        if ((type == ClassicPlayerAudioProcessor::LayerType::sf2 && p.soundFontPath(layer) != sourcePath)
+            || (type == ClassicPlayerAudioProcessor::LayerType::dx7 && p.dx7Path(layer) != sourcePath)) return;
+        if (type == ClassicPlayerAudioProcessor::LayerType::sf2
+            && juce::isPositiveAndBelow(preset, (int) sf2Presets.size()))
+            p.selectLayerPreset(layer, sf2Presets[(size_t) preset].bank, sf2Presets[(size_t) preset].program);
+        else if (type == ClassicPlayerAudioProcessor::LayerType::dx7)
+            p.selectDx7Patch(layer, preset);
+        else if (type == ClassicPlayerAudioProcessor::LayerType::hammond)
+        {
+            const auto previous = p.hammondConfig(layer);
+            auto config = HammondEngine::preset(preset);
+            config.routing = previous.routing; config.cc = previous.cc;
+            config.channel = previous.channel; config.level = previous.level;
+            p.setHammondConfig(layer, config);
+        }
+        else if (type == ClassicPlayerAudioProcessor::LayerType::analog
+            && juce::isPositiveAndBelow(preset, (int) AnalogBrowserPresets::bank.size()))
+        {
+            p.resetAnalogSynthVoices(layer);
+            p.setAnalogSynthConfig(layer, AnalogBrowserPresets::config((size_t) preset, p.layerConfig(layer)));
+        }
+        safe->refresh();
+    });
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::setOutlineColour(juce::Colour colour,
@@ -5106,6 +5347,17 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::setOutlineColour(juce::Colou
     if (savePreference)
         writeLayerOutlinePreference(index, outlineColour, useAutomatic);
     repaint();
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseMove(const juce::MouseEvent& event)
+{
+    setMouseCursor(categoryArtworkBounds.contains(event.getEventRelativeTo(this).position.toInt())
+        ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseExit(const juce::MouseEvent&)
+{
+    setMouseCursor(juce::MouseCursor::NormalCursor);
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDrag(const juce::MouseEvent& event)
@@ -5129,15 +5381,25 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
     auto bounds = getLocalBounds().toFloat();
     const auto accent = outlineColour;
     const auto drumLayer = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::drumPads || processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::continuousPads;
-    g.setColour(juce::Colour(panel));
+    const auto paintPanel = [&g, bounds]
+    {
+        g.setColour(juce::Colour(panel)); g.fillRoundedRectangle(bounds, 7.0f);
+        if (activeUiPalette == 5)
+        {
+            const juce::Graphics::ScopedSaveState state(g);
+            juce::Path clip; clip.addRoundedRectangle(bounds.reduced(1.0f), 7.0f);
+            g.reduceClipRegion(clip);
+            paintBrushedSteel(g, bounds);
+        }
+    };
     if (drumLayer)
     {
-        g.fillRoundedRectangle(bounds, 7.0f);
+        paintPanel();
         g.setColour(accent);
         g.drawRoundedRectangle(bounds.reduced(1.0f), 7.0f, 2.0f);
         return;
     }
-    g.fillRoundedRectangle(bounds, 7.0f);
+    paintPanel();
     g.setColour(accent);
     g.drawRoundedRectangle(bounds.reduced(1.0f), 7.0f, 2.0f);
     const auto type = processor.layerType(index);
@@ -6174,6 +6436,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     skinSelector.addItem("VERMELHO", 3);
     skinSelector.addItem("AZUL ROXO", 4);
     skinSelector.addItem("BRANCO AZUL", 5);
+    skinSelector.addItem("PRATEADO", 6);
     skinSelector.setSelectedId(uiSkin + 1, juce::dontSendNotification);
     skinSelector.setName(juce::String::fromUTF8("Tema de cores do aplicativo"));
     skinSelector.setTooltip(juce::String::fromUTF8("Tema de cores do aplicativo"));
@@ -6695,7 +6958,9 @@ void ClassicPlayerAudioProcessorEditor::showMasterLimiterEditor()
 }
 void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
 {
-    if (activeUiPalette == 2)
+    if (activeUiPalette == 5)
+        paintBrushedSteel(g, getLocalBounds().toFloat());
+    else if (activeUiPalette == 2)
     {
         juce::ColourGradient nordGradient(juce::Colour(0xff7a1127), 0.0f, 0.0f,
                                           juce::Colour(background), (float) getWidth(), (float) getHeight(), false);
@@ -6731,7 +6996,10 @@ void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
     }
     g.setGradientFill(juce::ColourGradient(juce::Colour(panelLight), 0.0f, 0.0f,
                                            juce::Colour(background), (float) getWidth(), 220.0f, false));
-    g.fillRect(0, 0, getWidth(), 142);
+    if (activeUiPalette == 5)
+        paintBrushedSteel(g, juce::Rectangle<float>(0, 0, (float) getWidth(), 142));
+    else
+        g.fillRect(0, 0, getWidth(), 142);
     g.setColour(juce::Colour(paletteLine));
     g.drawHorizontalLine(141, 18.0f, (float) getWidth() - 18.0f);
     g.drawHorizontalLine(getHeight() - 66, 18.0f, (float) getWidth() - 18.0f);
@@ -7338,7 +7606,7 @@ void ClassicPlayerAudioProcessorEditor::setUiLanguage(int language)
     repaint();
 }
 
-void ClassicPlayerAudioProcessorEditor::setUiSkin(int skin)
+void ClassicPlayerAudioProcessorEditor::setUiSkin(int skin, bool savePreference)
 {
     const auto nextIndex = juce::jlimit(0, (int) uiPalettes.size() - 1, skin);
     if (nextIndex == activeUiPalette && nextIndex == uiSkin) return;
@@ -7376,7 +7644,7 @@ void ClassicPlayerAudioProcessorEditor::setUiSkin(int skin)
         }
     }
 
-    writeUiSkinPreference(uiSkin);
+    if (savePreference) writeUiSkinPreference(uiSkin);
     resized();
     repaint();
 }

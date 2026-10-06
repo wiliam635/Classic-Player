@@ -22,6 +22,26 @@ public:
 
 private:
     friend struct LiveSetLayoutRegressionAccess;
+    class LanguageFlags final : public juce::Component, public juce::SettableTooltipClient
+    {
+    public:
+        LanguageFlags();
+        void addItem(const juce::String&, int);
+        void setSelectedId(int, juce::NotificationType);
+        int getSelectedId() const { return selected; }
+        void resized() override;
+        std::function<void()> onChange;
+    private:
+        class Flag final : public juce::Button
+        {
+        public:
+            explicit Flag(int language) : Button(juce::String(language)), index(language) {}
+            void paintButton(juce::Graphics&, bool, bool) override;
+            int index;
+        };
+        std::array<std::unique_ptr<Flag>, 3> buttons;
+        int selected = 1;
+    };
     class LevelMeter final : public juce::Component
     {
     public:
@@ -86,6 +106,8 @@ private:
         void paint(juce::Graphics&) override;
         void resized() override;
         void mouseDown(const juce::MouseEvent&) override;
+        void mouseMove(const juce::MouseEvent&) override;
+        void mouseExit(const juce::MouseEvent&) override;
         void mouseDrag(const juce::MouseEvent&) override;
         void mouseUp(const juce::MouseEvent&) override;
         void refresh();
@@ -132,6 +154,7 @@ private:
         void showAnalogSynthEditor();
         void showHammondEditor();
         void showDx7Editor();
+        void showQuickPresetMenu();
         void saveLayerPreset();
         void loadLayerPreset();
         void saveEffectPreset(const juce::String& effect);
@@ -146,6 +169,7 @@ private:
         juce::Colour outlineColour;
         bool hasCustomOutlineColour = false;
         bool draggingLayerTitle = false;
+        bool quickPresetMenuOpen = false;
         bool muted = false;
         bool solo = false;
         bool expanded = false;
@@ -238,7 +262,7 @@ private:
     void showLiveSet(bool show);
     void showAudioMidiSettings();
     void setUiLanguage(int language);
-    void setUiSkin(int skin);
+    void setUiSkin(int skin, bool savePreference = true);
     void applyUiLanguage();
     void refreshLiveSet();
     void refreshLiveSetVolumeIndicators();
@@ -280,7 +304,7 @@ private:
     juce::Label recordingStatus;
     juce::TextButton keyboardVisibilityButton { "OCULTAR TECLADO" };
     juce::TextButton audioMidiSettingsButton { "AUDIO / MIDI" };
-    juce::ComboBox languageSelector;
+    LanguageFlags languageSelector;
     juce::Label skinCaption;
     juce::ComboBox skinSelector;
     juce::TextButton liveSetButton { "LIVE SET" };
@@ -338,7 +362,7 @@ private:
     bool editingLiveSet = false;
     bool virtualKeyboardVisible = true;
     int uiLanguage = 0; // 0 = Português, 1 = English, 2 = Español
-    int uiSkin = 0; // 0 = Classic, 1 = Black, 2 = Red, 3 = Purple Blue, 4 = White Blue
+    int uiSkin = 0; // Classic, Black, Red, Purple Blue, White Blue, Brushed Silver
     juce::int64 recordingStartedAtMs = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ClassicPlayerAudioProcessorEditor)

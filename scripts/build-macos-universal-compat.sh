@@ -50,7 +50,7 @@ configure_and_build() {
     -DCMAKE_OSX_ARCHITECTURES="$arch" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="$deployment" \
     -DCMAKE_BUILD_TYPE=Release
-  "$CMAKE" --build "$build" --target ClassicPlayer_Standalone ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest --parallel 4
+  "$CMAKE" --build "$build" --target ClassicPlayer_Standalone ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest ClassicPlayerHammondTest --parallel 4
   for test_name in ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest; do
     local test_executable="$build/${test_name}_artefacts/Release/$test_name"
     if [[ "$arch" == "x86_64" ]]; then
@@ -59,6 +59,12 @@ configure_and_build() {
       "$test_executable"
     fi
   done
+  local ui_test="$build/ClassicPlayerHammondTest_artefacts/Release/ClassicPlayerHammondTest"
+  if [[ "$arch" == "x86_64" ]]; then
+    arch -x86_64 "$ui_test" --silver-ui
+  else
+    "$ui_test" --silver-ui
+  fi
 }
 
 install_dependencies arm64 arm64-osx-classic

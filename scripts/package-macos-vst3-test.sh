@@ -17,8 +17,9 @@ if [[ "${FINAL_RELEASE:-0}" == "1" ]]; then
   PACKAGE_ID="com.classickeys.classicplayer.standalone"
 fi
 STAGE="$(mktemp -d "$ROOT/build/package-vst3-test.XXXXXX")"
+PACKAGES="$(mktemp -d "$ROOT/build/package-language.XXXXXX")"
 
-cleanup() { rm -rf "$STAGE"; }
+cleanup() { rm -rf "$STAGE" "$PACKAGES"; }
 trap cleanup EXIT
 
 test -d "$APP"
@@ -48,9 +49,20 @@ pkgbuild --root "$STAGE" \
   --version 2.0.1 \
   --install-location / \
   --component-plist "$COMPONENTS" \
-  "$PACKAGE"
+  "$PACKAGES/ClassicPlayer-components.pkg"
 
-pkgutil --payload-files "$PACKAGE" | grep -F "Applications/$APP_NAME/Contents/MacOS/ClassicPlayer"
-pkgutil --payload-files "$PACKAGE" | grep -F 'Library/Audio/Plug-Ins/VST3/Classic Player.vst3/Contents/MacOS/Classic Player'
-pkgutil --payload-files "$PACKAGE" | grep -F 'Library/Audio/Plug-Ins/Components/Classic Player.component/Contents/MacOS/Classic Player'
+for language in br us es; do
+  pkgbuild --root "$ROOT/installer/macos/languages/$language" \
+    --identifier "com.classickeys.classicplayer.language.$language" --version 2.0.1 \
+    --install-location "/Library/Application Support/Classic Keys/Classic Player" \
+    "$PACKAGES/Language-$language.pkg"
+done
+sed "s/COMPONENT_PACKAGE_ID/$PACKAGE_ID/g" "$ROOT/installer/macos/distribution-language.xml" \
+  > "$PACKAGES/Distribution.xml"
+productbuild --distribution "$PACKAGES/Distribution.xml" --package-path "$PACKAGES" "$PACKAGE"
+bash "$ROOT/scripts/verify-macos-installer-language.sh" "$PACKAGE"
+
+pkgutil --payload-files "$PACKAGES/ClassicPlayer-components.pkg" | grep -F "Applications/$APP_NAME/Contents/MacOS/ClassicPlayer"
+pkgutil --payload-files "$PACKAGES/ClassicPlayer-components.pkg" | grep -F 'Library/Audio/Plug-Ins/VST3/Classic Player.vst3/Contents/MacOS/Classic Player'
+pkgutil --payload-files "$PACKAGES/ClassicPlayer-components.pkg" | grep -F 'Library/Audio/Plug-Ins/Components/Classic Player.component/Contents/MacOS/Classic Player'
 echo "Instalador conjunto de teste criado em: $PACKAGE"

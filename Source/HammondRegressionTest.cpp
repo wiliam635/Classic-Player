@@ -177,6 +177,48 @@ static void continuousPadRegression()
 }
 struct LiveSetLayoutRegressionAccess
 {
+    static void silverUi(const char* screenshot)
+    {
+        juce::TemporaryFile storage;
+        const auto root = storage.getFile();
+        check(root.createDirectory().wasOk(), "Silver UI temporary storage");
+        struct Cleanup { juce::File root; ~Cleanup() { root.deleteRecursively(); } } cleanup { root };
+        ClassicPlayerAudioProcessor processor(root);
+        processor.setLayerType(0, ClassicPlayerAudioProcessor::LayerType::hammond);
+        processor.setLayerType(1, ClassicPlayerAudioProcessor::LayerType::analog);
+        processor.setLayerType(2, ClassicPlayerAudioProcessor::LayerType::dx7);
+        ClassicPlayerAudioProcessorEditor editor(processor);
+        editor.activationPanel.setVisible(false);
+        editor.setUiSkin(5, false);
+        for (const auto size : { juce::Point<int>(900, 600), juce::Point<int>(1280, 720) })
+        {
+            editor.setSize(size.x, size.y);
+            check(editor.languageSelector.getNumChildComponents() == 3, "Three language flags required");
+            for (int language = 1; language <= 3; ++language)
+            {
+                editor.languageSelector.setSelectedId(language, juce::dontSendNotification);
+                int selected = 0;
+                for (auto* child : editor.languageSelector.getChildren())
+                {
+                    check(editor.languageSelector.getLocalBounds().contains(child->getBounds()), "Language flag clipped");
+                    check(child->getWidth() >= 35 && child->getHeight() >= 26, "Language flag too small");
+                    if (auto* button = dynamic_cast<juce::Button*>(child)) selected += button->getToggleState() ? 1 : 0;
+                }
+                check(selected == 1 && editor.languageSelector.getSelectedId() == language, "Flag selection is not exclusive");
+            }
+            check(editor.getLocalBounds().contains(editor.cpuMeter.getBounds()), "CPU meter clipped");
+        }
+        editor.languageSelector.setSelectedId(editor.uiLanguage + 1, juce::dontSendNotification);
+        if (screenshot != nullptr)
+        {
+            juce::FileOutputStream stream { juce::File(screenshot) };
+            juce::PNGImageFormat png;
+            check(stream.openedOk() && png.writeImageToStream(
+                editor.createComponentSnapshot(editor.getLocalBounds()), stream), "Silver UI screenshot");
+        }
+        std::cout << "Silver skin and language flags layout passed\n";
+    }
+
     static void run(const char* screenshot)
     {
         juce::TemporaryFile storage;
@@ -506,6 +548,11 @@ int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
     try{
+        if (argc > 1 && juce::String(argv[1]) == "--silver-ui")
+        {
+            LiveSetLayoutRegressionAccess::silverUi(argc > 2 ? argv[2] : nullptr);
+            return 0;
+        }
         if (argc > 1 && juce::String(argv[1]) == "--midi-learn")
         {
             continuousPadRegression();

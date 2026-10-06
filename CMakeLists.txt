@@ -256,6 +256,7 @@ if(CLASSIC_PLAYER_BUILD_TESTS)
     target_link_libraries(ClassicPlayerHammondTest PRIVATE ClassicPlayer ${CLASSIC_PLAYER_FLUID_TARGET}
         juce::juce_audio_utils juce::juce_dsp)
     add_test(NAME hammond COMMAND ClassicPlayerHammondTest)
+    add_test(NAME ui-silver-flags COMMAND ClassicPlayerHammondTest --silver-ui)
     juce_add_console_app(ClassicPlayerMasterMidiTest PRODUCT_NAME "Classic Player Master MIDI Test")
     target_sources(ClassicPlayerMasterMidiTest PRIVATE Source/MasterMidiRegressionTest.cpp)
     target_include_directories(ClassicPlayerMasterMidiTest PRIVATE third_party/msfa)

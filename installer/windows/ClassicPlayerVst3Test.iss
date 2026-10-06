@@ -28,7 +28,13 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 WizardStyle=modern
+ShowLanguageDialog=yes
 UninstallDisplayIcon={app}\Classic Player.exe
+
+[Languages]
+Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 
 [Files]
 Source: "{#BuildRoot}\Standalone\Classic Player.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -40,4 +46,22 @@ Source: "{#BuildRoot}\VST3\Classic Player.vst3\*"; DestDir: "{commoncf64}\VST3\C
 Name: "{group}\{#DisplayName}"; Filename: "{app}\Classic Player.exe"
 
 [Run]
-Filename: "{app}\Classic Player.exe"; Description: "Abrir {#DisplayName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Classic Player.exe"; Description: "{cm:LaunchClassicPlayer}"; Flags: nowait postinstall skipifsilent
+
+[CustomMessages]
+brazilianportuguese.LaunchClassicPlayer=Abrir Classic Player
+english.LaunchClassicPlayer=Launch Classic Player
+spanish.LaunchClassicPlayer=Abrir Classic Player
+
+[Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  LanguageDir: String;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    LanguageDir := ExpandConstant('{commonappdata}\Classic Keys\Classic Player');
+    if ForceDirectories(LanguageDir) then
+      SaveStringToFile(LanguageDir + '\installation-language.txt', ActiveLanguage(), False);
+  end;
+end;

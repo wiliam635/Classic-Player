@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1">
+  <title>Classic Player 2.0.1</title>
+  <options customize="always" require-scripts="false" hostArchitectures="x86_64,arm64"/>
+  <domains enable_localSystem="true" enable_currentUserHome="false" enable_anywhere="false"/>
+  <choices-outline>
+    <line choice="app"/>
+    <line choice="br"/>
+    <line choice="us"/>
+    <line choice="es"/>
+  </choices-outline>
+  <choice id="app" title="Classic Player — Standalone + VST3 + AU" enabled="false" selected="true">
+    <pkg-ref id="COMPONENT_PACKAGE_ID"/>
+  </choice>
+  <choice id="br" title="Idioma: Português (Brasil) — padrão / default"
+          description="Português é usado quando English e Español estão desmarcados. Para trocar de idioma, desmarque a seleção anterior. You can also change the language inside Classic Player."
+          enabled="false" selected="!choices.us.selected &amp;&amp; !choices.es.selected">
+    <pkg-ref id="com.classickeys.classicplayer.language.br"/>
+  </choice>
+  <choice id="us" title="Language: English (US)" start_selected="false" enabled="!choices.es.selected"
+          description="Select English. To change languages, deselect the previous language. Existing app language preferences are preserved.">
+    <pkg-ref id="com.classickeys.classicplayer.language.us"/>
+  </choice>
+  <choice id="es" title="Idioma: Español (ES)" start_selected="false" enabled="!choices.us.selected"
+          description="Selecciona Español. Para cambiar el idioma, desmarca la selección anterior. Puedes cambiarlo también dentro de Classic Player.">
+    <pkg-ref id="com.classickeys.classicplayer.language.es"/>
+  </choice>
+  <pkg-ref id="COMPONENT_PACKAGE_ID" version="2.0.1">ClassicPlayer-components.pkg</pkg-ref>
+  <pkg-ref id="com.classickeys.classicplayer.language.br" version="2.0.1">Language-br.pkg</pkg-ref>
+  <pkg-ref id="com.classickeys.classicplayer.language.us" version="2.0.1">Language-us.pkg</pkg-ref>
+  <pkg-ref id="com.classickeys.classicplayer.language.es" version="2.0.1">Language-es.pkg</pkg-ref>
+</installer-gui-script>
