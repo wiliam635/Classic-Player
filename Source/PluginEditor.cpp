@@ -5314,8 +5314,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showQuickPresetMenu()
             const auto result = type == ClassicPlayerAudioProcessor::LayerType::sf2
                 ? p.loadSoundFont(layer, banks[selected - 100000]) : p.loadDx7(layer, banks[selected - 100000]);
             safe->refresh();
-            if (result.wasOk()) safe->showQuickPresetMenu();
-            else juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+            // Selecting a bank changes the layer source. Leave the selector
+            // dismissed; the user can reopen it from the artwork to browse
+            // presets in the newly loaded bank.
+            if (result.failed()) juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
                 localizedUiText(type == ClassicPlayerAudioProcessor::LayerType::sf2
                     ? "Falha ao carregar SF2" : "Falha ao carregar DX7", activeUiLanguage.load()), result.getErrorMessage());
             return;
