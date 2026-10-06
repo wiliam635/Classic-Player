@@ -17,9 +17,10 @@ describing the release. Update `version` only when the corresponding installers
 are ready for users. Stable versions use three numbers, e.g. `2.0.2`. Prerelease
 versions and incomplete download URLs never trigger an update notification.
 
-The shipped example describes the installed version and contains no download
-URLs. It does not announce a release. Publishing the feed and real installer
-links is required to activate notifications for customers.
+The shipped example describes the installed version and points both platforms
+to `https://licenca.classickeys.com.br/membros`, the existing members area.
+It does not announce a newer release. Publishing the feed and recording the
+new stable version is required to activate notifications for customers.
 
 When a higher stable version exists for the current platform, the Updates button
 shows UPDATE AVAILABLE. Clicking it opens details, Download Update, Later, and an

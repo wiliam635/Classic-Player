@@ -259,6 +259,7 @@ private:
 
     ClassicPlayerAudioProcessor& classicProcessor;
     juce::Label title;
+    juce::Label versionLabel;
     juce::Label subtitle; juce::Label userLabel;
     juce::Label chordLabel;
     juce::Label chordCaption;

@@ -5960,6 +5960,11 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
 
 
     title.setText("CLASSIC PLAYER", juce::dontSendNotification);
+    versionLabel.setText("v" JucePlugin_VersionString, juce::dontSendNotification);
+    versionLabel.getProperties().set("uiDataText", true);
+    versionLabel.setFont(juce::FontOptions(11.0f));
+    versionLabel.setColour(juce::Label::textColourId, juce::Colour(text));
+    addAndMakeVisible(versionLabel);
     title.setFont(juce::FontOptions(25.0f, juce::Font::bold));
     title.setColour(juce::Label::textColourId, brandTextColour());
     addAndMakeVisible(title);
@@ -6748,7 +6753,9 @@ void ClassicPlayerAudioProcessorEditor::resized()
     auto brand = header.removeFromLeft(brandWidth);
     brand.removeFromTop(16);
     title.setFont(juce::FontOptions(compactHeader ? 18.0f : 25.0f, juce::Font::bold));
-    title.setBounds(brand.removeFromTop(38));
+    auto brandTitle = brand.removeFromTop(38);
+    title.setBounds(brandTitle.removeFromTop(26));
+    versionLabel.setBounds(brandTitle);
     subtitle.setBounds(brand.removeFromTop(25)); userLabel.setBounds(brand.removeFromTop(34)); userLabel.setVisible(userLabel.getText().isNotEmpty());
 
     auto masterArea = header.removeFromRight(compactHeader ? 112 : 136);
@@ -6826,6 +6833,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
         updateButton.setBounds(350, 48, 140, 22);
         appIcon.setBounds(18, 14, 54, 54);
         title.setBounds(82, 20, 260, 28);
+        versionLabel.setBounds(18, 70, 64, 14);
         subtitle.setBounds(82, 47, 260, 20); userLabel.setBounds(82, 66, 260, 32); userLabel.setVisible(userLabel.getText().isNotEmpty());
         auto controls = liveHeader.removeFromRight(370);
         liveSetButton.setBounds(controls.removeFromRight(72).reduced(2,16));
