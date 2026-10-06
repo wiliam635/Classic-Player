@@ -106,7 +106,8 @@ public:
     {
         setLookAndFeel(&lookAndFeel);
         auto* content = new StudioCanvas();
-        content->setSize(1180, 760);
+        content->setSize(1180, 850);
+        importFormatManager.registerBasicFormats();
 
         title.setText("CLASSIC PLAYER STUDIO", juce::dontSendNotification);
         title.setFont(juce::FontOptions(24.0f, juce::Font::bold));
@@ -178,7 +179,10 @@ public:
         trackSelector.onChange = [this]
         {
             if (trackSelector.getSelectedId() > 0)
+            {
                 selectedTrackIndex = trackSelector.getSelectedId() - 1;
+                timelineView.setSelectedTrack(selectedTrackIndex);
+            }
             refreshTimelineSummary();
         };
         trackSelector.setBounds(120, 214, 260, 36);
@@ -475,9 +479,77 @@ public:
         content->addAndMakeVisible(meterSummary);
 
         timelineSummary.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-        timelineSummary.setBounds(30, 510, 1120, 32);
+        timelineSummary.setBounds(30, 540, 1120, 24);
         content->addAndMakeVisible(timelineSummary);
-        timelineView.setBounds(30, 545, 1120, 150);
+
+        importAudio.setButtonText("IMPORT AUDIO");
+        importAudio.onClick = [this]
+        {
+            auto chooser = std::make_shared<juce::FileChooser>(
+                cpText("Importar áudio para a faixa selecionada"), juce::File(),
+                "*.wav;*.aif;*.aiff;*.flac");
+            juce::Component::SafePointer<MainWindow> safeThis(this);
+            chooser->launchAsync(juce::FileBrowserComponent::openMode
+                                     | juce::FileBrowserComponent::canSelectFiles,
+                                 [safeThis, chooser](const juce::FileChooser& completedChooser)
+            {
+                if (safeThis == nullptr)
+                    return;
+
+                const auto result = completedChooser.getResult();
+                if (result != juce::File())
+                    safeThis->importAudioFile(result);
+            });
+        };
+        importAudio.setBounds(30, 570, 150, 30);
+        content->addAndMakeVisible(importAudio);
+
+        deleteTimelineClip.setButtonText("DELETE CLIP");
+        deleteTimelineClip.onClick = [this]
+        {
+            if (timelineView.deleteSelectedClip())
+            {
+                pluginSummary.setText(cpText("Clip removido da timeline"), juce::dontSendNotification);
+            }
+            else
+                pluginSummary.setText(cpText("Selecione um clip para remover"), juce::dontSendNotification);
+        };
+        deleteTimelineClip.setBounds(190, 570, 145, 30);
+        content->addAndMakeVisible(deleteTimelineClip);
+
+        timelineZoomOut.setButtonText("- ZOOM");
+        timelineZoomOut.onClick = [this] { timelineView.zoomOut(); };
+        timelineZoomOut.setBounds(345, 570, 95, 30);
+        content->addAndMakeVisible(timelineZoomOut);
+
+        timelineZoomIn.setButtonText("+ ZOOM");
+        timelineZoomIn.onClick = [this] { timelineView.zoomIn(); };
+        timelineZoomIn.setBounds(450, 570, 95, 30);
+        content->addAndMakeVisible(timelineZoomIn);
+
+        timelineFit.setButtonText("SHOW ALL");
+        timelineFit.onClick = [this] { timelineView.showAll(); };
+        timelineFit.setBounds(555, 570, 110, 30);
+        content->addAndMakeVisible(timelineFit);
+
+        timelineView.onTrackSelected = [this](int trackIndex)
+        {
+            selectedTrackIndex = trackIndex;
+            trackSelector.setSelectedId(trackIndex + 1, juce::dontSendNotification);
+            refreshTimelineSummary();
+        };
+        timelineView.onClipSelected = [this](const juce::String& clipName)
+        {
+            pluginSummary.setText(cpText("Clip selecionado: ") + clipName,
+                                  juce::dontSendNotification);
+        };
+        timelineView.onSessionEdited = [this]
+        {
+            reloadSessionAudio();
+            refreshTimelineSummary();
+            pluginSummary.setText(cpText("Posição do clip atualizada"), juce::dontSendNotification);
+        };
+        timelineView.setBounds(30, 610, 1120, 185);
         content->addAndMakeVisible(timelineView);
 
         for (auto* label : { &status, &mixerSummary, &pluginSummary, &audioSummary,
@@ -490,7 +562,7 @@ public:
         setContentOwned(content, true);
         refreshTrackSelector();
         refreshTimelineSummary();
-        centreWithSize(1180, 760);
+        centreWithSize(1180, 850);
         // The first Studio build was freely resizable while most controls had
         // fixed coordinates, which produced a large empty grey area.  Keep a
         // deliberate, balanced workspace until the responsive layout pass is
@@ -590,6 +662,37 @@ private:
             pluginSummary.setText(clipStatus, juce::dontSendNotification);
     }
 
+    void importAudioFile(const juce::File& file)
+    {
+        if (sessionState.tracks.isEmpty())
+            return;
+
+        std::unique_ptr<juce::AudioFormatReader> reader(importFormatManager.createReaderFor(file));
+        if (reader == nullptr || reader->lengthInSamples <= 0 || reader->sampleRate <= 0.0)
+        {
+            pluginSummary.setText(cpText("Não foi possível importar este arquivo de áudio"),
+                                  juce::dontSendNotification);
+            return;
+        }
+
+        SessionClip clip;
+        clip.name = file.getFileNameWithoutExtension();
+        clip.filePath = file.getFullPathName();
+        clip.startSeconds = transportState.position();
+        clip.lengthSeconds = static_cast<double>(reader->lengthInSamples) / reader->sampleRate;
+        clip.sampleRate = reader->sampleRate;
+        clip.numChannels = juce::jlimit(1, 64, static_cast<int>(reader->numChannels));
+
+        const auto target = juce::jlimit(0, sessionState.tracks.size() - 1, selectedTrackIndex);
+        sessionState.tracks.getReference(target).clips.add(std::move(clip));
+        reloadSessionAudio();
+        timelineView.setSelectedTrack(target);
+        timelineView.showAll();
+        refreshTimelineSummary();
+        pluginSummary.setText(cpText("Áudio importado para ") + sessionState.tracks[target].name,
+                              juce::dontSendNotification);
+    }
+
     void refreshTimelineSummary()
     {
         int clipCount = 0;
@@ -620,7 +723,10 @@ private:
         for (int i = 0; i < sessionState.tracks.size(); ++i)
             trackSelector.addItem(sessionState.tracks[i].name, i + 1);
         if (! sessionState.tracks.isEmpty())
+        {
             trackSelector.setSelectedId(selectedTrackIndex + 1, juce::dontSendNotification);
+            timelineView.setSelectedTrack(selectedTrackIndex);
+        }
     }
 
     void timerCallback() override
@@ -733,9 +839,11 @@ public:
     juce::TextButton play, pause, stop;
     juce::TextButton recordAudio, stopRecording;
     juce::TextButton addAudioTrack, removeTrack;
+    juce::TextButton importAudio, deleteTimelineClip, timelineZoomOut, timelineZoomIn, timelineFit;
     juce::ComboBox trackSelector;
     juce::Slider trackGain, trackPan, masterGain;
     juce::ToggleButton muteTrack, soloTrack;
+    juce::AudioFormatManager importFormatManager;
     juce::Array<juce::PluginDescription> availableInstruments;
     bool activeRecording { false };
     double recordStartPosition { 0.0 };
