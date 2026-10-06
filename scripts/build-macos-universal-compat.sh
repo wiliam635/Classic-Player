@@ -60,11 +60,13 @@ configure_and_build() {
     fi
   done
   local ui_test="$build/ClassicPlayerHammondTest_artefacts/Release/ClassicPlayerHammondTest"
-  if [[ "$arch" == "x86_64" ]]; then
-    arch -x86_64 "$ui_test" --silver-ui
-  else
-    "$ui_test" --silver-ui
-  fi
+  for skin_option in --silver-ui --dark-steel-ui; do
+    if [[ "$arch" == "x86_64" ]]; then
+      arch -x86_64 "$ui_test" "$skin_option"
+    else
+      "$ui_test" "$skin_option"
+    fi
+  done
 }
 
 install_dependencies arm64 arm64-osx-classic

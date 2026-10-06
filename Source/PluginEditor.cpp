@@ -36,13 +36,14 @@ struct UiPalette
     juce::uint32 background, panel, panelLight, line, accent, highlight, text, mutedText;
 };
 
-static constexpr std::array<UiPalette, 6> uiPalettes {{
+static constexpr std::array<UiPalette, 7> uiPalettes {{
     { 0xff091018, 0xff151f28, 0xff202c35, 0xff33414c, 0xff13b8ad, 0xffffd84a, 0xffedf4f7, 0xff9eabb5 },
     { 0xff050608, 0xff101216, 0xff1c2025, 0xff565e66, 0xffbec5cc, 0xfff3f5f6, 0xfff6f7f8, 0xffb1b7bd },
     { 0xff22040b, 0xff3b0912, 0xff60101e, 0xff8d7f82, 0xffd51b38, 0xffbec3c8, 0xfffaf7f8, 0xffc9bfc2 },
     { 0xff0d1027, 0xff151a35, 0xff202747, 0xff5d5b88, 0xff6549cf, 0xfff5f2ff, 0xfffbfaff, 0xffc8c4df },
     { 0xffe9eef4, 0xfff6f8fb, 0xffd6e0ec, 0xff6c849d, 0xff126dbe, 0xff3b92dd, 0xff14273b, 0xff4c6073 },
-    { 0xff9fa5ad, 0xffc8cdd2, 0xffe0e3e7, 0xff717982, 0xff245e83, 0xffe9bc36, 0xff16222c, 0xff394853 }
+    { 0xff9fa5ad, 0xffc8cdd2, 0xffe0e3e7, 0xff717982, 0xff245e83, 0xffe9bc36, 0xff16222c, 0xff394853 },
+    { 0xff24292e, 0xff30363d, 0xff424a53, 0xff74818c, 0xff9ac9df, 0xffffd84a, 0xfff1f4f6, 0xffbbc4cc }
 }};
 int activeUiPalette = 0;
 juce::uint32 background = uiPalettes[0].background;
@@ -56,11 +57,12 @@ juce::uint32 mutedText = uiPalettes[0].mutedText;
 
 void paintBrushedSteel(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
-    juce::ColourGradient finish(juce::Colour(0xffa1a7ae), bounds.getX(), bounds.getY(),
-                               juce::Colour(0xffa4aab2), bounds.getRight(), bounds.getY(), false);
-    finish.addColour(0.25, juce::Colour(0xffdce0e4));
-    finish.addColour(0.53, juce::Colour(0xffb3bac1));
-    finish.addColour(0.72, juce::Colour(0xffedf0f2));
+    const bool dark = activeUiPalette == 6;
+    juce::ColourGradient finish(juce::Colour(dark ? 0xff292e34 : 0xffa1a7ae), bounds.getX(), bounds.getY(),
+                               juce::Colour(dark ? 0xff2b3036 : 0xffa4aab2), bounds.getRight(), bounds.getY(), false);
+    finish.addColour(0.25, juce::Colour(dark ? 0xff414850 : 0xffdce0e4));
+    finish.addColour(0.53, juce::Colour(dark ? 0xff20252a : 0xffb3bac1));
+    finish.addColour(0.72, juce::Colour(dark ? 0xff555d65 : 0xffedf0f2));
     g.setGradientFill(finish); g.fillRect(bounds);
     static const auto grain = []
     {
@@ -77,7 +79,7 @@ void paintBrushedSteel(juce::Graphics& g, juce::Rectangle<float> bounds)
             }
         return image;
     }();
-    g.setTiledImageFill(grain, 0, 0, 1.0f); g.fillRect(bounds);
+    g.setTiledImageFill(grain, 0, 0, dark ? 0.65f : 1.0f); g.fillRect(bounds);
 }
 
 void setUiPalette(int index)
@@ -350,6 +352,7 @@ struct UiTranslation
 // REVERB, CUTOFF and PANIC intentionally remain industry-standard labels.
 static constexpr UiTranslation uiTranslations[] {
     { "PRATEADO", "SILVER", "PLATEADO" },
+    { "AÇO ESCURO", "DARK STEEL", "ACERO OSCURO" },
     { "ATUALIZACOES", "UPDATES", "ACTUALIZACIONES" },
     { "VERIFICANDO...", "CHECKING...", "COMPROBANDO..." },
     { "ATUALIZACAO DISPONIVEL", "UPDATE AVAILABLE", "ACTUALIZACIÓN DISPONIBLE" },
@@ -1088,7 +1091,8 @@ void applyUiSkinToComponentTree(juce::Component& component, const UiPalette& new
     if (dynamic_cast<juce::AlertWindow*>(&component) != nullptr)
     {
         component.setColour(juce::AlertWindow::backgroundColourId,
-            newPalette.background == uiPalettes[5].background ? juce::Colours::transparentBlack
+            (newPalette.background == uiPalettes[5].background || newPalette.background == uiPalettes[6].background)
+                                                             ? juce::Colours::transparentBlack
                                                              : juce::Colour(newPalette.panel));
         component.setColour(juce::AlertWindow::textColourId, juce::Colour(newPalette.text));
         component.setColour(juce::AlertWindow::outlineColourId, juce::Colour(newPalette.line));
@@ -1354,7 +1358,7 @@ public:
     void drawAlertBox(juce::Graphics& g, juce::AlertWindow& alert,
                       const juce::Rectangle<int>& textArea, juce::TextLayout& layout) override
     {
-        if (activeUiPalette == 5) paintBrushedSteel(g, alert.getLocalBounds().toFloat());
+        if (activeUiPalette == 5 || activeUiPalette == 6) paintBrushedSteel(g, alert.getLocalBounds().toFloat());
         juce::LookAndFeel_V4::drawAlertBox(g, alert, textArea, layout);
     }
 
@@ -5384,7 +5388,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
     const auto paintPanel = [&g, bounds]
     {
         g.setColour(juce::Colour(panel)); g.fillRoundedRectangle(bounds, 7.0f);
-        if (activeUiPalette == 5)
+        if (activeUiPalette == 5 || activeUiPalette == 6)
         {
             const juce::Graphics::ScopedSaveState state(g);
             juce::Path clip; clip.addRoundedRectangle(bounds.reduced(1.0f), 7.0f);
@@ -6437,6 +6441,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
     skinSelector.addItem("AZUL ROXO", 4);
     skinSelector.addItem("BRANCO AZUL", 5);
     skinSelector.addItem("PRATEADO", 6);
+    skinSelector.addItem(juce::String::fromUTF8("AÇO ESCURO"), 7);
     skinSelector.setSelectedId(uiSkin + 1, juce::dontSendNotification);
     skinSelector.setName(juce::String::fromUTF8("Tema de cores do aplicativo"));
     skinSelector.setTooltip(juce::String::fromUTF8("Tema de cores do aplicativo"));
@@ -6958,7 +6963,7 @@ void ClassicPlayerAudioProcessorEditor::showMasterLimiterEditor()
 }
 void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
 {
-    if (activeUiPalette == 5)
+    if (activeUiPalette == 5 || activeUiPalette == 6)
         paintBrushedSteel(g, getLocalBounds().toFloat());
     else if (activeUiPalette == 2)
     {
@@ -6996,7 +7001,7 @@ void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
     }
     g.setGradientFill(juce::ColourGradient(juce::Colour(panelLight), 0.0f, 0.0f,
                                            juce::Colour(background), (float) getWidth(), 220.0f, false));
-    if (activeUiPalette == 5)
+    if (activeUiPalette == 5 || activeUiPalette == 6)
         paintBrushedSteel(g, juce::Rectangle<float>(0, 0, (float) getWidth(), 142));
     else
         g.fillRect(0, 0, getWidth(), 142);

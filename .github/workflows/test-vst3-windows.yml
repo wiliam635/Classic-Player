@@ -62,6 +62,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Falha no MIDI Learn ou STOP dos pads contínuos" }
           & $test --silver-ui
           if ($LASTEXITCODE -ne 0) { throw "Falha na skin prateada ou bandeiras de idioma" }
+          & $test --dark-steel-ui
+          if ($LASTEXITCODE -ne 0) { throw "Falha na skin de aco escovado escuro" }
 
       - name: Verify self-contained VST3 loads like a DAW
         shell: pwsh

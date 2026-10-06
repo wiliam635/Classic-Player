@@ -177,7 +177,7 @@ static void continuousPadRegression()
 }
 struct LiveSetLayoutRegressionAccess
 {
-    static void silverUi(const char* screenshot)
+    static void silverUi(const char* screenshot, int skin = 5)
     {
         juce::TemporaryFile storage;
         const auto root = storage.getFile();
@@ -189,7 +189,7 @@ struct LiveSetLayoutRegressionAccess
         processor.setLayerType(2, ClassicPlayerAudioProcessor::LayerType::dx7);
         ClassicPlayerAudioProcessorEditor editor(processor);
         editor.activationPanel.setVisible(false);
-        editor.setUiSkin(5, false);
+        editor.setUiSkin(skin, false);
         for (const auto size : { juce::Point<int>(900, 600), juce::Point<int>(1280, 720) })
         {
             editor.setSize(size.x, size.y);
@@ -548,9 +548,10 @@ int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
     try{
-        if (argc > 1 && juce::String(argv[1]) == "--silver-ui")
+        if (argc > 1 && (juce::String(argv[1]) == "--silver-ui" || juce::String(argv[1]) == "--dark-steel-ui"))
         {
-            LiveSetLayoutRegressionAccess::silverUi(argc > 2 ? argv[2] : nullptr);
+            LiveSetLayoutRegressionAccess::silverUi(argc > 2 ? argv[2] : nullptr,
+                juce::String(argv[1]) == "--dark-steel-ui" ? 6 : 5);
             return 0;
         }
         if (argc > 1 && juce::String(argv[1]) == "--midi-learn")

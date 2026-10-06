@@ -362,7 +362,7 @@ private:
     bool editingLiveSet = false;
     bool virtualKeyboardVisible = true;
     int uiLanguage = 0; // 0 = Português, 1 = English, 2 = Español
-    int uiSkin = 0; // Classic, Black, Red, Purple Blue, White Blue, Brushed Silver
+    int uiSkin = 0; // Classic, Black, Red, Purple Blue, White Blue, Brushed Silver, Dark Steel
     juce::int64 recordingStartedAtMs = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ClassicPlayerAudioProcessorEditor)
