@@ -24,19 +24,19 @@ int main()
         check(!ClassicPlayerUpdateChecker::parseManifest(manifest, "2.1.0", "macos").available,
               "Older releases must not offer a downgrade");
         manifest.getDynamicObject()->setProperty("version", "2.1.0-beta.1");
-        check(!ClassicPlayerUpdateChecker::parseManifest(manifest, "2.0.2", "macos").available,
+        check(!ClassicPlayerUpdateChecker::parseManifest(manifest, "2.0.3", "macos").available,
               "Prerelease was announced as stable");
         manifest.getDynamicObject()->setProperty("version", "invalid");
-        check(!ClassicPlayerUpdateChecker::parseManifest(manifest, "2.0.2", "macos").succeeded,
+        check(!ClassicPlayerUpdateChecker::parseManifest(manifest, "2.0.3", "macos").succeeded,
               "Invalid manifest was presented as up to date");
         manifest.getDynamicObject()->setProperty("version", "v2.1.0");
         manifest["downloads"].getDynamicObject()->setProperty("macos", "http://classickeys.com.br/mac.pkg");
-        check(!ClassicPlayerUpdateChecker::parseManifest(manifest, "2.0.2", "macos").available,
+        check(!ClassicPlayerUpdateChecker::parseManifest(manifest, "2.0.3", "macos").available,
               "Insecure installer URL was accepted");
         manifest["downloads"].getDynamicObject()->removeProperty("macos");
-        check(!ClassicPlayerUpdateChecker::parseManifest(manifest, "2.0.2", "macos").available,
+        check(!ClassicPlayerUpdateChecker::parseManifest(manifest, "2.0.3", "macos").available,
               "Missing installer URL triggered a notification");
-        check(!ClassicPlayerUpdateChecker::parseManifest(juce::JSON::parse("[]"), "2.0.2", "macos").succeeded,
+        check(!ClassicPlayerUpdateChecker::parseManifest(juce::JSON::parse("[]"), "2.0.3", "macos").succeeded,
               "Wrong JSON shape was accepted");
         std::cout << "Update feed validation passed\n";
         return 0;

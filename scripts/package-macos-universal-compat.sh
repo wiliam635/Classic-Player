@@ -29,7 +29,7 @@ ditto --noextattr --noqtn "$APP" "$STAGE/Applications/Classic Player.app"
 
 pkgbuild --root "$STAGE" \
   --identifier com.classickeys.classicplayer.standalone \
-  --version 2.0.2 \
+  --version 2.0.3 \
   --install-location / \
   --component-plist "$ROOT/installer/macos/components-standalone.plist" \
   "$PACKAGES/ClassicPlayer-standalone.pkg"

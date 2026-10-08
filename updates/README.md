@@ -14,7 +14,7 @@ as customer download links.
 Publish `classic-player.json` on the official HTTPS site. Fill the `downloads`
 fields with permanent installer URLs and `releaseNotesUrl` with an optional page
 describing the release. Update `version` only when the corresponding installers
-are ready for users. Stable versions use three numbers, e.g. `2.0.2`. Prerelease
+are ready for users. Stable versions use three numbers, e.g. `2.0.3`. Prerelease
 versions and incomplete download URLs never trigger an update notification.
 
 The shipped example describes the installed version and points both platforms
