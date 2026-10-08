@@ -128,6 +128,87 @@ static void compare(const std::vector<float>& a, const std::vector<float>& b)
     require(error < 0.00001f, "audio depends on host block size");
 }
 
+static float referenceEqBand(float sample, float frequency, float gainDb, float q,
+                             double sampleRate, float& input1, float& input2,
+                             float& output1, float& output2)
+{
+    const auto safeRate = juce::jmax(1.0, sampleRate);
+    const auto safeFrequency = juce::jlimit(20.0f, 0.49f * (float) safeRate, frequency);
+    const auto safeQ = juce::jlimit(0.1f, 20.0f, q);
+    const auto amplitude = juce::Decibels::decibelsToGain(
+        0.5f * juce::jlimit(-18.0f, 18.0f, gainDb));
+    const auto omega = juce::MathConstants<float>::twoPi * safeFrequency / (float) safeRate;
+    const auto alpha = std::sin(omega) / (2.0f * safeQ);
+    const auto cosine = std::cos(omega);
+    const auto a0 = 1.0f + alpha / amplitude;
+    const auto b0 = (1.0f + alpha * amplitude) / a0;
+    const auto b1 = (-2.0f * cosine) / a0;
+    const auto b2 = (1.0f - alpha * amplitude) / a0;
+    const auto a1 = (-2.0f * cosine) / a0;
+    const auto a2 = (1.0f - alpha / amplitude) / a0;
+    const auto output = b0 * sample + b1 * input1 + b2 * input2
+                      - a1 * output1 - a2 * output2;
+    input2 = input1;
+    input1 = sample;
+    output2 = output1;
+    output1 = output;
+    return output;
+}
+
+static float referenceEq(float sample, double sampleRate, const std::array<float, 9>& p,
+                        std::array<std::array<float, 4>, 3>& states)
+{
+    const auto safeLow = juce::jlimit(40.0f, 2000.0f, p[3]);
+    const auto safeMid = juce::jlimit(safeLow + 20.0f, 12000.0f, p[4]);
+    const auto safeHigh = juce::jlimit(safeMid + 20.0f, 20000.0f, p[5]);
+    auto value = referenceEqBand(sample, safeLow, p[0], p[6], sampleRate,
+                                 states[0][0], states[0][1], states[0][2], states[0][3]);
+    value = referenceEqBand(value, safeMid, p[1], p[7], sampleRate,
+                            states[1][0], states[1][1], states[1][2], states[1][3]);
+    return referenceEqBand(value, safeHigh, p[2], p[8], sampleRate,
+                           states[2][0], states[2][1], states[2][2], states[2][3]);
+}
+
+static void cachedLayerEq()
+{
+    LayerEqState optimized;
+    std::array<std::array<std::array<float, 4>, 3>, 2> referenceStates {};
+    const std::array<float, 9> first { 4.5f, -2.0f, 3.0f, 120.0f, 1400.0f,
+                                      6200.0f, 0.8f, 1.1f, 0.9f };
+    const std::array<float, 9> second { -6.0f, 1.0f, 8.0f, 80.0f, 2400.0f,
+                                       9000.0f, 0.71f, 2.0f, 1.2f };
+    double rate = 44100.0;
+    float maximumError = 0.0f;
+    constexpr int blockSize = 64;
+    for (int block = 0; block < 4096 / blockSize; ++block)
+    {
+        const auto& p = block < 2048 / blockSize ? first : second;
+        if (block == 2048 / blockSize) rate = 48000.0;
+        optimized.setParameters(p[0], p[1], p[2], rate, p[3], p[4], p[5], p[6], p[7], p[8]);
+        for (int offset = 0; offset < blockSize; ++offset)
+        {
+            const auto sample = block * blockSize + offset;
+            for (int channel = 0; channel < 2; ++channel)
+            {
+                const auto input = std::sin((float) (sample * (channel + 2)) * 0.017f) * 0.6f;
+                const auto actual = optimized.process(input, channel);
+                const auto expected = referenceEq(input, rate, p, referenceStates[(size_t) channel]);
+                maximumError = juce::jmax(maximumError, std::abs(actual - expected));
+            }
+        }
+    }
+    require(maximumError < 1.0e-6f, "cached layer EQ changed its sound");
+
+    LayerEqState bypassed;
+    bypassed.setParameters(0.0f, 0.0f, 0.0f, 44100.0);
+    for (int sample = 0; sample < 128; ++sample)
+    {
+        const auto input = std::cos((float) sample * 0.11f) * 0.7f;
+        require(bypassed.process(input, sample % 2) == input,
+                "zero-gain layer EQ is not a transparent bypass");
+    }
+}
+
 static void volumeRamp(const juce::File& fixture)
 {
     auto reference = std::make_unique<Dx7Engine>();
@@ -257,6 +338,7 @@ int main()
         int sum = 0; for (int i = 0; i < 155; ++i) sum += patch[i];
         bytes[161] = static_cast<uint8_t>((128 - (sum & 127)) & 127); bytes[162] = 0xf7;
         require(fixture.getFile().replaceWithData(bytes.data(), bytes.size()), "fixture write");
+        cachedLayerEq();
         volumeRamp(fixture.getFile());
         independentAnalogTuning();
         browserRegression();

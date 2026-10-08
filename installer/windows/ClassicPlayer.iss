@@ -1,5 +1,5 @@
 #define MyAppName "Classic Player"
-#define MyAppVersion "2.0.3"
+#define MyAppVersion "2.0.4"
 #define MyAppPublisher "Classic Keys"
 #define BuildRoot "..\..\build\windows-x64\ClassicPlayer_artefacts\Release"
 
@@ -8,8 +8,8 @@ AppId={{7A44AE69-49B7-4FD9-A468-5164FA579A98}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-VersionInfoVersion=2.0.3.0
-VersionInfoProductVersion=2.0.3.0
+VersionInfoVersion=2.0.4.0
+VersionInfoProductVersion=2.0.4.0
 VersionInfoDescription=Classic Player SF2 Workstation Setup
 VersionInfoProductName=Classic Player
 VersionInfoCompany=Classic Keys

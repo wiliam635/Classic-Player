@@ -56,6 +56,8 @@ HammondEngine::Config HammondEngine::restore(const juce::ValueTree& t)
 void HammondEngine::prepare(double rate,int block)
 {
     sampleRate=rate>0?rate:48000;
+    percussionDecay = (float) std::exp(std::log(0.0001 / 0.12) / (sampleRate * 0.08));
+    clickDecay = (float) std::exp(-8.0 / (sampleRate * 0.015));
     for(size_t i=0;i<sineTable.size();++i)sineTable[i]=(float)std::sin(2*pi*(double)i/4096);
     scratch.setSize(2,std::max(1,block));
     for(int i=0;i<layerCount;++i){
@@ -182,12 +184,12 @@ float HammondEngine::renderVoice(Voice& v,Layer& l,const Config& c,const std::ar
     if(v.percussion>1e-6f){
         sum+=sine(v.perPhase)*v.percussion;
         v.perPhase+=v.perStep;v.perPhase-=std::floor(v.perPhase);
-        v.percussion*=(float)std::exp(std::log(.0001/.12)/(sampleRate*.08));
+        v.percussion *= percussionDecay;
     }
     if(v.click>1e-7f){
         l.noise=l.noise*1664525u+1013904223u;
         sum+=((float)(l.noise>>8)/8388608.f-1)*v.click;
-        v.click*=(float)std::exp(-8.0/(sampleRate*.015));
+        v.click *= clickDecay;
     }
     return v.transition.process(sum*v.envelope);
 }
@@ -225,6 +227,20 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
         rp.roomSize=c.routing.reverbSize/100.f;rp.damping=c.routing.reverbDamping/100.f;
         rp.width=c.routing.reverbWidth/100.f;rp.wetLevel=c.routing.reverb/100.f*.4f;
         rp.dryLevel=1.f-c.routing.reverb/100.f*.2f;l.reverb.setParameters(rp);
+        const auto compressorMix = juce::jlimit(0.0f, 1.0f, c.routing.compressor / 100.0f);
+        const auto compressorEnabled = compressorMix > 0.0f;
+        const auto compressorAttack = compressorEnabled
+            ? (float) std::exp(-1.0 / (sampleRate * 0.003)) : 0.0f;
+        const auto compressorRelease = compressorEnabled
+            ? (float) std::exp(-1.0 / (sampleRate * 0.1)) : 0.0f;
+        const auto compressorThreshold = juce::Decibels::decibelsToGain(c.routing.compressorThreshold);
+        const auto compressorRatio = std::max(1.0f, c.routing.compressorRatio);
+        if (!compressorEnabled)
+            l.compressor = {};
+        l.eq.setParameters(c.routing.eqLow, c.routing.eqMid, c.routing.eqHigh,
+                           sampleRate, c.routing.eqLowFrequency,
+                           c.routing.eqMidFrequency, c.routing.eqHighFrequency,
+                           c.routing.eqLowQ, c.routing.eqMidQ, c.routing.eqHighQ);
         for(int s=0;s<out.getNumSamples();++s){
             bool event=false;
             while(hi!=host.cend()&&(*hi).samplePosition<=s){message(index,(*hi).getMessage(),c);++hi;event=true;}
@@ -264,20 +280,17 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
             for(int ch=0;ch<2;++ch){
                 auto& value=*values[ch];auto& env=l.compressor[(size_t)ch];
                 l.lowpass[(size_t)ch]+=lowpass*(value-l.lowpass[(size_t)ch]);value=l.lowpass[(size_t)ch];
-                const float coefficient=(float)std::exp(-1/(sampleRate*(std::abs(value)>env?.003:.1)));
-                env=coefficient*env+(1-coefficient)*std::abs(value);
-                const float threshold=juce::Decibels::decibelsToGain(c.routing.compressorThreshold);
-                if(env>threshold&&c.routing.compressor>0)
-                        value*=1-c.routing.compressor/100.f+c.routing.compressor/100.f*
-                        std::pow(threshold/env,1-1/std::max(1.f,c.routing.compressorRatio));
-                value = l.eq.process(value, ch, c.routing.eqLow, c.routing.eqMid,
-                                     c.routing.eqHigh, sampleRate,
-                                     c.routing.eqLowFrequency,
-                                     c.routing.eqMidFrequency,
-                                     c.routing.eqHighFrequency,
-                                     c.routing.eqLowQ,
-                                     c.routing.eqMidQ,
-                                     c.routing.eqHighQ);
+                if (compressorEnabled)
+                {
+                    const auto coefficient = std::abs(value) > env
+                        ? compressorAttack : compressorRelease;
+                    env = coefficient * env + (1.0f - coefficient) * std::abs(value);
+                    if (env > compressorThreshold)
+                        value *= 1.0f - compressorMix + compressorMix
+                               * std::pow(compressorThreshold / env,
+                                          1.0f - 1.0f / compressorRatio);
+                }
+                value = l.eq.process(value, ch);
                 value*=gain*(ch==0?std::sqrt(1-pan):std::sqrt(1+pan));
             }
             if(out.getNumChannels()>1){out.addSample(0,s,left);out.addSample(1,s,right);}

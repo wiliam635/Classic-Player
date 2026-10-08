@@ -136,6 +136,10 @@ public:
         const bool highPassEnabled=highPassHz>20.5f,lowPassEnabled=lowPassHz<19950.f;
         const float highPassCoefficient=std::exp(-juce::MathConstants<float>::twoPi*highPassHz/(float)sampleRate);
         const float lowPassCoefficient=std::exp(-juce::MathConstants<float>::twoPi*lowPassHz/(float)sampleRate);
+        eq.setParameters(eqSettings.low, eqSettings.mid, eqSettings.high, sampleRate,
+                         eqSettings.lowFrequency, eqSettings.midFrequency,
+                         eqSettings.highFrequency, eqSettings.lowQ,
+                         eqSettings.midQ, eqSettings.highQ);
         for(int sample=0;sample<output.getNumSamples();++sample)
         {
             float sum[2]{};
@@ -165,9 +169,7 @@ public:
             {float value=sum[ch]*v;
              if(highPassEnabled){const float filtered=highPassCoefficient*(highPassOutput[(size_t)ch]+value-highPassInput[(size_t)ch]);highPassInput[(size_t)ch]=value;highPassOutput[(size_t)ch]=filtered;value=filtered;}
              if(lowPassEnabled){lowPassState[(size_t)ch]=(1.f-lowPassCoefficient)*value+lowPassCoefficient*lowPassState[(size_t)ch];value=lowPassState[(size_t)ch];}
-             value=eq.process(value,ch,eqSettings.low,eqSettings.mid,eqSettings.high,sampleRate,
-                              eqSettings.lowFrequency,eqSettings.midFrequency,eqSettings.highFrequency,
-                              eqSettings.lowQ,eqSettings.midQ,eqSettings.highQ);
+             value=eq.process(value,ch);
              output.addSample(ch,sample,value);blockPeak=juce::jmax(blockPeak,std::abs(value));}
         }
         meter=blockPeak;

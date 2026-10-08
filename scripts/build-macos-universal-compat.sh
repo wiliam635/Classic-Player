@@ -50,8 +50,8 @@ configure_and_build() {
     -DCMAKE_OSX_ARCHITECTURES="$arch" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="$deployment" \
     -DCMAKE_BUILD_TYPE=Release
-  "$CMAKE" --build "$build" --target ClassicPlayer_Standalone ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest ClassicPlayerHammondTest --parallel 4
-  for test_name in ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest; do
+  "$CMAKE" --build "$build" --target ClassicPlayer_Standalone ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest ClassicPlayerHammondTest ClassicPlayerAudioRegressionTest --parallel 4
+  for test_name in ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest ClassicPlayerAudioRegressionTest; do
     local test_executable="$build/${test_name}_artefacts/Release/$test_name"
     if [[ "$arch" == "x86_64" ]]; then
       arch -x86_64 "$test_executable"
@@ -102,8 +102,8 @@ rm "$UNIVERSAL/Contents/MacOS/Classic Player"
 
 /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable ClassicPlayer" "$UNIVERSAL/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.classickeys.classicplayer.macos161" "$UNIVERSAL/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 2.0.3" "$UNIVERSAL/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 2.0.3" "$UNIVERSAL/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 2.0.4" "$UNIVERSAL/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 2.0.4" "$UNIVERSAL/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 10.13" "$UNIVERSAL/Contents/Info.plist" 2>/dev/null || \
   /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion 10.13" "$UNIVERSAL/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :NSHighResolutionCapable bool true" "$UNIVERSAL/Contents/Info.plist" 2>/dev/null || \

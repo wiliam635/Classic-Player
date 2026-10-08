@@ -723,15 +723,15 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
         }
     }
 
+    layer.eq.setParameters(config.eqLow, config.eqMid, config.eqHigh, sampleRate,
+                           config.eqLowFrequency, config.eqMidFrequency,
+                           config.eqHighFrequency, config.eqLowQ, config.eqMidQ,
+                           config.eqHighQ);
     for (int channel = 0; channel < 2; ++channel)
     {
         auto* samples = scratch.getWritePointer(channel);
         for (int sample = 0; sample < scratch.getNumSamples(); ++sample)
-            samples[sample] = layer.eq.process(samples[sample], channel,
-                                               config.eqLow, config.eqMid, config.eqHigh,
-                                               sampleRate, config.eqLowFrequency,
-                                               config.eqMidFrequency, config.eqHighFrequency,
-                                               config.eqLowQ, config.eqMidQ, config.eqHighQ);
+            samples[sample] = layer.eq.process(samples[sample], channel);
     }
     const auto reverbMix = juce::jlimit(0.0f, 100.0f, config.reverb) / 100.0f;
     juce::Reverb::Parameters reverbParameters;

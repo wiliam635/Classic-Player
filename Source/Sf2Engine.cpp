@@ -538,19 +538,15 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
             }
         }
 
+        layer.eq.setParameters(layer.config.eqLow, layer.config.eqMid, layer.config.eqHigh,
+                               currentSampleRate, layer.config.eqLowFrequency,
+                               layer.config.eqMidFrequency, layer.config.eqHighFrequency,
+                               layer.config.eqLowQ, layer.config.eqMidQ, layer.config.eqHighQ);
         for (int channel = 0; channel < scratch.getNumChannels(); ++channel)
         {
             auto* samples = scratch.getWritePointer(channel);
             for (int sample = 0; sample < output.getNumSamples(); ++sample)
-                samples[sample] = layer.eq.process(samples[sample], channel,
-                                                   layer.config.eqLow, layer.config.eqMid,
-                                                   layer.config.eqHigh, currentSampleRate,
-                                                   layer.config.eqLowFrequency,
-                                                   layer.config.eqMidFrequency,
-                                                   layer.config.eqHighFrequency,
-                                                   layer.config.eqLowQ,
-                                                   layer.config.eqMidQ,
-                                                   layer.config.eqHighQ);
+                samples[sample] = layer.eq.process(samples[sample], channel);
         }
 
         // The native reverb is a consistent stereo room for every SF2, rather

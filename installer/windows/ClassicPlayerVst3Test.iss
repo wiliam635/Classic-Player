@@ -1,23 +1,23 @@
 #define BuildRoot "..\..\build\windows-x64\ClassicPlayer_artefacts\Release"
 #ifdef FINAL_RELEASE
-  #define DisplayName "Classic Player 2.0.3"
+  #define DisplayName "Classic Player 2.0.4"
   #define InstallDir "{autopf}\Classic Keys\Classic Player"
-  #define InstallerName "Classic-Player-2.0.3-Windows-x64-Setup"
+  #define InstallerName "Classic-Player-2.0.4-Windows-x64-Setup"
   #define ReleaseAppId "{{7A44AE69-49B7-4FD9-A468-5164FA579A98}"
 #else
-  #define DisplayName "Classic Player 2.0.3 Teste"
-  #define InstallDir "{autopf}\Classic Keys\Classic Player 2.0.3 Teste"
-  #define InstallerName "Classic-Player-2.0.3-Standalone-VST3-teste-Windows-x64-Setup"
+  #define DisplayName "Classic Player 2.0.4 Teste"
+  #define InstallDir "{autopf}\Classic Keys\Classic Player 2.0.4 Teste"
+  #define InstallerName "Classic-Player-2.0.4-Standalone-VST3-teste-Windows-x64-Setup"
   #define ReleaseAppId "{{93DADFF3-E1B0-4B96-8B34-10D6CD8F0201}"
 #endif
 
 [Setup]
 AppId={#ReleaseAppId}
 AppName={#DisplayName}
-AppVersion=2.0.3
+AppVersion=2.0.4
 AppPublisher=Classic Keys
-VersionInfoVersion=2.0.3.0
-VersionInfoProductVersion=2.0.3.0
+VersionInfoVersion=2.0.4.0
+VersionInfoProductVersion=2.0.4.0
 DefaultDirName={#InstallDir}
 DefaultGroupName=Classic Keys
 OutputDir=..\..\outputs\vst3-test

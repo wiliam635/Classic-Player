@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="1">
-  <title>Classic Player 2.0.3</title>
+  <title>Classic Player 2.0.4</title>
   <options customize="always" require-scripts="false" hostArchitectures="x86_64,arm64"/>
   <domains enable_localSystem="true" enable_currentUserHome="false" enable_anywhere="false"/>
   <choices-outline>
@@ -25,8 +25,8 @@
           description="Selecciona Español. Para cambiar el idioma, desmarca la selección anterior. Puedes cambiarlo también dentro de Classic Player.">
     <pkg-ref id="com.classickeys.classicplayer.language.es"/>
   </choice>
-  <pkg-ref id="COMPONENT_PACKAGE_ID" version="2.0.3">ClassicPlayer-components.pkg</pkg-ref>
-  <pkg-ref id="com.classickeys.classicplayer.language.br" version="2.0.3">Language-br.pkg</pkg-ref>
-  <pkg-ref id="com.classickeys.classicplayer.language.us" version="2.0.3">Language-us.pkg</pkg-ref>
-  <pkg-ref id="com.classickeys.classicplayer.language.es" version="2.0.3">Language-es.pkg</pkg-ref>
+  <pkg-ref id="COMPONENT_PACKAGE_ID" version="2.0.4">ClassicPlayer-components.pkg</pkg-ref>
+  <pkg-ref id="com.classickeys.classicplayer.language.br" version="2.0.4">Language-br.pkg</pkg-ref>
+  <pkg-ref id="com.classickeys.classicplayer.language.us" version="2.0.4">Language-us.pkg</pkg-ref>
+  <pkg-ref id="com.classickeys.classicplayer.language.es" version="2.0.4">Language-es.pkg</pkg-ref>
 </installer-gui-script>

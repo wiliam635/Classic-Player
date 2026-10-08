@@ -72,4 +72,6 @@ private:
     std::array<float,4097> sineTable {};
     juce::AudioBuffer<float> scratch;
     double sampleRate = 48000;
+    float percussionDecay = 1.0f;
+    float clickDecay = 1.0f;
 };

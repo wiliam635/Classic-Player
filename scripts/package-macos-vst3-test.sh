@@ -6,12 +6,12 @@ APP="${APP_PATH:-$ROOT/build/Classic Player 2.0 macOS Universal.app}"
 VST3="${VST3_PATH:-$ROOT/outputs/vst3-test/Classic Player.vst3}"
 AU="${AU_PATH:-$ROOT/outputs/vst3-test/Classic Player.component}"
 OUTPUT="${OUTPUT_DIR:-$ROOT/outputs/vst3-test}"
-PACKAGE="$OUTPUT/Classic-Player-2.0.3-Standalone-VST3-AU-teste-macOS-Universal.pkg"
+PACKAGE="$OUTPUT/Classic-Player-2.0.4-Standalone-VST3-AU-teste-macOS-Universal.pkg"
 APP_NAME="Classic Player Teste.app"
 COMPONENTS="$ROOT/installer/macos/components-vst3-test.plist"
 PACKAGE_ID="com.classickeys.classicplayer.vst3-au-test-201"
 if [[ "${FINAL_RELEASE:-0}" == "1" ]]; then
-  PACKAGE="$OUTPUT/Classic-Player-2.0.3-macOS-Universal.pkg"
+  PACKAGE="$OUTPUT/Classic-Player-2.0.4-macOS-Universal.pkg"
   APP_NAME="Classic Player.app"
   COMPONENTS="$ROOT/installer/macos/components-vst3-final.plist"
   PACKAGE_ID="com.classickeys.classicplayer.standalone"
@@ -46,14 +46,14 @@ lipo "$STAGE/Library/Audio/Plug-Ins/Components/Classic Player.component/Contents
 
 pkgbuild --root "$STAGE" \
   --identifier "$PACKAGE_ID" \
-  --version 2.0.3 \
+  --version 2.0.4 \
   --install-location / \
   --component-plist "$COMPONENTS" \
   "$PACKAGES/ClassicPlayer-components.pkg"
 
 for language in br us es; do
   pkgbuild --root "$ROOT/installer/macos/languages/$language" \
-    --identifier "com.classickeys.classicplayer.language.$language" --version 2.0.3 \
+    --identifier "com.classickeys.classicplayer.language.$language" --version 2.0.4 \
     --install-location "/Library/Application Support/Classic Keys/Classic Player" \
     "$PACKAGES/Language-$language.pkg"
 done

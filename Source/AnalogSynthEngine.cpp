@@ -724,18 +724,17 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
                 }
         }
 
+        layer.eq.setParameters(config.routing.eqLow, config.routing.eqMid,
+                               config.routing.eqHigh, sampleRate,
+                               config.routing.eqLowFrequency,
+                               config.routing.eqMidFrequency,
+                               config.routing.eqHighFrequency,
+                               config.routing.eqLowQ, config.routing.eqMidQ,
+                               config.routing.eqHighQ);
         for (int sampleIndex = 0; sampleIndex < output.getNumSamples(); ++sampleIndex)
             for (int channel = 0; channel < 2; ++channel)
                 renderScratch.setSample(channel, sampleIndex,
-                    layer.eq.process(renderScratch.getSample(channel, sampleIndex), channel,
-                                     config.routing.eqLow, config.routing.eqMid,
-                                     config.routing.eqHigh, sampleRate,
-                                     config.routing.eqLowFrequency,
-                                     config.routing.eqMidFrequency,
-                                     config.routing.eqHighFrequency,
-                                     config.routing.eqLowQ,
-                                     config.routing.eqMidQ,
-                                     config.routing.eqHighQ));
+                    layer.eq.process(renderScratch.getSample(channel, sampleIndex), channel));
 
         for (int sampleIndex = 0; sampleIndex < output.getNumSamples(); ++sampleIndex)
         {
