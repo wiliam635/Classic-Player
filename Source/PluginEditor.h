@@ -280,6 +280,9 @@ private:
     void checkForUpdates(bool manual);
     void refreshUpdateNotice();
     void showUpdateDetails();
+    bool audioMidiSettingsOpen = false;
+    bool standaloneMidiRoutingAttached = false;
+    int standaloneMidiRoutingDelayTicks = 0;
     juce::String detectedChord() const;
 
     ClassicPlayerAudioProcessor& classicProcessor;

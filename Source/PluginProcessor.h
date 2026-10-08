@@ -320,6 +320,12 @@ private:
     // The toggle count is consumed on the message thread and written to APVTS.
     std::array<std::atomic<bool>, Sf2Engine::layerCount> learnedMuteCCPressed {};
     std::array<std::atomic<int>, Sf2Engine::layerCount> pendingLayerMuteToggles {};
+    // -1 = unknown, 0 = momentary button, 1 = latched/toggle button.  This lets
+    // Mute Learn support both common controller behaviours without requiring a
+    // separate preference in the UI.
+    std::array<std::atomic<int>, Sf2Engine::layerCount> learnedMuteCCModes {};
+    std::array<std::atomic<juce::uint32>, Sf2Engine::layerCount> learnedMuteHighTimes {};
+    std::array<std::atomic<int>, Sf2Engine::layerCount> pendingLayerMuteStates {};
     std::atomic<int> activeMidiLearn { -1 };
     static constexpr int liveSetSlotCount = liveSetBankCount * liveSetSlotsPerBank;
     std::array<std::atomic<int>, liveSetSlotCount> learnedLiveSetSlotCCs {};

@@ -187,6 +187,9 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
         for (auto& value : layer) value.store(-1.0f);
     for (auto& pressed : learnedMuteCCPressed) pressed.store(false, std::memory_order_relaxed);
     for (auto& toggles : pendingLayerMuteToggles) toggles.store(0, std::memory_order_relaxed);
+    for (auto& mode : learnedMuteCCModes) mode.store(-1, std::memory_order_relaxed);
+    for (auto& time : learnedMuteHighTimes) time.store(0, std::memory_order_relaxed);
+    for (auto& state : pendingLayerMuteStates) state.store(-1, std::memory_order_relaxed);
     for (auto& cc : learnedLiveSetSlotCCs) cc.store(-1, std::memory_order_relaxed);
     for (auto& channel : learnedLiveSetSlotChannels) channel.store(-1, std::memory_order_relaxed);
     for (auto& peak : externalPeaks) peak.store(0.0f);
@@ -387,7 +390,6 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     }
     lastMasterEqValues.fill(-999.0f);
     updateMasterEq();
-    restoreLayerPaths();
     if (!startupRestored && wrapperType == wrapperType_Standalone)
     {
         startupRestored = true;
@@ -1552,6 +1554,9 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         }
         learnedMuteCCPressed[(size_t) destination].store(false, std::memory_order_relaxed);
         pendingLayerMuteToggles[(size_t) destination].store(0, std::memory_order_relaxed);
+        learnedMuteCCModes[(size_t) destination].store(-1, std::memory_order_relaxed);
+        learnedMuteHighTimes[(size_t) destination].store(0, std::memory_order_relaxed);
+        pendingLayerMuteStates[(size_t) destination].store(-1, std::memory_order_relaxed);
 
         const auto destinationPrefix = "layer" + juce::String(destination + 1);
         const auto sourcePrefix = "layer" + juce::String(source + 1);
@@ -1586,6 +1591,9 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     }
     learnedMuteCCPressed[(size_t) last].store(false, std::memory_order_relaxed);
     pendingLayerMuteToggles[(size_t) last].store(0, std::memory_order_relaxed);
+    learnedMuteCCModes[(size_t) last].store(-1, std::memory_order_relaxed);
+    learnedMuteHighTimes[(size_t) last].store(0, std::memory_order_relaxed);
+    pendingLayerMuteStates[(size_t) last].store(-1, std::memory_order_relaxed);
     const auto lastPrefix = "layer" + juce::String(last + 1);
     for (const auto* suffix : parameterSuffixes)
         if (auto* parameter = parameters.getParameter(lastPrefix + suffix))
@@ -1603,7 +1611,12 @@ void ClassicPlayerAudioProcessor::beginMidiLearn(int layer, LearnTarget target)
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount) ||
         !juce::isPositiveAndBelow(targetIndex, learnTargetCount)) return;
     if (target == LearnTarget::mute)
+    {
         learnedMuteCCPressed[(size_t) layer].store(false, std::memory_order_relaxed);
+        learnedMuteCCModes[(size_t) layer].store(-1, std::memory_order_relaxed);
+        learnedMuteHighTimes[(size_t) layer].store(0, std::memory_order_relaxed);
+        pendingLayerMuteStates[(size_t) layer].store(-1, std::memory_order_relaxed);
+    }
     const auto requested = layer * learnTargetCount + targetIndex;
     activeMidiLearn.store(activeMidiLearn.load(std::memory_order_relaxed) == requested ? -1 : requested,
                           std::memory_order_relaxed);
@@ -1622,6 +1635,9 @@ void ClassicPlayerAudioProcessor::clearMidiLearn(int layer, LearnTarget target)
     {
         learnedMuteCCPressed[(size_t) layer].store(false, std::memory_order_relaxed);
         pendingLayerMuteToggles[(size_t) layer].store(0, std::memory_order_relaxed);
+        learnedMuteCCModes[(size_t) layer].store(-1, std::memory_order_relaxed);
+        learnedMuteHighTimes[(size_t) layer].store(0, std::memory_order_relaxed);
+        pendingLayerMuteStates[(size_t) layer].store(-1, std::memory_order_relaxed);
     }
     auto active = activeMidiLearn.load(std::memory_order_relaxed);
     if (active == layer * learnTargetCount + targetIndex)
@@ -1641,6 +1657,9 @@ void ClassicPlayerAudioProcessor::resetMidiLearn(int layer)
     }
     learnedMuteCCPressed[(size_t) layer].store(false, std::memory_order_relaxed);
     pendingLayerMuteToggles[(size_t) layer].store(0, std::memory_order_relaxed);
+    learnedMuteCCModes[(size_t) layer].store(-1, std::memory_order_relaxed);
+    learnedMuteHighTimes[(size_t) layer].store(0, std::memory_order_relaxed);
+    pendingLayerMuteStates[(size_t) layer].store(-1, std::memory_order_relaxed);
 
     auto active = activeMidiLearn.load(std::memory_order_relaxed);
     if (active >= 0 && active / learnTargetCount == layer)
@@ -1680,7 +1699,11 @@ void ClassicPlayerAudioProcessor::consumeMidiControlUpdates()
     {
         const auto muteToggles = pendingLayerMuteToggles[(size_t) layer].exchange(0,
                                                                                    std::memory_order_acq_rel);
-        if ((muteToggles & 1) != 0)
+        const auto muteState = pendingLayerMuteStates[(size_t) layer].exchange(
+            -1, std::memory_order_acq_rel);
+        if (muteState >= 0)
+            setLayerMuted(layer, muteState != 0);
+        else if ((muteToggles & 1) != 0)
             setLayerMuted(layer, !isLayerMuted(layer));
 
         const auto prefix = "layer" + juce::String(layer + 1);
@@ -1774,8 +1797,16 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
                 const auto muteChannel = learnedChannels[(size_t) muteLayer][(size_t) muteTarget]
                                              .load(std::memory_order_relaxed);
                 if (muteCC == cc && (muteChannel < 0 || muteChannel == channel))
+                {
                     learnedMuteCCPressed[(size_t) muteLayer].store(controllerValue >= 64,
                                                                   std::memory_order_relaxed);
+                    learnedMuteCCModes[(size_t) muteLayer].store(-1, std::memory_order_relaxed);
+                    learnedMuteHighTimes[(size_t) muteLayer].store(
+                        controllerValue >= 64 ? juce::Time::getMillisecondCounter() : 0,
+                        std::memory_order_relaxed);
+                    pendingLayerMuteStates[(size_t) muteLayer].store(-1,
+                                                                     std::memory_order_relaxed);
+                }
             }
             juce::Logger::writeToLog("MIDI Learn: layer=" + juce::String(layer + 1)
                                      + " CC=" + juce::String(cc)
@@ -1808,8 +1839,31 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
                 const auto wasPressed = learnedMuteCCPressed[(size_t) layer].exchange(
                     pressed, std::memory_order_acq_rel);
                 if (pressed && !wasPressed)
-                    pendingLayerMuteToggles[(size_t) layer].fetch_add(1,
-                                                                      std::memory_order_release);
+                {
+                    learnedMuteHighTimes[(size_t) layer].store(
+                        juce::Time::getMillisecondCounter(), std::memory_order_relaxed);
+                    if (learnedMuteCCModes[(size_t) layer].load(std::memory_order_relaxed) == 1)
+                        pendingLayerMuteStates[(size_t) layer].store(1, std::memory_order_release);
+                    else
+                        pendingLayerMuteToggles[(size_t) layer].fetch_add(1,
+                                                                          std::memory_order_release);
+                }
+                else if (!pressed && wasPressed)
+                {
+                    const auto elapsed = juce::Time::getMillisecondCounter()
+                        - learnedMuteHighTimes[(size_t) layer].load(std::memory_order_relaxed);
+                    auto mode = learnedMuteCCModes[(size_t) layer].load(std::memory_order_relaxed);
+                    if (mode < 0)
+                    {
+                        // A normal key release follows its press almost at once.
+                        // A latched controller sends zero only on the user's next
+                        // press, normally well after this interval.
+                        mode = elapsed >= 500 ? 1 : 0;
+                        learnedMuteCCModes[(size_t) layer].store(mode, std::memory_order_relaxed);
+                    }
+                    if (mode == 1)
+                        pendingLayerMuteStates[(size_t) layer].store(0, std::memory_order_release);
+                }
                 continue;
             }
 
@@ -1939,19 +1993,30 @@ void ClassicPlayerAudioProcessor::refreshStandaloneMidiInputs()
     for (const auto& device : devices) fingerprint << device.identifier << ";";
     if (fingerprint == registeredMidiFingerprint) return;
 
-    // AudioDeviceManager owns the MidiInput objects. This is important on
-    // Windows: opening the same driver directly while the standalone wrapper
-    // is enabling/disabling it can invalidate the driver's callback object and
-    // crash inside the MSVC runtime during startup.
-    for (const auto& identifier : registeredMidiInputIds)
-        standaloneDeviceManager->removeMidiInputDeviceCallback(identifier, this);
-    registeredMidiInputIds.clear();
+    // Update only the endpoints that actually changed. Reopening every CoreMIDI
+    // input while macOS is presenting Bluetooth MIDI Setup can race the native
+    // device notification and terminate the app.
+    for (int index = registeredMidiInputIds.size(); --index >= 0;)
+    {
+        const auto identifier = registeredMidiInputIds[index];
+        const auto stillAvailable = std::any_of(devices.begin(), devices.end(),
+            [&identifier](const auto& device) { return device.identifier == identifier; });
+        if (!stillAvailable)
+        {
+            standaloneDeviceManager->removeMidiInputDeviceCallback(identifier, this);
+            registeredMidiInputIds.remove(index);
+        }
+    }
 
     for (const auto& device : devices)
     {
-        standaloneDeviceManager->setMidiInputDeviceEnabled(device.identifier, true);
-        standaloneDeviceManager->addMidiInputDeviceCallback(device.identifier, this);
-        registeredMidiInputIds.add(device.identifier);
+        if (!registeredMidiInputIds.contains(device.identifier))
+        {
+            if (!standaloneDeviceManager->isMidiInputDeviceEnabled(device.identifier))
+                standaloneDeviceManager->setMidiInputDeviceEnabled(device.identifier, true);
+            standaloneDeviceManager->addMidiInputDeviceCallback(device.identifier, this);
+            registeredMidiInputIds.add(device.identifier);
+        }
     }
     registeredMidiFingerprint = fingerprint;
 }
@@ -3124,6 +3189,9 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 }
                 learnedMuteCCPressed[(size_t) i].store(false, std::memory_order_relaxed);
                 pendingLayerMuteToggles[(size_t) i].store(0, std::memory_order_relaxed);
+                learnedMuteCCModes[(size_t) i].store(-1, std::memory_order_relaxed);
+                learnedMuteHighTimes[(size_t) i].store(0, std::memory_order_relaxed);
+                pendingLayerMuteStates[(size_t) i].store(-1, std::memory_order_relaxed);
             }
             const auto restoredLayerCount = juce::jlimit(
                 0, Sf2Engine::layerCount,

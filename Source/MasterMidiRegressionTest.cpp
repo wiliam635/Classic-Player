@@ -360,6 +360,19 @@ int main()
         cc(*processor, 6, 81, 127);
         check(processor->isLayerMuted(0), "mute CC ignored its learned channel");
 
+        // Latched controller buttons send 127 on the first physical press and
+        // 0 only on the next one. Detect that pattern and mirror the LED/state
+        // instead of requiring two extra presses to bring them back in sync.
+        processor->setLayerMuted(1, false);
+        processor->beginMidiLearn(1, LearnTarget::mute);
+        cc(*processor, 7, 82, 127);
+        juce::Thread::sleep(510);
+        cc(*processor, 7, 82, 0);
+        cc(*processor, 7, 82, 127);
+        check(processor->isLayerMuted(1), "latched mute CC high value did not mute");
+        cc(*processor, 7, 82, 0);
+        check(!processor->isLayerMuted(1), "latched mute CC low value did not unmute");
+
         juce::MemoryBlock muteState;
         processor->getStateInformation(muteState);
         processor->setLayerMuted(0, false);

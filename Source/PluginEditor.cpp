@@ -6204,10 +6204,8 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     classicLookAndFeel.applyCurrentPalette();
     setLookAndFeel(&classicLookAndFeel);
     setOpaque(true);
-#if JucePlugin_Build_Standalone
-    if (auto* holder = juce::StandalonePluginHolder::getInstance())
-        classicProcessor.attachStandaloneMidiRouting(holder->deviceManager, holder->player);
-#endif
+    // Opening CoreMIDI endpoints can be slow on older Macs and with stale
+    // Bluetooth devices. Defer it until the main window is already visible.
     // Scan the standard VST3/AU locations once when the standalone editor opens.
     if (classicProcessor.supportsExternalInstruments())
         classicProcessor.refreshExternalInstrumentLibrary();
@@ -7241,6 +7239,17 @@ void ClassicPlayerAudioProcessorEditor::showUpdateDetails()
 
 void ClassicPlayerAudioProcessorEditor::timerCallback()
 {
+#if JucePlugin_Build_Standalone
+    if (!standaloneMidiRoutingAttached && isShowing()
+        && ++standaloneMidiRoutingDelayTicks >= 10)
+    {
+        if (auto* holder = juce::StandalonePluginHolder::getInstance())
+        {
+            standaloneMidiRoutingAttached = true;
+            classicProcessor.attachStandaloneMidiRouting(holder->deviceManager, holder->player);
+        }
+    }
+#endif
     cpuMeter.setUsage(classicProcessor.audioCpuUsagePercent());
     ClassicPlayerUpdateChecker::Result updateResult;
     if (updateChecker.takeResult(updateResult))
@@ -7306,7 +7315,17 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
             addLayerButton.setEnabled(activeCount < Sf2Engine::layerCount);
             layoutLayerStrips();
         }
-        classicProcessor.refreshStandaloneMidiInputs();
+        const auto modalWindowOpen = juce::ModalComponentManager::getInstance()
+                                         ->getNumModalComponents() > 0;
+        if (audioMidiSettingsOpen && !modalWindowOpen)
+        {
+            audioMidiSettingsOpen = false;
+            classicProcessor.refreshStandaloneMidiInputs();
+        }
+        else if (!audioMidiSettingsOpen)
+        {
+            classicProcessor.refreshStandaloneMidiInputs();
+        }
         const auto devices = classicProcessor.availableMidiDevices();
         for (auto& strip : strips)
             if (strip != nullptr) strip->refreshMidiDevices(devices);
@@ -7605,7 +7624,10 @@ void ClassicPlayerAudioProcessorEditor::showAudioMidiSettings()
     // Use the running standalone device manager, not a second audio device.
     if (classicProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
         if (auto* holder = juce::StandalonePluginHolder::getInstance())
+        {
+            audioMidiSettingsOpen = true;
             holder->showAudioSettingsDialog();
+        }
    #endif
 }
 
