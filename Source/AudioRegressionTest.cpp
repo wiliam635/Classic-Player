@@ -1,13 +1,37 @@
 #include "Dx7Engine.h"
 #include "AnalogSynthEngine.h"
 #include "AnalogBrowserPresets.h"
+#include "OutputSafety.h"
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
 static void require(bool condition, const char* message)
 {
     if (!condition) throw std::runtime_error(message);
+}
+
+static void outputCeilingRegression()
+{
+    juce::AudioBuffer<float> audio(2, 4);
+    audio.setSample(0, 0, 0.25f);
+    audio.setSample(0, 1, 3.0f);
+    audio.setSample(0, 2, -3.0f);
+    audio.setSample(0, 3, std::numeric_limits<float>::infinity());
+    audio.setSample(1, 0, -0.25f);
+    audio.setSample(1, 1, 2.0f);
+    audio.setSample(1, 2, -2.0f);
+    audio.setSample(1, 3, std::numeric_limits<float>::quiet_NaN());
+    applyOutputSafety(audio, -0.3f);
+    const auto ceiling = juce::Decibels::decibelsToGain(-0.3f);
+    require(audio.getSample(0, 0) == 0.25f && audio.getSample(1, 0) == -0.25f,
+            "Output ceiling changed safe samples");
+    for (int channel = 0; channel < 2; ++channel)
+        for (int sample = 0; sample < 4; ++sample)
+            require(std::isfinite(audio.getSample(channel, sample))
+                        && std::abs(audio.getSample(channel, sample)) <= ceiling,
+                    "Output ceiling allowed clipping or non-finite audio");
 }
 
 static juce::MidiBuffer events(int start, int count, bool transitions)
@@ -338,6 +362,7 @@ int main()
         int sum = 0; for (int i = 0; i < 155; ++i) sum += patch[i];
         bytes[161] = static_cast<uint8_t>((128 - (sum & 127)) & 127); bytes[162] = 0xf7;
         require(fixture.getFile().replaceWithData(bytes.data(), bytes.size()), "fixture write");
+        outputCeilingRegression();
         cachedLayerEq();
         volumeRamp(fixture.getFile());
         independentAnalogTuning();

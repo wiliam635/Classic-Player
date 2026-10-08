@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "OutputSafety.h"
 #include "AnalogBrowserPresets.h"
 #include "PluginEditor.h"
 #include "LicenseVerifier.h"
@@ -641,6 +642,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     outputLimiter.setThreshold(parameters.getRawParameterValue("limiterCeiling")->load());
     outputLimiter.setRelease(parameters.getRawParameterValue("limiterRelease")->load());
     outputLimiter.process(context);
+    applyOutputSafety(buffer, parameters.getRawParameterValue("limiterCeiling")->load());
     float outputPeak = 0.0f;
     for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
         outputPeak = juce::jmax(outputPeak, buffer.getMagnitude(channel, 0, buffer.getNumSamples()));
