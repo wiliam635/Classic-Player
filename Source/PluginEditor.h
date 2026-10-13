@@ -23,6 +23,26 @@ public:
 
 private:
     friend struct LiveSetLayoutRegressionAccess;
+    class ChordDisplay final : public juce::Label
+    {
+    public:
+        void paint(juce::Graphics&) override;
+        void mouseDown(const juce::MouseEvent& event) override
+        {
+            if (event.mods.isPopupMenu()) { if (onContextMenu) onContextMenu(); }
+            else juce::Label::mouseDown(event);
+        }
+        void refreshSpectrum(const ClassicPlayerAudioProcessor&);
+        bool spectrumMode = false;
+        std::function<void()> onContextMenu;
+    private:
+        static constexpr int fftSize = ClassicPlayerAudioProcessor::spectrumSampleCount;
+        juce::dsp::FFT fft { 11 };
+        juce::dsp::WindowingFunction<float> window { fftSize, juce::dsp::WindowingFunction<float>::hann };
+        std::array<float, fftSize * 2> fftData {};
+        std::array<float, 48> levels {}, peaks {};
+    };
+    void setDisplaySpectrumMode(bool);
     class LanguageFlags final : public juce::Component, public juce::SettableTooltipClient
     {
     public:
@@ -289,7 +309,7 @@ private:
     juce::Label title;
     juce::Label versionLabel;
     juce::Label subtitle; juce::Label userLabel;
-    juce::Label chordLabel;
+    ChordDisplay chordLabel;
     juce::Label chordCaption;
     juce::TextButton chordColourButton { "COR ACORDE" };
     juce::TextButton keyColourButton { "COR TECLAS" };

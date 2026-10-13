@@ -2561,6 +2561,7 @@ void ClassicPlayerAudioProcessor::resetToNewProgram()
     const auto uiChordColour = state.getProperty("uiChordColour");
     const auto uiKeyColour = state.getProperty("uiKeyColour");
     const auto uiVirtualKeyboardVisible = state.getProperty("uiVirtualKeyboardVisible");
+    const auto uiDisplaySpectrum = state.getProperty("uiDisplaySpectrum", false);
     const auto hadUiChordColour = state.hasProperty("uiChordColour");
     const auto hadUiKeyColour = state.hasProperty("uiKeyColour");
     const auto hadUiVirtualKeyboardVisible = state.hasProperty("uiVirtualKeyboardVisible");
@@ -2574,6 +2575,7 @@ void ClassicPlayerAudioProcessor::resetToNewProgram()
     if (hadUiKeyColour) state.setProperty("uiKeyColour", uiKeyColour, nullptr);
     if (hadUiVirtualKeyboardVisible)
         state.setProperty("uiVirtualKeyboardVisible", uiVirtualKeyboardVisible, nullptr);
+    state.setProperty("uiDisplaySpectrum", uiDisplaySpectrum, nullptr);
     state.setProperty("stateVersion", 169, nullptr);
     state.setProperty("activeLayers", 0, nullptr);
     state.setProperty("masterLearnCC", savedMasterCC, nullptr);

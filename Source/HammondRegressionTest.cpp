@@ -11,6 +11,8 @@
 static void check(bool b,const char* message){if(!b)throw std::runtime_error(message);}
 struct ContinuousPadRegressionAccess
 {
+    static void captureSpectrum(ClassicPlayerAudioProcessor& processor, const juce::AudioBuffer<float>& audio)
+    { processor.captureSpectrum(audio); }
     static void activateForTest(ClassicPlayerAudioProcessor& processor)
     {
         processor.activated.store(true);
@@ -177,6 +179,43 @@ static void continuousPadRegression()
 }
 struct LiveSetLayoutRegressionAccess
 {
+    static void display(const char* screenshot)
+    {
+        auto processor = std::make_unique<ClassicPlayerAudioProcessor>();
+        processor->prepareToPlay(48000, 256);
+        auto editor = std::make_unique<ClassicPlayerAudioProcessorEditor>(*processor, false);
+        editor->setSize(1280, 720);
+        editor->activationPanel.setVisible(false);
+        editor->setDisplaySpectrumMode(true);
+        check(editor->chordLabel.spectrumMode
+              && (bool)processor->parameters.state.getProperty("uiDisplaySpectrum"), "display selection not saved");
+        juce::AudioBuffer<float> audio(1, ClassicPlayerAudioProcessor::spectrumSampleCount);
+        for (int i = 0; i < audio.getNumSamples(); ++i)
+            audio.setSample(0, i, 0.3f * (float)std::sin(juce::MathConstants<double>::twoPi * i * 1000.0 / 48000.0));
+        ContinuousPadRegressionAccess::captureSpectrum(*processor, audio);
+        editor->chordLabel.refreshSpectrum(*processor);
+        const auto image = editor->chordLabel.createComponentSnapshot(editor->chordLabel.getLocalBounds());
+        int colourPixels = 0;
+        for (int y = 0; y < image.getHeight() - 20; ++y)
+            for (int x = 0; x < image.getWidth(); ++x)
+                if (image.getPixelAt(x, y).getSaturation() > 0.4f
+                    && image.getPixelAt(x, y).getBrightness() > 0.15f) ++colourPixels;
+        check(colourPixels > 100, "spectrum did not draw audio bars");
+        if (screenshot != nullptr)
+        {
+            juce::FileOutputStream stream { juce::File(screenshot) };
+            juce::PNGImageFormat png;
+            check(stream.openedOk() && png.writeImageToStream(
+                editor->createComponentSnapshot(editor->getLocalBounds()), stream), "display screenshot");
+        }
+        editor.reset();
+        editor = std::make_unique<ClassicPlayerAudioProcessorEditor>(*processor, false);
+        check(editor->chordLabel.spectrumMode, "display mode lost when reopening editor");
+        editor->setDisplaySpectrumMode(false);
+        check(!editor->chordLabel.spectrumMode, "display did not return to chords");
+        std::cout << "Spectrum drawing, mode switch and persistence passed\n";
+    }
+
     static void silverUi(const char* screenshot, int skin = 5)
     {
         std::cerr << "[ui-regression] preparing isolated processor" << std::endl;
@@ -557,6 +596,11 @@ int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
     try{
+        if (argc > 1 && juce::String(argv[1]) == "--display")
+        {
+            LiveSetLayoutRegressionAccess::display(argc > 2 ? argv[2] : nullptr);
+            return 0;
+        }
         if (argc > 1 && (juce::String(argv[1]) == "--silver-ui" || juce::String(argv[1]) == "--dark-steel-ui"))
         {
             LiveSetLayoutRegressionAccess::silverUi(argc > 2 ? argv[2] : nullptr,

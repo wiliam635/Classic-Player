@@ -5,6 +5,11 @@ int main()
 {
     struct Test { const char* name; std::vector<int> notes; const char* expected; };
     const std::vector<Test> tests {
+        {"C7(b9/13)", {48,52,55,58,61,69}, "C7(b9/13)"},
+        {"C7(9/#11/13)", {48,52,55,58,62,66,69}, "C7(9/#11/13)"},
+        {"C incomplete major", {60,64}, "C(no5)"},
+        {"C incomplete minor", {60,63}, "Cm(no5)"},
+        {"Cm7(b5/9)", {48,50,51,54,58}, "Cm7(b5/9)"},
         {"C7(9/13)", {48,52,55,58,62,69}, "C7(9/13)"},
         {"C7(9/13) without fifth", {48,52,58,62,69}, "C7(9/13)"},
         {"C7(9/13)/E", {40,48,55,58,62,69}, "C7(9/13)/E"},
@@ -40,5 +45,15 @@ int main()
     }
     std::cout << (tests.size() - static_cast<size_t>(failures)) << "/" << tests.size()
               << " chord tests passed\n";
+    // All 4095 nonempty pitch-class combinations, including clusters and
+    // unusual voicings, must produce a symbol rather than a list of notes.
+    for (int mask = 1; mask < 4096; ++mask)
+    {
+        std::vector<int> notes;
+        for (int pc = 0; pc < 12; ++pc) if ((mask & (1 << pc)) != 0) notes.push_back(60 + pc);
+        const auto symbol = ClassicChordDetector::detect(notes);
+        if (symbol.isEmpty() || symbol.contains(" + ")) ++failures;
+    }
+    std::cout << "4095 pitch-class combinations checked\n";
     return failures == 0 ? 0 : 1;
 }

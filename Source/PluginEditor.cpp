@@ -818,6 +818,9 @@ static constexpr UiTranslation uiTranslations[] {
     { "EQ PARAMETRICO DA LAYER", "LAYER PARAMETRIC EQ", "EQ PARAMÉTRICO DE LA CAPA" },
     { "MOVA PAD", "MOVE PAD", "MUEVE EL PAD" },
     { "Volume master", "Master volume", "Volumen master" },
+    { "Mostrar acordes", "Show chords", "Mostrar acordes" },
+    { "Mostrar espectro colorido", "Show coloured spectrum", "Mostrar espectro de colores" },
+    { "Botao direito: acordes ou espectro", "Right-click: chords or spectrum", "Boton derecho: acordes o espectro" },
     { "Volume master — use CONFIGURACOES para MIDI Learn",
       "Master volume — use SETTINGS for MIDI Learn",
       "Volumen master — usa CONFIGURACIÓN para MIDI Learn" },
@@ -6248,6 +6251,22 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     chordLabel.setColour(juce::Label::backgroundColourId, juce::Colours::black);
     chordLabel.setColour(juce::Label::textColourId, chordColour);
     addAndMakeVisible(chordLabel);
+    chordLabel.spectrumMode = static_cast<bool>(uiState.getProperty("uiDisplaySpectrum", false));
+    chordLabel.setTooltip(localizedUiText("Botao direito: acordes ou espectro", uiLanguage));
+    chordLabel.onContextMenu = [this]
+    {
+        juce::PopupMenu menu;
+        menu.addItem(1, localizedUiText("Mostrar acordes", uiLanguage), true,
+                     !chordLabel.spectrumMode);
+        menu.addItem(2, localizedUiText("Mostrar espectro colorido", uiLanguage),
+                     true, chordLabel.spectrumMode);
+        juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&chordLabel),
+                          [safe](int result)
+        {
+            if (safe != nullptr && result != 0) safe->setDisplaySpectrumMode(result == 2);
+        });
+    };
     // O visor já identifica visualmente a cifra; não exibir um rótulo adicional
     // acima do nome do acorde.
     chordCaption.setVisible(false);
@@ -7239,6 +7258,8 @@ void ClassicPlayerAudioProcessorEditor::showUpdateDetails()
 
 void ClassicPlayerAudioProcessorEditor::timerCallback()
 {
+    if (chordLabel.spectrumMode && chordLabel.isShowing())
+        chordLabel.refreshSpectrum(classicProcessor);
 #if JucePlugin_Build_Standalone
     if (!standaloneMidiRoutingAttached && isShowing()
         && ++standaloneMidiRoutingDelayTicks >= 10)
@@ -7352,6 +7373,73 @@ void ClassicPlayerAudioProcessorEditor::handleNoteOff(juce::MidiKeyboardState*, 
 {
     if (juce::isPositiveAndBelow(note, 128)) heldNotes[(size_t) note].store(false);
     triggerAsyncUpdate();
+}
+
+void ClassicPlayerAudioProcessorEditor::setDisplaySpectrumMode(bool enabled)
+{
+    chordLabel.spectrumMode = enabled;
+    classicProcessor.parameters.state.setProperty("uiDisplaySpectrum", enabled, nullptr);
+    chordLabel.repaint();
+    if (!enabled) handleAsyncUpdate();
+}
+
+void ClassicPlayerAudioProcessorEditor::ChordDisplay::refreshSpectrum(
+    const ClassicPlayerAudioProcessor& processor)
+{
+    processor.copySpectrumSamples(fftData.data(), fftSize);
+    window.multiplyWithWindowingTable(fftData.data(), fftSize);
+    std::fill(fftData.begin() + fftSize, fftData.end(), 0.0f);
+    fft.performFrequencyOnlyForwardTransform(fftData.data());
+    const auto rate = juce::jmax(1.0, processor.spectrumSampleRate());
+    const auto maximumHz = juce::jmin(20000.0, rate * 0.5);
+    for (size_t bar = 0; bar < levels.size(); ++bar)
+    {
+        const auto lowHz = 20.0 * std::pow(maximumHz / 20.0, (double) bar / levels.size());
+        const auto highHz = 20.0 * std::pow(maximumHz / 20.0, (double) (bar + 1) / levels.size());
+        const auto first = juce::jlimit(1, fftSize / 2, (int) (lowHz * fftSize / rate));
+        const auto last = juce::jlimit(first, fftSize / 2, (int) std::ceil(highHz * fftSize / rate));
+        float magnitude = 0;
+        for (int bin = first; bin <= last; ++bin) magnitude = juce::jmax(magnitude, fftData[(size_t) bin]);
+        const auto db = juce::Decibels::gainToDecibels(magnitude * (2.0f / fftSize), -80.0f);
+        const auto target = juce::jlimit(0.0f, 1.0f, (db + 72.0f) / 72.0f);
+        levels[bar] += (target - levels[bar]) * (target > levels[bar] ? 0.65f : 0.18f);
+        peaks[bar] = juce::jmax(levels[bar], peaks[bar] - 0.015f);
+    }
+    repaint();
+}
+
+void ClassicPlayerAudioProcessorEditor::ChordDisplay::paint(juce::Graphics& g)
+{
+    if (!spectrumMode) { juce::Label::paint(g); return; }
+    g.fillAll(juce::Colours::black);
+    const auto graph = getLocalBounds().toFloat().reduced(10.0f, 6.0f).withTrimmedBottom(12.0f);
+    g.setColour(juce::Colours::white.withAlpha(0.1f));
+    for (int line = 1; line < 4; ++line)
+        g.drawHorizontalLine((int) (graph.getY() + graph.getHeight() * line / 4.0f),
+                             graph.getX(), graph.getRight());
+    const auto width = graph.getWidth() / (float) levels.size();
+    for (size_t bar = 0; bar < levels.size(); ++bar)
+    {
+        const auto colour = juce::Colour::fromHSV((float) bar / (float) levels.size() * 0.78f,
+                                                 0.8f, 1.0f, 1.0f);
+        const auto x = graph.getX() + (float) bar * width;
+        const auto height = graph.getHeight() * levels[bar];
+        g.setGradientFill(juce::ColourGradient(colour.darker(0.6f), x, graph.getBottom(),
+                                              colour, x, graph.getBottom() - height, false));
+        g.fillRoundedRectangle(x, graph.getBottom() - height, juce::jmax(1.0f, width - 2.0f), height, 1.0f);
+        g.setColour(colour.withAlpha(0.75f));
+        g.fillRect(x, graph.getBottom() - graph.getHeight() * peaks[bar],
+                   juce::jmax(1.0f, width - 2.0f), 1.0f);
+    }
+    g.setFont(juce::FontOptions(9.0f));
+    g.setColour(juce::Colours::white.withAlpha(0.65f));
+    const std::array<const char*, 5> labels { "20 Hz", "100", "1 kHz", "5 kHz", "20 kHz" };
+    const std::array<float, 5> frequencies { 20, 100, 1000, 5000, 20000 };
+    for (size_t i = 0; i < labels.size(); ++i)
+        g.drawText(labels[i], (int) juce::jlimit(graph.getX(), graph.getRight() - 42.0f,
+                   graph.getX() + graph.getWidth() * std::log(frequencies[i] / 20.0f) / std::log(1000.0f) - 21.0f),
+                   (int) graph.getBottom() + 2, 42, 10,
+                   juce::Justification::centred);
 }
 
 void ClassicPlayerAudioProcessorEditor::handleAsyncUpdate()

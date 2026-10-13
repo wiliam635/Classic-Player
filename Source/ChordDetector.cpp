@@ -179,6 +179,62 @@ std::optional<juce::String> upperStructure(const std::vector<int>& notes, int ba
 }
 }
 
+// Build a chord symbol from the complete pitch set when no named template
+// matches. Every remaining note becomes a tension; absent defining tones are
+// stated explicitly instead of inventing a major/minor third.
+static juce::String describePitchSet(const std::vector<int>& pcs, int bass)
+{
+    Candidate best;
+    best.score = -10000;
+    for (const auto root : pcs)
+    {
+        std::array<bool, 12> remaining {};
+        for (const auto interval : intervalsFor(pcs, root)) remaining[(size_t) interval] = true;
+        remaining[0] = false;
+        const auto third = remaining[4] ? 4 : remaining[3] ? 3 : -1;
+        const auto fifth = remaining[7] ? 7 : third == 3 && remaining[6] ? 6
+                                         : third == 4 && remaining[8] ? 8 : -1;
+        juce::String suffix;
+        if (third >= 0)
+        {
+            suffix = third == 3 ? (fifth == 6 ? "dim" : "m") : fifth == 8 ? "+" : "";
+            remaining[(size_t) third] = false;
+        }
+        else if (remaining[5]) { suffix = "sus4"; remaining[5] = false; }
+        else if (remaining[2]) { suffix = "sus2"; remaining[2] = false; }
+        if (fifth >= 0) remaining[(size_t) fifth] = false;
+        const auto seventh = remaining[10] ? 10 : remaining[11] ? 11
+                                     : suffix == "dim" && remaining[9] ? 9 : -1;
+        const auto halfDiminished = third == 3 && fifth == 6 && seventh >= 10;
+        if (halfDiminished) suffix = "m";
+        if (seventh >= 0)
+        {
+            suffix += seventh == 11 ? "7M" : "7";
+            remaining[(size_t) seventh] = false;
+        }
+        else if (third >= 0 && remaining[9]) { suffix += "6"; remaining[9] = false; }
+        const std::array<const char*, 12> extensions {
+            "", "b9", "9", "#9", "3", "11", "#11", "5", "b13", "13", "7", "7M"
+        };
+        juce::StringArray tensions;
+        if (halfDiminished) tensions.add("b5");
+        for (int interval = 1; interval < 12; ++interval)
+            if (remaining[(size_t) interval]) tensions.add(extensions[(size_t) interval]);
+        const auto extensionCount = tensions.size();
+        if (third < 0 && !suffix.startsWith("sus")) tensions.add("no3");
+        if (fifth < 0) tensions.add("no5");
+        if (!tensions.isEmpty())
+            suffix += "(" + juce::String(seventh < 0 && extensionCount > 0 ? "add" : "")
+                       + tensions.joinIntoString("/") + ")";
+        const auto score = (root == bass ? 90 : 0) + (third >= 0 ? 170 : 0)
+                          + (fifth >= 0 ? 80 : -90) + (seventh >= 0 ? 130 : 0)
+                          - extensionCount * 35;
+        if (score > best.score) best = { root, suffix, score };
+    }
+    return juce::String(names[(size_t) best.root]) + best.suffix
+           + (best.root == bass ? juce::String{} : "/" + juce::String(names[(size_t) bass]));
+}
+
 juce::String ClassicChordDetector::formatAccidentals(const juce::String& chord,
                                                    AccidentalStyle style)
 {
@@ -217,8 +273,5 @@ juce::String ClassicChordDetector::detect(const std::vector<int>& midiNotes)
              + (chord.root != bass ? "/" + juce::String(names[(size_t) bass]) : juce::String{});
     }
     if (upper) return *upper;
-    const auto orderedPcs = pitchClasses(notes, false);
-    juce::StringArray fallback;
-    for (const auto pc : orderedPcs) fallback.add(names[(size_t) pc]);
-    return fallback.joinIntoString(" + ");
+    return describePitchSet(pcs, bass);
 }
