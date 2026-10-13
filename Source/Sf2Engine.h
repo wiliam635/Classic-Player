@@ -116,7 +116,6 @@ private:
         int lastCutoff = -1;
         int lastReverb = -1;
         int lastAttack = -1;
-        int lastRelease = -1;
         int lastPortamento = -1;
         int lastMono = -1;
         float modulationAmount = 0.0f;

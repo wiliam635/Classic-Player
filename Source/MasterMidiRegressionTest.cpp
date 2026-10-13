@@ -110,7 +110,8 @@ static void programLibraryExportImport()
         ~Cleanup() { first.deleteRecursively(); second.deleteRecursively(); }
     } cleanup { sourceRoot, destinationRoot };
 
-    ClassicPlayerAudioProcessor sourceProcessor(sourceRoot);
+    auto sourceOwner = std::make_unique<ClassicPlayerAudioProcessor>(sourceRoot);
+    auto& sourceProcessor = *sourceOwner;
     juce::File internalFile;
     check(sourceProcessor.saveProgram("Internal Performance", internalFile).wasOk(),
           "save performance to internal library");
@@ -127,7 +128,8 @@ static void programLibraryExportImport()
           && sourceProcessor.savedPrograms().size() == 1,
           "export changed current library performance");
 
-    ClassicPlayerAudioProcessor destinationProcessor(destinationRoot);
+    auto destinationOwner = std::make_unique<ClassicPlayerAudioProcessor>(destinationRoot);
+    auto& destinationProcessor = *destinationOwner;
     juce::File importedFile;
     check(destinationProcessor.importProgramFromFile(exportedFile, importedFile).wasOk(),
           "import portable performance");
@@ -227,7 +229,8 @@ struct MidiRecordingRegressionAccess
 {
     static void run()
     {
-        ClassicPlayerAudioProcessor processor;
+        auto owner = std::make_unique<ClassicPlayerAudioProcessor>();
+        auto& processor = *owner;
         processor.prepareToPlay(48000, 256);
         const auto midiPath = juce::File::getSpecialLocation(juce::File::tempDirectory)
             .getNonexistentChildFile("Classic-Player-MIDI-regression", ".mid", false);
@@ -381,6 +384,43 @@ int main()
               && processor->midiLearnCC(0, LearnTarget::mute) == 81
               && processor->midiLearnChannel(0, LearnTarget::mute) == 7,
               "mute state or Learn mapping did not persist");
+        // Layer 2's controller mode must survive preset reloads. Its zero
+        // value is a second press, not a momentary button release.
+        cc(*processor, 7, 82, 127);
+        check(processor->isLayerMuted(1), "restored layer 2 toggle did not mute");
+        cc(*processor, 7, 82, 0);
+        check(!processor->isLayerMuted(1), "restored layer 2 toggle did not unmute");
+        cc(*processor, 7, 82, 127);
+        processor->getStateInformation(muteState);
+        processor->setStateInformation(muteState.getData(), static_cast<int>(muteState.getSize()));
+        cc(*processor, 7, 82, 0);
+        check(!processor->isLayerMuted(1), "first low CC after restoring muted layer did not unmute");
+        cc(*processor, 7, 81, 0);
+        cc(*processor, 7, 81, 127);
+        check(!processor->isLayerMuted(0), "restored momentary mute mode was lost");
+        for (int layer = 2; layer < processor->activeLayerCount(); ++layer)
+        {
+            processor->beginMidiLearn(layer, LearnTarget::mute);
+            cc(*processor, 7, 82 + layer, 127);
+            juce::Thread::sleep(510);
+            cc(*processor, 7, 82 + layer, 0);
+            cc(*processor, 7, 82 + layer, 127);
+            check(processor->isLayerMuted(layer), "later layer toggle did not mute");
+        }
+        juce::TemporaryFile muteProgram;
+        juce::File savedMuteProgram;
+        check(processor->saveProgramToFile(muteProgram.getFile().withFileExtension(".ckprogram"),
+                                          savedMuteProgram).wasOk(), "save mute preset");
+        struct MuteProgramCleanup { juce::File file; ~MuteProgramCleanup() { file.deleteFile(); } }
+            muteProgramCleanup { savedMuteProgram };
+        check(processor->loadProgram(savedMuteProgram).wasOk(), "reload mute preset");
+        for (int layer = 2; layer < processor->activeLayerCount(); ++layer)
+        {
+            cc(*processor, 7, 82 + layer, 0);
+            check(!processor->isLayerMuted(layer), "saved later-layer toggle did not unmute");
+            cc(*processor, 7, 82 + layer, 127);
+            check(processor->isLayerMuted(layer), "saved later-layer toggle did not mute");
+        }
         std::cout << "Layer Mute CC Learn, press-edge and persistence passed\n";
         return 0;
     }

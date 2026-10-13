@@ -44,7 +44,6 @@ void Sf2Engine::createSynth(Layer& layer)
     layer.lastCutoff = -1;
     layer.lastReverb = -1;
     layer.lastAttack = -1;
-    layer.lastRelease = -1;
     layer.lastPortamento = -1;
     layer.lastMono = -1;
     layer.filterState = { 0.0f, 0.0f };
@@ -385,15 +384,12 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         // SoundFont's own generator send dry, so its quality is independent
         // of each library's embedded reverb setup.
         const auto reverb = 0;
-        // CC72 is the General MIDI release-time controller. It gives SF2
-        // note-offs a small envelope tail instead of an abrupt click.
         const auto attack = juce::jlimit(0, 127, static_cast<int>(std::round(layer.config.attack * 1.27f)));
-        const auto release = juce::jlimit(0, 127, static_cast<int>(std::round(layer.config.release * 1.27f)));
         const auto portamento = layer.config.portamento ? 127 : 0;
         // Portamento is always monophonic. Mono Legato uses the same single
         // voice policy but retains the instantaneous pitch transition.
         const auto mono = (layer.config.mono || layer.config.portamento) ? 1 : 0;
-        if (cutoff != layer.lastCutoff || reverb != layer.lastReverb || attack != layer.lastAttack || release != layer.lastRelease
+        if (cutoff != layer.lastCutoff || reverb != layer.lastReverb || attack != layer.lastAttack
             || portamento != layer.lastPortamento || mono != layer.lastMono)
         {
             for (int channel = 0; channel < 16; ++channel)
@@ -401,7 +397,6 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
                 if (cutoff != layer.lastCutoff) fluid_synth_cc(layer.synth.get(), channel, 74, cutoff);
                 if (reverb != layer.lastReverb) fluid_synth_cc(layer.synth.get(), channel, 91, reverb);
                 if (attack != layer.lastAttack) fluid_synth_cc(layer.synth.get(), channel, 73, attack);
-                if (release != layer.lastRelease) fluid_synth_cc(layer.synth.get(), channel, 72, release);
                 if (portamento != layer.lastPortamento)
                 {
                     fluid_synth_cc(layer.synth.get(), channel, 65, portamento);
@@ -425,17 +420,34 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
             layer.lastCutoff = cutoff;
             layer.lastReverb = reverb;
             layer.lastAttack = attack;
-            layer.lastRelease = release;
             layer.lastPortamento = portamento;
             layer.lastMono = mono;
         }
 
+        // CC72 only works when the SF2 defines a corresponding modulator.
+        // Set the actual voice envelope in timecents instead, consistently
+        // with the native engines' 0..100 control (up to one second).
+        const auto releaseSeconds = juce::jmax(0.005f, layer.config.release * 0.01f);
+        const auto releaseTimecents = 1200.0f * std::log2(releaseSeconds);
+        const auto applyRelease = [&]
+        {
+            std::array<fluid_voice_t*, 512> voices {};
+            fluid_synth_get_voicelist(layer.synth.get(), voices.data(), (int) voices.size(), -1);
+            for (auto* voice : voices)
+                if (voice != nullptr && fluid_voice_gen_get(voice, GEN_VOLENVRELEASE) != releaseTimecents)
+                {
+                    fluid_voice_gen_set(voice, GEN_VOLENVRELEASE, releaseTimecents);
+                    fluid_voice_update_param(voice, GEN_VOLENVRELEASE);
+                }
+        };
+        applyRelease();
         for (const auto metadata : midi)
             dispatchMidi(layer, metadata.getMessage());
         if (routedMidi != nullptr)
             for (const auto metadata : (*routedMidi)[static_cast<size_t>(&layer - layers.data())])
                 dispatchMidi(layer, metadata.getMessage());
 
+        applyRelease();
         scratch.clear();
         fluid_synth_write_float(layer.synth.get(), output.getNumSamples(),
                                 scratch.getWritePointer(0), 0, 1,

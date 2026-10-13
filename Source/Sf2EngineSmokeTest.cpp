@@ -60,16 +60,61 @@ static int benchmarkSoundFont(const juce::File& file)
     return 0;
 }
 
+static int releaseRegression(const juce::File& file)
+{
+    Sf2Engine engine;
+    if (engine.loadSoundFont(1, file).failed()) return 3;
+    for (const auto rate : { 44100.0, 48000.0 })
+    {
+        engine.prepare(rate, 256);
+        double tailEnergy[2] {};
+        for (int setting = 0; setting < 2; ++setting)
+        {
+            engine.reset();
+            auto config = engine.getConfig(1);
+            config.release = setting == 0 ? 0.0f : 100.0f;
+            config.reverb = 0;
+            config.cutoff = 100;
+            engine.setConfig(1, config);
+            juce::AudioBuffer<float> audio(2, 256);
+            juce::MidiBuffer midi;
+            midi.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 100), 0);
+            for (int block = 0; block < (int) (rate * 0.5 / 256); ++block)
+            {
+                engine.process(audio, midi);
+                midi.clear();
+            }
+            midi.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+            for (int start = 0; start < (int) (rate * 0.5); start += 256)
+            {
+                engine.process(audio, midi);
+                midi.clear();
+                if (start >= rate * 0.15)
+                    for (int sample = 0; sample < 256; ++sample)
+                        tailEnergy[setting] += std::pow(audio.getSample(0, sample), 2);
+            }
+        }
+        std::cout << "SF2 release rate=" << rate << " shortTail=" << tailEnergy[0]
+                  << " longTail=" << tailEnergy[1] << '\n';
+        if (tailEnergy[1] < 1.0e-8 || tailEnergy[0] > tailEnergy[1] * 0.05) return 10;
+    }
+    return 0;
+}
+
 int main(int argc, char** argv)
 {
     if (argc != 2 && argc != 3)
     {
-        std::cerr << "Uso: ClassicPlayerEngineSmokeTest arquivo.sf2 [--benchmark]\n";
+        std::cerr << "Uso: ClassicPlayerEngineSmokeTest arquivo.sf2 [--benchmark|--release]\n";
         return 2;
     }
     if (argc == 3)
+    {
+        if (juce::String::fromUTF8(argv[2]) == "--release")
+            return releaseRegression(juce::File(juce::String::fromUTF8(argv[1])));
         return juce::String::fromUTF8(argv[2]) == "--benchmark"
             ? benchmarkSoundFont(juce::File(juce::String::fromUTF8(argv[1]))) : 2;
+    }
 
     constexpr double sampleRate = 48000.0;
     constexpr int blockSize = 128;

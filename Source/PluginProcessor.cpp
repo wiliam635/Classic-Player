@@ -1556,7 +1556,9 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         }
         learnedMuteCCPressed[(size_t) destination].store(false, std::memory_order_relaxed);
         pendingLayerMuteToggles[(size_t) destination].store(0, std::memory_order_relaxed);
-        learnedMuteCCModes[(size_t) destination].store(-1, std::memory_order_relaxed);
+        learnedMuteCCModes[(size_t) destination].store(
+            learnedMuteCCModes[(size_t) source].load(std::memory_order_relaxed),
+            std::memory_order_relaxed);
         learnedMuteHighTimes[(size_t) destination].store(0, std::memory_order_relaxed);
         pendingLayerMuteStates[(size_t) destination].store(-1, std::memory_order_relaxed);
 
@@ -1838,6 +1840,15 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
                 // routing may deliver the same event twice, which the latch
                 // safely deduplicates.
                 const auto pressed = controllerValue >= 64;
+                // Latched buttons encode their state, including the first
+                // message after restoring a preset. No rising edge is needed.
+                if (learnedMuteCCModes[(size_t) layer].load(std::memory_order_relaxed) == 1)
+                {
+                    learnedMuteCCPressed[(size_t) layer].store(pressed, std::memory_order_relaxed);
+                    pendingLayerMuteStates[(size_t) layer].store(pressed ? 1 : 0,
+                                                               std::memory_order_release);
+                    continue;
+                }
                 const auto wasPressed = learnedMuteCCPressed[(size_t) layer].exchange(
                     pressed, std::memory_order_acq_rel);
                 if (pressed && !wasPressed)
@@ -2844,6 +2855,8 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("analogModWheelFilter" + juce::String(i + 1), analog.modWheelToFilter, nullptr);
         state.setProperty("analogAmpDecaySwitch" + juce::String(i + 1), analog.ampDecaySwitch, nullptr);
         state.setProperty("analogBrowserCompatible" + juce::String(i + 1), analog.browserCompatible, nullptr);
+        state.setProperty("learnMuteMode" + juce::String(i),
+                          learnedMuteCCModes[(size_t) i].load(std::memory_order_relaxed), nullptr);
         for (int target = 0; target < learnTargetCount; ++target)
         {
             state.setProperty("learn" + juce::String(i) + "_" + juce::String(target),
@@ -3191,7 +3204,9 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 }
                 learnedMuteCCPressed[(size_t) i].store(false, std::memory_order_relaxed);
                 pendingLayerMuteToggles[(size_t) i].store(0, std::memory_order_relaxed);
-                learnedMuteCCModes[(size_t) i].store(-1, std::memory_order_relaxed);
+                learnedMuteCCModes[(size_t) i].store(juce::jlimit(-1, 1,
+                    static_cast<int>(state.getProperty("learnMuteMode" + juce::String(i), -1))),
+                    std::memory_order_relaxed);
                 learnedMuteHighTimes[(size_t) i].store(0, std::memory_order_relaxed);
                 pendingLayerMuteStates[(size_t) i].store(-1, std::memory_order_relaxed);
             }
