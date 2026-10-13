@@ -92,6 +92,8 @@ jobs:
           if ($darkSteelExitCode -ne 0) { throw "Falha na skin de aco escovado escuro (exit $darkSteelExitCode)" }
           & $test --display
           if ($LASTEXITCODE -ne 0) { throw "Falha no visor de acordes/espectro" }
+          & $test --layer-colours
+          if ($LASTEXITCODE -ne 0) { throw "Falha nas cores independentes dos canais" }
 
       - name: Verify extended chords and saved MIDI mute modes
         shell: pwsh
@@ -103,6 +105,8 @@ jobs:
             & $test
             if ($LASTEXITCODE -ne 0) { throw "Falha: $name" }
           }
+          & $test --sf2-mute (Join-Path $env:RUNNER_TEMP "VintageDreamsWaves-v2.sf2")
+          if ($LASTEXITCODE -ne 0) { throw "SF2 ficou silencioso depois de desmutar" }
 
       - name: Verify self-contained VST3 loads like a DAW
         shell: pwsh

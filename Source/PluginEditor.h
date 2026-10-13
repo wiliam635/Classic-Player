@@ -135,6 +135,7 @@ private:
         void updateMeter();
         void setOutlineColour(juce::Colour colour, bool useAutomatic = false,
                               bool savePreference = true);
+        void setChannelColour(juce::Colour colour, bool useSkin = false, bool savePreference = true);
         void refreshMidiDevices(const juce::Array<juce::MidiDeviceInfo>& devices);
         void refreshExternalInstrumentLibrary();
         void closeExternalInstrumentEditor();
@@ -189,6 +190,8 @@ private:
         juce::ComponentDragger layerDragger;
         juce::Colour outlineColour;
         bool hasCustomOutlineColour = false;
+        juce::Colour channelColour;
+        bool hasCustomChannelColour = false;
         bool draggingLayerTitle = false;
         bool quickPresetMenuOpen = false;
         bool muted = false;

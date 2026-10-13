@@ -24,6 +24,8 @@ public:
         bool portamento = false;
         bool sustainEnabled = true;
         int midiChannel = 1; // New layers default to channel 1; 0 = omni, 1..16 = fixed
+        int muteCC = -1;
+        int muteCCChannel = -1;
         int lowNote = 0;
         int highNote = 127;
         int octave = 0;
@@ -118,6 +120,7 @@ private:
         int lastAttack = -1;
         int lastPortamento = -1;
         int lastMono = -1;
+        std::array<unsigned int, 2> lastMuteVolumeChannels {};
         float modulationAmount = 0.0f;
         double modulationPhase = 0.0;
         std::array<float, 2> filterState { 0.0f, 0.0f };

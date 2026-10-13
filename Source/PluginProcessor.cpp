@@ -537,6 +537,8 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         else if (type == LayerType::analog)
             layerGain *= juce::Decibels::decibelsToGain(-6.0f);
         config.gain = layerGain;
+        config.muteCC = learnedCCs[(size_t) i][(size_t) LearnTarget::mute].load(std::memory_order_relaxed);
+        config.muteCCChannel = learnedChannels[(size_t) i][(size_t) LearnTarget::mute].load(std::memory_order_relaxed);
         config.attack = parameters.getRawParameterValue(prefix + "Attack")->load();
         config.release = parameters.getRawParameterValue(prefix + "Release")->load();
         config.cutoff = parameters.getRawParameterValue(prefix + "Cutoff")->load();
@@ -1493,6 +1495,9 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     for (int destination = layer; destination < last; ++destination)
     {
         const auto source = destination + 1;
+        for (const auto* key : { "layerOutline", "layerChannelColour" })
+            parameters.state.setProperty(juce::String(key) + juce::String(destination + 1),
+                parameters.state.getProperty(juce::String(key) + juce::String(source + 1), juce::String{}), nullptr);
         std::swap(continuousBanks[(size_t)destination],continuousBanks[(size_t)source]);
         const auto sourceType = layerType(source);
         const auto sourcePath = engine.getSoundFontPath(source);
@@ -1599,6 +1604,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     learnedMuteHighTimes[(size_t) last].store(0, std::memory_order_relaxed);
     pendingLayerMuteStates[(size_t) last].store(-1, std::memory_order_relaxed);
     const auto lastPrefix = "layer" + juce::String(last + 1);
+    parameters.state.setProperty("layerOutline" + juce::String(last + 1), juce::String{}, nullptr);
+    parameters.state.setProperty("layerChannelColour" + juce::String(last + 1), juce::String{}, nullptr);
     for (const auto* suffix : parameterSuffixes)
         if (auto* parameter = parameters.getParameter(lastPrefix + suffix))
             parameter->setValueNotifyingHost(parameter->getDefaultValue());
@@ -1829,6 +1836,15 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
             const auto learnedChannel = learnedChannels[(size_t) layer][(size_t) target].load(std::memory_order_relaxed);
             if (learnedCC != cc || (learnedChannel >= 0 && learnedChannel != channel))
                 continue;
+
+            // Mute owns this assignment even if an older preset also mapped
+            // the same CC to a fader/effect on this layer.
+            if (target != static_cast<int>(LearnTarget::mute)
+                && learnedCCs[(size_t) layer][(size_t) LearnTarget::mute].load(std::memory_order_relaxed) == cc)
+            {
+                const auto muteChannel = learnedChannels[(size_t) layer][(size_t) LearnTarget::mute].load(std::memory_order_relaxed);
+                if (muteChannel < 0 || muteChannel == channel) continue;
+            }
 
             if (target == static_cast<int>(LearnTarget::mute))
             {

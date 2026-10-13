@@ -227,6 +227,72 @@ static void newProgramStartsBlank()
 
 struct MidiRecordingRegressionAccess
 {
+    static void sf2Mute(const juce::File& file)
+    {
+        auto processor = std::make_unique<ClassicPlayerAudioProcessor>();
+        processor->prepareToPlay(48000, 256);
+        processor->activated.store(true);
+        check(processor->loadSoundFont(0, file).wasOk(), "mute SF2 fixture load");
+        check(processor->loadSoundFont(1, file).wasOk(), "second mute SF2 fixture load");
+        const auto notePeak = [&]
+        {
+            processor->engine.stopAllSounds();
+            juce::AudioBuffer<float> audio(2, 256);
+            juce::MidiBuffer midi;
+            midi.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8)100), 0);
+            float peak = 0;
+            for (int block = 0; block < 80; ++block)
+            {
+                processor->processBlock(audio, midi);
+                midi.clear();
+                if (block > 8) peak = juce::jmax(peak, audio.getMagnitude(0, 0, 256));
+            }
+            return peak;
+        };
+        for (int layer : {0, 1})
+        {
+            for (int i = 0; i < 2; ++i)
+            {
+                auto config = processor->layerConfig(i);
+                config.enabled = i == layer;
+                processor->setLayerConfig(i, config);
+            }
+            for (int controller : {11, 7})
+            {
+                processor->setLayerMuted(layer, false);
+                // Include a legacy duplicate volume mapping on the same CC.
+                processor->beginMidiLearn(layer, ClassicPlayerAudioProcessor::LearnTarget::volume);
+                cc(*processor, 1, controller, 100);
+                processor->beginMidiLearn(layer, ClassicPlayerAudioProcessor::LearnTarget::mute);
+                cc(*processor, 1, controller, 127);
+                juce::Thread::sleep(510);
+                cc(*processor, 1, controller, 0);
+                const auto normal = notePeak();
+                check(normal > 1.0e-5f, "SF2 silent after learning mute");
+                if (layer == 0 && controller == 11)
+                {
+                    auto other = processor->layerConfig(1);
+                    other.enabled = true;
+                    processor->setLayerConfig(1, other);
+                    notePeak();
+                    check(processor->engine.getLayerPeak(1) > 1.0e-5f,
+                          "Mute CC also silenced an unmapped SF2 layer");
+                    other.enabled = false;
+                    processor->setLayerConfig(1, other);
+                }
+                for (int cycle = 0; cycle < 3; ++cycle)
+                {
+                    cc(*processor, 1, controller, 127);
+                    check(processor->isLayerMuted(layer), "SF2 mute state not set");
+                    check(notePeak() < normal * 0.001f, "SF2 still audible while muted");
+                    cc(*processor, 1, controller, 0);
+                    check(!processor->isLayerMuted(layer), "SF2 did not unmute");
+                    check(notePeak() > normal * 0.5f, "SF2 expression/volume stayed silent after unmute");
+                }
+                std::cout << "SF2 audio mute/unmute layer=" << layer + 1 << " CC=" << controller << " passed\n";
+            }
+        }
+    }
     static void run()
     {
         auto owner = std::make_unique<ClassicPlayerAudioProcessor>();
@@ -267,11 +333,16 @@ struct MidiRecordingRegressionAccess
     }
 };
 
-int main()
+int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI initialise;
     try
     {
+        if (argc == 3 && juce::String(argv[1]) == "--sf2-mute")
+        {
+            MidiRecordingRegressionAccess::sf2Mute(juce::File(juce::String::fromUTF8(argv[2])));
+            return 0;
+        }
         startupPrograms();
         programLibraryExportImport();
         livePerformanceEqPersistence();

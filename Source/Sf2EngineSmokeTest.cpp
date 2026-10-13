@@ -85,11 +85,11 @@ static int releaseRegression(const juce::File& file)
                 midi.clear();
             }
             midi.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
-            for (int start = 0; start < (int) (rate * 0.5); start += 256)
+            for (int start = 0; start < (int) (rate * 3.0); start += 256)
             {
                 engine.process(audio, midi);
                 midi.clear();
-                if (start >= rate * 0.15)
+                if (start >= rate * 2.0)
                     for (int sample = 0; sample < 256; ++sample)
                         tailEnergy[setting] += std::pow(audio.getSample(0, sample), 2);
             }

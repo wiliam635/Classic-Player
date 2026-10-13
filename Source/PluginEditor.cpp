@@ -818,6 +818,8 @@ static constexpr UiTranslation uiTranslations[] {
     { "EQ PARAMETRICO DA LAYER", "LAYER PARAMETRIC EQ", "EQ PARAMÉTRICO DE LA CAPA" },
     { "MOVA PAD", "MOVE PAD", "MUEVE EL PAD" },
     { "Volume master", "Master volume", "Volumen master" },
+    { "COR DO CANAL", "CHANNEL COLOUR", "COLOR DEL CANAL" },
+    { "Cor da skin", "Theme colour", "Color del tema" },
     { "Mostrar acordes", "Show chords", "Mostrar acordes" },
     { "Mostrar espectro colorido", "Show coloured spectrum", "Mostrar espectro de colores" },
     { "Botao direito: acordes ou espectro", "Right-click: chords or spectrum", "Boton derecho: acordes o espectro" },
@@ -1051,17 +1053,6 @@ juce::Colour readLayerOutlinePreference(int layer, bool& customColour)
     const auto savedColour = settings.getValue(layerOutlinePreferenceKey(layer));
     customColour = savedColour.isNotEmpty();
     return customColour ? juce::Colour::fromString(savedColour) : layerAccentColour(layer);
-}
-
-void writeLayerOutlinePreference(int layer, juce::Colour colour, bool useAutomatic)
-{
-    juce::PropertiesFile settings(uiLanguageFileOptions());
-    const auto key = layerOutlinePreferenceKey(layer);
-    if (useAutomatic)
-        settings.removeValue(key);
-    else
-        settings.setValue(key, colour.toString());
-    settings.saveIfNeeded();
 }
 
 void remapComponentColour(juce::Component& component, int colourId, const UiPalette& newPalette)
@@ -5182,6 +5173,21 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDown(const juce::MouseE
         outlineMenu.addSeparator();
         outlineMenu.addItem(21, localizedUiText(juce::String::fromUTF8("Escolher outra cor..."), language));
         menu.addSubMenu(localizedUiText(juce::String::fromUTF8("COR DO CONTORNO"), language), outlineMenu);
+        juce::PopupMenu channelMenu;
+        channelMenu.addItem(30, localizedUiText("Cor da skin", language), true, !hasCustomChannelColour);
+        const std::array<const char*, 10> colourNames {
+            "Vermelho", "Laranja", "Amarelo", "Verde", "Ciano", "Azul", "Roxo", "Rosa", "Branco", "Cinza"
+        };
+        const std::array<juce::uint32, 10> colours {
+            0xffe5394b, 0xffff9138, 0xffffd23f, 0xff22c58b, 0xff18c7d9,
+            0xff138cff, 0xff9857ff, 0xffed5aa1, 0xfff3f5f7, 0xff9aa3ad
+        };
+        for (size_t i = 0; i < colours.size(); ++i)
+            channelMenu.addColouredItem(31 + (int)i, localizedUiText(colourNames[i], language),
+                juce::Colour(colours[i]), true, hasCustomChannelColour && channelColour == juce::Colour(colours[i]));
+        channelMenu.addSeparator();
+        channelMenu.addItem(41, localizedUiText(juce::String::fromUTF8("Escolher outra cor..."), language));
+        menu.addSubMenu(localizedUiText("COR DO CANAL", language), channelMenu);
         menu.addSeparator();
         menu.addItem(1, localizedUiText("Excluir layer", language));
         const juce::Component::SafePointer<LayerStrip> safe(this);
@@ -5190,13 +5196,22 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDown(const juce::MouseE
         {
             if (safe == nullptr || result == 0) return;
 
-            const auto setColourFromMenu = [safe](juce::Colour colour)
+            const auto changeChannel = result >= 30 && result <= 41;
+            const auto action = changeChannel ? result - 20 : result;
+            const auto setColourFromMenu = [safe, changeChannel](juce::Colour colour)
             {
-                if (safe != nullptr) safe->setOutlineColour(colour);
+                if (safe != nullptr)
+                {
+                    if (changeChannel) safe->setChannelColour(colour);
+                    else safe->setOutlineColour(colour);
+                }
             };
-            switch (result)
+            switch (action)
             {
-                case 10: safe->setOutlineColour(layerAccentColour(safe->index), true); return;
+                case 10:
+                    if (changeChannel) safe->setChannelColour(juce::Colour(panel), true);
+                    else safe->setOutlineColour(layerAccentColour(safe->index), true);
+                    return;
                 case 11: setColourFromMenu(juce::Colour(0xffe5394b)); return;
                 case 12: setColourFromMenu(juce::Colour(0xffff9138)); return;
                 case 13: setColourFromMenu(juce::Colour(0xffffd23f)); return;
@@ -5210,14 +5225,18 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDown(const juce::MouseE
                 case 21:
                 {
                     auto picker = std::make_unique<ColourPicker>(
-                        safe->outlineColour,
-                        [safe](juce::Colour colour)
+                        changeChannel ? safe->channelColour : safe->outlineColour,
+                        [safe, changeChannel](juce::Colour colour)
                         {
-                            if (safe != nullptr) safe->setOutlineColour(colour, false, false);
+                            if (safe != nullptr)
+                            {
+                                if (changeChannel) safe->setChannelColour(colour, false, false);
+                                else safe->setOutlineColour(colour, false, false);
+                            }
                         },
-                        [safe](juce::Colour colour)
+                        [setColourFromMenu](juce::Colour colour)
                         {
-                            if (safe != nullptr) safe->setOutlineColour(colour);
+                            setColourFromMenu(colour);
                         });
                     juce::CallOutBox::launchAsynchronously(std::move(picker), safe->getScreenBounds(), nullptr);
                     return;
@@ -5358,7 +5377,19 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::setOutlineColour(juce::Colou
     hasCustomOutlineColour = !useAutomatic;
     outlineColour = useAutomatic ? layerAccentColour(index) : colour.withAlpha(1.0f);
     if (savePreference)
-        writeLayerOutlinePreference(index, outlineColour, useAutomatic);
+        processor.parameters.state.setProperty(layerOutlinePreferenceKey(index),
+            useAutomatic ? juce::String{} : outlineColour.toString(), nullptr);
+    repaint();
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::setChannelColour(juce::Colour colour,
+                                                                     bool useSkin, bool savePreference)
+{
+    hasCustomChannelColour = !useSkin;
+    channelColour = colour.withAlpha(1.0f);
+    if (savePreference)
+        processor.parameters.state.setProperty("layerChannelColour" + juce::String(index + 1),
+            useSkin ? juce::String{} : channelColour.toString(), nullptr);
     repaint();
 }
 
@@ -5394,27 +5425,31 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
     auto bounds = getLocalBounds().toFloat();
     const auto accent = outlineColour;
     const auto drumLayer = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::drumPads || processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::continuousPads;
-    const auto paintPanel = [&g, bounds]
+    const auto paintPanel = [&g, bounds, this, accent]
     {
-        g.setColour(juce::Colour(panel)); g.fillRoundedRectangle(bounds, 7.0f);
-        if (activeUiPalette == 5 || activeUiPalette == 6)
+        const auto fill = hasCustomChannelColour
+            ? channelColour.interpolatedWith(juce::Colour(text).getBrightness() > 0.5f
+                                                ? juce::Colours::black : juce::Colours::white, 0.55f)
+            : juce::Colour(panel);
+        g.setColour(fill); g.fillRoundedRectangle(bounds, 7.0f);
+        if (!hasCustomChannelColour && (activeUiPalette == 5 || activeUiPalette == 6))
         {
             const juce::Graphics::ScopedSaveState state(g);
             juce::Path clip; clip.addRoundedRectangle(bounds.reduced(1.0f), 7.0f);
             g.reduceClipRegion(clip);
             paintBrushedSteel(g, bounds);
         }
+        g.setColour(juce::Colour(0xff070b10));
+        g.drawRoundedRectangle(bounds.reduced(2.5f), 7.0f, 5.0f);
+        g.setColour(accent);
+        g.drawRoundedRectangle(bounds.reduced(2.5f), 7.0f, 3.0f);
     };
     if (drumLayer)
     {
         paintPanel();
-        g.setColour(accent);
-        g.drawRoundedRectangle(bounds.reduced(1.0f), 7.0f, 2.0f);
         return;
     }
     paintPanel();
-    g.setColour(accent);
-    g.drawRoundedRectangle(bounds.reduced(1.0f), 7.0f, 2.0f);
     const auto type = processor.layerType(index);
     auto category = type == ClassicPlayerAudioProcessor::LayerType::sf2 ? selectedCategoryId(categoryBox)
                   : type == ClassicPlayerAudioProcessor::LayerType::dx7 ? "DX7"
@@ -6025,6 +6060,15 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::deleteSelectedDx7Bank()
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
 {
+    const auto state = processor.parameters.state;
+    if (state.hasProperty(layerOutlinePreferenceKey(index)))
+    {
+        const auto saved = state.getProperty(layerOutlinePreferenceKey(index)).toString();
+        setOutlineColour(juce::Colour::fromString(saved), saved.isEmpty(), false);
+    }
+    else outlineColour = readLayerOutlinePreference(index, hasCustomOutlineColour);
+    const auto channel = state.getProperty("layerChannelColour" + juce::String(index + 1)).toString();
+    setChannelColour(juce::Colour::fromString(channel), channel.isEmpty(), false);
     const auto type = processor.layerType(index);
     muted = processor.isLayerMuted(index);
     muteButton.setToggleState(muted, juce::dontSendNotification);

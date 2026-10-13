@@ -179,6 +179,44 @@ static void continuousPadRegression()
 }
 struct LiveSetLayoutRegressionAccess
 {
+    static void layerColours(const char* screenshot)
+    {
+        juce::TemporaryFile storage;
+        const auto root = storage.getFile();
+        check(root.createDirectory().wasOk(), "colour test storage");
+        struct Cleanup { juce::File root; ~Cleanup() { root.deleteRecursively(); } } cleanup { root };
+        auto processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
+        auto editor = std::make_unique<ClassicPlayerAudioProcessorEditor>(*processor, false);
+        editor->setSize(1280, 720);
+        editor->activationPanel.setVisible(false);
+        editor->strips[0]->setOutlineColour(juce::Colour(0xff22c58b));
+        editor->strips[0]->setChannelColour(juce::Colour(0xffe5394b));
+        editor->strips[1]->setOutlineColour(juce::Colour(0xffff9138));
+        editor->strips[1]->setChannelColour(juce::Colour(0xff138cff));
+        auto before = editor->strips[0]->createComponentSnapshot(editor->strips[0]->getLocalBounds());
+        juce::File saved;
+        check(processor->saveProgramToFile(root.getChildFile("Colours.ckprogram"), saved).wasOk(), "save channel colours");
+        editor->strips[0]->setOutlineColour(juce::Colours::yellow);
+        editor->strips[0]->setChannelColour(juce::Colours::blue);
+        check(processor->loadProgram(saved).wasOk(), "reload channel colours");
+        editor->refreshAfterProgramLoad();
+        auto after = editor->strips[0]->createComponentSnapshot(editor->strips[0]->getLocalBounds());
+        check(before.getPixelAt(60, 3) == after.getPixelAt(60, 3), "outline colour not restored");
+        check(before.getPixelAt(8, 180) == after.getPixelAt(8, 180), "channel colour not restored");
+        check(before.getPixelAt(60, 3) != before.getPixelAt(8, 180), "outline and channel colour not independent");
+        if (screenshot != nullptr)
+        {
+            juce::FileOutputStream stream { juce::File(screenshot) };
+            juce::PNGImageFormat png;
+            check(stream.openedOk() && png.writeImageToStream(editor->createComponentSnapshot(editor->getLocalBounds()), stream),
+                  "channel colours screenshot");
+        }
+        check(processor->removeLayer(0), "remove coloured layer");
+        check(processor->parameters.state.getProperty("layerChannelColour1").toString()
+              == juce::Colour(0xff138cff).toString(), "channel colour did not follow moved layer");
+        std::cout << "Independent channel/outline colours, preset persistence and layer removal passed\n";
+    }
+
     static void display(const char* screenshot)
     {
         auto processor = std::make_unique<ClassicPlayerAudioProcessor>();
@@ -596,6 +634,11 @@ int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
     try{
+        if (argc > 1 && juce::String(argv[1]) == "--layer-colours")
+        {
+            LiveSetLayoutRegressionAccess::layerColours(argc > 2 ? argv[2] : nullptr);
+            return 0;
+        }
         if (argc > 1 && juce::String(argv[1]) == "--display")
         {
             LiveSetLayoutRegressionAccess::display(argc > 2 ? argv[2] : nullptr);

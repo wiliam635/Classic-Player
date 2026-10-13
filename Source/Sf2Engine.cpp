@@ -46,6 +46,7 @@ void Sf2Engine::createSynth(Layer& layer)
     layer.lastAttack = -1;
     layer.lastPortamento = -1;
     layer.lastMono = -1;
+    layer.lastMuteVolumeChannels.fill(0);
     layer.filterState = { 0.0f, 0.0f };
     layer.highPassInput = { 0.0f, 0.0f };
     layer.highPassOutput = { 0.0f, 0.0f };
@@ -261,6 +262,11 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
     {
         const auto cc = message.getControllerNumber();
         const auto value = message.getControllerValue();
+        // A learned Mute CC belongs to the mixer. In particular, CC7/CC11
+        // must not also silence FluidSynth's channel volume/expression.
+        for (const auto& target : layers)
+            if (cc == target.config.muteCC
+                && (target.config.muteCCChannel < 0 || channel == target.config.muteCCChannel)) return;
         if (cc == 64)
         {
             if (!layer.config.sustainEnabled) return;
@@ -369,6 +375,11 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
     const juce::ScopedLock guard(lock);
     output.clear();
     scratch.setSize(2, output.getNumSamples(), false, false, true);
+    std::array<unsigned int, 2> muteVolumeChannels {};
+    for (const auto& target : layers)
+        if (target.config.muteCC == 7 || target.config.muteCC == 11)
+            muteVolumeChannels[target.config.muteCC == 7 ? 0u : 1u] |=
+                target.config.muteCCChannel < 1 ? 0xffffu : 1u << (target.config.muteCCChannel - 1);
 
     for (auto& layer : layers)
     {
@@ -380,6 +391,18 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         }
 
         const auto cutoff = juce::jlimit(0, 127, static_cast<int>(std::round(layer.config.cutoff * 1.27f)));
+        if (layer.lastMuteVolumeChannels != muteVolumeChannels)
+        {
+            // Recover every SF2 on this channel, including other layers which
+            // previously received a Mute CC as expression/volume by mistake.
+            for (size_t control = 0; control < 2; ++control)
+                for (int channel = 0; channel < 16; ++channel)
+                    if (((layer.lastMuteVolumeChannels[control] | muteVolumeChannels[control])
+                          & (1u << channel)) != 0)
+                        fluid_synth_cc(layer.synth.get(), channel, control == 0 ? 7 : 11,
+                                       control == 0 ? 100 : 127);
+            layer.lastMuteVolumeChannels = muteVolumeChannels;
+        }
         // Reverb is applied as a native post-SF2 effect below. Keep the
         // SoundFont's own generator send dry, so its quality is independent
         // of each library's embedded reverb setup.
@@ -426,8 +449,12 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
 
         // CC72 only works when the SF2 defines a corresponding modulator.
         // Set the actual voice envelope in timecents instead, consistently
-        // with the native engines' 0..100 control (up to one second).
-        const auto releaseSeconds = juce::jmax(0.005f, layer.config.release * 0.01f);
+        // Preserve the existing default (50 = 0.5s), while the upper half
+        // expands smoothly to a long 10-second release at 100.
+        const auto releaseControl = juce::jlimit(0.0f, 100.0f, layer.config.release);
+        const auto releaseSeconds = releaseControl <= 50.0f
+            ? juce::jmax(0.005f, releaseControl * 0.01f)
+            : 0.5f * std::pow(20.0f, (releaseControl - 50.0f) / 50.0f);
         const auto releaseTimecents = 1200.0f * std::log2(releaseSeconds);
         const auto applyRelease = [&]
         {
