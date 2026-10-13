@@ -1,6 +1,6 @@
 {
-  "version": "2.0.3",
-  "notes": "",
+  "version": "2.0.5",
+  "notes": "Correções no mute MIDI e no release das layers SF2; exibição de acordes revisada e visor com espectro colorido; cores independentes para canal e contorno.",
   "releaseNotesUrl": "",
   "downloads": {
     "macos": "https://licenca.classickeys.com.br/membros",
