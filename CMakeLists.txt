@@ -97,6 +97,8 @@ target_sources(ClassicPlayer PRIVATE
     Source/Dx7Engine.h
     Source/AnalogSynthEngine.cpp
     Source/AnalogSynthEngine.h
+    Source/SampleEngine.cpp
+    Source/SampleEngine.h
     third_party/msfa/dx7note.cc
     third_party/msfa/env.cc
     third_party/msfa/exp2.cc
@@ -176,6 +178,7 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES
     Source/Sf2Engine.cpp Source/Sf2Engine.h
     Source/Dx7Engine.cpp Source/Dx7Engine.h
     Source/AnalogSynthEngine.cpp Source/AnalogSynthEngine.h
+    Source/SampleEngine.cpp Source/SampleEngine.h
     Source/ExternalInstrumentHost.cpp Source/ExternalInstrumentHost.h
     Source/LicenseVerifier.cpp Source/LicenseVerifier.h
     Source/ChordDetector.cpp Source/ChordDetector.h)
@@ -229,6 +232,20 @@ if(CLASSIC_PLAYER_BUILD_TESTS)
         Source/ChordDetector.h)
     target_compile_definitions(ClassicPlayerChordDetectorTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
     target_link_libraries(ClassicPlayerChordDetectorTest PRIVATE
+        juce::juce_core
+        PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
+    juce_add_console_app(ClassicPlayerSampleEngineTest PRODUCT_NAME "Classic Player Sample Engine Test")
+    target_sources(ClassicPlayerSampleEngineTest PRIVATE
+        Source/SampleEngineSmokeTest.cpp
+        Source/SampleEngine.cpp
+        Source/SampleEngine.h
+        Source/Sf2Engine.h)
+    target_compile_definitions(ClassicPlayerSampleEngineTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+    target_link_libraries(ClassicPlayerSampleEngineTest PRIVATE
+        ${CLASSIC_PLAYER_FLUID_TARGET}
+        juce::juce_audio_formats
+        juce::juce_audio_basics
         juce::juce_core
         PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 endif()

@@ -1503,6 +1503,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     drumPadPanel.setVisible(false);
 
     for (auto* button : { &muteButton, &soloButton, &resetButton, &removeButton, &editButton, &loadButton,
+                          &sampleButton,
                           &externalInstrumentButton, &dx7Button, &deleteDx7LibraryButton, &openExternalEditorButton, &deleteLibraryButton })
     {
         flatButton(*button);
@@ -1543,6 +1544,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
         if (removeLayerCallback) removeLayerCallback();
     };
     loadButton.onClick = [this] { chooseSoundFont(); };
+    sampleButton.onClick = [this] { chooseSample(); };
     externalInstrumentButton.onClick = [this] { chooseExternalInstrument(); };
     dx7Button.onClick = [this]
     {
@@ -2061,6 +2063,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
         area.removeFromTop(4);
         presetBox.setBounds(area.removeFromTop(28));
     }
+    else if (type == ClassicPlayerAudioProcessor::LayerType::sample)
+    {
+        sampleButton.setBounds(area.removeFromTop(28));
+        area.removeFromTop(4);
+        fileLabel.setBounds(area.removeFromTop(27));
+    }
     else if (type == ClassicPlayerAudioProcessor::LayerType::vst)
     {
         externalInstrumentBox.setBounds(area.removeFromTop(28));
@@ -2150,6 +2158,27 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     highNote.setBounds(row.reduced(2, 1));
     controls.removeFromTop(7);
     velocityCurve.setBounds(controls.removeFromTop(31).reduced(2, 1));
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSample()
+{
+    fileChooser = std::make_unique<juce::FileChooser>(
+        "Escolha um sample de audio", juce::File{},
+        "*.wav;*.WAV;*.aif;*.AIF;*.aiff;*.AIFF;*.flac;*.FLAC;*.ogg;*.OGG;*.mp3;*.MP3");
+    fileChooser->launchAsync(juce::FileBrowserComponent::openMode
+                             | juce::FileBrowserComponent::canSelectFiles,
+        [this](const juce::FileChooser& chooser)
+        {
+            const auto file = chooser.getResult();
+            if (file == juce::File{}) return;
+            sampleButton.setEnabled(false);
+            const auto result = processor.loadSample(index, file);
+            sampleButton.setEnabled(true);
+            if (result.failed())
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                    "Falha ao carregar sample", result.getErrorMessage());
+            refresh();
+        });
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
@@ -2260,6 +2289,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     const auto isDx7 = type == ClassicPlayerAudioProcessor::LayerType::dx7;
     const auto isAnalog = type == ClassicPlayerAudioProcessor::LayerType::analog;
     const auto isDrumPads = type == ClassicPlayerAudioProcessor::LayerType::drumPads;
+    const auto isSample = type == ClassicPlayerAudioProcessor::LayerType::sample;
     drumPadPanel.setVisible(isDrumPads);
     drumPadPanel.setControlsVisible(false);
 
@@ -2278,6 +2308,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
         control->setVisible(!isDrumPads);
 
     loadButton.setVisible(isSf2);
+    sampleButton.setVisible(isSample);
     categoryBox.setVisible(isSf2);
     libraryBox.setVisible(isSf2);
     deleteLibraryButton.setVisible(isSf2);
@@ -2295,13 +2326,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     chorusLabel.setVisible(isDx7 && expanded);
     sourceSummary.setText(fileLabel.getText().isNotEmpty()
                               ? fileLabel.getText()
-                              : (isSf2 ? "SF2" : isDx7 ? "DX7" : isAnalog ? "CLASSIC KEYS ANALOG"
+                              : (isSf2 ? "SF2" : isSample ? "SAMPLE" : isDx7 ? "DX7" : isAnalog ? "CLASSIC KEYS ANALOG"
                                                    : isVst ? "VST" : "DRUM PADS"),
                           juce::dontSendNotification);
     if (isDrumPads)
     {
         const std::initializer_list<juce::Component*> controls {
-            &loadButton, &externalInstrumentButton, &dx7Button, &deleteDx7LibraryButton,
+            &loadButton, &sampleButton, &externalInstrumentButton, &dx7Button, &deleteDx7LibraryButton,
             &openExternalEditorButton, &deleteLibraryButton, &categoryBox, &libraryBox,
             &presetBox, &externalInstrumentBox, &dx7LibraryBox, &dx7PatchBox, &fileLabel,
             &gain, &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel,
@@ -2319,7 +2350,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     if (! expanded)
     {
         const std::initializer_list<juce::Component*> detailedControls {
-            &loadButton, &externalInstrumentButton, &dx7Button, &deleteDx7LibraryButton,
+            &loadButton, &sampleButton, &externalInstrumentButton, &dx7Button, &deleteDx7LibraryButton,
             &openExternalEditorButton, &deleteLibraryButton, &categoryBox, &libraryBox,
             &presetBox, &externalInstrumentBox, &dx7LibraryBox, &dx7PatchBox, &fileLabel,
             &cutoff, &reverb, &compressor, &mode, &sustain, &midiChannel, &octave,
@@ -2402,6 +2433,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resetLayer()
 {
     externalEditorWindow.reset();
     processor.unloadSoundFont(index);
+    processor.unloadSample(index);
     processor.unloadExternalInstrument(index);
     processor.unloadDx7(index);
     processor.setLayerType(index, ClassicPlayerAudioProcessor::LayerType::sf2);
@@ -2533,6 +2565,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
         return;
     }
     const auto path = processor.soundFontPath(index);
+    const auto samplePath = processor.samplePath(index);
     const auto externalName = processor.externalInstrumentName(index);
     const auto dx7Name = processor.dx7PatchName(index);
     dx7Button.setButtonText(type == ClassicPlayerAudioProcessor::LayerType::analog
@@ -2556,10 +2589,15 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
         rebuildDx7Library();
         rebuildDx7Patches();
     }
+    else if (type == ClassicPlayerAudioProcessor::LayerType::sample)
+    {
+        sampleButton.setButtonText("TROCAR SAMPLE");
+    }
 
     const auto hasSource = type == ClassicPlayerAudioProcessor::LayerType::sf2 ? path.isNotEmpty()
         : type == ClassicPlayerAudioProcessor::LayerType::vst ? externalName.isNotEmpty()
         : type == ClassicPlayerAudioProcessor::LayerType::dx7 ? processor.hasDx7(index)
+        : type == ClassicPlayerAudioProcessor::LayerType::sample ? samplePath.isNotEmpty()
         : processor.hasAnalogSynth(index);
     fileLabel.setText(type == ClassicPlayerAudioProcessor::LayerType::sf2
                         ? (path.isNotEmpty() ? juce::File(path).getFileName() : "Sem SoundFont")
@@ -2567,7 +2605,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
                             ? (externalName.isNotEmpty() ? externalName : "Sem VST")
                             : type == ClassicPlayerAudioProcessor::LayerType::dx7
                                 ? (dx7Name.isNotEmpty() ? dx7Name : "Sem DX7")
-                                : "CLASSIC KEYS ANALOG",
+                                : type == ClassicPlayerAudioProcessor::LayerType::sample
+                                    ? (samplePath.isNotEmpty() ? juce::File(samplePath).getFileName() : "Sem sample")
+                                    : "CLASSIC KEYS ANALOG",
                       juce::dontSendNotification);
     fileLabel.setColour(juce::Label::backgroundColourId,
                         hasSource ? juce::Colour(yellow) : juce::Colour(0xff0b1218));
@@ -2745,6 +2785,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
         menu.addItem(2, "Layer DX7 (.syx)");
         menu.addItem(3, "Classic Keys Analog");
         menu.addItem(4, "Layer Drum Pads (8)");
+        menu.addItem(5, "Layer Sample (WAV/AIFF/FLAC)");
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addLayerButton),
             [safeThis = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this)](int choice)
             {
@@ -2752,7 +2793,8 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
                 const auto type = choice == 1 ? ClassicPlayerAudioProcessor::LayerType::sf2
                                 : choice == 2 ? ClassicPlayerAudioProcessor::LayerType::dx7
                                 : choice == 3 ? ClassicPlayerAudioProcessor::LayerType::analog
-                                              : ClassicPlayerAudioProcessor::LayerType::drumPads;
+                                : choice == 4 ? ClassicPlayerAudioProcessor::LayerType::drumPads
+                                              : ClassicPlayerAudioProcessor::LayerType::sample;
                 safeThis->addLayer(type);
             });
     };

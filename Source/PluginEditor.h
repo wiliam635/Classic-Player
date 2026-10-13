@@ -77,6 +77,7 @@ private:
 
     private:
         void chooseSoundFont();
+        void chooseSample();
         void chooseExternalInstrument();
         void chooseDx7();
         void deleteSelectedDx7Bank();
@@ -119,6 +120,7 @@ private:
         juce::TextButton removeButton { "X" };
         juce::TextButton editButton { "EDITAR" };
         juce::TextButton loadButton { "IMPORTAR SF2" };
+        juce::TextButton sampleButton { "IMPORTAR SAMPLE" };
         juce::TextButton externalInstrumentButton { "CARREGAR VST" };
         juce::TextButton dx7Button { "IMPORTAR DX7" };
         juce::TextButton deleteDx7LibraryButton { "EXCLUIR DX7" };

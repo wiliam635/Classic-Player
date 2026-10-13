@@ -1,0 +1,16 @@
+# Local build and configure output
+build/
+cmake-build-*/
+_deps/
+
+# IDE and macOS metadata
+.DS_Store
+.idea/
+.vscode/
+*.xcuserstate
+
+# Local dependency/tool caches
+JUCE/
+juce/
+vcpkg_installed/
+CMakeUserPresets.json

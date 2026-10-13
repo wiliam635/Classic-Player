@@ -14,11 +14,12 @@ No **VST3/AU**, a interface de áudio, ASIO/Core Audio, sample rate e buffer sã
 
 ## Recursos desta base nativa
 
-- quatro layers SF2 independentes;
+- layers SF2 independentes, além de DX7, Analog, Drum Pads e uma layer de
+  sample polifônica com transposição automática pelo MIDI;
 - polifonia configurada em 4096 vozes por synth, limitada na prática por CPU e memória;
 - split por nota, oitava, mono/poli e sustain individual no motor;
 - volume e pan automatizáveis pela DAW por layer;
-- estado do projeto salvo pela DAW, incluindo caminhos dos SF2;
+- estado do projeto salvo pela DAW, incluindo caminhos dos SF2 e dos samples;
 - proteção offline ECDSA P-256 compatível com os 500 códigos já emitidos;
 - saída estéreo com ganho conservador por layer para evitar clipping ao empilhar timbres.
 

@@ -128,6 +128,7 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     engine.prepare(sampleRate, samplesPerBlock);
     dx7Engine.prepare(sampleRate, samplesPerBlock);
     analogSynthEngine.prepare(sampleRate, samplesPerBlock);
+    sampleEngine.prepare(sampleRate, samplesPerBlock);
     for (auto& hosted : externalInstruments) hosted.prepare(sampleRate, samplesPerBlock);
     for (auto& scratch : externalScratch)
         scratch.setSize(2, samplesPerBlock, false, true, true);
@@ -155,6 +156,7 @@ void ClassicPlayerAudioProcessor::releaseResources()
     engine.reset();
     dx7Engine.stopAllSounds();
     analogSynthEngine.stopAllSounds();
+    sampleEngine.stopAllSounds();
     for (auto& hosted : externalInstruments) hosted.releaseResources();
     outputLimiter.reset();
 }
@@ -247,6 +249,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         config.dx7Chorus = parameters.getRawParameterValue(prefix + "Dx7Chorus")->load();
         engine.setConfig(i, config);
         dx7LayerConfigs[(size_t) i] = config;
+        sampleLayerConfigs[(size_t) i] = config;
         auto analogConfig = analogLayerConfigs[(size_t) i];
         analogConfig.routing = config;
         analogConfig.routing.enabled = config.enabled && layerType(i) == LayerType::analog;
@@ -265,6 +268,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     renderExternalInstruments(buffer, midi);
     dx7Engine.process(buffer, midi, &routedMidiBuffers, dx7LayerConfigs);
     analogSynthEngine.process(buffer, midi, analogLayerConfigs, &routedMidiBuffers);
+    sampleEngine.process(buffer, routedMidiBuffers, sampleLayerConfigs);
     processDrumPads(buffer, midi);
     // The master control is calibrated with +6 dB of nominal output gain.
     // The limiter immediately after it keeps the boosted output clip-safe.
@@ -505,6 +509,7 @@ juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::F
         return juce::Result::fail("Layer inválida.");
     externalInstruments[(size_t) layer].unload();
     analogSynthEngine.unload(layer);
+    sampleEngine.unload(layer);
     const auto result = engine.loadSoundFont(layer, file);
     if (result.wasOk())
     {
@@ -546,6 +551,7 @@ juce::Result ClassicPlayerAudioProcessor::loadExternalInstrument(int layer, cons
         // which also locks it. Loading an external instrument replaces the SF2.
         engine.unloadSoundFont(layer);
         dx7Engine.unload(layer);
+        sampleEngine.unload(layer);
         layerTypes[(size_t) layer].store(static_cast<int>(LayerType::vst));
         savedPaths[(size_t) layer].clear();
     }
@@ -647,14 +653,15 @@ float ClassicPlayerAudioProcessor::layerPeak(int layer) const
     return juce::jmax(engine.getLayerPeak(layer),
                       juce::jmax(dx7Engine.getLayerPeak(layer),
                                  juce::jmax(analogSynthEngine.getLayerPeak(layer),
-                                            externalPeaks[(size_t) layer].load(std::memory_order_relaxed))));
+                                            juce::jmax(sampleEngine.getLayerPeak(layer),
+                                                       externalPeaks[(size_t) layer].load(std::memory_order_relaxed)))));
 }
 
 ClassicPlayerAudioProcessor::LayerType ClassicPlayerAudioProcessor::layerType(int layer) const
 {
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return LayerType::sf2;
     const auto value = layerTypes[(size_t) layer].load(std::memory_order_relaxed);
-    return static_cast<LayerType>(juce::jlimit(0, 4, value));
+    return static_cast<LayerType>(juce::jlimit(0, 5, value));
 }
 
 void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
@@ -664,6 +671,8 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
 
     const juce::ScopedLock callbackLock(getCallbackLock());
     const auto previousType = layerType(layer);
+    if (previousType == LayerType::sample && type != LayerType::sample)
+        sampleEngine.unload(layer);
     if (previousType == LayerType::analog && type != LayerType::analog)
         analogSynthEngine.unload(layer);
 
@@ -692,7 +701,62 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
         analogLayerConfigs[(size_t) layer] = AnalogSynthEngine::Config{};
     }
 
+    if (type == LayerType::sample && previousType != LayerType::sample)
+    {
+        externalInstruments[(size_t) layer].unload();
+        engine.unloadSoundFont(layer);
+        dx7Engine.unload(layer);
+        analogSynthEngine.unload(layer);
+        sampleEngine.unload(layer);
+        savedPaths[(size_t) layer].clear();
+        auto config = engine.getConfig(layer);
+        config.enabled = true;
+        engine.setConfig(layer, config);
+        sampleLayerConfigs[(size_t) layer] = config;
+    }
+
     layerTypes[(size_t) layer].store(static_cast<int>(type), std::memory_order_relaxed);
+}
+
+juce::Result ClassicPlayerAudioProcessor::loadSample(int layer, const juce::File& file)
+{
+    const juce::ScopedLock callbackLock(getCallbackLock());
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
+        return juce::Result::fail("Layer invalida.");
+
+    externalInstruments[(size_t) layer].unload();
+    engine.unloadSoundFont(layer);
+    dx7Engine.unload(layer);
+    analogSynthEngine.unload(layer);
+    const auto result = sampleEngine.loadSample(layer, file);
+    if (result.wasOk())
+    {
+        savedPaths[(size_t) layer].clear();
+        auto config = engine.getConfig(layer);
+        config.enabled = true;
+        engine.setConfig(layer, config);
+        sampleLayerConfigs[(size_t) layer] = config;
+        layerTypes[(size_t) layer].store(static_cast<int>(LayerType::sample), std::memory_order_relaxed);
+    }
+    return result;
+}
+
+void ClassicPlayerAudioProcessor::unloadSample(int layer)
+{
+    const juce::ScopedLock callbackLock(getCallbackLock());
+    if (juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
+        sampleEngine.unload(layer);
+}
+
+bool ClassicPlayerAudioProcessor::hasSample(int layer) const
+{
+    return juce::isPositiveAndBelow(layer, Sf2Engine::layerCount) && sampleEngine.isLoaded(layer);
+}
+
+juce::String ClassicPlayerAudioProcessor::samplePath(int layer) const
+{
+    return juce::isPositiveAndBelow(layer, Sf2Engine::layerCount) ? sampleEngine.path(layer)
+                                                                   : juce::String{};
 }
 
 juce::Result ClassicPlayerAudioProcessor::loadDx7(int layer, const juce::File& file)
@@ -707,6 +771,7 @@ juce::Result ClassicPlayerAudioProcessor::loadDx7(int layer, const juce::File& f
     if (result.wasOk())
     {
         savedPaths[(size_t) layer].clear();
+        sampleEngine.unload(layer);
         layerTypes[(size_t) layer].store(static_cast<int>(LayerType::dx7), std::memory_order_relaxed);
     }
     return result;
@@ -853,6 +918,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         const auto sourcePath = engine.getSoundFontPath(source);
         const auto sourceDx7Path = dx7Engine.path(source);
         const auto sourceDx7Patch = dx7Engine.selectedPatch(source);
+        const auto sourceSamplePath = sampleEngine.path(source);
+        const auto sourceSampleConfig = sampleEngine.getConfig(source);
         const auto sourceConfig = engine.getConfig(source);
         const auto sourceAnalogConfig = analogLayerConfigs[(size_t) source];
         const auto sourceSavedPath = savedPaths[(size_t) source];
@@ -862,6 +929,7 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         engine.unloadSoundFont(destination);
         dx7Engine.unload(destination);
         analogSynthEngine.unload(destination);
+        sampleEngine.unload(destination);
 
         if (sourceType == LayerType::sf2 && sourcePath.isNotEmpty())
             engine.loadSoundFont(destination, juce::File(sourcePath));
@@ -869,6 +937,11 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         {
             if (dx7Engine.loadSysEx(destination, juce::File(sourceDx7Path)).wasOk())
                 dx7Engine.selectPatch(destination, sourceDx7Patch);
+        }
+        else if (sourceType == LayerType::sample && sourceSamplePath.isNotEmpty())
+        {
+            if (sampleEngine.loadSample(destination, juce::File(sourceSamplePath)).wasOk())
+                sampleEngine.setConfig(destination, sourceSampleConfig);
         }
         // External VST/AU hosting is retired. Older sessions containing one
         // are shifted as an empty SF2 layer rather than loading third-party code.
@@ -879,6 +952,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
             ? sourceAnalogConfig : AnalogSynthEngine::Config{};
         movedAnalogConfig.routing = sourceConfig;
         analogLayerConfigs[(size_t) destination] = movedAnalogConfig;
+        sampleLayerConfigs[(size_t) destination] = restoredType == LayerType::sample
+            ? sourceConfig : Sf2Engine::LayerConfig{};
         savedPaths[(size_t) destination] = restoredType == LayerType::sf2
             ? sourceSavedPath : juce::String{};
         layerMidiDeviceIds[(size_t) destination] = sourceMidiDevice;
@@ -908,6 +983,7 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     engine.unloadSoundFont(last);
     dx7Engine.unload(last);
     analogSynthEngine.unload(last);
+    sampleEngine.unload(last);
     auto disabled = engine.getConfig(last);
     disabled.enabled = false;
     engine.setConfig(last, disabled);
@@ -1511,6 +1587,7 @@ void ClassicPlayerAudioProcessor::stopAllSoundsBeforeProgramChange()
     engine.stopAllSounds();
     dx7Engine.stopAllSounds();
     analogSynthEngine.stopAllSounds();
+    sampleEngine.stopAllSounds();
     for (auto& instrument : externalInstruments)
         instrument.stopAllSounds();
     for (auto& pad : drumPads)
@@ -1556,6 +1633,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
                           layerTypes[(size_t) i].load(std::memory_order_relaxed), nullptr);
         state.setProperty("dx7Layer" + juce::String(i + 1), dx7Engine.path(i), nullptr);
         state.setProperty("dx7Patch" + juce::String(i + 1), dx7Engine.selectedPatch(i), nullptr);
+        state.setProperty("sampleLayer" + juce::String(i + 1), sampleEngine.path(i), nullptr);
         const auto key = "sf2Layer" + juce::String(i + 1);
         const auto path = engine.getSoundFontPath(i);
         state.setProperty(key, path.isNotEmpty() ? path : savedPaths[(size_t) i], nullptr);
@@ -1726,7 +1804,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             }
             for (int i = 0; i < Sf2Engine::layerCount; ++i)
             {
-                auto savedType = juce::jlimit(0, 4, static_cast<int>(state.getProperty(
+                auto savedType = juce::jlimit(0, 5, static_cast<int>(state.getProperty(
                     "layerType" + juce::String(i + 1), static_cast<int>(LayerType::sf2))));
                 // Programs created by older releases may contain VST layers.
                 // They are restored as empty SF2 layers rather than loading a
@@ -1781,6 +1859,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     engine.unloadSoundFont(i);
                 }
                 dx7Engine.unload(i);
+                sampleEngine.unload(i);
                 if (savedType == static_cast<int>(LayerType::dx7))
                 {
                     const auto dx7Path = state.getProperty("dx7Layer" + juce::String(i + 1)).toString();
@@ -1790,6 +1869,18 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                         if (result.failed()) juce::Logger::writeToLog("Não foi possível restaurar DX7: " + result.getErrorMessage());
                         else dx7Engine.selectPatch(i, static_cast<int>(state.getProperty(
                             "dx7Patch" + juce::String(i + 1), 0)));
+                    }
+                }
+                else if (savedType == static_cast<int>(LayerType::sample))
+                {
+                    const auto samplePath = state.getProperty(
+                        "sampleLayer" + juce::String(i + 1)).toString();
+                    if (samplePath.isNotEmpty())
+                    {
+                        const auto result = sampleEngine.loadSample(i, juce::File(samplePath));
+                        if (result.failed())
+                            juce::Logger::writeToLog("Nao foi possivel restaurar sample: "
+                                                     + result.getErrorMessage());
                     }
                 }
                 auto analog = AnalogSynthEngine::Config{};
@@ -1849,6 +1940,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.portamento = state.getProperty("portamento" + juce::String(i), false);
                 config.sustainEnabled = state.getProperty("sustain" + juce::String(i), true);
                 engine.setConfig(i, config);
+                sampleLayerConfigs[(size_t) i] = config;
                 analog.routing = config;
                 analogLayerConfigs[(size_t) i] = analog;
                 if (savedType != static_cast<int>(LayerType::analog))
@@ -1887,6 +1979,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     externalInstruments[(size_t) i].unload();
                     dx7Engine.unload(i);
                     analogSynthEngine.unload(i);
+                    sampleEngine.unload(i);
                     analogLayerConfigs[(size_t) i] = AnalogSynthEngine::Config{};
                     savedPaths[(size_t) i].clear();
                     layerTypes[(size_t) i].store(static_cast<int>(LayerType::sf2), std::memory_order_relaxed);
