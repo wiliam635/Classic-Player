@@ -22,7 +22,20 @@ constexpr size_t strokeRecordBytes = 118;
 constexpr size_t audioAlignmentBias = 192;
 constexpr size_t wordsPerBlock = 511;
 constexpr size_t overlapFrames = 64;
-constexpr size_t maxDecodedAudioBytes = 512u * 1024u * 1024u;
+constexpr std::uint64_t bytesPerMiB = 1024ull * 1024ull;
+constexpr std::uint64_t hardDecodedAudioLimit = 6ull * 1024ull * bytesPerMiB;
+
+std::uint64_t decodedAudioBudget(size_t sourceBytes)
+{
+    const auto memoryMiB = juce::SystemStats::getMemorySizeInMegabytes();
+    const auto totalMemoryBytes = memoryMiB > 0
+        ? static_cast<std::uint64_t>(memoryMiB) * bytesPerMiB
+        : 4ull * 1024ull * bytesPerMiB;
+    const auto budgetForImport = totalMemoryBytes / 3;
+    if (budgetForImport <= sourceBytes)
+        return 0;
+    return std::min(hardDecodedAudioLimit, budgetForImport - sourceBytes);
+}
 
 std::uint16_t readBigEndian16(const std::uint8_t* data)
 {
@@ -317,11 +330,41 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
         if (voicing.isNotEmpty()) parsed.voicing = voicing;
     }
 
+    // Preflight the complete playable PCM footprint before allocating any
+    // decoded sample buffers. Banks 0 and 1 are the attack/held sounds selected
+    // by SampleEngine; bank 2 release samples are not scheduled by playback.
+    const auto safeDecodedBytes = decodedAudioBudget(fileBytes);
+    std::uint64_t totalDecodedBytes = 0;
+    size_t preflightRecordIndex = 0;
+    for (size_t root = 0; root < rootCounts.size(); ++root)
+        for (std::uint16_t strokeNumber = 0; strokeNumber < rootCounts[root]; ++strokeNumber)
+        {
+            const auto* record = body + directoryOffset + preflightRecordIndex * strokeRecordBytes;
+            const auto bank = record[4];
+            const auto expectedFrames = readBigEndian32(record + 6);
+            if (bank <= 1)
+            {
+                if (expectedFrames > static_cast<std::uint32_t>(std::numeric_limits<int>::max()))
+                    return fail("Uma gravação do piano Nord excede a duração máxima suportada.");
+                totalDecodedBytes += static_cast<std::uint64_t>(expectedFrames)
+                                   * channels * sizeof(std::int16_t);
+            }
+            ++preflightRecordIndex;
+        }
+
+    if (totalDecodedBytes > safeDecodedBytes)
+    {
+        const auto requiredMiB = (totalDecodedBytes + bytesPerMiB - 1) / bytesPerMiB;
+        const auto allowedMiB = safeDecodedBytes / bytesPerMiB;
+        return fail("Este piano Nord precisa de " + juce::String(static_cast<juce::int64>(requiredMiB))
+                    + " MiB de áudio decodificado; o limite seguro para este computador é "
+                    + juce::String(static_cast<juce::int64>(allowedMiB)) + " MiB.");
+    }
+
     parsed.strokes.reserve(strokeCount);
     std::array<bool, 128> rootsWithAttack {};
     auto audioCursor = firstAudio;
     size_t recordIndex = 0;
-    std::uint64_t totalDecodedBytes = 0;
     int highestAttackLayer = 0;
     bool hasSignedTrim = false;
 
@@ -344,29 +387,21 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
             if (audioCursor > bodyBytes || audioBytes > bodyBytes - audioCursor)
                 return fail("Os dados de áudio de uma gravação Nord estão truncados.");
 
-            if (bank <= 2)
+            if (bank <= 1)
             {
-                const auto decodedBytes = static_cast<std::uint64_t>(expectedFrames)
-                                        * channels * sizeof(std::int16_t);
-                if (decodedBytes > maxDecodedAudioBytes - totalDecodedBytes)
-                    return fail("O áudio decodificado ultrapassaria o limite de memória de 512 MB.");
-
                 Stroke stroke;
                 stroke.rootNote = static_cast<std::uint8_t>(root);
                 stroke.bank = bank;
                 stroke.velocityLayer = layer;
                 stroke.trimDb = trimDb;
-                if (bank != 2)
+                const auto loopStart = readBigEndian32(record + 0x1c);
+                const auto loopLength = readBigEndian32(record + 0x20);
+                if (loopStart > 0 && loopLength > 0
+                    && loopStart < expectedFrames
+                    && loopLength <= expectedFrames - loopStart)
                 {
-                    const auto loopStart = readBigEndian32(record + 0x1c);
-                    const auto loopLength = readBigEndian32(record + 0x20);
-                    if (loopStart > 0 && loopLength > 0
-                        && loopStart < expectedFrames
-                        && loopLength <= expectedFrames - loopStart)
-                    {
-                        stroke.loopStartFrame = loopStart;
-                        stroke.loopEndFrame = loopStart + loopLength;
-                    }
+                    stroke.loopStartFrame = loopStart;
+                    stroke.loopEndFrame = loopStart + loopLength;
                 }
                 hasSignedTrim = hasSignedTrim || trimDb >= 0x8000;
                 if (bank == 0)
@@ -376,7 +411,6 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
                                                  stroke.interleavedPcm);
                 if (result.failed())
                     return result;
-                totalDecodedBytes += decodedBytes;
                 if (bank == 0)
                     rootsWithAttack[root] = true;
                 parsed.strokes.push_back(std::move(stroke));
