@@ -4660,6 +4660,21 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         juce::OwnedArray<juce::Component> owned;
     };
 
+    const auto isNordLayer = processor.layerType(index)
+        == ClassicPlayerAudioProcessor::LayerType::nord;
+    if (isNordLayer)
+    {
+        auto* importNordButton = new juce::TextButton("IMPORTAR NPNO");
+        flatButton(*importNordButton);
+        importNordButton->setTooltip("Importar um piano Nord (.npno) nesta layer");
+        importNordButton->setSize(220, 32);
+        importNordButton->onClick = [safe]
+        {
+            if (safe != nullptr) safe->chooseSoundFont();
+        };
+        dialog->addCustomComponent(new CenteredPanel(importNordButton, 620, 40));
+    }
+
     // On a 13-inch display the complete editor, including numeric values and
     // footer, must fit without an inner scroll area.
     if (sf2Panel != nullptr)
