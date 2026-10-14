@@ -413,6 +413,8 @@ static constexpr UiTranslation uiTranslations[] {
     { "Outros", "Other", "Otros" },
     { "LAYER SF2", "SF2 LAYER", "CAPA SF2" },
     { "Layer SF2", "SF2 Layer", "Capa SF2" },
+    { "Layer SF2 (.sf2)", "SF2 Layer (.sf2)", "Capa SF2 (.sf2)" },
+    { "Layer Nord Piano (.npno)", "Nord Piano Layer (.npno)", "Capa Nord Piano (.npno)" },
     { "Layer DX7 (.syx)", "DX7 Layer (.syx)", "Capa DX7 (.syx)" },
     { "Classic Keys Analog", "Classic Keys Analog", "Classic Keys Analog" },
     { "Layer Drum Pads (8)", "Drum Pads Layer (8)", "Capa Drum Pads (8)" },
@@ -4618,9 +4620,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     for (int control = 0; control < (int) editorParameterSuffixes.size(); ++control)
         knobs->bindParameter(control, processor.parameters,
                              prefix + editorParameterSuffixes[(size_t) control]);
-    auto* sf2Panel = new Sf2EditorPanel(processor, index);
-    sf2Panel->useCompactLayout(true);
-    sf2Panel->setSize(620, 190);
+    auto* sf2Panel = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::sf2
+        ? new Sf2EditorPanel(processor, index) : nullptr;
+    if (sf2Panel != nullptr)
+    {
+        sf2Panel->useCompactLayout(true);
+        sf2Panel->setSize(620, 190);
+    }
     knobs->useDenseGrid(true);
     knobs->setSize(620, 128);
     const juce::Component::SafePointer<LayerStrip> safe(this);
@@ -4656,7 +4662,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
 
     // On a 13-inch display the complete editor, including numeric values and
     // footer, must fit without an inner scroll area.
-    dialog->addCustomComponent(new CenteredPanel(sf2Panel, 620, 190));
+    if (sf2Panel != nullptr)
+        dialog->addCustomComponent(new CenteredPanel(sf2Panel, 620, 190));
     dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
         [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 620, 28));
@@ -4819,6 +4826,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::saveLayerPreset()
     switch (processor.layerType(index))
     {
         case ClassicPlayerAudioProcessor::LayerType::sf2: typeName = "SF2"; break;
+        case ClassicPlayerAudioProcessor::LayerType::nord: typeName = "Nord"; break;
         case ClassicPlayerAudioProcessor::LayerType::dx7: typeName = "DX7"; break;
         case ClassicPlayerAudioProcessor::LayerType::analog: typeName = "Moog"; break;
         case ClassicPlayerAudioProcessor::LayerType::hammond: typeName = "Hammond"; break;
@@ -5269,6 +5277,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showQuickPresetMenu()
 {
     if (quickPresetMenuOpen) return;
     const auto type = processor.layerType(index);
+    if (type == ClassicPlayerAudioProcessor::LayerType::nord) return;
     const auto sourcePath = type == ClassicPlayerAudioProcessor::LayerType::sf2 ? processor.soundFontPath(index)
         : type == ClassicPlayerAudioProcessor::LayerType::dx7 ? processor.dx7Path(index) : juce::String{};
     if (type == ClassicPlayerAudioProcessor::LayerType::vst)
@@ -5452,6 +5461,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
     paintPanel();
     const auto type = processor.layerType(index);
     auto category = type == ClassicPlayerAudioProcessor::LayerType::sf2 ? selectedCategoryId(categoryBox)
+                  : type == ClassicPlayerAudioProcessor::LayerType::nord ? "Nord"
                   : type == ClassicPlayerAudioProcessor::LayerType::dx7 ? "DX7"
                   : type == ClassicPlayerAudioProcessor::LayerType::hammond ? "Hammond"
                   : type == ClassicPlayerAudioProcessor::LayerType::analog ? "Moog Analog"
@@ -5545,6 +5555,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
         fileLabel.setBounds(area.removeFromTop(27));
         area.removeFromTop(4);
         presetBox.setBounds(area.removeFromTop(28));
+    }
+    else if (type == ClassicPlayerAudioProcessor::LayerType::nord)
+    {
+        loadButton.setBounds(area.removeFromTop(28));
+        area.removeFromTop(4);
+        fileLabel.setBounds(area.removeFromTop(27));
     }
     else if (type == ClassicPlayerAudioProcessor::LayerType::vst)
     {
@@ -5643,10 +5659,14 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
 {
-    fileChooser = std::make_unique<juce::FileChooser>(localizedUiText("Escolha um SoundFont ou piano Nord", activeUiLanguage.load()), juce::File{}, "*.sf2;*.SF2;*.npno;*.NPNO");
+    const auto isNord = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord;
+    const auto title = isNord ? "Escolha um piano Nord (.npno)" : "Escolha um SoundFont (.sf2)";
+    const auto filter = isNord ? "*.npno;*.NPNO" : "*.sf2;*.SF2";
+    fileChooser = std::make_unique<juce::FileChooser>(
+        localizedUiText(title, activeUiLanguage.load()), juce::File{}, filter);
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode |
                              juce::FileBrowserComponent::canSelectFiles,
-        [this](const juce::FileChooser& chooser)
+        [this, isNord](const juce::FileChooser& chooser)
         {
             const auto file = chooser.getResult();
             if (file == juce::File{}) return;
@@ -5654,15 +5674,19 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
             loadButton.setEnabled(false);
             fileLabel.setText(localizedUiText("Carregando...", activeUiLanguage.load()), juce::dontSendNotification);
             juce::File importedFile;
-            auto result = file.hasFileExtension(".npno")
-                ? juce::Result::ok()
-                : processor.importSoundFont(file, selectedCategoryId(categoryBox), importedFile);
-            if (file.hasFileExtension(".npno")) importedFile = file;
-            if (result.wasOk()) result = processor.loadSoundFont(index, importedFile);
+            auto result = juce::Result::ok();
+            if (isNord)
+                result = processor.loadNordPiano(index, file);
+            else
+            {
+                result = processor.importSoundFont(file, selectedCategoryId(categoryBox), importedFile);
+                if (result.wasOk()) result = processor.loadSoundFont(index, importedFile);
+            }
             loadButton.setEnabled(true);
             if (result.failed())
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                                       "Falha ao carregar instrumento", result.getErrorMessage());
+                    isNord ? "Falha ao importar piano Nord" : "Falha ao importar SF2",
+                    result.getErrorMessage());
             refresh();
         });
 }
@@ -5748,6 +5772,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
 {
     const auto type = processor.layerType(index);
     const auto isSf2 = type == ClassicPlayerAudioProcessor::LayerType::sf2;
+    const auto isNord = type == ClassicPlayerAudioProcessor::LayerType::nord;
     const auto isVst = type == ClassicPlayerAudioProcessor::LayerType::vst;
     const auto isDx7 = type == ClassicPlayerAudioProcessor::LayerType::dx7;
     const auto isAnalog = type == ClassicPlayerAudioProcessor::LayerType::analog;
@@ -5773,7 +5798,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     for (auto* control : sharedControls)
         control->setVisible(!isDrumPads);
 
-    loadButton.setVisible(isSf2);
+    loadButton.setButtonText(isNord ? "IMPORTAR NPNO" : "IMPORTAR SF2");
+    loadButton.setTooltip(isNord ? "Importar um piano Nord (.npno)" : "Importar um SoundFont (.sf2)");
+    loadButton.setVisible(isSf2 || isNord);
     categoryBox.setVisible(isSf2);
     libraryBox.setVisible(isSf2);
     deleteLibraryButton.setVisible(isSf2);
@@ -5793,7 +5820,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     chorusLabel.setVisible(isDx7 && expanded);
     sourceSummary.setText(fileLabel.getText().isNotEmpty()
                               ? fileLabel.getText()
-                              : (isSf2 ? "SF2" : isDx7 ? "DX7" : isAnalog ? "CLASSIC KEYS ANALOG"
+                              : (isSf2 ? "SF2" : isNord ? "NORD PIANO" : isDx7 ? "DX7" : isAnalog ? "CLASSIC KEYS ANALOG"
                                                    : isHammond ? "HAMMOND" : isVst ? "VST" : "DRUM PADS"),
                           juce::dontSendNotification);
     if (isDrumPads)
@@ -6108,13 +6135,17 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
         rebuildDx7Patches();
     }
 
-    const auto hasSource = type == ClassicPlayerAudioProcessor::LayerType::sf2 ? path.isNotEmpty()
+    const auto hasSource = (type == ClassicPlayerAudioProcessor::LayerType::sf2
+                            || type == ClassicPlayerAudioProcessor::LayerType::nord) ? path.isNotEmpty()
         : type == ClassicPlayerAudioProcessor::LayerType::vst ? externalName.isNotEmpty()
         : type == ClassicPlayerAudioProcessor::LayerType::dx7 ? processor.hasDx7(index)
         : type == ClassicPlayerAudioProcessor::LayerType::hammond || processor.hasAnalogSynth(index);
     const auto sourceLabel = type == ClassicPlayerAudioProcessor::LayerType::sf2
         ? (path.isNotEmpty() ? juce::File(path).getFileNameWithoutExtension()
                              : localizedUiText("Sem SoundFont", activeUiLanguage.load()))
+        : type == ClassicPlayerAudioProcessor::LayerType::nord
+            ? (path.isNotEmpty() ? juce::File(path).getFileNameWithoutExtension()
+                                 : localizedUiText("Sem piano Nord", activeUiLanguage.load()))
         : type == ClassicPlayerAudioProcessor::LayerType::vst
             ? (externalName.isNotEmpty() ? externalName
                                          : localizedUiText("Sem VST", activeUiLanguage.load()))
@@ -6405,21 +6436,23 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     addLayerButton.onClick = [this]
     {
         juce::PopupMenu menu;
-        menu.addItem(1, localizedUiText("Layer SF2 / Nord (.npno)", uiLanguage));
-        menu.addItem(2, localizedUiText("Layer DX7 (.syx)", uiLanguage));
-        menu.addItem(3, localizedUiText("Classic Keys Analog", uiLanguage));
-        menu.addItem(4, localizedUiText("Layer Drum Pads (8)", uiLanguage));
-        menu.addItem(5, localizedUiText("Hammond", uiLanguage));
-        menu.addItem(6, localizedUiText("Pad Continuo (12)", uiLanguage));
+        menu.addItem(1, localizedUiText("Layer SF2 (.sf2)", uiLanguage));
+        menu.addItem(2, localizedUiText("Layer Nord Piano (.npno)", uiLanguage));
+        menu.addItem(3, localizedUiText("Layer DX7 (.syx)", uiLanguage));
+        menu.addItem(4, localizedUiText("Classic Keys Analog", uiLanguage));
+        menu.addItem(5, localizedUiText("Layer Drum Pads (8)", uiLanguage));
+        menu.addItem(6, localizedUiText("Hammond", uiLanguage));
+        menu.addItem(7, localizedUiText("Pad Continuo (12)", uiLanguage));
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addLayerButton),
             [safeThis = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this)](int choice)
             {
                 if (safeThis == nullptr || choice == 0) return;
                 const auto type = choice == 1 ? ClassicPlayerAudioProcessor::LayerType::sf2
-                                : choice == 2 ? ClassicPlayerAudioProcessor::LayerType::dx7
-                                : choice == 3 ? ClassicPlayerAudioProcessor::LayerType::analog
-                                : choice == 5 ? ClassicPlayerAudioProcessor::LayerType::hammond
-                                : choice == 6 ? ClassicPlayerAudioProcessor::LayerType::continuousPads
+                                : choice == 2 ? ClassicPlayerAudioProcessor::LayerType::nord
+                                : choice == 3 ? ClassicPlayerAudioProcessor::LayerType::dx7
+                                : choice == 4 ? ClassicPlayerAudioProcessor::LayerType::analog
+                                : choice == 6 ? ClassicPlayerAudioProcessor::LayerType::hammond
+                                : choice == 7 ? ClassicPlayerAudioProcessor::LayerType::continuousPads
                                               : ClassicPlayerAudioProcessor::LayerType::drumPads;
                 safeThis->addLayer(type);
             });

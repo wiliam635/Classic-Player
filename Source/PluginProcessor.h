@@ -35,7 +35,7 @@ public:
     void panic();
     // A source is chosen only when a new layer is created. The initial four
     // layers are SF2 by design.
-    enum class LayerType { sf2 = 0, vst, dx7, analog, drumPads, hammond, continuousPads };
+    enum class LayerType { sf2 = 0, vst, dx7, analog, drumPads, hammond, continuousPads, nord };
     ContinuousPadBank& continuousPads(int layer) { return *continuousBanks[(size_t)layer]; }
     explicit ClassicPlayerAudioProcessor(juce::File programStorageOverride = {});
     ~ClassicPlayerAudioProcessor() override;
@@ -66,6 +66,7 @@ public:
     void setStateInformation(const void*, int) override;
 
     juce::Result loadSoundFont(int layer, const juce::File& file);
+    juce::Result loadNordPiano(int layer, const juce::File& file);
     void unloadSoundFont(int layer);
 
     // Hosting is intentionally available only to the standalone application.
