@@ -65,6 +65,23 @@ static void startupPrograms()
         config.midiChannel = savedChannels[layer];
         p->setLayerConfig(layer, config);
     }
+    const auto setLayerParameter = [&p](const juce::String& id, float value)
+    {
+        auto* parameter = p->parameters.getParameter(id);
+        check(parameter != nullptr, "layer effect parameter exists");
+        const auto normalized = parameter->convertTo0to1(value);
+        parameter->setValue(normalized);
+        if (auto* raw = p->parameters.getRawParameterValue(id))
+            raw->store(parameter->convertFrom0to1(normalized), std::memory_order_release);
+    };
+    setLayerParameter("layer1Attack", 12.0f);
+    setLayerParameter("layer1Release", 42.0f);
+    setLayerParameter("layer1Cutoff", 37.0f);
+    setLayerParameter("layer1Reverb", 33.0f);
+    setLayerParameter("layer1Comp", 45.0f);
+    setLayerParameter("layer1EqLow", -4.5f);
+    setLayerParameter("layer1EqMid", 2.5f);
+    setLayerParameter("layer1EqHigh", -1.5f);
     check(p->saveProgram("Last", last).wasOk(), "save last");
     check(p->loadProgram(first).wasOk(), "load older program");
     check(p->activeLayerCount() == 6, "older program layer count");
@@ -77,6 +94,17 @@ static void startupPrograms()
     check(p->parameters.getRawParameterValue("master")->load() == 75, "startup did not restore last SAVED program");
     check(p->currentSavedProgramName() == "Last", "restored program name");
     check(p->activeLayerCount() == 4, "startup expanded four layers to six");
+    for (const auto& [id, expected] : std::array<std::pair<const char*, float>, 8> {{
+             { "layer1Attack", 12.0f }, { "layer1Release", 42.0f },
+             { "layer1Cutoff", 37.0f }, { "layer1Reverb", 33.0f },
+             { "layer1Comp", 45.0f }, { "layer1EqLow", -4.5f },
+             { "layer1EqMid", 2.5f }, { "layer1EqHigh", -1.5f }
+         }})
+    {
+        const auto* actual = p->parameters.getRawParameterValue(id);
+        check(actual != nullptr && std::abs(actual->load() - expected) < 0.11f,
+              "layer sound controls did not survive save and reopen");
+    }
     for (int layer = 0; layer < 4; ++layer)
         check(p->layerConfig(layer).midiChannel == savedChannels[layer], "startup lost layer MIDI channel");
     p->parameters.getParameter("master")->setValueNotifyingHost(0.42f);

@@ -2939,32 +2939,17 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
     auto state = parameters.copyState();
-    // Keep every layer's complete reverb configuration in the program file.
-    // The learned REVERB control can update the audio-facing APVTS atomic
-    // before the adapter's ValueTree mirror is flushed, so explicitly snapshot
-    // the current values rather than relying on that mirror's timing.
-    static constexpr std::array<const char*, 5> reverbSuffixes {
-        "Reverb", "ReverbSize", "ReverbDamping", "ReverbWidth", "ReverbPreset"
-    };
-    for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
+    // The real-time MIDI Learn path writes directly to APVTS raw atomics so
+    // audio changes take effect immediately. Snapshot every live parameter
+    // into the serialized tree as well, or a save/close/reopen can restore a
+    // stale adapter value (notably cutoff, release, and the EQ controls).
+    for (int child = 0; child < state.getNumChildren(); ++child)
     {
-        const auto prefix = "layer" + juce::String(layer + 1);
-        for (const auto* suffix : reverbSuffixes)
-        {
-            const auto parameterId = prefix + suffix;
-            const auto* currentValue = parameters.getRawParameterValue(parameterId);
-            if (currentValue == nullptr) continue;
-            for (int child = 0; child < state.getNumChildren(); ++child)
-            {
-                auto parameterState = state.getChild(child);
-                if (parameterState.hasType("PARAM")
-                    && parameterState.getProperty("id").toString() == parameterId)
-                {
-                    parameterState.setProperty("value", currentValue->load(), nullptr);
-                    break;
-                }
-            }
-        }
+        auto parameterState = state.getChild(child);
+        if (!parameterState.hasType("PARAM")) continue;
+        const auto parameterId = parameterState.getProperty("id").toString();
+        if (const auto* currentValue = parameters.getRawParameterValue(parameterId))
+            parameterState.setProperty("value", currentValue->load(), nullptr);
     }
     state.setProperty("masterLearnCC", masterCC.load(), nullptr);
     state.setProperty("masterLearnChannel", masterCCChannel.load(), nullptr);

@@ -27,7 +27,17 @@ void SampleEngine::prepare(double sampleRate, int maximumBlockSize)
 {
     currentSampleRate = juce::jmax(1.0, sampleRate);
     currentBlockSize = juce::jmax(1, maximumBlockSize);
-    juce::ignoreUnused(currentBlockSize);
+    scratch.setSize(2, currentBlockSize, false, false, true);
+    for (auto& layer : layers)
+    {
+        layer.reverb.setSampleRate(currentSampleRate);
+        layer.reverb.reset();
+        layer.compressorEnvelope.fill(0.0f);
+        layer.cutoffState.fill(0.0f);
+        layer.eq.reset();
+        layer.gain.reset(currentSampleRate, 0.02);
+        layer.gain.setCurrentAndTargetValue(0.8f);
+    }
 }
 
 juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
@@ -53,6 +63,13 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
         destination.config.loop = false;
         destination.peak.store(0.0f, std::memory_order_release);
         destination.sustainDown.fill(false);
+        destination.cutoffState.fill(0.0f);
+        destination.compressorEnvelope.fill(0.0f);
+        destination.modulationAmount = 0.0f;
+        destination.modulationPhase = 0.0;
+        destination.eq.reset();
+        destination.reverb.reset();
+        destination.lastReverbParameters.fill(-1.0f);
         for (auto& voice : destination.voices) voice = {};
         return juce::Result::ok();
     }
@@ -78,6 +95,13 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
     destination.config.endSeconds = 0.0;
     destination.config.loop = false;
     destination.peak.store(0.0f, std::memory_order_release);
+    destination.cutoffState.fill(0.0f);
+    destination.compressorEnvelope.fill(0.0f);
+    destination.modulationAmount = 0.0f;
+    destination.modulationPhase = 0.0;
+    destination.eq.reset();
+    destination.reverb.reset();
+    destination.lastReverbParameters.fill(-1.0f);
     for (auto& voice : destination.voices) voice = {};
     return juce::Result::ok();
 }
@@ -92,6 +116,13 @@ void SampleEngine::unload(int layer)
     destination.pianoLoaded = false;
     destination.sourcePath.clear();
     destination.sustainDown.fill(false);
+    destination.cutoffState.fill(0.0f);
+    destination.compressorEnvelope.fill(0.0f);
+    destination.modulationAmount = 0.0f;
+    destination.modulationPhase = 0.0;
+    destination.eq.reset();
+    destination.reverb.reset();
+    destination.lastReverbParameters.fill(-1.0f);
     for (auto& voice : destination.voices) voice = {};
     destination.peak.store(0.0f, std::memory_order_release);
 }
@@ -172,8 +203,12 @@ void SampleEngine::startVoice(Layer& layer, int note, int channel, float velocit
     candidate->position = static_cast<double>(startSample);
     candidate->increment = std::pow(2.0, semitones / 12.0)
                          * layer.sourceSampleRate / currentSampleRate;
-    candidate->level = velocity * routing.gain;
+    candidate->level = velocity;
     candidate->velocity = velocity;
+    const auto attackSamples = juce::jmax(1.0, routing.attack * 0.001 * currentSampleRate);
+    candidate->attackGain = routing.attack <= 0.0f ? 1.0f : 0.0f;
+    candidate->attackStep = routing.attack <= 0.0f
+        ? 1.0f : static_cast<float>(1.0 / attackSamples);
     candidate->releaseGain = 1.0f;
     candidate->releaseCoefficient = 0.0f;
     candidate->pianoRelease = false;
@@ -240,8 +275,12 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     candidate->position = 0.0;
     candidate->increment = std::pow(2.0, semitones / 12.0)
                          * static_cast<double>(NordPianoDecoder::sampleRate) / currentSampleRate;
-    candidate->level = velocity * routing.gain * strokeGain;
+    candidate->level = velocity * strokeGain;
     candidate->velocity = velocity;
+    const auto attackSamples = juce::jmax(1.0, routing.attack * 0.001 * currentSampleRate);
+    candidate->attackGain = routing.attack <= 0.0f ? 1.0f : 0.0f;
+    candidate->attackStep = routing.attack <= 0.0f
+        ? 1.0f : static_cast<float>(1.0 / attackSamples);
     candidate->releaseGain = 1.0f;
     candidate->releaseCoefficient = 0.0f;
     candidate->pianoRelease = stroke.bank == 2;
@@ -313,17 +352,32 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
 {
     if ((!layer.pianoLoaded && layer.audio.getNumSamples() <= 0) || !routing.enabled) return;
 
+    if (!routing.sustainEnabled)
+    {
+        layer.sustainDown.fill(false);
+        for (auto& voice : layer.voices)
+            if (voice.active && voice.waitingForSustain)
+                releasePianoVoice(voice, routing.release);
+    }
+
     for (const auto metadata : midi)
     {
         const auto message = metadata.getMessage();
         if (routing.midiChannel > 0 && message.getChannel() != routing.midiChannel)
             continue;
 
+        if (message.isController() && message.getControllerNumber() == 1)
+        {
+            layer.modulationAmount = routing.modulationEnabled
+                ? message.getControllerValue() / 127.0f : 0.0f;
+            continue;
+        }
+
         if (layer.pianoLoaded && message.isController() && message.getControllerNumber() == 64)
         {
             const auto channel = juce::jlimit(1, 16, message.getChannel());
             const auto wasDown = layer.sustainDown[(size_t) channel - 1];
-            const auto isDown = message.getControllerValue() >= 64;
+            const auto isDown = routing.sustainEnabled && message.getControllerValue() >= 64;
             layer.sustainDown[(size_t) channel - 1] = isDown;
             if (wasDown && !isDown)
                 for (auto& voice : layer.voices)
@@ -337,7 +391,9 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             const auto inputNote = message.getNoteNumber();
             if (inputNote < routing.lowNote || inputNote > routing.highNote) continue;
             const auto note = juce::jlimit(0, 127, inputNote + routing.octave * 12);
-            const auto velocity = message.getFloatVelocity();
+            auto velocity = juce::jlimit(0.0f, 1.0f, message.getFloatVelocity());
+            if (routing.velocityCurve == 1) velocity = std::sqrt(velocity);
+            else if (routing.velocityCurve == 2) velocity *= velocity;
             if (layer.pianoLoaded)
             {
                 const auto channel = juce::jlimit(1, 16, message.getChannel());
@@ -432,7 +488,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 }
             }
 
-            const auto gain = voice.level * voice.releaseGain;
+            const auto gain = voice.level * voice.releaseGain * voice.attackGain;
             float left = 0.0f;
             float right = 0.0f;
             if (isPianoVoice)
@@ -451,6 +507,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             if (output.getNumChannels() > 0) output.addSample(0, sample, left);
             if (output.getNumChannels() > 1) output.addSample(1, sample, right);
             peak = juce::jmax(peak, std::abs(left), std::abs(right));
+            voice.attackGain = juce::jmin(1.0f, voice.attackGain + voice.attackStep);
             voice.position += voice.increment;
             if (voice.released)
             {
@@ -464,12 +521,148 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                      std::memory_order_relaxed);
 }
 
+void SampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<float>& output,
+                                        const Sf2Engine::LayerConfig& routing)
+{
+    const auto samples = scratch.getNumSamples();
+    if (samples <= 0) return;
+
+    const auto category = juce::File(layer.sourcePath).getParentDirectory().getFileName();
+    const auto modulation = routing.modulationEnabled
+        ? juce::jlimit(0.0f, 1.0f, layer.modulationAmount) : 0.0f;
+    if (modulation > 0.001f && (category == "Piano Eletrico" || category == "Organ"))
+    {
+        const auto tremolo = category == "Piano Eletrico";
+        const auto speedHz = tremolo ? 5.0f : 6.8f;
+        const auto phaseStep = juce::MathConstants<double>::twoPi * speedHz / currentSampleRate;
+        auto* left = scratch.getWritePointer(0);
+        auto* right = scratch.getWritePointer(1);
+        for (int sample = 0; sample < samples; ++sample)
+        {
+            const auto wave = static_cast<float>(std::sin(layer.modulationPhase));
+            layer.modulationPhase += phaseStep;
+            if (layer.modulationPhase >= juce::MathConstants<double>::twoPi)
+                layer.modulationPhase -= juce::MathConstants<double>::twoPi;
+            if (tremolo)
+            {
+                const auto gain = 1.0f - modulation * 0.58f * (0.5f + 0.5f * wave);
+                left[sample] *= gain;
+                right[sample] *= gain;
+            }
+            else
+            {
+                const auto pan = wave * modulation * 0.62f;
+                left[sample] *= 1.0f - pan;
+                right[sample] *= 1.0f + pan;
+            }
+        }
+    }
+
+    const auto cutoff = juce::jlimit(0.0f, 100.0f, routing.cutoff);
+    if (cutoff < 99.5f)
+    {
+        const auto frequency = 80.0f * std::pow(250.0f, cutoff / 100.0f);
+        const auto coefficient = std::exp(-juce::MathConstants<float>::twoPi * frequency
+                                          / static_cast<float>(currentSampleRate));
+        for (int channel = 0; channel < 2; ++channel)
+        {
+            auto state = layer.cutoffState[(size_t) channel];
+            auto* values = scratch.getWritePointer(channel);
+            for (int sample = 0; sample < samples; ++sample)
+            {
+                state = (1.0f - coefficient) * values[sample] + coefficient * state;
+                values[sample] = state;
+            }
+            layer.cutoffState[(size_t) channel] = state;
+        }
+    }
+
+    layer.eq.setParameters(routing.eqLow, routing.eqMid, routing.eqHigh,
+                           currentSampleRate, routing.eqLowFrequency,
+                           routing.eqMidFrequency, routing.eqHighFrequency,
+                           routing.eqLowQ, routing.eqMidQ, routing.eqHighQ);
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        auto* values = scratch.getWritePointer(channel);
+        for (int sample = 0; sample < samples; ++sample)
+            values[sample] = layer.eq.process(values[sample], channel);
+    }
+
+    const auto reverbMix = juce::jlimit(0.0f, 100.0f, routing.reverb) / 100.0f;
+    const std::array<float, 4> reverbValues {
+        reverbMix, routing.reverbSize, routing.reverbDamping, routing.reverbWidth
+    };
+    if (reverbValues != layer.lastReverbParameters)
+    {
+        juce::Reverb::Parameters parameters;
+        parameters.roomSize = juce::jlimit(0.0f, 1.0f, routing.reverbSize / 100.0f);
+        parameters.damping = juce::jlimit(0.0f, 1.0f, routing.reverbDamping / 100.0f);
+        parameters.width = juce::jlimit(0.0f, 1.0f, routing.reverbWidth / 100.0f);
+        parameters.wetLevel = reverbMix * 0.72f;
+        parameters.dryLevel = 1.0f;
+        parameters.freezeMode = 0.0f;
+        layer.reverb.setParameters(parameters);
+        layer.lastReverbParameters = reverbValues;
+    }
+    if (reverbMix > 0.001f)
+        layer.reverb.processStereo(scratch.getWritePointer(0), scratch.getWritePointer(1), samples);
+
+    const auto compressorMix = juce::jlimit(0.0f, 100.0f, routing.compressor) / 100.0f;
+    if (compressorMix > 0.001f)
+    {
+        const auto thresholdDb = juce::jlimit(-60.0f, 0.0f, routing.compressorThreshold);
+        const auto ratio = juce::jlimit(1.0f, 20.0f, routing.compressorRatio);
+        const auto attackSeconds = juce::jmax(0.0001f, routing.compressorAttack * 0.001f);
+        const auto releaseSeconds = juce::jmax(0.001f, routing.compressorRelease * 0.001f);
+        const auto attackCoefficient = std::exp(-1.0f / (attackSeconds * (float) currentSampleRate));
+        const auto releaseCoefficient = std::exp(-1.0f / (releaseSeconds * (float) currentSampleRate));
+        const auto makeup = juce::Decibels::decibelsToGain(
+            juce::jlimit(0.0f, 24.0f, routing.compressorMakeup));
+        for (int channel = 0; channel < 2; ++channel)
+        {
+            auto envelope = layer.compressorEnvelope[(size_t) channel];
+            auto* values = scratch.getWritePointer(channel);
+            for (int sample = 0; sample < samples; ++sample)
+            {
+                const auto dry = values[sample];
+                const auto magnitude = juce::jmax(1.0e-8f, std::abs(dry));
+                const auto coefficient = magnitude > envelope ? attackCoefficient : releaseCoefficient;
+                envelope = coefficient * envelope + (1.0f - coefficient) * magnitude;
+                const auto levelDb = juce::Decibels::gainToDecibels(envelope, -120.0f);
+                const auto overDb = juce::jmax(0.0f, levelDb - thresholdDb);
+                const auto reductionDb = overDb * (1.0f - 1.0f / ratio);
+                const auto wet = dry * juce::Decibels::decibelsToGain(-reductionDb) * makeup;
+                values[sample] = dry + (wet - dry) * compressorMix;
+            }
+            layer.compressorEnvelope[(size_t) channel] = envelope;
+        }
+    }
+
+    layer.gain.setTargetValue(juce::jmax(0.0f, routing.gain));
+    const auto leftPan = routing.pan <= 0.0f ? 1.0f : 1.0f - routing.pan;
+    const auto rightPan = routing.pan >= 0.0f ? 1.0f : 1.0f + routing.pan;
+    float peak = 0.0f;
+    for (int sample = 0; sample < samples; ++sample)
+    {
+        const auto gain = layer.gain.getNextValue();
+        const auto left = scratch.getSample(0, sample) * gain * leftPan;
+        const auto right = scratch.getSample(1, sample) * gain * rightPan;
+        if (output.getNumChannels() > 0) output.addSample(0, sample, left);
+        if (output.getNumChannels() > 1) output.addSample(1, sample, right);
+        peak = juce::jmax(peak, std::abs(left), std::abs(right));
+    }
+    layer.peak.store(juce::jmax(peak, layer.peak.load(std::memory_order_relaxed) * 0.82f),
+                     std::memory_order_relaxed);
+}
+
 void SampleEngine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer& midi,
                            const std::array<juce::MidiBuffer, layerCount>& routedMidi,
                            const std::array<Sf2Engine::LayerConfig, layerCount>& routing)
 {
     const juce::ScopedTryLock stateLock(lock);
     if (!stateLock.isLocked()) return;
+    if (scratch.getNumSamples() != output.getNumSamples())
+        scratch.setSize(2, output.getNumSamples(), false, false, true);
     for (int layer = 0; layer < layerCount; ++layer)
     {
         if (!layers[(size_t) layer].pianoLoaded || !routing[(size_t) layer].enabled)
@@ -478,6 +671,8 @@ void SampleEngine::process(juce::AudioBuffer<float>& output, const juce::MidiBuf
         events.clear();
         events.addEvents(midi, 0, -1, 0);
         events.addEvents(routedMidi[(size_t) layer], 0, -1, 0);
-        renderLayer(layers[(size_t) layer], output, events, routing[(size_t) layer]);
+        scratch.clear();
+        renderLayer(layers[(size_t) layer], scratch, events, routing[(size_t) layer]);
+        processEffectsAndMix(layers[(size_t) layer], output, routing[(size_t) layer]);
     }
 }

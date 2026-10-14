@@ -1994,16 +1994,21 @@ private:
 class NordPianoImportPanel final : public juce::Component
 {
 public:
-    NordPianoImportPanel(const juce::String& selectedCategory,
+    NordPianoImportPanel(ClassicPlayerAudioProcessor& p, int layer,
+                         const juce::String& selectedCategory,
                          std::function<void(const juce::String&)> onCategoryChanged,
-                         std::function<void()> onImport)
-        : categoryChanged(std::move(onCategoryChanged))
+                         std::function<void()> onInstrumentChanged)
+        : processor(p), index(layer), categoryChanged(std::move(onCategoryChanged)),
+          instrumentChanged(std::move(onInstrumentChanged))
     {
         categoryLabel.setText("CATEGORIA", juce::dontSendNotification);
         categoryLabel.setColour(juce::Label::textColourId, juce::Colour(text));
         categoryLabel.setFont(juce::FontOptions(10.0f, juce::Font::bold));
-        categoryLabel.setJustificationType(juce::Justification::centred);
         addAndMakeVisible(categoryLabel);
+        libraryLabel.setText("BIBLIOTECA NPNO", juce::dontSendNotification);
+        libraryLabel.setColour(juce::Label::textColourId, juce::Colour(text));
+        libraryLabel.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+        addAndMakeVisible(libraryLabel);
 
         const auto categories = ClassicPlayerAudioProcessor::soundFontCategories();
         int selectedId = 1;
@@ -2018,30 +2023,130 @@ public:
         categoryBox.onChange = [this]
         {
             if (categoryChanged) categoryChanged(categoryBox.getText());
+            rebuildLibrary();
         };
         addAndMakeVisible(categoryBox);
+
+        libraryBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
+        libraryBox.setColour(juce::ComboBox::textColourId, juce::Colour(text));
+        libraryBox.getProperties().set("uiDataItems", true);
+        libraryBox.onChange = [this]
+        {
+            const auto selected = libraryBox.getSelectedItemIndex();
+            if (!juce::isPositiveAndBelow(selected, libraryFiles.size())) return;
+            const auto result = processor.loadNordPiano(
+                index, libraryFiles.getReference(selected), selectedCategoryId(categoryBox));
+            if (result.failed())
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                    "Falha ao carregar piano Nord", result.getErrorMessage());
+            else
+            {
+                rebuildLibrary();
+                if (instrumentChanged) instrumentChanged();
+            }
+        };
+        addAndMakeVisible(libraryBox);
 
         flatButton(importButton);
         importButton.setButtonText("IMPORTAR NPNO");
         importButton.setTooltip("Importar um piano Nord (.npno) nesta categoria");
-        importButton.onClick = std::move(onImport);
+        importButton.onClick = [this]
+        {
+            chooser = std::make_unique<juce::FileChooser>(
+                "Escolha um piano Nord (.npno)", juce::File{}, "*.npno;*.NPNO");
+            chooser->launchAsync(juce::FileBrowserComponent::openMode
+                                     | juce::FileBrowserComponent::canSelectFiles,
+                [this](const juce::FileChooser& fileChooser)
+                {
+                    const auto source = fileChooser.getResult();
+                    if (!source.existsAsFile()) return;
+                    juce::File imported;
+                    auto result = processor.importNordPiano(
+                        source, selectedCategoryId(categoryBox), imported);
+                    if (result.wasOk())
+                        result = processor.loadNordPiano(index, imported, selectedCategoryId(categoryBox));
+                    if (result.failed())
+                        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                            "Falha ao importar piano Nord", result.getErrorMessage());
+                    else
+                    {
+                        rebuildLibrary();
+                        if (instrumentChanged) instrumentChanged();
+                    }
+                });
+        };
         addAndMakeVisible(importButton);
-        setSize(620, 40);
+
+        flatButton(deleteButton);
+        deleteButton.setButtonText("EXCLUIR NPNO");
+        deleteButton.setTooltip("Excluir o piano Nord selecionado da biblioteca");
+        deleteButton.onClick = [this]
+        {
+            const auto selected = libraryBox.getSelectedItemIndex();
+            if (!juce::isPositiveAndBelow(selected, libraryFiles.size())) return;
+            const auto file = libraryFiles.getReference(selected);
+            const juce::Component::SafePointer<NordPianoImportPanel> safe(this);
+            juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon,
+                "Excluir piano Nord", "Excluir '" + file.getFileName() + "' da biblioteca?",
+                "Excluir", "Cancelar", this, juce::ModalCallbackFunction::create(
+                    [safe, file](int answer)
+                    {
+                        if (safe == nullptr || answer == 0) return;
+                        const auto result = safe->processor.deleteLibraryNordPiano(file);
+                        if (result.failed())
+                            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                "Falha ao excluir piano Nord", result.getErrorMessage());
+                        safe->rebuildLibrary();
+                        if (safe->instrumentChanged) safe->instrumentChanged();
+                    }));
+        };
+        addAndMakeVisible(deleteButton);
+        rebuildLibrary();
+        setSize(620, 58);
     }
 
     void resized() override
     {
-        auto row = getLocalBounds().reduced(2, 3);
+        auto area = getLocalBounds().reduced(2, 2);
+        auto row = area.removeFromTop(27);
         categoryLabel.setBounds(row.removeFromLeft(100));
-        categoryBox.setBounds(row.removeFromLeft(260).reduced(2, 0));
-        importButton.setBounds(row.reduced(2, 0));
+        categoryBox.setBounds(row.removeFromLeft(260).reduced(2, 1));
+        importButton.setBounds(row.reduced(2, 1));
+        row = area.removeFromTop(27);
+        libraryLabel.setBounds(row.removeFromLeft(100));
+        libraryBox.setBounds(row.removeFromLeft(row.getWidth() - 105).reduced(2, 1));
+        deleteButton.setBounds(row.reduced(2, 1));
     }
 
 private:
+    void rebuildLibrary()
+    {
+        libraryFiles = processor.libraryNordPianos(selectedCategoryId(categoryBox));
+        libraryBox.clear(juce::dontSendNotification);
+        const auto currentPath = processor.soundFontPath(index);
+        int selectedId = 0;
+        for (int i = 0; i < libraryFiles.size(); ++i)
+        {
+            const auto& file = libraryFiles.getReference(i);
+            libraryBox.addItem(file.getFileNameWithoutExtension(), i + 1);
+            if (file.getFullPathName() == currentPath) selectedId = i + 1;
+        }
+        libraryBox.setTextWhenNothingSelected(libraryFiles.isEmpty()
+            ? "CATEGORIA VAZIA" : "ESCOLHA O NPNO");
+        if (selectedId > 0)
+            libraryBox.setSelectedId(selectedId, juce::dontSendNotification);
+        deleteButton.setEnabled(selectedId > 0);
+    }
+
+    ClassicPlayerAudioProcessor& processor;
+    int index;
     std::function<void(const juce::String&)> categoryChanged;
-    juce::Label categoryLabel;
-    juce::ComboBox categoryBox;
-    juce::TextButton importButton;
+    std::function<void()> instrumentChanged;
+    juce::Label categoryLabel, libraryLabel;
+    juce::ComboBox categoryBox, libraryBox;
+    juce::TextButton importButton, deleteButton;
+    juce::Array<juce::File> libraryFiles;
+    std::unique_ptr<juce::FileChooser> chooser;
 };
 
 class EffectPresetFilePanel final : public juce::Component
@@ -4723,7 +4828,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         == ClassicPlayerAudioProcessor::LayerType::nord;
     if (isNordLayer)
     {
-        auto* importNordPanel = new NordPianoImportPanel(selectedCategoryId(categoryBox),
+        auto* importNordPanel = new NordPianoImportPanel(processor, index,
+            selectedCategoryId(categoryBox),
             [safe](const juce::String& category)
             {
                 if (safe == nullptr) return;
@@ -4732,8 +4838,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
                 if (selected >= 0)
                     safe->categoryBox.setSelectedId(selected + 1, juce::sendNotificationSync);
             },
-            [safe] { if (safe != nullptr) safe->chooseSoundFont(); });
-        dialog->addCustomComponent(new CenteredPanel(importNordPanel, 620, 40));
+            [safe] { if (safe != nullptr) safe->refresh(); });
+        dialog->addCustomComponent(new CenteredPanel(importNordPanel, 620, 58));
     }
 
     // On a 13-inch display the complete editor, including numeric values and
@@ -4764,6 +4870,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     });
     dialog->setSize(actionWidth + 52, juce::jmin(570, screenHeight - 12));
     dialog->fitWithinApp(this);
+    dialog->fitCustomComponentsVertically();
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe, dialog, knobs, prefix](int)
         {
@@ -5353,8 +5460,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showQuickPresetMenu()
 {
     if (quickPresetMenuOpen) return;
     const auto type = processor.layerType(index);
-    if (type == ClassicPlayerAudioProcessor::LayerType::nord) return;
-    const auto sourcePath = type == ClassicPlayerAudioProcessor::LayerType::sf2 ? processor.soundFontPath(index)
+    const auto sourcePath = (type == ClassicPlayerAudioProcessor::LayerType::sf2
+        || type == ClassicPlayerAudioProcessor::LayerType::nord) ? processor.soundFontPath(index)
         : type == ClassicPlayerAudioProcessor::LayerType::dx7 ? processor.dx7Path(index) : juce::String{};
     if (type == ClassicPlayerAudioProcessor::LayerType::vst)
     {
@@ -5364,6 +5471,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showQuickPresetMenu()
     juce::PopupMenu menu;
     juce::Array<juce::File> banks;
     std::vector<Sf2Engine::Preset> sf2Presets;
+    const auto selectedCategory = selectedCategoryId(categoryBox);
     if (type == ClassicPlayerAudioProcessor::LayerType::sf2)
     {
         menu.addSectionHeader(categoryBox.getText());
@@ -5372,7 +5480,15 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showQuickPresetMenu()
             menu.addItem(i + 1, sf2Presets[(size_t) i].name, true,
                 sf2Presets[(size_t) i].bank == processor.layerPresetBank(index)
                 && sf2Presets[(size_t) i].program == processor.layerPresetProgram(index));
-        banks = processor.librarySoundFonts(selectedCategoryId(categoryBox));
+        banks = processor.librarySoundFonts(selectedCategory);
+    }
+    else if (type == ClassicPlayerAudioProcessor::LayerType::nord)
+    {
+        menu.addSectionHeader(categoryBox.getText());
+        banks = processor.libraryNordPianos(selectedCategory);
+        for (int i = 0; i < banks.size(); ++i)
+            menu.addItem(i + 1, banks.getReference(i).getFileNameWithoutExtension(), true,
+                         banks.getReference(i).getFullPathName() == sourcePath);
     }
     else if (type == ClassicPlayerAudioProcessor::LayerType::dx7)
     {
@@ -5391,7 +5507,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showQuickPresetMenu()
         for (int i = 0; i < (int) AnalogBrowserPresets::bank.size(); ++i)
             menu.addItem(i + 1, AnalogBrowserPresets::bank[(size_t) i].name);
     }
-    if (!banks.isEmpty())
+    if (!banks.isEmpty() && type != ClassicPlayerAudioProcessor::LayerType::nord)
     {
         juce::PopupMenu bankMenu;
         for (int i = 0; i < banks.size(); ++i)
@@ -5405,7 +5521,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showQuickPresetMenu()
     quickPresetMenuOpen = true;
     const juce::Component::SafePointer<LayerStrip> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withTargetScreenArea(
-        localAreaToGlobal(categoryArtworkBounds)), [safe, type, sourcePath, banks, sf2Presets](int selected)
+        localAreaToGlobal(categoryArtworkBounds)),
+        [safe, type, sourcePath, selectedCategory, banks, sf2Presets](int selected)
     {
         if (safe == nullptr) return;
         safe->quickPresetMenuOpen = false;
@@ -5416,6 +5533,18 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showQuickPresetMenu()
         if (selected == 0 || safe->processor.layerType(safe->index) != type) return;
         auto& p = safe->processor;
         const int layer = safe->index;
+        if (type == ClassicPlayerAudioProcessor::LayerType::nord)
+        {
+            const int piano = selected - 1;
+            if (p.soundFontPath(layer) != sourcePath
+                || !juce::isPositiveAndBelow(piano, banks.size())) return;
+            const auto result = p.loadNordPiano(layer, banks.getReference(piano), selectedCategory);
+            safe->refresh();
+            if (result.failed())
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                    "Falha ao carregar piano Nord", result.getErrorMessage());
+            return;
+        }
         if (selected >= 100000 && juce::isPositiveAndBelow(selected - 100000, banks.size()))
         {
             const auto result = type == ClassicPlayerAudioProcessor::LayerType::sf2
