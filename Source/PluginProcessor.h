@@ -65,8 +65,10 @@ public:
     void getStateInformation(juce::MemoryBlock&) override;
     void setStateInformation(const void*, int) override;
 
-    juce::Result loadSoundFont(int layer, const juce::File& file);
-    juce::Result loadNordPiano(int layer, const juce::File& file);
+    juce::Result loadSoundFont(int layer, const juce::File& file,
+                               const juce::String& category = {});
+    juce::Result loadNordPiano(int layer, const juce::File& file,
+                               const juce::String& category = {});
     void unloadSoundFont(int layer);
 
     // Hosting is intentionally available only to the standalone application.
@@ -157,6 +159,10 @@ public:
                                  juce::File& importedFile) const;
     juce::Array<juce::File> librarySoundFonts(const juce::String& category) const;
     juce::Result deleteLibrarySoundFont(const juce::File&);
+    juce::Result importNordPiano(const juce::File&, const juce::String& category,
+                                 juce::File& importedFile) const;
+    juce::Array<juce::File> libraryNordPianos(const juce::String& category) const;
+    juce::Result deleteLibraryNordPiano(const juce::File&);
 
     // Persistent Classic Player programs are standalone files, independent
     // from DAW session state, and work on both macOS and Windows.

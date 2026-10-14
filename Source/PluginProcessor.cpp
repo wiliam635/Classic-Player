@@ -7,6 +7,33 @@
 #include <algorithm>
 #include <array>
 
+namespace
+{
+bool categoryReleaseDefault(const juce::String& category, float& release)
+{
+    if (category == "Piano Acustico")
+    {
+        release = 30.0f;
+        return true;
+    }
+    if (category == "Piano Eletrico" || category == "Piano DX" || category == "Organ")
+    {
+        release = 0.0f;
+        return true;
+    }
+    return false;
+}
+
+void applyCategoryReleaseDefault(juce::AudioProcessorValueTreeState& parameters,
+                                 int layer, const juce::String& category)
+{
+    float release = 0.0f;
+    if (!categoryReleaseDefault(category, release)) return;
+    if (auto* parameter = parameters.getParameter("layer" + juce::String(layer + 1) + "Release"))
+        parameter->setValueNotifyingHost(parameter->convertTo0to1(release));
+}
+}
+
 juce::File ClassicPlayerAudioProcessor::startupSettingsFile() const
 {
     return programStorageDirectory().getChildFile("Startup.xml");
@@ -1050,7 +1077,8 @@ void ClassicPlayerAudioProcessor::refreshActivation()
     activated.store(LicenseVerifier::isActivated());
 }
 
-juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::File& file)
+juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::File& file,
+                                                         const juce::String& category)
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
@@ -1059,6 +1087,8 @@ juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::F
         return juce::Result::fail("Esta layer aceita arquivos SF2. Use uma layer Nord para importar .npno.");
     if (file.hasFileExtension(".npno"))
         return juce::Result::fail("Arquivos .npno devem ser carregados em uma layer Nord.");
+    if (category.isNotEmpty() && !soundFontCategories().contains(category))
+        return juce::Result::fail("Categoria de SoundFont invalida.");
     externalInstruments[(size_t) layer].unload();
     analogSynthEngine.unload(layer);
     hammondEngine.unload(layer);
@@ -1070,11 +1100,13 @@ juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::F
         dx7Engine.unload(layer);
         layerTypes[(size_t) layer].store(static_cast<int>(LayerType::sf2));
         savedPaths[(size_t) layer] = file.getFullPathName();
+        if (category.isNotEmpty()) applyCategoryReleaseDefault(parameters, layer, category);
     }
     return result;
 }
 
-juce::Result ClassicPlayerAudioProcessor::loadNordPiano(int layer, const juce::File& file)
+juce::Result ClassicPlayerAudioProcessor::loadNordPiano(int layer, const juce::File& file,
+                                                         const juce::String& category)
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
@@ -1083,6 +1115,8 @@ juce::Result ClassicPlayerAudioProcessor::loadNordPiano(int layer, const juce::F
         return juce::Result::fail("Adicione uma layer Nord para importar um piano .npno.");
     if (!file.hasFileExtension(".npno"))
         return juce::Result::fail("A layer Nord aceita somente arquivos .npno.");
+    if (category.isNotEmpty() && !soundFontCategories().contains(category))
+        return juce::Result::fail("Categoria de piano Nord inválida.");
 
     const auto result = sampleEngine.loadSample(layer, file);
     if (result.failed()) return result;
@@ -1094,6 +1128,10 @@ juce::Result ClassicPlayerAudioProcessor::loadNordPiano(int layer, const juce::F
     dx7Engine.unload(layer);
     savedPaths[(size_t) layer] = file.getFullPathName();
     nordLoaded[(size_t) layer].store(true, std::memory_order_release);
+
+    // Apply category defaults for a user load; project restoration calls this
+    // method without a category and keeps the saved parameter value intact.
+    if (category.isNotEmpty()) applyCategoryReleaseDefault(parameters, layer, category);
     return juce::Result::ok();
 }
 
@@ -2213,6 +2251,70 @@ juce::Result ClassicPlayerAudioProcessor::deleteLibrarySoundFont(const juce::Fil
     return file.deleteFile()
                ? juce::Result::ok()
                : juce::Result::fail("Nao foi possivel excluir o SF2 da biblioteca");
+}
+
+juce::Result ClassicPlayerAudioProcessor::importNordPiano(const juce::File& source,
+                                                           const juce::String& category,
+                                                           juce::File& importedFile) const
+{
+    if (!source.existsAsFile() || !source.hasFileExtension(".npno"))
+        return juce::Result::fail("Selecione um arquivo de piano Nord .npno valido");
+    if (!soundFontCategories().contains(category))
+        return juce::Result::fail("Categoria de piano Nord invalida");
+
+    auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                    .getChildFile("Classic Player").getChildFile("NordPianos").getChildFile(category);
+    const auto directoryResult = folder.createDirectory();
+    if (directoryResult.failed()) return directoryResult;
+
+    auto destination = folder.getChildFile(source.getFileName());
+    if (destination.existsAsFile())
+    {
+        if (source.hasIdenticalContentTo(destination))
+        {
+            importedFile = destination;
+            return juce::Result::ok();
+        }
+        destination = folder.getNonexistentChildFile(source.getFileNameWithoutExtension(), ".npno", true);
+    }
+    if (!source.copyFileTo(destination))
+        return juce::Result::fail("Nao foi possivel copiar o piano Nord para a biblioteca do aplicativo");
+    importedFile = destination;
+    return juce::Result::ok();
+}
+
+juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordPianos(
+    const juce::String& category) const
+{
+    juce::Array<juce::File> result;
+    if (!soundFontCategories().contains(category)) return result;
+    const auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                            .getChildFile("Classic Player").getChildFile("NordPianos").getChildFile(category);
+    folder.findChildFiles(result, juce::File::findFiles, false, "*.npno;*.NPNO");
+    std::sort(result.begin(), result.end(), [](const auto& a, const auto& b)
+    {
+        return a.getFileName().compareNatural(b.getFileName()) < 0;
+    });
+    return result;
+}
+
+juce::Result ClassicPlayerAudioProcessor::deleteLibraryNordPiano(const juce::File& file)
+{
+    if (!file.existsAsFile() || !file.hasFileExtension(".npno"))
+        return juce::Result::fail("Selecione um piano Nord .npno valido da biblioteca");
+
+    const auto libraryRoot = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                                 .getChildFile("Classic Player").getChildFile("NordPianos");
+    if (!file.isAChildOf(libraryRoot))
+        return juce::Result::fail("Apenas arquivos da biblioteca Nord do Classic Player podem ser excluidos");
+
+    for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
+        if (layerType(layer) == LayerType::nord && soundFontPath(layer) == file.getFullPathName())
+            unloadSoundFont(layer);
+
+    return file.deleteFile()
+               ? juce::Result::ok()
+               : juce::Result::fail("Nao foi possivel excluir o piano Nord da biblioteca");
 }
 
 void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* source,
