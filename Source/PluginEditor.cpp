@@ -5643,7 +5643,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
 {
-    fileChooser = std::make_unique<juce::FileChooser>(localizedUiText("Escolha um SoundFont", activeUiLanguage.load()), juce::File{}, "*.sf2;*.SF2");
+    fileChooser = std::make_unique<juce::FileChooser>(localizedUiText("Escolha um SoundFont ou piano Nord", activeUiLanguage.load()), juce::File{}, "*.sf2;*.SF2;*.npno;*.NPNO");
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode |
                              juce::FileBrowserComponent::canSelectFiles,
         [this](const juce::FileChooser& chooser)
@@ -5654,12 +5654,15 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
             loadButton.setEnabled(false);
             fileLabel.setText(localizedUiText("Carregando...", activeUiLanguage.load()), juce::dontSendNotification);
             juce::File importedFile;
-            auto result = processor.importSoundFont(file, selectedCategoryId(categoryBox), importedFile);
+            auto result = file.hasFileExtension(".npno")
+                ? juce::Result::ok()
+                : processor.importSoundFont(file, selectedCategoryId(categoryBox), importedFile);
+            if (file.hasFileExtension(".npno")) importedFile = file;
             if (result.wasOk()) result = processor.loadSoundFont(index, importedFile);
             loadButton.setEnabled(true);
             if (result.failed())
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                                       "Falha ao carregar SF2", result.getErrorMessage());
+                                                       "Falha ao carregar instrumento", result.getErrorMessage());
             refresh();
         });
 }
@@ -6402,7 +6405,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     addLayerButton.onClick = [this]
     {
         juce::PopupMenu menu;
-        menu.addItem(1, localizedUiText("Layer SF2", uiLanguage));
+        menu.addItem(1, localizedUiText("Layer SF2 / Nord (.npno)", uiLanguage));
         menu.addItem(2, localizedUiText("Layer DX7 (.syx)", uiLanguage));
         menu.addItem(3, localizedUiText("Classic Keys Analog", uiLanguage));
         menu.addItem(4, localizedUiText("Layer Drum Pads (8)", uiLanguage));

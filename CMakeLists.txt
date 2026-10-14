@@ -123,6 +123,10 @@ target_sources(ClassicPlayer PRIVATE
     Source/UpdateChecker.h
     Source/Sf2Engine.cpp
     Source/Sf2Engine.h
+    Source/SampleEngine.cpp
+    Source/SampleEngine.h
+    Source/NordPianoDecoder.cpp
+    Source/NordPianoDecoder.h
     Source/Dx7Engine.cpp
     Source/Dx7Engine.h
     Source/AnalogSynthEngine.cpp

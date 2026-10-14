@@ -363,6 +363,7 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     spectrumWritePosition.store(0, std::memory_order_relaxed);
     for (auto& sample : spectrumSamples) sample.store(0.0f, std::memory_order_relaxed);
     engine.prepare(sampleRate, samplesPerBlock);
+    sampleEngine.prepare(sampleRate, samplesPerBlock);
     dx7Engine.prepare(sampleRate, samplesPerBlock);
     analogSynthEngine.prepare(sampleRate, samplesPerBlock);
     hammondEngine.prepare(sampleRate, samplesPerBlock);
@@ -523,6 +524,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         return;
     }
 
+    std::array<Sf2Engine::LayerConfig, Sf2Engine::layerCount> nordRouting;
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
         auto config = engine.getConfig(i);
@@ -564,6 +566,10 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         config.dx7Chorus = parameters.getRawParameterValue(prefix + "Dx7Chorus")->load();
         config.modulationEnabled = parameters.getRawParameterValue(prefix + "ModulationEnabled")->load() >= 0.5f;
         engine.setConfig(i, config);
+        nordRouting[(size_t) i] = config;
+        nordRouting[(size_t) i].enabled = config.enabled
+            && type == LayerType::sf2
+            && nordLoaded[(size_t) i].load(std::memory_order_relaxed);
         dx7LayerConfigs[(size_t) i] = config;
         auto analogConfig = analogLayerConfigs[(size_t) i];
         analogConfig.routing = config;
@@ -585,6 +591,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         hammond.routing.enabled = config.enabled && type == LayerType::hammond;
     }
     engine.process(buffer, midi, &routedMidiBuffers);
+    sampleEngine.process(buffer, midi, routedMidiBuffers, nordRouting);
     renderExternalInstruments(buffer, midi);
     dx7Engine.process(buffer, midi, &routedMidiBuffers, dx7LayerConfigs);
     analogSynthEngine.process(buffer, midi, analogLayerConfigs, &routedMidiBuffers);
@@ -1051,9 +1058,24 @@ juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::F
     externalInstruments[(size_t) layer].unload();
     analogSynthEngine.unload(layer);
     hammondEngine.unload(layer);
+    if (file.hasFileExtension(".npno"))
+    {
+        const auto result = sampleEngine.loadSample(layer, file);
+        if (result.wasOk())
+        {
+            engine.unloadSoundFont(layer);
+            dx7Engine.unload(layer);
+            layerTypes[(size_t) layer].store(static_cast<int>(LayerType::sf2));
+            savedPaths[(size_t) layer] = file.getFullPathName();
+            nordLoaded[(size_t) layer].store(true, std::memory_order_release);
+        }
+        return result;
+    }
     const auto result = engine.loadSoundFont(layer, file);
     if (result.wasOk())
     {
+        nordLoaded[(size_t) layer].store(false, std::memory_order_release);
+        sampleEngine.unload(layer);
         dx7Engine.unload(layer);
         layerTypes[(size_t) layer].store(static_cast<int>(LayerType::sf2));
         savedPaths[(size_t) layer] = file.getFullPathName();
@@ -1065,6 +1087,8 @@ void ClassicPlayerAudioProcessor::unloadSoundFont(int layer)
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
     engine.unloadSoundFont(layer);
+    nordLoaded[(size_t) layer].store(false, std::memory_order_release);
+    sampleEngine.unload(layer);
     if (juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) savedPaths[(size_t) layer].clear();
 }
 
@@ -1091,6 +1115,8 @@ juce::Result ClassicPlayerAudioProcessor::loadExternalInstrument(int layer, cons
         // The callback lock is already held here; do not call unloadSoundFont(),
         // which also locks it. Loading an external instrument replaces the SF2.
         engine.unloadSoundFont(layer);
+        nordLoaded[(size_t) layer].store(false, std::memory_order_release);
+        sampleEngine.unload(layer);
         dx7Engine.unload(layer);
         layerTypes[(size_t) layer].store(static_cast<int>(LayerType::vst));
         savedPaths[(size_t) layer].clear();
@@ -1181,7 +1207,13 @@ void ClassicPlayerAudioProcessor::renderExternalInstruments(juce::AudioBuffer<fl
     // code or leaving an audible hidden layer.
 }
 
-juce::String ClassicPlayerAudioProcessor::soundFontPath(int layer) const { return engine.getSoundFontPath(layer); }
+juce::String ClassicPlayerAudioProcessor::soundFontPath(int layer) const
+{
+    if (juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)
+        && nordLoaded[(size_t) layer].load(std::memory_order_acquire))
+        return sampleEngine.path(layer);
+    return engine.getSoundFontPath(layer);
+}
 Sf2Engine::LayerConfig ClassicPlayerAudioProcessor::layerConfig(int layer) const { return engine.getConfig(layer); }
 void ClassicPlayerAudioProcessor::setLayerConfig(int layer, const Sf2Engine::LayerConfig& c) { engine.setConfig(layer, c); }
 bool ClassicPlayerAudioProcessor::isLayerMuted(int layer) const
@@ -1213,7 +1245,8 @@ float ClassicPlayerAudioProcessor::layerPeak(int layer) const
     // previously selected instrument after switching performances.
     switch (layerType(layer))
     {
-        case LayerType::sf2: return engine.getLayerPeak(layer);
+        case LayerType::sf2: return nordLoaded[(size_t) layer].load(std::memory_order_relaxed)
+            ? sampleEngine.getLayerPeak(layer) : engine.getLayerPeak(layer);
         case LayerType::dx7: return dx7Engine.getLayerPeak(layer);
         case LayerType::analog: return analogSynthEngine.getLayerPeak(layer);
         case LayerType::hammond: return hammondEngine.getLayerPeak(layer);
@@ -1238,6 +1271,11 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
 
     const juce::ScopedLock callbackLock(getCallbackLock());
     const auto previousType = layerType(layer);
+    if (type != LayerType::sf2)
+    {
+        nordLoaded[(size_t) layer].store(false, std::memory_order_release);
+        sampleEngine.unload(layer);
+    }
     if(previousType!=type)continuousPads(layer).stopImmediately();
     if(type==LayerType::continuousPads && previousType!=type)
     {
@@ -1300,6 +1338,8 @@ juce::Result ClassicPlayerAudioProcessor::loadDx7(int layer, const juce::File& f
     const auto result = dx7Engine.loadSysEx(layer, file);
     if (result.wasOk())
     {
+        nordLoaded[(size_t) layer].store(false, std::memory_order_release);
+        sampleEngine.unload(layer);
         savedPaths[(size_t) layer].clear();
         layerTypes[(size_t) layer].store(static_cast<int>(LayerType::dx7), std::memory_order_relaxed);
     }
@@ -1501,6 +1541,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         std::swap(continuousBanks[(size_t)destination],continuousBanks[(size_t)source]);
         const auto sourceType = layerType(source);
         const auto sourcePath = engine.getSoundFontPath(source);
+        const auto sourceNordPath = nordLoaded[(size_t) source].load(std::memory_order_acquire)
+            ? sampleEngine.path(source) : juce::String{};
         const auto sourceBank = engine.getSelectedBank(source);
         const auto sourceProgram = engine.getSelectedProgram(source);
         const auto sourceDx7Path = dx7Engine.path(source);
@@ -1513,6 +1555,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
 
         externalInstruments[(size_t) destination].unload();
         engine.unloadSoundFont(destination);
+        nordLoaded[(size_t) destination].store(false, std::memory_order_release);
+        sampleEngine.unload(destination);
         dx7Engine.unload(destination);
         analogSynthEngine.unload(destination);
         hammondEngine.unload(destination);
@@ -1521,6 +1565,11 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         {
             if (engine.loadSoundFont(destination, juce::File(sourcePath)).wasOk())
                 engine.selectPreset(destination, sourceBank, sourceProgram);
+        }
+        else if (sourceType == LayerType::sf2 && sourceNordPath.isNotEmpty())
+        {
+            if (sampleEngine.loadSample(destination, juce::File(sourceNordPath)).wasOk())
+                nordLoaded[(size_t) destination].store(true, std::memory_order_release);
         }
         else if (sourceType == LayerType::dx7 && sourceDx7Path.isNotEmpty())
         {
@@ -1577,6 +1626,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
 
     externalInstruments[(size_t) last].unload();
     engine.unloadSoundFont(last);
+    nordLoaded[(size_t) last].store(false, std::memory_order_release);
+    sampleEngine.unload(last);
     dx7Engine.unload(last);
     analogSynthEngine.unload(last);
     hammondEngine.unload(last);
@@ -2508,6 +2559,7 @@ void ClassicPlayerAudioProcessor::stopAllSoundsBeforeProgramChange()
     const juce::ScopedLock callbackLock(getCallbackLock());
     for(auto& bank:continuousBanks)bank->stopImmediately();
     engine.stopAllSounds();
+    sampleEngine.stopAllSounds();
     dx7Engine.stopAllSounds();
     analogSynthEngine.stopAllSounds();
     hammondEngine.stopAllSounds();
@@ -2804,7 +2856,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("dx7Layer" + juce::String(i + 1), dx7Engine.path(i), nullptr);
         state.setProperty("dx7Patch" + juce::String(i + 1), dx7Engine.selectedPatch(i), nullptr);
         const auto key = "sf2Layer" + juce::String(i + 1);
-        const auto path = engine.getSoundFontPath(i);
+        const auto path = soundFontPath(i);
         state.setProperty(key, path.isNotEmpty() ? path : savedPaths[(size_t) i], nullptr);
         state.setProperty("sf2Bank" + juce::String(i + 1), engine.getSelectedBank(i), nullptr);
         state.setProperty("sf2Program" + juce::String(i + 1), engine.getSelectedProgram(i), nullptr);
@@ -2905,6 +2957,11 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
         auto state = juce::ValueTree::fromXml(*xml);
         if (state.isValid())
         {
+            for (int i = 0; i < Sf2Engine::layerCount; ++i)
+            {
+                nordLoaded[(size_t) i].store(false, std::memory_order_release);
+                sampleEngine.unload(i);
+            }
             // MIDI changes queued for the previous performance must not
             // overwrite the effects and volumes restored below on the next
             // audio block or editor timer tick.
@@ -3110,6 +3167,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 if (externalInstruments[(size_t) i].isLoaded())
                 {
                     engine.unloadSoundFont(i);
+                    nordLoaded[(size_t) i].store(false, std::memory_order_release);
+                    sampleEngine.unload(i);
                     savedPaths[(size_t) i].clear();
                     if (externalState.getSize() > 0)
                         externalInstruments[(size_t) i].restoreState(externalState);
@@ -3269,8 +3328,16 @@ void ClassicPlayerAudioProcessor::restoreLayerPaths()
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
         if (layerType(i) == LayerType::sf2 && savedPaths[(size_t) i].isNotEmpty())
         {
-            if (engine.loadSoundFont(i, juce::File(savedPaths[(size_t) i])).wasOk())
+            if (juce::File(savedPaths[(size_t) i]).hasFileExtension(".npno"))
+            {
+                if (sampleEngine.loadSample(i, juce::File(savedPaths[(size_t) i])).wasOk())
+                    nordLoaded[(size_t) i].store(true, std::memory_order_release);
+            }
+            else if (engine.loadSoundFont(i, juce::File(savedPaths[(size_t) i])).wasOk())
+            {
+                nordLoaded[(size_t) i].store(false, std::memory_order_release);
                 engine.selectPreset(i, savedSf2Banks[(size_t) i], savedSf2Programs[(size_t) i]);
+            }
         }
 }
 

@@ -5,6 +5,7 @@
 #include <juce_dsp/juce_dsp.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "Sf2Engine.h"
+#include "SampleEngine.h"
 #include "Dx7Engine.h"
 #include "AnalogSynthEngine.h"
 #include "HammondEngine.h"
@@ -254,6 +255,8 @@ private:
     bool writeRecordedMidiFile();
 
     Sf2Engine engine;
+    SampleEngine sampleEngine;
+    std::array<std::atomic<bool>, Sf2Engine::layerCount> nordLoaded {};
     Dx7Engine dx7Engine;
     AnalogSynthEngine analogSynthEngine;
     HammondEngine hammondEngine;
