@@ -52,6 +52,7 @@ private:
         float level = 0.0f;
         float velocity = 0.0f;
         float releaseGain = 1.0f;
+        float releaseCoefficient = 0.0f;
         bool pianoRelease = false;
         bool waitingForSustain = false;
     };
@@ -74,8 +75,8 @@ private:
     void startPianoVoice(Layer&, int sampleIndex, int note, int channel, float velocity,
                          const Sf2Engine::LayerConfig& routing);
     int findPianoStroke(const Layer&, int note, float velocity, int bank) const;
-    void releasePianoVoice(Voice&);
-    void releaseVoice(Layer&, int note, int channel);
+    void releasePianoVoice(Voice&, float releaseControl);
+    void releaseVoice(Layer&, int note, int channel, float releaseControl);
     void renderLayer(Layer&, juce::AudioBuffer<float>&,
                      const juce::MidiBuffer&, const Sf2Engine::LayerConfig&);
     static float readInterpolated(const juce::AudioBuffer<float>&, int channel, double position);

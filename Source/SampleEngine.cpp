@@ -2,6 +2,22 @@
 #include <algorithm>
 #include <cmath>
 
+namespace
+{
+float releaseCoefficientFor(float releaseControl, double sampleRate)
+{
+    // Match the shared layer Release control: 50 is 0.5 s and 100 is 10 s.
+    // Values are mapped to the time it takes the envelope to become inaudible.
+    const auto value = juce::jlimit(0.0f, 100.0f, releaseControl);
+    const auto releaseSeconds = value <= 50.0f
+        ? juce::jmax(0.005f, value * 0.01f)
+        : 0.5f * std::pow(20.0f, (value - 50.0f) / 50.0f);
+    constexpr auto silenceThreshold = 0.0001f;
+    const auto releaseSamples = juce::jmax(1.0, static_cast<double>(releaseSeconds) * sampleRate);
+    return static_cast<float>(std::exp(std::log(silenceThreshold) / releaseSamples));
+}
+}
+
 SampleEngine::SampleEngine()
 {
     formats.registerBasicFormats();
@@ -159,6 +175,7 @@ void SampleEngine::startVoice(Layer& layer, int note, int channel, float velocit
     candidate->level = velocity * routing.gain;
     candidate->velocity = velocity;
     candidate->releaseGain = 1.0f;
+    candidate->releaseCoefficient = 0.0f;
     candidate->pianoRelease = false;
     candidate->waitingForSustain = false;
 }
@@ -226,22 +243,28 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     candidate->level = velocity * routing.gain * strokeGain;
     candidate->velocity = velocity;
     candidate->releaseGain = 1.0f;
+    candidate->releaseCoefficient = 0.0f;
     candidate->pianoRelease = stroke.bank == 2;
     candidate->waitingForSustain = false;
 }
 
-void SampleEngine::releasePianoVoice(Voice& voice)
+void SampleEngine::releasePianoVoice(Voice& voice, float releaseControl)
 {
-    if (!voice.active || voice.pianoRelease) return;
+    if (!voice.active || voice.pianoRelease || voice.released) return;
     voice.waitingForSustain = false;
     voice.released = true;
+    voice.releaseCoefficient = releaseCoefficientFor(releaseControl, currentSampleRate);
 }
 
-void SampleEngine::releaseVoice(Layer& layer, int note, int channel)
+void SampleEngine::releaseVoice(Layer& layer, int note, int channel, float releaseControl)
 {
     for (auto& voice : layer.voices)
-        if (voice.active && voice.note == note && (channel == 0 || voice.channel == channel))
+        if (voice.active && !voice.released && voice.note == note
+            && (channel == 0 || voice.channel == channel))
+        {
             voice.released = true;
+            voice.releaseCoefficient = releaseCoefficientFor(releaseControl, currentSampleRate);
+        }
 }
 
 float SampleEngine::readInterpolated(const juce::AudioBuffer<float>& audio,
@@ -305,7 +328,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             if (wasDown && !isDown)
                 for (auto& voice : layer.voices)
                     if (voice.active && voice.waitingForSustain && voice.channel == channel)
-                        releasePianoVoice(voice);
+                        releasePianoVoice(voice, routing.release);
             continue;
         }
 
@@ -348,11 +371,11 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                     for (auto& voice : layer.voices)
                         if (voice.active && voice.sampleIndex >= 0 && !voice.pianoRelease
                             && voice.note == note && voice.channel == channel)
-                            releasePianoVoice(voice);
+                            releasePianoVoice(voice, routing.release);
                 }
             }
             else
-                releaseVoice(layer, note, message.getChannel());
+                releaseVoice(layer, note, message.getChannel(), routing.release);
         }
     }
 
@@ -431,7 +454,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             voice.position += voice.increment;
             if (voice.released)
             {
-                voice.releaseGain *= std::exp(-1.0f / static_cast<float>(0.12 * currentSampleRate));
+                voice.releaseGain *= voice.releaseCoefficient;
                 if (voice.releaseGain < 0.0001f) { voice.active = false; break; }
             }
         }
