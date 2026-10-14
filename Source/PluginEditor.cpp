@@ -121,15 +121,17 @@ void drawCategoryArtwork(juce::Graphics& g, juce::Rectangle<int> bounds,
                          const juce::String& category, juce::Colour accent)
 {
     if (bounds.isEmpty()) return;
-    static constexpr std::array<const char*, 13> resourceNames {
+    static constexpr std::array<const char*, 14> resourceNames {
         "pianoacustico_png", "pianoeletrico_png", "pianodx_jpeg",
         "strings_png", "pad_png", "synth_png", "brass_png", "organ_png",
-        "guitar_png", "bass_png", "bells_png", "efeitos_png", "outros_png"
+        "guitar_png", "bass_png", "bells_png", "efeitos_png", "outros_png",
+        "pianonord_png"
     };
     static std::array<std::unique_ptr<juce::Image>, resourceNames.size()> images;
     const auto categories = ClassicPlayerAudioProcessor::soundFontCategories();
     auto imageIndex = categories.indexOf(category);
     if (category == "DX7") imageIndex = 2;
+    else if (category == "Nord") imageIndex = 13;
     else if (category == "Hammond") imageIndex = 7;
     else if (category == "Moog Analog" || category == "Synth") imageIndex = 5;
     if (juce::isPositiveAndBelow(imageIndex, (int) images.size()))

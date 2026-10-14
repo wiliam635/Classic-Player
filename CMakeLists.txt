@@ -101,6 +101,7 @@ juce_add_binary_data(ClassicPlayerAssets
         Resources/CategoryArt/piano-acustico.png
         Resources/CategoryArt/piano-eletrico.png
         Resources/CategoryArt/piano-dx.jpeg
+        Resources/CategoryArt/piano-nord.png
         Resources/CategoryArt/strings.png
         Resources/CategoryArt/pad.png
         Resources/CategoryArt/synth.png
