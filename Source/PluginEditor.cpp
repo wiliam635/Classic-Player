@@ -1081,6 +1081,73 @@ private:
                    lowNoteBox, highNoteBox, velocityBox;
 };
 
+class NordPianoTimbrePanel final : public juce::Component
+{
+public:
+    NordPianoTimbrePanel(ClassicPlayerAudioProcessor& p, int layer)
+        : processor(p), index(layer)
+    {
+        title.setText("EQUALIZER", juce::dontSendNotification);
+        title.setColour(juce::Label::textColourId, juce::Colour(text));
+        title.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+        title.setJustificationType(juce::Justification::centredRight);
+        addAndMakeVisible(title);
+
+        const std::array<const char*, 3> names {{ "SOFT", "MID", "BRIGHT" }};
+        const std::array<const char*, 3> hints {{
+            "Soft: seleciona uma camada de velocity mais suave do piano Nord.",
+            "Mid: reduz levemente graves e agudos.",
+            "Bright: realça os agudos do piano Nord."
+        }};
+        for (int mode = 0; mode < 3; ++mode)
+        {
+            auto& button = modes[(size_t) mode];
+            button.setButtonText(names[(size_t) mode]);
+            button.setTooltip(hints[(size_t) mode]);
+            button.setClickingTogglesState(true);
+            flatButton(button);
+            addAndMakeVisible(button);
+            button.onClick = [this, mode] { selectMode(mode); };
+        }
+
+        selectMode(processor.layerConfig(index).pianoTimbre, false);
+        setSize(410, 42);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds();
+        title.setBounds(area.removeFromLeft(112));
+        area.removeFromLeft(8);
+        const auto buttonWidth = area.getWidth() / 3;
+        for (int mode = 0; mode < 3; ++mode)
+        {
+            auto buttonArea = mode == 2 ? area : area.removeFromLeft(buttonWidth);
+            modes[(size_t) mode].setBounds(buttonArea.reduced(3, 4));
+        }
+    }
+
+private:
+    void selectMode(int mode, bool updateProcessor = true)
+    {
+        mode = juce::jlimit(0, 2, mode);
+        for (int i = 0; i < 3; ++i)
+            modes[(size_t) i].setToggleState(i == mode, juce::dontSendNotification);
+
+        if (updateProcessor)
+        {
+            auto config = processor.layerConfig(index);
+            config.pianoTimbre = mode;
+            processor.setLayerConfig(index, config);
+        }
+    }
+
+    ClassicPlayerAudioProcessor& processor;
+    int index;
+    juce::Label title;
+    std::array<juce::TextButton, 3> modes;
+};
+
 class LayerMidiLearnPanel final : public juce::Component
 {
 public:
@@ -1545,6 +1612,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     };
     loadButton.onClick = [this] { chooseSoundFont(); };
     sampleButton.onClick = [this] { chooseSample(); };
+    sampleButton.setTooltip("Importar áudio ou piano Nord (.npno)");
     externalInstrumentButton.onClick = [this] { chooseExternalInstrument(); };
     dx7Button.onClick = [this]
     {
@@ -1797,10 +1865,22 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         { "REVERB", valueOf(prefix + "Reverb", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "COMP", valueOf(prefix + "Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 }
     }, 4);
-    auto* sf2Panel = new Sf2EditorPanel(processor, index);
-    // Match the compact editor slot so the SF2 controls are not followed by
-    // an oversized empty region when the dialog is displayed at full size.
-    sf2Panel->setSize(680, 275);
+    const auto isSampleLayer = processor.layerType(index)
+        == ClassicPlayerAudioProcessor::LayerType::sample;
+    const auto samplePath = processor.samplePath(index);
+    const auto isNordPiano = isSampleLayer
+        && juce::File(samplePath).getFileExtension().equalsIgnoreCase(".npno");
+    juce::Component* sourcePanel = nullptr;
+    if (isSampleLayer)
+        sourcePanel = new LayerRoutingEditorPanel(processor, index);
+    else
+    {
+        auto* sf2Panel = new Sf2EditorPanel(processor, index);
+        // Match the compact editor slot so the SF2 controls are not followed
+        // by an oversized empty region in the dialog.
+        sf2Panel->setSize(680, 275);
+        sourcePanel = sf2Panel;
+    }
     const juce::Component::SafePointer<LayerStrip> safe(this);
     auto* effectButtons = new LayerEffectButtons(
         [safe] { if (safe != nullptr) safe->showReverbEditor(); },
@@ -1831,12 +1911,15 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         juce::OwnedArray<juce::Component> owned;
     };
 
-    // The SF2 editor uses only the upper portion of its panel for the
-    // library/routing controls.  Keeping the old 430 px slot created a large
-    // empty gap before the effect knobs and made the dialog unnecessarily
-    // tall.  Reserve only the space the controls actually occupy.
-    dialog->addCustomComponent(new CenteredPanel(sf2Panel, 620, 275));
-    // Four SF2 controls share one compact row in the reference editor.
+    // Sample/NPNO layers use their own routing controls, never the SF2
+    // library/import panel.  Add the three Nord piano EQ voicings only for
+    // NPNO instruments.
+    dialog->addCustomComponent(new CenteredPanel(sourcePanel, 620,
+                                                   isSampleLayer ? 170 : 275));
+    if (isNordPiano)
+        dialog->addCustomComponent(new CenteredPanel(
+            new NordPianoTimbrePanel(processor, index), 410, 42));
+    // The four main layer controls share one compact row.
     dialog->addCustomComponent(new CenteredPanel(knobs, 520, 124));
     dialog->addCustomComponent(new CenteredPanel(effectButtons, 360, 38));
     dialog->addCustomComponent(new CenteredPanel(midiPanel, 520, 52));
@@ -2038,6 +2121,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
         auto summaryRow = area.removeFromTop(28);
         sourceSummary.setBounds(summaryRow.removeFromLeft(summaryRow.getWidth() - 70).reduced(3, 1));
         editButton.setBounds(summaryRow.reduced(1, 1));
+        if (type == ClassicPlayerAudioProcessor::LayerType::sample)
+        {
+            area.removeFromTop(3);
+            sampleButton.setBounds(area.removeFromTop(27).reduced(2, 1));
+        }
         area.removeFromTop(4);
         auto faderArea = area.reduced(8, 4);
         volumeLearn.setBounds(faderArea.removeFromBottom(24).withWidth(juce::jmin(86, faderArea.getWidth())));
@@ -2163,8 +2251,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSample()
 {
     fileChooser = std::make_unique<juce::FileChooser>(
-        "Escolha um sample de audio", juce::File{},
-        "*.wav;*.WAV;*.aif;*.AIF;*.aiff;*.AIFF;*.flac;*.FLAC;*.ogg;*.OGG;*.mp3;*.MP3");
+        "Escolha um sample de audio ou piano Nord", juce::File{},
+        "*.wav;*.WAV;*.aif;*.AIF;*.aiff;*.AIFF;*.flac;*.FLAC;*.ogg;*.OGG;*.mp3;*.MP3;*.npno;*.NPNO");
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode
                              | juce::FileBrowserComponent::canSelectFiles,
         [this](const juce::FileChooser& chooser)
@@ -2361,6 +2449,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
         };
         for (auto* control : detailedControls)
             control->setVisible(false);
+        if (isSample)
+            sampleButton.setVisible(true);
         sourceSummary.setVisible(true);
         gain.setVisible(true);
         meter.setVisible(true);
@@ -2591,7 +2681,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
     }
     else if (type == ClassicPlayerAudioProcessor::LayerType::sample)
     {
-        sampleButton.setButtonText("TROCAR SAMPLE");
+        sampleButton.setButtonText(processor.hasSample(index) ? "TROCAR SAMPLE" : "IMPORTAR SAMPLE");
     }
 
     const auto hasSource = type == ClassicPlayerAudioProcessor::LayerType::sf2 ? path.isNotEmpty()
@@ -2785,7 +2875,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(ClassicPlay
         menu.addItem(2, "Layer DX7 (.syx)");
         menu.addItem(3, "Classic Keys Analog");
         menu.addItem(4, "Layer Drum Pads (8)");
-        menu.addItem(5, "Layer Sample (WAV/AIFF/FLAC)");
+        menu.addItem(5, "Layer Sample / Piano Nord (.npno)");
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addLayerButton),
             [safeThis = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this)](int choice)
             {

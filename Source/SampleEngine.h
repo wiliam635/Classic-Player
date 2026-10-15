@@ -1,9 +1,12 @@
 #pragma once
 
 #include <juce_audio_formats/juce_audio_formats.h>
+#include "NordPianoDecoder.h"
 #include "Sf2Engine.h"
 #include <array>
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 
 // A small, self-contained sample instrument used by the clean-room Samplit
 // compatibility layer.  It intentionally keeps the audio callback free from
@@ -12,6 +15,7 @@ class SampleEngine
 {
 public:
     static constexpr int layerCount = Sf2Engine::layerCount;
+    static constexpr std::size_t maxVoicesPerLayer = 512;
 
     struct LayerConfig
     {
@@ -45,30 +49,48 @@ private:
         int note = -1;
         int channel = 1;
         int age = 0;
+        int sampleIndex = -1; // Nord piano stroke; -1 means the single audio buffer
         double position = 0.0;
         double increment = 1.0;
         float level = 0.0f;
+        float velocity = 0.0f;
         float releaseGain = 1.0f;
+        float releaseSeconds = 0.12f;
+        std::uint64_t renderedSamples = 0;
+        bool pianoRelease = false;
+        bool waitingForSustain = false;
     };
 
     struct Layer
     {
         juce::AudioBuffer<float> audio;
+        NordPianoDecoder::Instrument piano;
+        bool pianoLoaded = false;
         juce::String sourcePath;
         double sourceSampleRate = 44100.0;
         LayerConfig config;
-        std::array<Voice, 32> voices;
+        std::array<Voice, maxVoicesPerLayer> voices;
+        std::array<bool, 16> sustainDown {};
+        std::array<float, 2> pianoLowEqState {};
+        std::array<float, 2> pianoHighEqState {};
         std::atomic<float> peak { 0.0f };
     };
 
     void startVoice(Layer&, int note, int channel, float velocity,
                     const Sf2Engine::LayerConfig& routing);
+    void startPianoVoice(Layer&, int sampleIndex, int note, int channel, float velocity,
+                         const Sf2Engine::LayerConfig& routing);
+    int findPianoStroke(const Layer&, int note, float velocity, int bank, int timbre) const;
+    void releasePianoVoice(Voice&);
     void releaseVoice(Layer&, int note, int channel);
     void renderLayer(Layer&, juce::AudioBuffer<float>&,
                      const juce::MidiBuffer&, const Sf2Engine::LayerConfig&);
     static float readInterpolated(const juce::AudioBuffer<float>&, int channel, double position);
+    static float readPianoInterpolated(const NordPianoDecoder::Stroke&, int channels,
+                                       int channel, double position);
 
     std::array<Layer, layerCount> layers;
+    juce::AudioBuffer<float> pianoScratch;
     juce::AudioFormatManager formats;
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;

@@ -1625,7 +1625,7 @@ juce::Result ClassicPlayerAudioProcessor::loadProgram(const juce::File& programF
 void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
 {
     auto state = parameters.copyState();
-    state.setProperty("stateVersion", 165, nullptr);
+    state.setProperty("stateVersion", 166, nullptr);
     state.setProperty("activeLayers", activeLayerCount(), nullptr);
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
@@ -1648,6 +1648,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("high" + juce::String(i), config.highNote, nullptr);
         state.setProperty("octave" + juce::String(i), config.octave, nullptr);
         state.setProperty("velocityCurve" + juce::String(i), config.velocityCurve, nullptr);
+        state.setProperty("pianoTimbre" + juce::String(i + 1), config.pianoTimbre, nullptr);
         // Mono Legato and Portamento are distinct layer modes and must remain
         // distinct when a performance is saved and restored.
         state.setProperty("mono" + juce::String(i), config.mono, nullptr);
@@ -1774,7 +1775,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                         writeParameter(gainId, 80.0f);
                 }
             }
-            state.setProperty("stateVersion", 165, nullptr);
+            state.setProperty("stateVersion", 166, nullptr);
             parameters.replaceState(state);
             for (int pad = 0; pad < drumPadCount; ++pad)
             {
@@ -1933,6 +1934,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.highNote = state.getProperty("high" + juce::String(i), 127);
                 config.octave = state.getProperty("octave" + juce::String(i), 0);
                 config.velocityCurve = state.getProperty("velocityCurve" + juce::String(i), 0);
+                config.pianoTimbre = juce::jlimit(0, 2, static_cast<int>(state.getProperty(
+                    "pianoTimbre" + juce::String(i + 1), config.pianoTimbre)));
                 // State created before the separate Portamento mode used the
                 // legacy "mono" property. Preserve it as Mono Legato rather
                 // than silently changing the player's selected mode.

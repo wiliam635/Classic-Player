@@ -27,6 +27,7 @@ public:
         int highNote = 127;
         int octave = 0;
         int velocityCurve = 0; // 0 linear, 1 soft, 2 hard
+        int pianoTimbre = 1; // NPNO only: 0 soft, 1 mid, 2 bright
         float gain = 0.8f;
         float pan = 0.0f;
         float release = 50.0f;
