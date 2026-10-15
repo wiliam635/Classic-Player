@@ -16,6 +16,7 @@ public:
     // created with + LAYER without the former eight-layer ceiling.
     static constexpr int defaultLayerCount = 6;
     static constexpr int layerCount = 16;
+    static constexpr int polyphonyPerLayer = 512;
 
     struct LayerConfig
     {

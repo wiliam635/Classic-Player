@@ -2163,9 +2163,9 @@ public:
 
         const std::array<const char*, 3> names {{ "SOFT", "MID", "BRIGHT" }};
         const std::array<const char*, 3> hints {{
-            "Seleciona uma camada de velocity mais suave do piano Nord.",
-            "Reduz levemente graves e agudos.",
-            "Realça os agudos do piano Nord."
+            "Som mais quente, com ataque e agudos suavizados; atua tambem com sustain.",
+            "Destaca o corpo e os medios do piano Nord.",
+            "Realca a clareza e os harmonicos agudos do piano Nord."
         }};
         for (int mode = 0; mode < 3; ++mode)
         {

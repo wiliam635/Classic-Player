@@ -48,6 +48,13 @@ static void performanceEffectsRegression()
     }};
     const auto set = [&](int performance)
     {
+        for (int layer = 0; layer < 3; ++layer)
+        {
+            processor->setLayerType(layer, ClassicPlayerAudioProcessor::LayerType::nord);
+            auto routing = processor->layerConfig(layer);
+            routing.pianoTimbre = (performance + layer) % 3;
+            processor->setLayerConfig(layer, routing);
+        }
         for (const auto& [id, pair] : values)
         {
             auto* parameter = processor->parameters.getParameter(id);
@@ -57,6 +64,9 @@ static void performanceEffectsRegression()
     };
     const auto verify = [&](int performance)
     {
+        for (int layer = 0; layer < 3; ++layer)
+            check(processor->layerConfig(layer).pianoTimbre == (performance + layer) % 3,
+                  "NPNO voicing did not restore with the performance");
         for (const auto& [id, pair] : values)
             check(std::abs(processor->parameters.getRawParameterValue(id)->load()
                            - pair[(size_t) performance]) < 0.11f,
@@ -78,6 +88,12 @@ static void performanceEffectsRegression()
         *processor, juce::MidiMessage::controllerEvent(1, 21, 127));
     check(processor->loadLiveSetSlot(0, 0).wasOk(), "Live Set load effects A");
     processor->consumeMidiControlUpdates();
+    verify(0);
+    juce::MemoryBlock savedState;
+    processor->getStateInformation(savedState);
+    processor.reset();
+    processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
+    processor->setStateInformation(savedState.getData(), static_cast<int>(savedState.getSize()));
     verify(0);
     std::cout << "Performance EQ, compressor, reverb and chorus restore passed\n";
 }

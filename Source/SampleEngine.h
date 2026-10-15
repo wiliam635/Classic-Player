@@ -39,13 +39,14 @@ public:
                  const std::array<Sf2Engine::LayerConfig, layerCount>& routing);
 
 private:
+    friend struct SampleEngineRegressionTests;
     struct Voice
     {
         bool active = false;
         bool released = false;
         int note = -1;
         int channel = 1;
-        int age = 0;
+        std::uint64_t age = 0; // rendered frames, independent of callback size
         int sampleIndex = -1; // Nord piano stroke; -1 means the single audio buffer
         double position = 0.0;
         double increment = 1.0;
@@ -67,12 +68,13 @@ private:
         juce::String sourcePath;
         double sourceSampleRate = 44100.0;
         LayerConfig config;
-        std::array<Voice, 32> voices;
+        std::array<Voice, Sf2Engine::polyphonyPerLayer> voices;
         std::array<bool, 16> sustainDown {};
         std::array<float, 2> cutoffState {};
         std::array<float, 2> compressorEnvelope {};
         std::array<float, 2> pianoLowEqState {};
         std::array<float, 2> pianoHighEqState {};
+        std::array<juce::SmoothedValue<float>, 3> pianoTimbreGains;
         double modulationPhase = 0.0;
         float modulationAmount = 0.0f;
         juce::SmoothedValue<float> gain;
@@ -86,7 +88,8 @@ private:
                     const Sf2Engine::LayerConfig& routing);
     void startPianoVoice(Layer&, int sampleIndex, int note, int channel, float velocity,
                          const Sf2Engine::LayerConfig& routing);
-    int findPianoStroke(const Layer&, int note, float velocity, int bank, int timbre) const;
+    static Voice& allocateVoice(Layer&);
+    int findPianoStroke(const Layer&, int note, float velocity, int bank) const;
     void releasePianoVoice(Voice&, float releaseControl);
     void releaseVoice(Layer&, int note, int channel, float releaseControl);
     void renderLayer(Layer&, juce::AudioBuffer<float>&,

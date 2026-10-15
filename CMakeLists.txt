@@ -246,6 +246,13 @@ endif()
 
 if(CLASSIC_PLAYER_BUILD_TESTS)
     enable_testing()
+    juce_add_console_app(ClassicPlayerSampleEngineTest PRODUCT_NAME "Classic Player NPNO Regression Test")
+    target_sources(ClassicPlayerSampleEngineTest PRIVATE
+        Source/SampleEngineRegressionTest.cpp Source/SampleEngine.cpp Source/NordPianoDecoder.cpp)
+    target_compile_definitions(ClassicPlayerSampleEngineTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+    target_link_libraries(ClassicPlayerSampleEngineTest PRIVATE
+        ${CLASSIC_PLAYER_FLUID_TARGET} juce::juce_audio_formats)
+    add_test(NAME npno-regression COMMAND ClassicPlayerSampleEngineTest)
     if(WIN32)
         juce_add_console_app(ClassicPlayerVst3HostSmokeTest PRODUCT_NAME "Classic Player VST3 Host Smoke Test")
         target_sources(ClassicPlayerVst3HostSmokeTest PRIVATE tools/vst3_host_smoke_test.cpp)
