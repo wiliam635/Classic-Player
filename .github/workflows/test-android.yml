@@ -3,7 +3,9 @@ name: Android - emulator audio regression
 on:
   workflow_dispatch:
   push:
-    branches: ['codex/fix-user-refresh']
+    paths:
+      - 'android/**'
+      - '.github/workflows/test-android.yml'
 
 permissions:
   contents: read
