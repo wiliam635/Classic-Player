@@ -2003,6 +2003,8 @@ public final class MainActivity extends Activity {
                 button(canvas, "MIDI LEARN · VOLUME", 52, h*.59f, actionRight, h*.66f, pendingLearnTarget>=0);
                 button(canvas, "PARAR TODAS AS NOTAS", 52, h*.69f, actionRight, h*.76f, false);
                 button(canvas, "VOLTAR AO MIXER", 52, h*.79f, actionRight, h*.86f, false);
+                box(canvas,48,h*.455f,w*.46f,h*.515f,EditorUi.SURFACE,true);
+                fittedText(canvas,audioEngine.voiceStatus(),60,w*.46f-12,h*.488f,h*.016f,EditorUi.MUTED);
                 button(canvas,"TAXA · "+(audioEngine.sampleRateMode()==0?"NATIVA":audioEngine.sampleRateMode()==2?"48 kHz":"44,1 kHz"),w*.48f,h*.56f,w-52,h*.615f,false);
                 button(canvas, "AJUSTAR BUFFER · "+audioEngine.bufferFrames()+" FRAMES",w*.48f,h*.62f,w-52,h*.675f,false);
                 fittedText(canvas,audioEngine.outputStatus(),w*.48f,w-52,h*.70f,h*.017f,text);

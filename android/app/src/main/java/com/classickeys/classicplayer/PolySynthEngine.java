@@ -31,6 +31,8 @@ final class PolySynthEngine {
     private volatile int renderPeakMicros;
     private volatile int renderSlowBlocks;
     private volatile int renderMeasuredBlocks;
+    private long nextVoiceDiagnosticsRefresh;
+    private String voiceDiagnosticsText = "POLIFONIA · carregue uma layer";
 
     PolySynthEngine() { }
     PolySynthEngine(Context context) {
@@ -147,6 +149,24 @@ final class PolySynthEngine {
     double outputLatencyMillis() { return nativeOutputActive?nativeOutputLatency():-1; }
     int[] outputInfo() { return nativeOutputActive?nativeOutputInfo():new int[14]; }
     int[] midiQueueDiagnostics() { return nativeMidiQueueDiagnostics(); }
+    int[] voiceDiagnostics() { return nativeVoiceDiagnostics(); }
+    String voiceStatus() {
+        long now=android.os.SystemClock.uptimeMillis();
+        if(now<nextVoiceDiagnosticsRefresh)return voiceDiagnosticsText;
+        nextVoiceDiagnosticsRefresh=now+200;
+        int[] values=nativeVoiceDiagnostics();
+        StringBuilder status=new StringBuilder("POLIFONIA");
+        boolean found=false;
+        if(values!=null)for(int layer=0;layer<6&&layer*2+1<values.length;layer++){
+            int active=Math.max(0,values[layer*2]),budget=Math.max(0,values[layer*2+1]);
+            if(budget==0)continue;
+            status.append(found?" · ":"  ").append("L").append(layer+1).append(' ')
+                    .append(active).append('/').append(budget);
+            found=true;
+        }
+        voiceDiagnosticsText=found?status.toString():"POLIFONIA · carregue uma layer";
+        return voiceDiagnosticsText;
+    }
 
     static { System.loadLibrary("classic_player_native"); }
 
@@ -195,6 +215,7 @@ final class PolySynthEngine {
     private static native void nativeStopOutput();
     private static native int[] nativeOutputInfo();
     private static native int[] nativeMidiQueueDiagnostics();
+    private static native int[] nativeVoiceDiagnostics();
     private static native double nativeOutputLatency();
     private static native void nativeSetOutputDefaults(int sampleRate,int framesPerBurst);
     int activeVoices(int layer) { return nativeActiveVoices(layer); }

@@ -75,6 +75,14 @@ std::array<std::atomic<float>, kLayerCount> publishedLayerPeaks {
 // Keep each engine in float until the final output conversion. Clipping a
 // SoundFont or a processed layer to PCM16 here cannot be undone by the master.
 std::array<float, kMaxFrames * 2> scratch {};
+// The synth mutex serializes offline and realtime renders, so these fixed
+// scratch buffers can be reused instead of reserving ~40 KiB on every audio
+// callback's stack.
+std::array<float, kMaxFrames * 2> mixBuffer {}, reverbSendBuffer {};
+std::array<float, kMaxFrames> hammondSideBuffer {};
+std::array<std::atomic<int>, kLayerCount> publishedActiveVoices {};
+std::array<std::atomic<int>, kLayerCount> publishedLayerVoiceBudgets {};
+std::atomic<bool> voiceDiagnosticsRequested {false};
 float masterGain = 0.8f;
 float smoothedMasterGain = 0.8f;
 float masterPeak = 0.0f;
@@ -330,7 +338,12 @@ void distributeLayerVoiceBudgets()
     for(int layer=0;layer<kLayerCount;++layer){
         const auto li=(size_t)layer;
         const int budget=budgets[li];
-        if(engineTypes[li]==EngineType::empty){layerVoiceBudgets[li]=0;continue;}
+        if(engineTypes[li]==EngineType::empty){
+            layerVoiceBudgets[li]=0;
+            publishedLayerVoiceBudgets[li].store(0,std::memory_order_relaxed);
+            publishedActiveVoices[li].store(0,std::memory_order_relaxed);
+            continue;
+        }
         int effectiveBudget=budget;
         if(engineTypes[li]==EngineType::dx7){
             // DX7 note objects are large enough that eagerly allocating 256
@@ -348,6 +361,7 @@ void distributeLayerVoiceBudgets()
             }
         }
         layerVoiceBudgets[li]=effectiveBudget;
+        publishedLayerVoiceBudgets[li].store(effectiveBudget,std::memory_order_relaxed);
         if(engineTypes[li]==EngineType::sf2&&fonts[li]!=nullptr)
             tsf_set_max_voices(fonts[li],effectiveBudget);
         // When another motor is added, trim any now-out-of-budget voices.
@@ -446,6 +460,7 @@ void releaseLayer(const int layer)
     analogLayers[(size_t)layer]={};
     hammondLayers[(size_t)layer]={};
     engineTypes[(size_t)layer] = EngineType::empty;
+    publishedActiveVoices[(size_t)layer].store(0,std::memory_order_relaxed);
 }
 
 void sendAllNotesOff()
@@ -478,6 +493,21 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeMidiQueueDiagnostics(JN
     };
     auto result=env->NewIntArray(7);
     if(result)env->SetIntArrayRegion(result,0,7,values);
+    return result;
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeVoiceDiagnostics(JNIEnv* env,jclass)
+{
+    voiceDiagnosticsRequested.store(true,std::memory_order_relaxed);
+    jint values[kLayerCount * 2] = {};
+    for(int layer=0;layer<kLayerCount;++layer){
+        const auto li=(size_t)layer;
+        values[layer*2]=publishedActiveVoices[li].load(std::memory_order_relaxed);
+        values[layer*2+1]=publishedLayerVoiceBudgets[li].load(std::memory_order_relaxed);
+    }
+    auto result=env->NewIntArray(kLayerCount * 2);
+    if(result)env->SetIntArrayRegion(result,0,kLayerCount * 2,values);
     return result;
 }
 
@@ -1111,11 +1141,8 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
     // These arrays have room for the largest supported callback, but the
     // current block is normally much shorter. Clear only the region used by
     // this block; clearing all 2048 frames for each USB sub-block wasted CPU.
-    std::array<float, kMaxFrames * 2> mix;
-    std::array<float, kMaxFrames * 2> reverbSend;
-    std::array<float,kMaxFrames> hammondSide;
-    std::fill_n(mix.data(),samples,0.0f);
-    std::fill_n(reverbSend.data(),samples,0.0f);
+    std::fill_n(mixBuffer.data(),samples,0.0f);
+    std::fill_n(reverbSendBuffer.data(),samples,0.0f);
     for (int layer = 0; layer < kLayerCount; ++layer)
     {
         const auto li=(size_t)layer;
@@ -1221,7 +1248,7 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
                 organ.rotaryDelayPosition=(organ.rotaryDelayPosition+1)%kHammondDelayFrames;
                 scratch[(size_t)sample*2]=(left+right)*.5f;
                 scratch[(size_t)sample*2+1]=scratch[(size_t)sample*2];
-                hammondSide[(size_t)sample]=(left-right)*.5f;
+                hammondSideBuffer[(size_t)sample]=(left-right)*.5f;
             }
         }
         else if(engineTypes[(size_t)layer]==EngineType::analog) {
@@ -1306,7 +1333,7 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
             const float envelope=std::max(0.000001f,compressorEnvelope[li]);
             const float compressionGain=envelope>threshold
                     ?(threshold+(envelope-threshold)/compressorRatio[li])/envelope:1.0f;
-            const float side=engineTypes[li]==EngineType::hammond?hammondSide[(size_t)frame]:0.0f;
+            const float side=engineTypes[li]==EngineType::hammond?hammondSideBuffer[(size_t)frame]:0.0f;
             for(int channel=0;channel<2;++channel){
                 float& value=shaped[(size_t)channel];
                 const float compressed=value*compressionGain;
@@ -1338,8 +1365,8 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
                 const size_t sample=(size_t)frame*2+(size_t)channel;
                 const float sideGain=channel==0?leftPan:rightPan;
                 const float layerSample=scratch[sample]*gain*sideGain;
-                mix[sample]+=layerSample;
-                if(!originalSf2)reverbSend[sample]+=layerSample*layerReverbSend[li];
+                mixBuffer[sample]+=layerSample;
+                if(!originalSf2)reverbSendBuffer[sample]+=layerSample*layerReverbSend[li];
                 renderedPeaks[li]=std::max(renderedPeaks[li],std::abs(scratch[sample]*gain));
             }
         }
@@ -1359,8 +1386,8 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
         const int read = (effectCursor + (int)reverbBuffer.size() - delay + (int)reverbBuffer.size()) % (int)reverbBuffer.size();
         const float delayed = reverbBuffer[(size_t)read];
         const float chorus = reverbBuffer[(size_t)((effectCursor + (int)reverbBuffer.size() - 960 + (sample & 3) * 24) % (int)reverbBuffer.size())];
-        const float dry = mix[(size_t)sample];
-        const float send=reverbSend[(size_t)sample]+dry*reverbMix;
+        const float dry = mixBuffer[(size_t)sample];
+        const float send=reverbSendBuffer[(size_t)sample]+dry*reverbMix;
         const float effected = dry + delayed * 0.55f + (chorus - dry) * chorusMix * 0.22f;
         reverbBuffer[(size_t)effectCursor] = send + delayed * reverbFeedback;
         effectCursor = (effectCursor + 1) % (int)reverbBuffer.size();
@@ -1377,6 +1404,32 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
     for (int layer = 0; layer < kLayerCount; ++layer) {
         layerPeaks[(size_t) layer] = std::max(renderedPeaks[(size_t) layer], layerPeaks[(size_t) layer] * 0.88f);
         publishedLayerPeaks[(size_t)layer].store(layerPeaks[(size_t)layer],std::memory_order_relaxed);
+    }
+    // Count voices only while the diagnostics screen is polling. This keeps
+    // the normal realtime callback free of an extra scan over every engine's
+    // voice pool.
+    if(voiceDiagnosticsRequested.exchange(false,std::memory_order_relaxed)){
+        for(int layer=0;layer<kLayerCount;++layer){
+            int active=0;
+            const auto li=(size_t)layer;
+            switch(engineTypes[li]){
+                case EngineType::sf2:
+                    if(fonts[li])active=tsf_active_voice_count(fonts[li]);
+                    break;
+                case EngineType::dx7:
+                    for(int i=0;i<layerVoiceBudgets[li];++i)if(dxLayers[li].voices[(size_t)i].active)++active;
+                    break;
+                case EngineType::analog:
+                    for(int i=0;i<layerVoiceBudgets[li];++i)if(analogLayers[li].voices[(size_t)i].active)++active;
+                    break;
+                case EngineType::hammond:
+                    for(int i=0;i<layerVoiceBudgets[li];++i)if(hammondLayers[li].voices[(size_t)i].active)++active;
+                    break;
+                case EngineType::empty:
+                    break;
+            }
+            publishedActiveVoices[li].store(active,std::memory_order_relaxed);
+        }
     }
     masterPeak = std::max(renderedMasterPeak, masterPeak * 0.88f);
     publishedMasterPeak.store(masterPeak,std::memory_order_relaxed);

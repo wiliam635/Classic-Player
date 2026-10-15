@@ -78,6 +78,20 @@ public class AudioRegressionTest {
         engine.noteOff(84,0);pcm(RATE*3);assertEquals(0,engine.activeVoices(0));
     }
 
+    @Test public void voiceDiagnosticsPublishPerLayerActivityAndBudget() throws Exception {
+        activate(1,0);
+        engine.voiceDiagnostics(); // Arm the on-demand voice-pool scan.
+        engine.noteOn(60,100,0);
+        pcm(1024);
+        int[] snapshot=engine.voiceDiagnostics();
+        assertNotNull(snapshot);
+        assertEquals("One active-voice and budget pair per layer",12,snapshot.length);
+        assertEquals(256,snapshot[1]);
+        assertTrue("A rendered note must appear in the lock-free snapshot",snapshot[0]>0);
+        assertEquals("An empty layer must have no voice quota",0,snapshot[3]);
+        assertTrue(engine.voiceStatus().contains("L1 "));
+    }
+
     @Test public void midiQueueOverflowIsVisibleAndSafetyPanicStillWorks() throws Exception {
         for(int i=0;i<64&&engine.midiQueueDiagnostics()[0]>0;i++)pcm(BLOCK);
         activate(3,0);

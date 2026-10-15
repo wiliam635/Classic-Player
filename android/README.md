@@ -25,11 +25,13 @@ O APK será instalado em Android 6 ou superior. Para MIDI USB, use um adaptador 
 
 A partir da versão 1.0.3, a saída tenta usar um callback nativo Oboe/AAudio com baixa latência e modo exclusivo. Quando o dispositivo não oferece essa rota, o app mantém a saída compatível via AudioTrack. O tamanho escolhido (por exemplo, 128 frames) é um pedido: o Android ou a interface USB podem conceder um buffer maior. A tela Áudio/MIDI mostra o buffer e o burst efetivos, o modo de saída, underruns e a latência estimada somente da saída (sem incluir o percurso MIDI). Uma meta de 5 ms de tecla a som exige medição física no conjunto tablet, CK61 e cabo; não é garantida pela configuração de 128 frames.
 
+Na tela Áudio/MIDI, o indicador de polifonia mostra vozes ativas/cota por layer. Em SF2, a contagem representa vozes de regiões de amostra, então um acorde pode consumir várias por nota. A leitura é publicada por snapshot sem bloquear o callback e só percorre os pools enquanto a tela de diagnóstico está consultando.
+
 O Oboe 1.9.3 é obtido da fonte oficial durante a compilação, com verificação SHA-256. Sua licença Apache 2.0 está incluída em `app/src/main/assets/licenses/Oboe-LICENSE.txt`.
 
 ## Limitações atuais
 
-- SF2, DX7 e Classic Keys Analog já são motores de áudio reais. Hammond, Drum Pads e Pads Contínuos ainda precisam ser portados para o renderizador Android.
+- SF2, DX7 e Classic Keys Analog já são motores de áudio reais. Hammond, Drum Pads, Pads Contínuos e NPNO ainda precisam ser portados para o renderizador Android.
 - Live Set e a edição avançada das layers ainda serão conectados ao mesmo motor nas próximas etapas.
 `LicenseManager` já mantém token, nome/e-mail da conta e uma janela offline de 30 dias; a tela de login e a validação HTTP serão conectadas ao serviço na próxima integração.
  A tela de login Android foi adicionada e envia as credenciais para `/v1/auth/login`; após sucesso, o Mixer é aberto e a sessão fica disponível offline.
