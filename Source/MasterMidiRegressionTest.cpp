@@ -26,6 +26,102 @@ static void ccAudioOnly(ClassicPlayerAudioProcessor& processor, int channel, int
     processor.processBlock(audio, midi);
 }
 
+static void layerDefaultsSplitAndMasterEqLearn()
+{
+    using Processor = ClassicPlayerAudioProcessor;
+    auto p = std::make_unique<Processor>();
+    p->prepareToPlay(48000, 128);
+    p->resetToNewProgram();
+    check(p->addLayer(), "create first layer");
+    auto config = p->layerConfig(0);
+    config.octave = 3; config.lowNote = 48; config.highNote = 72;
+    config.midiChannel = 9; config.mono = true; config.sustainEnabled = false;
+    p->setLayerConfig(0, config);
+    check(p->addLayer(Processor::LayerType::nord), "create independent NPNO layer");
+    config = p->layerConfig(1);
+    check(config.octave == 0 && config.lowNote == 0 && config.highNote == 127
+          && config.midiChannel == 1 && !config.mono && config.sustainEnabled,
+          "new layer inherited previous layer routing");
+    // Dirty an INACTIVE slot as older sessions/removals can do.
+    const auto slot = p->activeLayerCount();
+    config.octave = -3; config.midiChannel = 16; config.lowNote = 60; config.highNote = 61;
+    p->setLayerConfig(slot, config);
+    p->setLayerMidiDevice(slot, "stale-device");
+    p->parameters.getParameter("layer3Cutoff")->setValueNotifyingHost(0.2f);
+    p->beginMidiLearn(slot, Processor::LearnTarget::cutoff);
+    cc(*p, 4, 74, 12);
+    check(p->addLayer(), "reuse dirty inactive slot");
+    config = p->layerConfig(slot);
+    check(config.octave == 0 && config.midiChannel == 1 && config.lowNote == 0 && config.highNote == 127,
+          "reused slot retained stale routing");
+    check(p->layerMidiDevice(slot).isEmpty() && p->midiLearnCC(slot, Processor::LearnTarget::cutoff) < 0,
+          "reused slot retained device or CC mapping");
+    check(p->parameters.getRawParameterValue("layer3Cutoff")->load() == 100.0f,
+          "new layer retained stale effect parameter");
+    check(p->layerConfig(0).octave == 3 && p->layerConfig(0).midiChannel == 9,
+          "adding layer modified existing layer");
+
+    const auto play = [&p](juce::MidiMessage message)
+    {
+        juce::AudioBuffer<float> audio(2, 128); audio.clear();
+        juce::MidiBuffer midi; midi.addEvent(message, 0);
+        p->processBlock(audio, midi);
+        p->consumeMidiControlUpdates();
+    };
+    p->beginSplitLearn(0, false);
+    play(juce::MidiMessage::noteOff(2, 36));
+    check(p->isSplitLearning(0, false), "note-off captured as split");
+    play(juce::MidiMessage::noteOn(2, 36, (juce::uint8) 100));
+    check(p->layerConfig(0).lowNote == 36 && !p->isSplitLearning(0, false),
+          "raw split capture rejected channel/out-of-range note or transposed it");
+    play(juce::MidiMessage::noteOn(2, 40, (juce::uint8) 100));
+    check(p->layerConfig(0).lowNote == 36, "split capture not one-shot");
+    p->beginSplitLearn(0, true);
+    play(juce::MidiMessage::noteOn(2, 30, (juce::uint8) 100));
+    check(p->layerConfig(0).lowNote == 30 && p->layerConfig(0).highNote == 30,
+          "crossed split endpoints invalid");
+    p->beginSplitLearn(0, false); p->beginSplitLearn(0, false);
+    play(juce::MidiMessage::noteOn(2, 20, (juce::uint8) 100));
+    check(p->layerConfig(0).lowNote == 30, "cancelled split learn still captured");
+    p->resetLayerSplit(0);
+    config = p->layerConfig(0);
+    check(config.lowNote == 0 && config.highNote == 127 && config.octave == 3 && config.midiChannel == 9,
+          "split reset changed unrelated routing");
+
+    const std::array<const char*, 3> ids { "masterEqLow", "masterEqMid", "masterEqHigh" };
+    for (int band = 0; band < 3; ++band)
+    {
+        p->beginMasterEqMidiLearn(band);
+        cc(*p, 5, 64, 127);
+        check(p->isMasterEqMidiLearning(band), "sustain captured by master EQ Learn");
+        cc(*p, 5, 120, 127);
+        check(p->isMasterEqMidiLearning(band), "channel-mode CC captured by master EQ Learn");
+        cc(*p, 5, 20 + band, 127);
+        check(p->masterEqMidiLearnCC(band) == 20 + band && p->masterEqMidiLearnChannel(band) == 5,
+              "master EQ mapping not captured");
+        check(p->masterEqValue(ids[(size_t) band]) == 12.0f, "master EQ maximum gain incorrect");
+        cc(*p, 6, 20 + band, 0);
+        check(p->masterEqValue(ids[(size_t) band]) == 12.0f, "master EQ accepted wrong MIDI channel");
+        ccAudioOnly(*p, 5, 20 + band, 0);
+        check(p->masterEqValue(ids[(size_t) band]) == -12.0f, "master EQ realtime minimum gain incorrect");
+        p->consumeMidiControlUpdates();
+    }
+    juce::MemoryBlock state;
+    p->getStateInformation(state);
+    for (int band = 0; band < 3; ++band) p->clearMasterEqMidiLearn(band);
+    p->setStateInformation(state.getData(), (int) state.getSize());
+    for (int band = 0; band < 3; ++band)
+        check(p->masterEqMidiLearnCC(band) == 20 + band && p->masterEqMidiLearnChannel(band) == 5
+              && p->masterEqValue(ids[(size_t) band]) == -12.0f,
+              "master EQ gain or mapping did not survive state restore");
+    check(p->layerConfig(0).octave == 3 && p->layerConfig(0).lowNote == 0,
+          "split/routing did not survive state restore");
+    p->clearMasterEqMidiLearn(0);
+    cc(*p, 5, 20, 127);
+    check(p->masterEqValue("masterEqLow") == -12.0f, "cleared EQ CC mapping still active");
+    std::cout << "Layer defaults, split Learn/reset and master EQ CC persistence passed\n";
+}
+
 static void startupPrograms()
 {
     juce::TemporaryFile storage;
@@ -375,6 +471,7 @@ int main(int argc, char** argv)
         programLibraryExportImport();
         livePerformanceEqPersistence();
         newProgramStartsBlank();
+        layerDefaultsSplitAndMasterEqLearn();
         MidiRecordingRegressionAccess::run();
         // Undefined wrapper deliberately avoids standalone preferences/programs.
         auto processor = std::make_unique<ClassicPlayerAudioProcessor>();

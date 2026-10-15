@@ -124,6 +124,7 @@ private:
     {
     public:
         LayerStrip(ClassicPlayerAudioProcessor&, int layerIndex, std::function<void()> mixChanged);
+        void prepareForNewLayer();
         void paint(juce::Graphics&) override;
         void resized() override;
         void mouseDown(const juce::MouseEvent&) override;
