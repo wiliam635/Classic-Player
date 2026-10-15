@@ -78,6 +78,25 @@ public class AudioRegressionTest {
         engine.noteOff(84,0);pcm(RATE*3);assertEquals(0,engine.activeVoices(0));
     }
 
+    @Test public void midiQueueOverflowIsVisibleAndSafetyPanicStillWorks() throws Exception {
+        for(int i=0;i<64&&engine.midiQueueDiagnostics()[0]>0;i++)pcm(BLOCK);
+        activate(3,0);
+        int overflowsBefore=engine.midiQueueDiagnostics()[2];
+        for(int i=0;i<2100;i++)engine.noteOn(48+i%24,80,0);
+        int[] saturated=engine.midiQueueDiagnostics();
+        assertTrue("MIDI queue overflow must be reported",saturated[2]>overflowsBefore);
+        assertTrue("Queue depth cannot exceed its fixed capacity",saturated[0]<=2047);
+        assertTrue("High-water mark must include the saturation point",saturated[1]>=2046);
+        assertTrue("Diagnostics must include queue wait and limiter activity",saturated.length>=7);
+        assertTrue("Queue wait must be a non-negative duration",saturated[5]>=0);
+        assertTrue("Limiter block count must not be negative",saturated[6]>=0);
+
+        engine.allNotesOff();
+        pcm(BLOCK);
+        assertEquals("The final panic must drain after overflow",0,engine.midiQueueDiagnostics()[0]);
+        assertEquals("Safety panic must clear the active analog voices",0,engine.activeVoices(0));
+    }
+
     @Test public void soundFontPedalIsIsolatedByMidiChannel() throws Exception {
         activate(1,0);engine.setSustain(0,true);
         engine.noteOn(60,90,0);engine.noteOn(60,90,1);pcm(256);

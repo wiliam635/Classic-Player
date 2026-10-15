@@ -25,6 +25,15 @@ public:
     bool isMasterMidiLearning() const { return masterLearning.load(); }
     int masterMidiLearnCC() const { return masterCC.load(); }
     int masterMidiLearnChannel() const { return masterCCChannel.load(); }
+    void beginMasterEqMidiLearn(int band);
+    void clearMasterEqMidiLearn(int band);
+    int masterEqMidiLearnCC(int band) const;
+    int masterEqMidiLearnChannel(int band) const;
+    bool isMasterEqMidiLearning(int band) const { return activeMasterEqLearn.load() == band; }
+    void beginSplitLearn(int layer, bool upper);
+    void cancelSplitLearn(int layer);
+    bool isSplitLearning(int layer, bool upper) const { return activeSplitLearn.load() == layer * 2 + (upper ? 1 : 0); }
+    void resetLayerSplit(int layer);
     void beginPanicMidiLearn();
     void resetPanicMidiLearn();
     bool isPanicMidiLearning() const { return panicLearning.load(); }
@@ -241,6 +250,12 @@ private:
     std::atomic<int> masterCC { -1 }, masterCCChannel { -1 };
     std::atomic<int> panicCC { -1 }, panicCCChannel { -1 };
     std::atomic<float> pendingMasterValue { -1.0f };
+    std::atomic<int> activeMasterEqLearn { -1 }, activeSplitLearn { -1 }, pendingSplitNote { -1 };
+    std::array<std::atomic<int>, 3> masterEqCC {{ -1, -1, -1 }};
+    std::array<std::atomic<int>, 3> masterEqCCChannel {{ -1, -1, -1 }};
+    std::array<std::atomic<float>, 3> pendingMasterEq {{ -1.0f, -1.0f, -1.0f }};
+    std::array<std::atomic<float>, 3> realtimeMasterEq {{ -1.0f, -1.0f, -1.0f }};
+    void captureSplitNote(const juce::MidiMessage&);
     juce::SmoothedValue<float> masterGain;
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameters();
     void restoreLayerPaths();

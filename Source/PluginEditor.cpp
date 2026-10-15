@@ -2149,6 +2149,72 @@ private:
     std::unique_ptr<juce::FileChooser> chooser;
 };
 
+class NordPianoTimbrePanel final : public juce::Component
+{
+public:
+    NordPianoTimbrePanel(ClassicPlayerAudioProcessor& p, int layer)
+        : processor(p), index(layer)
+    {
+        title.setText("EQUALIZER", juce::dontSendNotification);
+        title.setColour(juce::Label::textColourId, juce::Colour(text));
+        title.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+        title.setJustificationType(juce::Justification::centredRight);
+        addAndMakeVisible(title);
+
+        const std::array<const char*, 3> names {{ "SOFT", "MID", "BRIGHT" }};
+        const std::array<const char*, 3> hints {{
+            "Som mais quente, com ataque e agudos suavizados; atua tambem com sustain.",
+            "Destaca o corpo e os medios do piano Nord.",
+            "Realca a clareza e os harmonicos agudos do piano Nord."
+        }};
+        for (int mode = 0; mode < 3; ++mode)
+        {
+            auto& button = modes[(size_t) mode];
+            button.setButtonText(names[(size_t) mode]);
+            button.setTooltip(hints[(size_t) mode]);
+            button.setClickingTogglesState(true);
+            flatButton(button);
+            addAndMakeVisible(button);
+            button.onClick = [this, mode] { selectMode(mode); };
+        }
+
+        selectMode(processor.layerConfig(index).pianoTimbre, false);
+        setSize(410, 42);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds();
+        title.setBounds(area.removeFromLeft(112));
+        area.removeFromLeft(8);
+        const auto buttonWidth = area.getWidth() / 3;
+        for (int mode = 0; mode < 3; ++mode)
+        {
+            auto buttonArea = mode == 2 ? area : area.removeFromLeft(buttonWidth);
+            modes[(size_t) mode].setBounds(buttonArea.reduced(3, 4));
+        }
+    }
+
+private:
+    void selectMode(int mode, bool updateProcessor = true)
+    {
+        mode = juce::jlimit(0, 2, mode);
+        for (int i = 0; i < 3; ++i)
+            modes[(size_t) i].setToggleState(i == mode, juce::dontSendNotification);
+        if (updateProcessor)
+        {
+            auto config = processor.layerConfig(index);
+            config.pianoTimbre = mode;
+            processor.setLayerConfig(index, config);
+        }
+    }
+
+    ClassicPlayerAudioProcessor& processor;
+    int index;
+    juce::Label title;
+    std::array<juce::TextButton, 3> modes;
+};
+
 class EffectPresetFilePanel final : public juce::Component
 {
 public:
@@ -3382,16 +3448,65 @@ private:
     std::unique_ptr<juce::FileChooser> chooser;
 };
 
+class SplitLearnControls final : public juce::Component, private juce::Timer
+{
+public:
+    SplitLearnControls(ClassicPlayerAudioProcessor& p, int layer,
+                       juce::ComboBox& low, juce::ComboBox& high)
+        : processor(p), index(layer), lowBox(low), highBox(high)
+    {
+        for (auto* button : { &lowButton, &highButton, &resetButton })
+        {
+            flatButton(*button);
+            addAndMakeVisible(*button);
+        }
+        lowButton.onClick = [this] { processor.beginSplitLearn(index, false); refresh(); };
+        highButton.onClick = [this] { processor.beginSplitLearn(index, true); refresh(); };
+        resetButton.onClick = [this] { processor.resetLayerSplit(index); refresh(); };
+        lowButton.setTooltip("Clique e toque a nota mais grave no teclado MIDI ou virtual. Clique novamente para cancelar.");
+        highButton.setTooltip("Clique e toque a nota mais aguda no teclado MIDI ou virtual. Clique novamente para cancelar.");
+        resetButton.setTooltip("Restaurar toda a faixa de notas (0 a 127), sem alterar oitava ou canal MIDI.");
+        refresh();
+        startTimerHz(20);
+    }
+    ~SplitLearnControls() override { stopTimer(); processor.cancelSplitLearn(index); }
+    void resized() override
+    {
+        auto area = getLocalBounds();
+        const auto width = area.getWidth() / 3;
+        lowButton.setBounds(area.removeFromLeft(width).reduced(1));
+        highButton.setBounds(area.removeFromLeft(width).reduced(1));
+        resetButton.setBounds(area.reduced(1));
+    }
+private:
+    void timerCallback() override { refresh(); }
+    void refresh()
+    {
+        processor.consumeMidiControlUpdates();
+        const auto config = processor.layerConfig(index);
+        lowBox.setSelectedId(config.lowNote + 1, juce::dontSendNotification);
+        highBox.setSelectedId(config.highNote + 1, juce::dontSendNotification);
+        lowButton.setButtonText(processor.isSplitLearning(index, false) ? "TOQUE..." : "GRAVE");
+        highButton.setButtonText(processor.isSplitLearning(index, true) ? "TOQUE..." : "AGUDO");
+    }
+    ClassicPlayerAudioProcessor& processor;
+    int index;
+    juce::ComboBox& lowBox;
+    juce::ComboBox& highBox;
+    juce::TextButton lowButton, highButton, resetButton { "RESET" };
+};
+
 class Sf2EditorPanel final : public juce::Component
 {
 public:
-    Sf2EditorPanel(ClassicPlayerAudioProcessor& p, int layer) : processor(p), index(layer)
+    Sf2EditorPanel(ClassicPlayerAudioProcessor& p, int layer)
+        : processor(p), index(layer), splitControls(p, layer, lowNoteBox, highNoteBox)
     {
         for (auto* box : { &libraryBox, &presetBox, &deviceBox })
             box->getProperties().set("uiDataItems", true);
         for (auto* label : { &categoryLabel, &libraryLabel, &presetLabel, &modeLabel,
                              &sustainLabel, &channelLabel, &deviceLabel, &octaveLabel,
-                             &rangeLabel, &velocityLabel })
+                             &rangeLabel, &highRangeLabel, &velocityLabel })
         {
             label->setColour(juce::Label::textColourId, juce::Colour(text));
             label->setFont(juce::FontOptions(11.0f, juce::Font::bold));
@@ -3405,7 +3520,8 @@ public:
         channelLabel.setText("CANAL MIDI", juce::dontSendNotification);
         deviceLabel.setText("ENTRADA MIDI", juce::dontSendNotification);
         octaveLabel.setText("OITAVA", juce::dontSendNotification);
-        rangeLabel.setText("FAIXA DE NOTAS", juce::dontSendNotification);
+        rangeLabel.setText("NOTA GRAVE", juce::dontSendNotification);
+        highRangeLabel.setText("NOTA AGUDA", juce::dontSendNotification);
         velocityLabel.setText("VELOCIDADE", juce::dontSendNotification);
 
         for (const auto& category : ClassicPlayerAudioProcessor::soundFontCategories())
@@ -3473,6 +3589,7 @@ public:
             box->setColour(juce::ComboBox::textColourId, juce::Colour(text));
         }
         addAndMakeVisible(importButton); addAndMakeVisible(deleteButton);
+        addAndMakeVisible(splitControls);
         modeBox.addItem("POLI", 1); modeBox.addItem("MONO / LEGATO", 2); modeBox.addItem("PORTAMENTO", 3);
         sustainBox.addItem("SUSTAIN ON", 1); sustainBox.addItem("SUSTAIN OFF", 2);
         channelBox.addItem("MIDI OMNI", 1);
@@ -3520,8 +3637,9 @@ public:
             auto line = area.removeFromTop(compactLayout ? 32 : 62);
             if (rowIndex == 0) { place(line.removeFromLeft(cell), modeLabel, modeBox); place(line.removeFromLeft(cell), sustainLabel, sustainBox); place(line, channelLabel, channelBox); }
             if (rowIndex == 1) { place(line.removeFromLeft(cell), deviceLabel, deviceBox); place(line.removeFromLeft(cell), octaveLabel, octaveBox); place(line, velocityLabel, velocityBox); }
-            if (rowIndex == 2) { place(line.removeFromLeft(cell), rangeLabel, lowNoteBox); place(line.removeFromLeft(cell), rangeLabel, highNoteBox); }
+            if (rowIndex == 2) { place(line.removeFromLeft(cell), rangeLabel, lowNoteBox); place(line.removeFromLeft(cell), highRangeLabel, highNoteBox); }
         }
+        splitControls.setBounds(getWidth() - 12 - cell, lowNoteBox.getY(), cell, lowNoteBox.getHeight());
     }
 
 private:
@@ -3618,8 +3736,9 @@ private:
     }
     ClassicPlayerAudioProcessor& processor; int index;
     bool compactLayout = false;
-    juce::Label categoryLabel, libraryLabel, presetLabel, modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel, rangeLabel, velocityLabel;
+    juce::Label categoryLabel, libraryLabel, presetLabel, modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel, rangeLabel, highRangeLabel, velocityLabel;
     juce::ComboBox categoryBox, libraryBox, presetBox, modeBox, sustainBox, channelBox, deviceBox, octaveBox, lowNoteBox, highNoteBox, velocityBox;
+    SplitLearnControls splitControls;
     juce::TextButton importButton, deleteButton; juce::Array<juce::File> libraryFiles; std::vector<Sf2Engine::Preset> presets;
     std::unique_ptr<juce::FileChooser> chooser;
 };
@@ -3628,8 +3747,9 @@ class LayerRoutingEditorPanel final : public juce::Component
 {
 public:
     LayerRoutingEditorPanel(ClassicPlayerAudioProcessor& p, int layer)
-        : processor(p), index(layer)
+        : processor(p), index(layer), splitControls(p, layer, lowNoteBox, highNoteBox)
     {
+        addAndMakeVisible(splitControls);
         deviceBox.getProperties().set("uiDataItems", true);
         const std::array<std::pair<juce::Label*, const char*>, 8> fields {{
             { &modeLabel, "MODO" }, { &sustainLabel, "SUSTAIN" },
@@ -3688,6 +3808,7 @@ public:
     void resized() override
     {
         auto area = getLocalBounds().reduced(8);
+        splitControls.setBounds(area.removeFromTop(26));
         const auto cellWidth = area.getWidth() / 4;
         auto place = [](juce::Rectangle<int> cell, juce::Label& label, juce::ComboBox& box)
         {
@@ -3748,6 +3869,7 @@ private:
                 lowNoteLabel, highNoteLabel, velocityLabel;
     juce::ComboBox modeBox, sustainBox, channelBox, deviceBox, octaveBox,
                    lowNoteBox, highNoteBox, velocityBox;
+    SplitLearnControls splitControls;
 };
 
 class LayerMidiLearnPanel final : public juce::Component, private juce::Timer
@@ -4840,6 +4962,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
             },
             [safe] { if (safe != nullptr) safe->refresh(); });
         dialog->addCustomComponent(new CenteredPanel(importNordPanel, 620, 58));
+        auto* nordRouting = new LayerRoutingEditorPanel(processor, index);
+        nordRouting->setSize(620, 122);
+        dialog->addCustomComponent(new CenteredPanel(nordRouting, 620, 122));
+        dialog->addCustomComponent(new CenteredPanel(
+            new NordPianoTimbrePanel(processor, index), 410, 42));
     }
 
     // On a 13-inch display the complete editor, including numeric values and
@@ -6314,6 +6441,15 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::deleteSelectedDx7Bank()
         }));
 }
 
+void ClassicPlayerAudioProcessorEditor::LayerStrip::prepareForNewLayer()
+{
+    solo = false;
+    soloButton.setToggleState(false, juce::dontSendNotification);
+    midiDevice.setSelectedId(1, juce::dontSendNotification);
+    categoryBox.setSelectedId(1, juce::dontSendNotification);
+    refresh();
+}
+
 void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
 {
     const auto state = processor.parameters.state;
@@ -7097,7 +7233,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     auto* dx7Panel = new Dx7EditorPanel(processor, index);
     auto* routingPanel = new LayerRoutingEditorPanel(processor, index);
     dx7Panel->setSize(560, Dx7EditorPanel::preferredHeight);
-    routingPanel->setSize(600, 92);
+    routingPanel->setSize(600, 122);
     auto valueOf = [this, prefix](const juce::String& suffix, float fallback)
     {
         if (auto* value = processor.parameters.getRawParameterValue(prefix + suffix)) return value->load();
@@ -7157,7 +7293,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
         [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 600, 30));
-    dialog->addCustomComponent(new CenteredPanel(routingPanel, 600, 92));
+    dialog->addCustomComponent(new CenteredPanel(routingPanel, 600, 122));
     dialog->addCustomComponent(new CenteredPanel(common, 600, 128));
     const auto actionWidth = editorContentWidth(this, 930);
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
@@ -7202,6 +7338,54 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         }), true);
 }
 
+class MasterEqLearnPanel final : public juce::Component, private juce::Timer
+{
+public:
+    explicit MasterEqLearnPanel(ClassicPlayerAudioProcessor& p) : processor(p)
+    {
+        for (int band = 0; band < 3; ++band)
+        {
+            auto& button = buttons[(size_t) band];
+            flatButton(button);
+            button.setTooltip("Clique e mova um CC para controlar o ganho. Clique novamente para cancelar; botao direito para excluir o mapeamento.");
+            button.onClick = [this, band] { processor.beginMasterEqMidiLearn(band); refresh(); };
+            button.onClearMapping = [this, band] { processor.clearMasterEqMidiLearn(band); refresh(); };
+            addAndMakeVisible(button);
+        }
+        setSize(620, 30);
+        refresh();
+        startTimerHz(12);
+    }
+    ~MasterEqLearnPanel() override
+    {
+        stopTimer();
+        for (int band = 0; band < 3; ++band)
+            if (processor.isMasterEqMidiLearning(band)) processor.beginMasterEqMidiLearn(band);
+    }
+    void resized() override
+    {
+        auto area = getLocalBounds();
+        const auto width = area.getWidth() / 3;
+        for (auto& button : buttons) button.setBounds(area.removeFromLeft(width).reduced(3, 2));
+    }
+private:
+    void timerCallback() override { refresh(); }
+    void refresh()
+    {
+        static const std::array<const char*, 3> names { "LOW", "MID", "HIGH" };
+        for (int band = 0; band < 3; ++band)
+        {
+            const auto cc = processor.masterEqMidiLearnCC(band);
+            const auto channel = processor.masterEqMidiLearnChannel(band);
+            buttons[(size_t) band].setButtonText(juce::String(names[(size_t) band]) + " GAIN: "
+                + (processor.isMasterEqMidiLearning(band) ? juce::String("MOVA O CC")
+                   : cc < 0 ? juce::String("LEARN") : "CC " + juce::String(cc) + " C" + juce::String(channel)));
+        }
+    }
+    ClassicPlayerAudioProcessor& processor;
+    std::array<MidiLearnButton, 3> buttons;
+};
+
 void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
 {
     auto* dialog = new LayerEditorWindow(
@@ -7219,10 +7403,15 @@ void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
         { "HIGH CUT Hz", classicProcessor.masterEqValue("masterEqHighCut"), 2000.0f, 20000.0f, 1.0f, 0 }
     }, 4);
     auto* graph = new ParametricEqGraph(classicProcessor, 0, true);
+    const std::array<const char*, 8> ids { "masterEqLowCut", "masterEqLow", "masterEqLowFrequency",
+        "masterEqMid", "masterEqFrequency", "masterEqHigh", "masterEqHighFrequency", "masterEqHighCut" };
+    for (int control = 0; control < 8; ++control)
+        knobs->bindParameter(control, classicProcessor.parameters, ids[(size_t) control]);
     knobs->useDenseGrid(true);
     const auto contentWidth = editorContentWidth(this, 1000);
     dialog->addCustomComponent(new SideBySideEditorPanel(graph, knobs, contentWidth, 240));
-    dialog->setSize(contentWidth + 52, 380);
+    dialog->addCustomComponent(new MasterEqLearnPanel(classicProcessor));
+    dialog->setSize(contentWidth + 52, 415);
     dialog->fitWithinApp(this);
     graph->onPointChanged = [knobs](int band, float frequency, float gain)
     {
@@ -7232,18 +7421,6 @@ void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
         knobs->setValue(gainKnobs[(size_t) band], gain);
     };
     const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
-    knobs->setOnValueChange([safe, knobs]
-    {
-        if (safe == nullptr) return;
-        safe->classicProcessor.setMasterEqValue("masterEqLowCut", juce::jlimit(20.0f, 250.0f, knobs->value(0)));
-        safe->classicProcessor.setMasterEqValue("masterEqLow", juce::jlimit(-12.0f, 12.0f, knobs->value(1)));
-        safe->classicProcessor.setMasterEqValue("masterEqLowFrequency", juce::jlimit(40.0f, 400.0f, knobs->value(2)));
-        safe->classicProcessor.setMasterEqValue("masterEqMid", juce::jlimit(-12.0f, 12.0f, knobs->value(3)));
-        safe->classicProcessor.setMasterEqValue("masterEqFrequency", juce::jlimit(200.0f, 6000.0f, knobs->value(4)));
-        safe->classicProcessor.setMasterEqValue("masterEqHigh", juce::jlimit(-12.0f, 12.0f, knobs->value(5)));
-        safe->classicProcessor.setMasterEqValue("masterEqHighFrequency", juce::jlimit(2000.0f, 16000.0f, knobs->value(6)));
-        safe->classicProcessor.setMasterEqValue("masterEqHighCut", juce::jlimit(2000.0f, 20000.0f, knobs->value(7)));
-    });
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->repaint(); }), true);
 }
@@ -8399,7 +8576,7 @@ void ClassicPlayerAudioProcessorEditor::addLayer(ClassicPlayerAudioProcessor::La
     if (strips[(size_t) newLayerIndex] != nullptr)
     {
         strips[(size_t) newLayerIndex]->setVisible(true);
-        strips[(size_t) newLayerIndex]->refresh();
+        strips[(size_t) newLayerIndex]->prepareForNewLayer();
     }
     addLayerButton.setEnabled(classicProcessor.activeLayerCount() < Sf2Engine::layerCount);
     layoutLayerStrips();
@@ -8622,7 +8799,7 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
     content->add(new EngineProgramSavePanel(processor,index,"Hammond"),28);
     content->add(new LayerPresetFilePanel(std::move(saveLayerCallback),
                                           std::move(loadLayerCallback)),28);
-    content->add(new LayerRoutingEditorPanel(processor,index),92);
+    content->add(new LayerRoutingEditorPanel(processor,index),122);
     const auto prefix="layer"+juce::String(index+1);
     const auto value=[&processor,prefix](const char* name){return processor.parameters.getRawParameterValue(prefix+name)->load();};
     auto* common=new KnobEditorPanel({

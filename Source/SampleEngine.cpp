@@ -4,6 +4,9 @@
 
 namespace
 {
+constexpr double pianoDecaySeconds = 15.0;
+constexpr double pianoCrossfadeSeconds = 0.55;
+
 float releaseCoefficientFor(float releaseControl, double sampleRate)
 {
     // Match the shared layer Release control: 50 is 0.5 s and 100 is 10 s.
@@ -34,6 +37,13 @@ void SampleEngine::prepare(double sampleRate, int maximumBlockSize)
         layer.reverb.reset();
         layer.compressorEnvelope.fill(0.0f);
         layer.cutoffState.fill(0.0f);
+        layer.pianoLowEqState.fill(0.0f);
+        layer.pianoHighEqState.fill(0.0f);
+        for (auto& gain : layer.pianoTimbreGains)
+        {
+            gain.reset(currentSampleRate, 0.02);
+            gain.setCurrentAndTargetValue(1.0f);
+        }
         layer.eq.reset();
         layer.gain.reset(currentSampleRate, 0.02);
         layer.gain.setCurrentAndTargetValue(0.8f);
@@ -51,6 +61,11 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
         const auto result = NordPianoDecoder::decodeFile(file, decodedPiano);
         if (result.failed()) return result;
 
+        // Prepare fresh decoded PCM outside the audio lock/callback. The
+        // source NPNO stays untouched and voices need no extra fade buffers.
+        if (file.getParentDirectory().getFileName() != "Organ")
+            preparePianoLoops(decodedPiano);
+
         const juce::ScopedLock stateLock(lock);
         auto& destination = layers[(size_t) layer];
         destination.audio.setSize(0, 0);
@@ -65,6 +80,8 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
         destination.sustainDown.fill(false);
         destination.cutoffState.fill(0.0f);
         destination.compressorEnvelope.fill(0.0f);
+        destination.pianoLowEqState.fill(0.0f);
+        destination.pianoHighEqState.fill(0.0f);
         destination.modulationAmount = 0.0f;
         destination.modulationPhase = 0.0;
         destination.eq.reset();
@@ -97,6 +114,8 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
     destination.peak.store(0.0f, std::memory_order_release);
     destination.cutoffState.fill(0.0f);
     destination.compressorEnvelope.fill(0.0f);
+    destination.pianoLowEqState.fill(0.0f);
+    destination.pianoHighEqState.fill(0.0f);
     destination.modulationAmount = 0.0f;
     destination.modulationPhase = 0.0;
     destination.eq.reset();
@@ -118,6 +137,8 @@ void SampleEngine::unload(int layer)
     destination.sustainDown.fill(false);
     destination.cutoffState.fill(0.0f);
     destination.compressorEnvelope.fill(0.0f);
+    destination.pianoLowEqState.fill(0.0f);
+    destination.pianoHighEqState.fill(0.0f);
     destination.modulationAmount = 0.0f;
     destination.modulationPhase = 0.0;
     destination.eq.reset();
@@ -131,7 +152,10 @@ void SampleEngine::stopAllSounds()
 {
     const juce::ScopedLock stateLock(lock);
     for (auto& layer : layers)
+    {
+        layer.sustainDown.fill(false);
         for (auto& voice : layer.voices) voice = {};
+    }
 }
 
 bool SampleEngine::isLoaded(int layer) const
@@ -173,19 +197,36 @@ void SampleEngine::setConfig(int layer, const LayerConfig& config)
     destination.config.endSeconds = juce::jmax(0.0, config.endSeconds);
 }
 
+SampleEngine::Voice& SampleEngine::allocateVoice(Layer& layer)
+{
+    auto* candidate = &layer.voices[0];
+    const auto priority = [] (const Voice& voice)
+    {
+        return voice.released ? 0 : voice.waitingForSustain ? 1 : 2;
+    };
+    for (auto& voice : layer.voices)
+    {
+        if (!voice.active) return voice;
+        const auto rank = priority(voice);
+        const auto candidateRank = priority(*candidate);
+        // Recycle quiet release tails first, then the oldest sustained note,
+        // and only finally a held key. The old comparison stole the newest key.
+        if (rank < candidateRank
+            || (rank == candidateRank
+                && ((rank == 0 && voice.level * voice.releaseGain
+                                    < candidate->level * candidate->releaseGain)
+                    || ((rank != 0 || voice.level * voice.releaseGain
+                                      == candidate->level * candidate->releaseGain)
+                        && voice.age > candidate->age))))
+            candidate = &voice;
+    }
+    return *candidate;
+}
+
 void SampleEngine::startVoice(Layer& layer, int note, int channel, float velocity,
                               const Sf2Engine::LayerConfig& routing)
 {
-    auto* candidate = &layer.voices[0];
-    for (auto& voice : layer.voices)
-    {
-        if (!voice.active)
-        {
-            candidate = &voice;
-            break;
-        }
-        if (voice.age < candidate->age) candidate = &voice;
-    }
+    auto* candidate = &allocateVoice(layer);
 
     const auto endSample = layer.config.endSeconds > 0.0
         ? juce::jmin(layer.audio.getNumSamples(),
@@ -237,22 +278,92 @@ int SampleEngine::findPianoStroke(const Layer& layer, int note, float velocity, 
     return bestIndex;
 }
 
+void SampleEngine::preparePianoLoops(NordPianoDecoder::Instrument& piano)
+{
+    const auto channels = piano.channels;
+    if (channels < 1 || channels > 2) return;
+    for (auto& stroke : piano.strokes)
+    {
+        const auto start = static_cast<int>(stroke.loopStartFrame);
+        const auto end = static_cast<int>(stroke.loopEndFrame); // exclusive
+        const auto length = end - start;
+        if (stroke.bank == 2 || start < 0 || length < 8
+            || end > stroke.frameCount(channels))
+            continue;
+        const auto maximum = static_cast<int>(length * 0.45);
+        const auto aim = juce::jmin(maximum, juce::roundToInt(
+            pianoCrossfadeSeconds * NordPianoDecoder::sampleRate));
+        const auto frequency = 440.0 * std::pow(2.0, (stroke.rootNote - 69) / 12.0);
+        const auto period = NordPianoDecoder::sampleRate / frequency;
+        const auto low = juce::jmax(2, juce::roundToInt(aim - period));
+        const auto high = juce::jmin(maximum, juce::roundToInt(aim + period));
+        const auto step = juce::jmax(1, juce::roundToInt(period / 24.0));
+        if (low > high) continue;
+        const auto read = [&](int frame, int channel)
+        {
+            return static_cast<double>(stroke.interleavedPcm[
+                static_cast<size_t>(frame * channels + channel)]);
+        };
+        auto fade = low;
+        auto bestScore = -2.0;
+        auto correlation = 0.0;
+        // One alignment and one gain law for both channels preserve stereo.
+        for (int candidate = low; candidate <= high; candidate += step)
+        {
+            double dot = 0.0, headPower = 0.0, tailPower = 0.0;
+            for (int frame = 0; frame < candidate; frame += 8)
+                for (int channel = 0; channel < channels; ++channel)
+                {
+                    const auto head = read(start + frame, channel);
+                    const auto tail = read(end - candidate + frame, channel);
+                    dot += head * tail;
+                    headPower += head * head;
+                    tailPower += tail * tail;
+                }
+            const auto norm = std::sqrt(headPower * tailPower);
+            const auto corr = norm > 0.0 ? dot / norm : 1.0;
+            const auto score = corr - 0.01 * std::abs(candidate - aim) / juce::jmax(1, aim);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                fade = candidate;
+                correlation = juce::jlimit(0.0, 1.0, corr);
+            }
+        }
+        const auto blend = [&](int frame, int channel, bool powerCompensation)
+        {
+            const auto weight = 0.5 - 0.5 * std::cos(
+                juce::MathConstants<double>::pi * frame / (fade - 1));
+            const auto norm = powerCompensation
+                ? std::sqrt((1.0 - weight) * (1.0 - weight) + weight * weight
+                            + 2.0 * correlation * weight * (1.0 - weight)) : 1.0;
+            return ((1.0 - weight) * read(end - fade + frame, channel)
+                    + weight * read(start + frame, channel)) / norm;
+        };
+        bool powerCompensation = true;
+        for (int frame = 0; frame < fade && powerCompensation; ++frame)
+            for (int channel = 0; channel < channels; ++channel)
+                if (std::abs(blend(frame, channel, true)) > 32767.0)
+                {
+                    powerCompensation = false;
+                    break;
+                }
+        for (int frame = 0; frame < fade; ++frame)
+            for (int channel = 0; channel < channels; ++channel)
+                stroke.interleavedPcm[static_cast<size_t>((end - fade + frame) * channels + channel)]
+                    = static_cast<std::int16_t>(std::round(blend(frame, channel, powerCompensation)));
+        // The head has already played inside the overlap: resume after it.
+        stroke.loopStartFrame += static_cast<std::uint32_t>(fade);
+    }
+}
+
 void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int channel,
                                   float velocity, const Sf2Engine::LayerConfig& routing)
 {
     if (!juce::isPositiveAndBelow(sampleIndex, static_cast<int>(layer.piano.strokes.size())))
         return;
 
-    auto* candidate = &layer.voices[0];
-    for (auto& voice : layer.voices)
-    {
-        if (!voice.active)
-        {
-            candidate = &voice;
-            break;
-        }
-        if (voice.age < candidate->age) candidate = &voice;
-    }
+    auto* candidate = &allocateVoice(layer);
 
     const auto& stroke = layer.piano.strokes[(size_t) sampleIndex];
     const auto frames = stroke.frameCount(layer.piano.channels);
@@ -318,7 +429,7 @@ float SampleEngine::readInterpolated(const juce::AudioBuffer<float>& audio,
 }
 
 float SampleEngine::readPianoInterpolated(const NordPianoDecoder::Stroke& stroke,
-                                          int channels, int channel, double position)
+                                          int channels, int channel, double position, bool looped)
 {
     const auto frames = stroke.frameCount(channels);
     if (frames <= 0 || channels <= 0) return 0.0f;
@@ -327,6 +438,11 @@ float SampleEngine::readPianoInterpolated(const NordPianoDecoder::Stroke& stroke
     const auto fraction = static_cast<float>(position - static_cast<double>(first));
     const auto read = [&] (int frame)
     {
+        if (looped && stroke.loopEndFrame > stroke.loopStartFrame
+            && frame >= static_cast<int>(stroke.loopEndFrame))
+            frame = static_cast<int>(stroke.loopStartFrame)
+                + (frame - static_cast<int>(stroke.loopEndFrame))
+                    % static_cast<int>(stroke.loopEndFrame - stroke.loopStartFrame);
         const auto boundedFrame = juce::jlimit(0, frames - 1, frame);
         const auto index = static_cast<size_t>(boundedFrame * channels + sourceChannel);
         return static_cast<float>(stroke.interleavedPcm[index]) / 32768.0f;
@@ -365,6 +481,20 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
         const auto message = metadata.getMessage();
         if (routing.midiChannel > 0 && message.getChannel() != routing.midiChannel)
             continue;
+
+        if (message.isAllSoundOff() || message.isAllNotesOff())
+        {
+            const auto channel = juce::jlimit(1, 16, message.getChannel());
+            layer.sustainDown[(size_t) channel - 1] = false;
+            for (auto& voice : layer.voices)
+                if (voice.active && voice.channel == channel)
+                {
+                    if (message.isAllSoundOff()) voice = {};
+                    else if (layer.pianoLoaded) releasePianoVoice(voice, routing.release);
+                    else releaseVoice(layer, voice.note, channel, routing.release);
+                }
+            continue;
+        }
 
         if (message.isController() && message.getControllerNumber() == 1)
         {
@@ -444,6 +574,10 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
     const auto loopStart = static_cast<double>(normalStartSample);
     const auto normalLoopEnd = static_cast<double>(juce::jmax(normalStartSample + 1, normalEndSample));
     float peak = 0.0f;
+    // Piano loops must not occupy the pool indefinitely under a held pedal.
+    // Organs retain continuous sustain; piano notes decay throughout 15 s.
+    const auto finitePiano = layer.pianoLoaded
+        && juce::File(layer.sourcePath).getParentDirectory().getFileName() != "Organ";
 
     for (auto& voice : layer.voices)
     {
@@ -470,8 +604,17 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
 
         for (int sample = 0; sample < output.getNumSamples(); ++sample)
         {
-            if (pianoStroke != nullptr && !voice.released && !voice.pianoRelease
-                && pianoStroke->loopEndFrame > pianoStroke->loopStartFrame
+            const auto seconds = static_cast<double>(voice.age) / currentSampleRate;
+            if (isPianoVoice && finitePiano && seconds >= pianoDecaySeconds)
+            {
+                voice.active = false;
+                break;
+            }
+            const auto loopedPiano = pianoStroke != nullptr && !voice.pianoRelease
+                && pianoStroke->loopEndFrame > pianoStroke->loopStartFrame;
+            // Keep cycling during Release so the layer knob, rather than the
+            // PCM end, determines the tail after a key/pedal is released.
+            if (loopedPiano
                 && voice.position >= pianoStroke->loopEndFrame)
                 voice.position = pianoStroke->loopStartFrame
                                + std::fmod(voice.position - pianoStroke->loopEndFrame,
@@ -488,14 +631,17 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 }
             }
 
-            const auto gain = voice.level * voice.releaseGain * voice.attackGain;
+            const auto remaining = juce::jlimit(0.0, 1.0, 1.0 - seconds / pianoDecaySeconds);
+            const auto lifetimeGain = isPianoVoice && finitePiano
+                ? static_cast<float>(remaining * remaining) : 1.0f;
+            const auto gain = voice.level * voice.releaseGain * voice.attackGain * lifetimeGain;
             float left = 0.0f;
             float right = 0.0f;
             if (isPianoVoice)
             {
                 const auto& stroke = layer.piano.strokes[(size_t) voice.sampleIndex];
-                left = readPianoInterpolated(stroke, layer.piano.channels, 0, voice.position) * gain;
-                right = readPianoInterpolated(stroke, layer.piano.channels, 1, voice.position) * gain;
+                left = readPianoInterpolated(stroke, layer.piano.channels, 0, voice.position, loopedPiano) * gain;
+                right = readPianoInterpolated(stroke, layer.piano.channels, 1, voice.position, loopedPiano) * gain;
             }
             else
             {
@@ -509,13 +655,13 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             peak = juce::jmax(peak, std::abs(left), std::abs(right));
             voice.attackGain = juce::jmin(1.0f, voice.attackGain + voice.attackStep);
             voice.position += voice.increment;
+            ++voice.age;
             if (voice.released)
             {
                 voice.releaseGain *= voice.releaseCoefficient;
                 if (voice.releaseGain < 0.0001f) { voice.active = false; break; }
             }
         }
-        ++voice.age;
     }
     layer.peak.store(juce::jmax(peak, layer.peak.load(std::memory_order_relaxed) * 0.8f),
                      std::memory_order_relaxed);
@@ -526,6 +672,46 @@ void SampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<float>& 
 {
     const auto samples = scratch.getNumSamples();
     if (samples <= 0) return;
+
+    if (layer.pianoLoaded)
+    {
+        const auto timbre = juce::jlimit(0, 2, routing.pianoTimbre);
+        const auto lowCorner = juce::jmin(250.0, currentSampleRate * 0.2);
+        const auto highCorner = juce::jmin(2000.0, currentSampleRate * 0.4);
+        // Independent voicings, applied to the entire sustained signal. Soft
+        // no longer changes sample velocity or depends on the sustain bank.
+        constexpr std::array<std::array<float, 3>, 3> voicingDb {{
+            {{ 1.5f, -1.0f, -9.0f }}, // Soft: warm, subdued hammer attack
+            {{ -3.0f, 3.0f, -3.0f }}, // Mid: focused body and presence
+            {{ -1.0f, 0.0f, 6.0f }}  // Bright: clear upper harmonics
+        }};
+        for (size_t band = 0; band < 3; ++band)
+            layer.pianoTimbreGains[band].setTargetValue(
+                juce::Decibels::decibelsToGain(voicingDb[(size_t) timbre][band]));
+        const auto lowPole = static_cast<float>(std::exp(
+            -juce::MathConstants<double>::twoPi * lowCorner / currentSampleRate));
+        const auto highPole = static_cast<float>(std::exp(
+            -juce::MathConstants<double>::twoPi * highCorner / currentSampleRate));
+        for (int sample = 0; sample < samples; ++sample)
+        {
+            const auto lowGain = layer.pianoTimbreGains[0].getNextValue();
+            const auto midGain = layer.pianoTimbreGains[1].getNextValue();
+            const auto highGain = layer.pianoTimbreGains[2].getNextValue();
+            for (int channel = 0; channel < 2; ++channel)
+            {
+                auto& lowState = layer.pianoLowEqState[(size_t) channel];
+                auto& highState = layer.pianoHighEqState[(size_t) channel];
+                auto* values = scratch.getWritePointer(channel);
+                const auto input = values[sample];
+                lowState = (1.0f - lowPole) * input + lowPole * lowState;
+                highState = (1.0f - highPole) * input + highPole * highState;
+                const auto lowBand = lowState;
+                const auto midBand = highState - lowState;
+                const auto highBand = input - highState;
+                values[sample] = lowGain * lowBand + midGain * midBand + highGain * highBand;
+            }
+        }
+    }
 
     const auto category = juce::File(layer.sourcePath).getParentDirectory().getFileName();
     const auto modulation = routing.modulationEnabled

@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -81,37 +82,79 @@ std::atomic<float> publishedMasterPeak {0.0f};
 std::mutex synthMutex;
 
 enum class MidiCommandType : uint8_t { NoteOn, NoteOff, Control, AllNotesOff };
-struct MidiCommand { MidiCommandType type; int value1, value2, channel; };
+struct MidiCommand { MidiCommandType type; int value1, value2, channel; uint64_t queuedAtNanos = 0; };
 constexpr size_t kMidiQueueCapacity = 2048;
 std::array<MidiCommand, kMidiQueueCapacity> midiQueue {};
 size_t midiQueueRead = 0, midiQueueWrite = 0, midiQueueCount = 0;
 std::mutex midiQueueMutex;
+std::atomic<int> publishedMidiQueueDepth {0};
+std::atomic<int> midiQueueHighWater {0};
+std::atomic<int> midiQueueOverflows {0};
+std::atomic<int> midiQueueConsumerLockMisses {0};
+std::atomic<int> synthRealtimeLockMisses {0};
+std::atomic<int> midiQueueMaxWaitMicros {0};
+std::atomic<int> masterGuardedBlocks {0};
+
+uint64_t monotonicNanos()
+{
+    return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+void publishMaximum(std::atomic<int>& destination,int value)
+{
+    int previous=destination.load(std::memory_order_relaxed);
+    while(value>previous&&!destination.compare_exchange_weak(
+            previous,value,std::memory_order_relaxed)) { }
+}
+
+void publishMidiQueueDepth()
+{
+    const int depth=static_cast<int>(midiQueueCount);
+    publishedMidiQueueDepth.store(depth,std::memory_order_relaxed);
+    int highWater=midiQueueHighWater.load(std::memory_order_relaxed);
+    while(depth>highWater&&!midiQueueHighWater.compare_exchange_weak(
+            highWater,depth,std::memory_order_relaxed)) { }
+}
 
 void enqueueMidiCommand(MidiCommand command)
 {
+    command.queuedAtNanos=monotonicNanos();
     std::lock_guard<std::mutex> lock(midiQueueMutex);
     // If a producer outruns audio, discard the stale backlog and panic before
     // accepting the newest event. This is preferable to leaving a stuck note.
     if (midiQueueCount >= kMidiQueueCapacity - 1) {
+        midiQueueOverflows.fetch_add(1,std::memory_order_relaxed);
         midiQueueRead = midiQueueWrite = midiQueueCount = 0;
-        midiQueue[midiQueueWrite++] = {MidiCommandType::AllNotesOff, 0, 0, 0};
+        midiQueue[midiQueueWrite++] = {MidiCommandType::AllNotesOff, 0, 0, 0, monotonicNanos()};
         ++midiQueueCount;
     }
     midiQueue[midiQueueWrite] = command;
     midiQueueWrite = (midiQueueWrite + 1) % kMidiQueueCapacity;
     ++midiQueueCount;
+    publishMidiQueueDepth();
 }
 
 size_t takeMidiCommands(MidiCommand* destination, size_t capacity)
 {
     std::unique_lock<std::mutex> lock(midiQueueMutex, std::try_to_lock);
-    if (!lock.owns_lock()) return 0;
+    if (!lock.owns_lock()) {
+        midiQueueConsumerLockMisses.fetch_add(1,std::memory_order_relaxed);
+        return 0;
+    }
     const size_t count = std::min(capacity, midiQueueCount);
+    const uint64_t now=monotonicNanos();
     for (size_t i = 0; i < count; ++i) {
-        destination[i] = midiQueue[midiQueueRead];
+        const MidiCommand& command=midiQueue[midiQueueRead];
+        if(command.queuedAtNanos>0&&now>=command.queuedAtNanos){
+            const uint64_t elapsed=(now-command.queuedAtNanos)/1000;
+            publishMaximum(midiQueueMaxWaitMicros,(int)std::min<uint64_t>(elapsed,INT32_MAX));
+        }
+        destination[i] = command;
         midiQueueRead = (midiQueueRead + 1) % kMidiQueueCapacity;
     }
     midiQueueCount -= count;
+    publishMidiQueueDepth();
     return count;
 }
 
@@ -421,6 +464,23 @@ void sendAllNotesOff()
 }
 }
 
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeMidiQueueDiagnostics(JNIEnv* env,jclass)
+{
+    const jint values[7]={
+        publishedMidiQueueDepth.load(std::memory_order_relaxed),
+        midiQueueHighWater.load(std::memory_order_relaxed),
+        midiQueueOverflows.load(std::memory_order_relaxed),
+        midiQueueConsumerLockMisses.load(std::memory_order_relaxed),
+        synthRealtimeLockMisses.load(std::memory_order_relaxed),
+        midiQueueMaxWaitMicros.load(std::memory_order_relaxed),
+        masterGuardedBlocks.load(std::memory_order_relaxed)
+    };
+    auto result=env->NewIntArray(7);
+    if(result)env->SetIntArrayRegion(result,0,7,values);
+    return result;
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadLayer(
         JNIEnv* env, jclass, jint layer, jstring path)
@@ -655,6 +715,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeUnloadAll(JNIEnv*, jcla
     {
         std::lock_guard<std::mutex> queueLock(midiQueueMutex);
         midiQueueRead=midiQueueWrite=midiQueueCount=0;
+        publishMidiQueueDepth();
     }
     for (int layer = 0; layer < kLayerCount; ++layer) releaseLayer(layer);
     distributeLayerVoiceBudgets();
@@ -1039,7 +1100,10 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
     // publish short commands separately; apply them only after the audio thread
     // owns synth state, avoiding the old try-lock silence on every Note On/Off.
     std::unique_lock<std::mutex> lock(synthMutex,std::defer_lock);
-    if(realtime){if(!lock.try_lock())return false;}else lock.lock();
+    if(realtime){if(!lock.try_lock()){
+        synthRealtimeLockMisses.fetch_add(1,std::memory_order_relaxed);
+        return false;
+    }}else lock.lock();
     std::array<MidiCommand,64> commands{};
     const size_t commandCount=takeMidiCommands(commands.data(),commands.size());
     for(size_t i=0;i<commandCount;++i)applyMidiCommand(commands[i]);
@@ -1284,6 +1348,7 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
     }
     smoothedMasterGain = masterGain;
     float renderedMasterPeak = 0.0f;
+    bool guardActiveThisBlock=false;
     for (int sample = 0; sample < samples; ++sample) {
         // Keep the mix linear through normal piano dynamics. The previous
         // tanh(effect * 0.62) applied continuous gain reduction to every
@@ -1301,12 +1366,14 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
         effectCursor = (effectCursor + 1) % (int)reverbBuffer.size();
         constexpr float kPeakGuardStart=0.95f;
         const float magnitude=std::abs(effected);
+        guardActiveThisBlock=guardActiveThisBlock||magnitude>kPeakGuardStart;
         const float limited=magnitude<=kPeakGuardStart?effected:
                 std::copysign(kPeakGuardStart+(1.0f-kPeakGuardStart)*
                     (1.0f-std::exp(-(magnitude-kPeakGuardStart)/(1.0f-kPeakGuardStart))),effected);
         output[sample] = (short)std::clamp((int)(limited * 32767.0f), -32768, 32767);
         renderedMasterPeak = std::max(renderedMasterPeak, std::abs((float) output[sample]) / 32768.0f);
     }
+    if(guardActiveThisBlock)masterGuardedBlocks.fetch_add(1,std::memory_order_relaxed);
     for (int layer = 0; layer < kLayerCount; ++layer) {
         layerPeaks[(size_t) layer] = std::max(renderedPeaks[(size_t) layer], layerPeaks[(size_t) layer] * 0.88f);
         publishedLayerPeaks[(size_t)layer].store(layerPeaks[(size_t)layer],std::memory_order_relaxed);

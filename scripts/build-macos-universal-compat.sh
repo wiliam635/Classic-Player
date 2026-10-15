@@ -50,8 +50,8 @@ configure_and_build() {
     -DCMAKE_OSX_ARCHITECTURES="$arch" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="$deployment" \
     -DCMAKE_BUILD_TYPE=Release
-  "$CMAKE" --build "$build" --target ClassicPlayer_Standalone ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest ClassicPlayerHammondTest ClassicPlayerAudioRegressionTest --parallel 4
-  for test_name in ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest ClassicPlayerAudioRegressionTest; do
+  "$CMAKE" --build "$build" --target ClassicPlayer_Standalone ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest ClassicPlayerHammondTest ClassicPlayerAudioRegressionTest ClassicPlayerSampleEngineTest --parallel 4
+  for test_name in ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest ClassicPlayerAudioRegressionTest ClassicPlayerSampleEngineTest; do
     local test_executable="$build/${test_name}_artefacts/Release/$test_name"
     if [[ "$arch" == "x86_64" ]]; then
       arch -x86_64 "$test_executable"
@@ -60,7 +60,7 @@ configure_and_build() {
     fi
   done
   local ui_test="$build/ClassicPlayerHammondTest_artefacts/Release/ClassicPlayerHammondTest"
-  for skin_option in --silver-ui --dark-steel-ui; do
+  for skin_option in --performance-effects --silver-ui --dark-steel-ui; do
     if [[ "$arch" == "x86_64" ]]; then
       arch -x86_64 "$ui_test" "$skin_option"
     else

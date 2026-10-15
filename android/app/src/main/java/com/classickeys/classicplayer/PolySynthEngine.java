@@ -116,13 +116,17 @@ final class PolySynthEngine {
         } catch(IllegalStateException e) { return "Reconectando áudio"; }
     }
     String outputDspStatus() {
+        int[] midi=nativeMidiQueueDiagnostics();
+        String queue=String.format(java.util.Locale.US,
+            "MIDI fila %d/pico %d · estouros %d · locks fila/synth %d/%d · espera máx %.1f ms · limitador em %d blocos",
+            midi[0],midi[1],midi[2],midi[3],midi[4],midi[5]/1000.0,midi[6]);
         if(nativeOutputActive)return sampleRateMode==1
-            ?"DSP: Oboe SRC desligado · motor e fluxo 44,1 kHz"
-            :"DSP: conversão de taxa · motor 44,1 kHz · acompanhe xruns acima";
-        if(renderMeasuredBlocks==0)return "DSP: medindo blocos de áudio...";
+            ?"DSP: Oboe SRC desligado · motor e fluxo 44,1 kHz · "+queue
+            :"DSP: conversão de taxa · motor 44,1 kHz · "+queue;
+        if(renderMeasuredBlocks==0)return "DSP: medindo blocos de áudio... · "+queue;
         return String.format(java.util.Locale.US,
-            "DSP pico/2s %.2f/%.2f ms · blocos lentos %d/%d",
-            renderPeakMicros/1000.0,FRAMES*1000.0/RATE,renderSlowBlocks,renderMeasuredBlocks);
+            "DSP pico/2s %.2f/%.2f ms · blocos lentos %d/%d · %s",
+            renderPeakMicros/1000.0,FRAMES*1000.0/RATE,renderSlowBlocks,renderMeasuredBlocks,queue);
     }
     boolean isRunning() { return running; }
     String outputMode() {
@@ -142,6 +146,7 @@ final class PolySynthEngine {
     }
     double outputLatencyMillis() { return nativeOutputActive?nativeOutputLatency():-1; }
     int[] outputInfo() { return nativeOutputActive?nativeOutputInfo():new int[14]; }
+    int[] midiQueueDiagnostics() { return nativeMidiQueueDiagnostics(); }
 
     static { System.loadLibrary("classic_player_native"); }
 
@@ -189,6 +194,7 @@ final class PolySynthEngine {
     private static native boolean nativeStartOutput(int deviceId,int bufferFrames,int sampleRateMode);
     private static native void nativeStopOutput();
     private static native int[] nativeOutputInfo();
+    private static native int[] nativeMidiQueueDiagnostics();
     private static native double nativeOutputLatency();
     private static native void nativeSetOutputDefaults(int sampleRate,int framesPerBurst);
     int activeVoices(int layer) { return nativeActiveVoices(layer); }

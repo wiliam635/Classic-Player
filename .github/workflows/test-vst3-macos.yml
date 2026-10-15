@@ -20,6 +20,12 @@ on:
       - Source/PluginProcessor.cpp
       - Source/PluginProcessor.h
       - Source/HammondRegressionTest.cpp
+      - Source/SampleEngine.cpp
+      - Source/SampleEngine.h
+      - Source/SampleEngineRegressionTest.cpp
+      - Source/Sf2Engine.cpp
+      - Source/Sf2Engine.h
+      - CMakeLists.txt
 
 jobs:
   vst3-macos:

@@ -86,6 +86,11 @@ void ClassicPlayerAudioProcessor::saveStartupSettings()
     settings.setAttribute("lastSavedProgram", lastSavedProgram);
     settings.setAttribute("masterCC", masterCC.load());
     settings.setAttribute("masterChannel", masterCCChannel.load());
+    for (int band = 0; band < 3; ++band)
+    {
+        settings.setAttribute("eqCC" + juce::String(band), masterEqCC[(size_t) band].load());
+        settings.setAttribute("eqChannel" + juce::String(band), masterEqCCChannel[(size_t) band].load());
+    }
     settings.setAttribute("panicCC", panicCC.load());
     settings.setAttribute("panicChannel", panicCCChannel.load());
     const auto file = startupSettingsFile();
@@ -107,6 +112,11 @@ void ClassicPlayerAudioProcessor::restoreStartupSettings()
         // Hardware mapping survives even if another/older program is restored.
         masterCC.store(juce::jlimit(-1, 119, settings->getIntAttribute("masterCC", -1)));
         masterCCChannel.store(juce::jlimit(-1, 16, settings->getIntAttribute("masterChannel", -1)));
+        for (int band = 0; band < 3; ++band)
+        {
+            masterEqCC[(size_t) band].store(juce::jlimit(-1, 119, settings->getIntAttribute("eqCC" + juce::String(band), -1)));
+            masterEqCCChannel[(size_t) band].store(juce::jlimit(-1, 16, settings->getIntAttribute("eqChannel" + juce::String(band), -1)));
+        }
         panicCC.store(juce::jlimit(-1, 119, settings->getIntAttribute("panicCC", -1)));
         panicCCChannel.store(juce::jlimit(-1, 16, settings->getIntAttribute("panicChannel", -1)));
         if (lastSavedProgram.isEmpty())
@@ -129,6 +139,7 @@ void ClassicPlayerAudioProcessor::restoreStartupSettings()
 
 void ClassicPlayerAudioProcessor::beginMasterMidiLearn()
 {
+    activeMasterEqLearn.store(-1);
     activeMidiLearn.store(-1);
     panicLearning.store(false);
     masterLearning.store(!masterLearning.load());
@@ -136,6 +147,7 @@ void ClassicPlayerAudioProcessor::beginMasterMidiLearn()
 
 void ClassicPlayerAudioProcessor::beginPanicMidiLearn()
 {
+    activeMasterEqLearn.store(-1);
     activeMidiLearn.store(-1);
     masterLearning.store(false);
     panicLearning.store(!panicLearning.load());
@@ -159,12 +171,90 @@ void ClassicPlayerAudioProcessor::resetMasterMidiLearn()
     startupSettingsDirty.store(true);
 }
 
+void ClassicPlayerAudioProcessor::beginMasterEqMidiLearn(int band)
+{
+    if (!juce::isPositiveAndBelow(band, 3)) return;
+    masterLearning.store(false);
+    panicLearning.store(false);
+    activeMidiLearn.store(-1);
+    activeMasterEqLearn.store(activeMasterEqLearn.load() == band ? -1 : band);
+}
+
+void ClassicPlayerAudioProcessor::clearMasterEqMidiLearn(int band)
+{
+    if (!juce::isPositiveAndBelow(band, 3)) return;
+    if (isMasterEqMidiLearning(band)) activeMasterEqLearn.store(-1);
+    masterEqCC[(size_t) band].store(-1);
+    masterEqCCChannel[(size_t) band].store(-1);
+    pendingMasterEq[(size_t) band].store(-1.0f);
+    realtimeMasterEq[(size_t) band].store(-1.0f);
+    startupSettingsDirty.store(true);
+}
+
+int ClassicPlayerAudioProcessor::masterEqMidiLearnCC(int band) const
+{
+    return juce::isPositiveAndBelow(band, 3) ? masterEqCC[(size_t) band].load() : -1;
+}
+
+int ClassicPlayerAudioProcessor::masterEqMidiLearnChannel(int band) const
+{
+    return juce::isPositiveAndBelow(band, 3) ? masterEqCCChannel[(size_t) band].load() : -1;
+}
+
+void ClassicPlayerAudioProcessor::beginSplitLearn(int layer, bool upper)
+{
+    if (!juce::isPositiveAndBelow(layer, activeLayerCount())) return;
+    pendingSplitNote.store(-1);
+    const auto target = layer * 2 + (upper ? 1 : 0);
+    activeSplitLearn.store(activeSplitLearn.load() == target ? -1 : target);
+}
+
+void ClassicPlayerAudioProcessor::cancelSplitLearn(int layer)
+{
+    const auto target = activeSplitLearn.load();
+    if (target >= 0 && target / 2 == layer) activeSplitLearn.store(-1);
+    const auto pending = pendingSplitNote.load();
+    if (pending >= 0 && (pending / 128) / 2 == layer) pendingSplitNote.store(-1);
+}
+
+void ClassicPlayerAudioProcessor::resetLayerSplit(int layer)
+{
+    if (!juce::isPositiveAndBelow(layer, activeLayerCount())) return;
+    cancelSplitLearn(layer);
+    auto config = layerConfig(layer);
+    config.lowNote = 0;
+    config.highNote = 127;
+    setLayerConfig(layer, config);
+}
+
+void ClassicPlayerAudioProcessor::captureSplitNote(const juce::MidiMessage& message)
+{
+    if (!message.isNoteOn()) return;
+    const auto target = activeSplitLearn.exchange(-1);
+    if (target >= 0) pendingSplitNote.store(target * 128 + message.getNoteNumber());
+}
+
 void ClassicPlayerAudioProcessor::processMasterMidiMessage(const juce::MidiMessage& message)
 {
     if (!message.isController()) return;
     const auto cc = message.getControllerNumber();
     // Sustain and MIDI channel-mode messages must not become a volume control.
     if (cc == 64 || cc >= 120) return;
+    const auto eqTarget = activeMasterEqLearn.exchange(-1);
+    if (juce::isPositiveAndBelow(eqTarget, 3))
+    {
+        masterEqCC[(size_t) eqTarget].store(cc);
+        masterEqCCChannel[(size_t) eqTarget].store(message.getChannel());
+        startupSettingsDirty.store(true);
+    }
+    for (int band = 0; band < 3; ++band)
+        if (cc == masterEqCC[(size_t) band].load()
+            && message.getChannel() == masterEqCCChannel[(size_t) band].load())
+        {
+            const auto value = message.getControllerValue() / 127.0f;
+            pendingMasterEq[(size_t) band].store(value);
+            realtimeMasterEq[(size_t) band].store(value);
+        }
     if (panicLearning.exchange(false))
     {
         panicCCChannel.store(message.getChannel());
@@ -509,6 +599,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
     for (const auto metadata : midi)
     {
+        captureSplitNote(metadata.getMessage());
         processLiveSetSlotMidiMessage(metadata.getMessage());
         inspectDrumPadMidi(metadata.getMessage());
         processMidiControlMessage(metadata.getMessage());
@@ -1515,7 +1606,43 @@ bool ClassicPlayerAudioProcessor::addLayer(LayerType type)
     {
         if (activeLayers.compare_exchange_weak(count, count + 1, std::memory_order_relaxed))
         {
-            auto config = engine.getConfig(count);
+            // Inactive slots may still contain routing from an older program
+            // or a removed layer. New layers never inherit that state.
+            externalInstruments[(size_t) count].unload();
+            engine.unloadSoundFont(count);
+            nordLoaded[(size_t) count].store(false);
+            sampleEngine.unload(count);
+            dx7Engine.unload(count);
+            analogSynthEngine.unload(count);
+            hammondEngine.unload(count);
+            analogLayerConfigs[(size_t) count] = AnalogSynthEngine::Config{};
+            hammondLayerConfigs[(size_t) count] = HammondEngine::Config{};
+            continuousPads(count).restore({});
+            savedPaths[(size_t) count].clear();
+            savedSf2Banks[(size_t) count] = 0;
+            savedSf2Programs[(size_t) count] = 0;
+            setLayerMidiDevice(count, {});
+            {
+                const juce::ScopedLock midiLock(midiRoutingLock);
+                routedMidiCollectors[(size_t) count].reset(currentSampleRate);
+                routedMidiBuffers[(size_t) count].clear();
+            }
+            resetMidiLearn(count);
+            const auto prefix = "layer" + juce::String(count + 1);
+            for (auto* parameter : getParameters())
+                if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(parameter))
+                    if (ranged->paramID.startsWith(prefix)
+                        && ranged->paramID.length() > prefix.length()
+                        && !juce::CharacterFunctions::isDigit(ranged->paramID[prefix.length()]))
+                    {
+                        ranged->setValueNotifyingHost(ranged->getDefaultValue());
+                        if (auto* raw = parameters.getRawParameterValue(ranged->paramID))
+                            raw->store(ranged->convertFrom0to1(ranged->getDefaultValue()));
+                    }
+            for (const auto* key : { "layerOutline", "layerChannelColour" })
+                parameters.state.setProperty(juce::String(key) + juce::String(count + 1), juce::String{}, nullptr);
+            layerTypes[(size_t) count].store(static_cast<int>(LayerType::sf2));
+            Sf2Engine::LayerConfig config;
             config.enabled = true;
             config.midiChannel = type == LayerType::drumPads ? 10 : 1;
             engine.setConfig(count, config);
@@ -1565,6 +1692,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     if (layer < 0 || layer >= Sf2Engine::layerCount) return false;
     const auto count = activeLayers.load(std::memory_order_relaxed);
     if (layer >= count || count <= 0) return false;
+    activeSplitLearn.store(-1);
+    pendingSplitNote.store(-1);
 
     const auto last = count - 1;
     // The internal slots below are compacted after removal. Apply the same
@@ -1728,6 +1857,7 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
 
 void ClassicPlayerAudioProcessor::beginMidiLearn(int layer, LearnTarget target)
 {
+    activeMasterEqLearn.store(-1);
     masterLearning.store(false);
     panicLearning.store(false);
     const auto targetIndex = static_cast<int>(target);
@@ -1814,6 +1944,34 @@ bool ClassicPlayerAudioProcessor::isMidiLearning(int layer, LearnTarget target) 
 
 void ClassicPlayerAudioProcessor::consumeMidiControlUpdates()
 {
+    const auto split = pendingSplitNote.exchange(-1);
+    if (split >= 0)
+    {
+        const auto target = split / 128;
+        const auto layer = target / 2;
+        if (juce::isPositiveAndBelow(layer, activeLayerCount()))
+        {
+            auto config = layerConfig(layer);
+            const auto note = split % 128;
+            if ((target & 1) != 0)
+            {
+                config.highNote = note;
+                config.lowNote = juce::jmin(config.lowNote, note);
+            }
+            else
+            {
+                config.lowNote = note;
+                config.highNote = juce::jmax(config.highNote, note);
+            }
+            setLayerConfig(layer, config);
+        }
+    }
+    static const std::array<const char*, 3> eqIds { "masterEqLow", "masterEqMid", "masterEqHigh" };
+    for (int band = 0; band < 3; ++band)
+    {
+        const auto value = pendingMasterEq[(size_t) band].exchange(-1.0f);
+        if (value >= 0.0f) parameters.getParameter(eqIds[(size_t) band])->setValueNotifyingHost(value);
+    }
     const auto masterValue = pendingMasterValue.exchange(-1.0f);
     if (masterValue >= 0.0f)
         parameters.getParameter("master")->setValueNotifyingHost(masterValue);
@@ -1842,6 +2000,15 @@ void ClassicPlayerAudioProcessor::consumeMidiControlUpdates()
 
 void ClassicPlayerAudioProcessor::applyRealtimeMidiControlUpdates()
 {
+    static const std::array<const char*, 3> eqIds { "masterEqLow", "masterEqMid", "masterEqHigh" };
+    for (int band = 0; band < 3; ++band)
+    {
+        const auto value = realtimeMasterEq[(size_t) band].exchange(-1.0f);
+        if (value < 0.0f) continue;
+        auto* parameter = parameters.getParameter(eqIds[(size_t) band]);
+        parameter->setValue(value);
+        parameters.getRawParameterValue(eqIds[(size_t) band])->store(parameter->convertFrom0to1(value));
+    }
     static const std::array<const char*, 5> suffixes { "Gain", "Cutoff", "Reverb", "Comp", "Release" };
     for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
     {
@@ -2321,6 +2488,7 @@ void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* sou
                                                              const juce::MidiMessage& message)
 {
     const auto sourceId = source != nullptr ? source->getIdentifier() : juce::String{};
+    captureSplitNote(message);
     processMasterMidiMessage(message);
     processLiveSetSlotMidiMessage(message);
     // Capture the controller used for Learn before applying the per-layer
@@ -2681,6 +2849,8 @@ juce::Result ClassicPlayerAudioProcessor::deleteProgram(const juce::File& progra
 
 void ClassicPlayerAudioProcessor::stopAllSoundsBeforeProgramChange()
 {
+    activeSplitLearn.store(-1);
+    pendingSplitNote.store(-1);
     const juce::ScopedLock callbackLock(getCallbackLock());
     for(auto& bank:continuousBanks)bank->stopImmediately();
     engine.stopAllSounds();
@@ -2740,6 +2910,12 @@ void ClassicPlayerAudioProcessor::resetToNewProgram()
     const auto savedMasterChannel = masterCCChannel.load(std::memory_order_relaxed);
     const auto savedPanicCC = panicCC.load(std::memory_order_relaxed);
     const auto savedPanicChannel = panicCCChannel.load(std::memory_order_relaxed);
+    std::array<int, 3> savedEqCC, savedEqChannel;
+    for (int band = 0; band < 3; ++band)
+    {
+        savedEqCC[(size_t) band] = masterEqCC[(size_t) band].load();
+        savedEqChannel[(size_t) band] = masterEqCCChannel[(size_t) band].load();
+    }
 
     // Reset every automatable value, then keep only the APVTS parameter nodes
     // and app-wide UI preferences. All performance-specific data (layers,
@@ -2775,6 +2951,11 @@ void ClassicPlayerAudioProcessor::resetToNewProgram()
     state.setProperty("masterLearnChannel", savedMasterChannel, nullptr);
     state.setProperty("panicLearnCC", savedPanicCC, nullptr);
     state.setProperty("panicLearnChannel", savedPanicChannel, nullptr);
+    for (int band = 0; band < 3; ++band)
+    {
+        state.setProperty("masterEqLearnCC" + juce::String(band), savedEqCC[(size_t) band], nullptr);
+        state.setProperty("masterEqLearnChannel" + juce::String(band), savedEqChannel[(size_t) band], nullptr);
+    }
 
     if (auto xml = state.createXml())
     {
@@ -2866,7 +3047,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
     const auto sourceZero = juce::String(sourceLayer);
     const auto destinationZero = juce::String(destinationLayer);
     const juce::StringArray oneBased {
-        "layerType", "dx7Layer", "dx7Patch", "sf2Layer", "sf2Bank", "sf2Program",
+        "layerType", "dx7Layer", "dx7Patch", "sf2Layer", "sf2Bank", "sf2Program", "pianoTimbre",
         "externalInstrument", "externalInstrumentState", "analogOsc1Wave", "analogOsc2Wave",
         "analogOsc3Wave", "analogOsc1Level", "analogOsc2Level", "analogOsc3Level",
         "analogOsc1Semitones", "analogOsc2Semitones", "analogOsc3Semitones",
@@ -2953,6 +3134,11 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
     }
     state.setProperty("masterLearnCC", masterCC.load(), nullptr);
     state.setProperty("masterLearnChannel", masterCCChannel.load(), nullptr);
+    for (int band = 0; band < 3; ++band)
+    {
+        state.setProperty("masterEqLearnCC" + juce::String(band), masterEqCC[(size_t) band].load(), nullptr);
+        state.setProperty("masterEqLearnChannel" + juce::String(band), masterEqCCChannel[(size_t) band].load(), nullptr);
+    }
     state.setProperty("panicLearnCC", panicCC.load(), nullptr);
     state.setProperty("panicLearnChannel", panicCCChannel.load(), nullptr);
     state.setProperty("stateVersion", 170, nullptr);
@@ -2982,6 +3168,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("high" + juce::String(i), config.highNote, nullptr);
         state.setProperty("octave" + juce::String(i), config.octave, nullptr);
         state.setProperty("velocityCurve" + juce::String(i), config.velocityCurve, nullptr);
+        state.setProperty("pianoTimbre" + juce::String(i + 1), config.pianoTimbre, nullptr);
         // Mono Legato and Portamento are distinct layer modes and must remain
         // distinct when a performance is saved and restored.
         state.setProperty("mono" + juce::String(i), config.mono, nullptr);
@@ -3101,6 +3288,16 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             masterCCChannel.store(juce::jlimit(-1, 16, (int) state.getProperty("masterLearnChannel", -1)));
             masterLearning.store(false);
             pendingMasterValue.store(-1.0f);
+            activeMasterEqLearn.store(-1);
+            activeSplitLearn.store(-1);
+            pendingSplitNote.store(-1);
+            for (int band = 0; band < 3; ++band)
+            {
+                masterEqCC[(size_t) band].store(juce::jlimit(-1, 119, (int) state.getProperty("masterEqLearnCC" + juce::String(band), -1)));
+                masterEqCCChannel[(size_t) band].store(juce::jlimit(-1, 16, (int) state.getProperty("masterEqLearnChannel" + juce::String(band), -1)));
+                pendingMasterEq[(size_t) band].store(-1.0f);
+                realtimeMasterEq[(size_t) band].store(-1.0f);
+            }
             panicCC.store(juce::jlimit(-1, 119, (int) state.getProperty("panicLearnCC", -1)));
             panicCCChannel.store(juce::jlimit(-1, 16, (int) state.getProperty("panicLearnChannel", -1)));
             panicLearning.store(false);
@@ -3370,6 +3567,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.highNote = state.getProperty("high" + juce::String(i), 127);
                 config.octave = state.getProperty("octave" + juce::String(i), 0);
                 config.velocityCurve = state.getProperty("velocityCurve" + juce::String(i), 0);
+                config.pianoTimbre = juce::jlimit(0, 2, static_cast<int>(state.getProperty(
+                    "pianoTimbre" + juce::String(i + 1), config.pianoTimbre)));
                 // State created before the separate Portamento mode used the
                 // legacy "mono" property. Preserve it as Mono Legato rather
                 // than silently changing the player's selected mode.
