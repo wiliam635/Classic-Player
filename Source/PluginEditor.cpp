@@ -8897,11 +8897,11 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
         void paint(juce::Graphics& g) override { g.fillAll(juce::Colour(panel)); }
         void resized() override
         {
-            heading.setBounds(12,3,getWidth()-24,26);
-            int y=32;
+            heading.setBounds(12,1,getWidth()-24,24);
+            int y=28;
             for(int i=0;i<children.size();++i){
                 children[i]->setBounds(12,y,getWidth()-24,heights[(size_t)i]);
-                y+=heights[(size_t)i]+4;
+                y+=heights[(size_t)i]+2;
             }
         }
         juce::OwnedArray<juce::Component> children;
@@ -8915,9 +8915,9 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
         return localizedUiText(value, activeUiLanguage.load());
     });
     content->add(hammondPanel,220);
-    content->add(new EngineProgramSavePanel(processor,index,"Hammond"),28);
+    content->add(new EngineProgramSavePanel(processor,index,"Hammond"),26);
     content->add(new LayerPresetFilePanel(std::move(saveLayerCallback),
-                                          std::move(loadLayerCallback)),28);
+                                          std::move(loadLayerCallback)),26);
     content->add(new LayerRoutingEditorPanel(processor,index),122);
     const auto prefix="layer"+juce::String(index+1);
     const auto value=[&processor,prefix](const char* name){return processor.parameters.getRawParameterValue(prefix+name)->load();};
@@ -8933,7 +8933,7 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
                               prefix+commonParameterSuffixes[(size_t)control]);
     // This layout follows the available height, including each numeric field.
     common->useCompactGrid(true);
-    content->add(common,70);
+    content->add(common,66);
     common->setOnValueChange([&processor,common,prefix]{
         const std::array<const char*,6> names {"Gain","Attack","Release","Cutoff","Reverb","Comp"};
         for(int i=0;i<6;++i)if(auto* p=processor.parameters.getParameter(prefix+names[(size_t)i]))
@@ -8941,7 +8941,7 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
     });
     content->add(new SideBySideEditorPanel(
         new LayerEffectButtons(std::move(reverbCallback), std::move(compressorCallback), {}, std::move(eqCallback)),
-        new LayerMidiLearnPanel(processor,index), 680, 54), 54);
+        new LayerMidiLearnPanel(processor,index), 680, 46), 46);
     content->setSize(704,548);
     return content;
 }
