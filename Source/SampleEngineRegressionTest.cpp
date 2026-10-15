@@ -67,14 +67,23 @@ struct SampleEngineRegressionTests
         require(layer.voices[0].age > layer.voices.back().age,
                 "The first sustained voice was overwritten");
         // A pedal-up must release existing voices, never trigger a new note.
+        std::array<std::uint64_t, Sf2Engine::polyphonyPerLayer> agesBeforePedalUp {};
+        for (size_t i = 0; i < layer.voices.size(); ++i)
+            agesBeforePedalUp[i] = layer.voices[i].age;
         midi.addEvent(juce::MidiMessage::controllerEvent(1, 64, 0), 0);
         audio.clear();
         engine->renderLayer(layer, audio, midi, routing);
-        require(active(*engine) == Sf2Engine::polyphonyPerLayer,
-                "Pedal-up changed the voice count unexpectedly");
-        for (const auto& voice : layer.voices)
+        // Once the sustain loop is disabled, a short sample can legitimately
+        // end during this block. Check release and identity rather than
+        // requiring voices that reached the end of their PCM to remain active.
+        for (size_t i = 0; i < layer.voices.size(); ++i)
+        {
+            const auto& voice = layer.voices[i];
             require(voice.released && !voice.waitingForSustain,
                     "Pedal-up left a sustained voice stuck");
+            require(voice.age >= agesBeforePedalUp[i],
+                    "Pedal-up retriggered a note instead of releasing it");
+        }
         midi.clear();
         for (int i = 0; i < 300; ++i)
         {
