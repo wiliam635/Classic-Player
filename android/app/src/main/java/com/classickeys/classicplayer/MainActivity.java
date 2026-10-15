@@ -2210,6 +2210,11 @@ public final class MainActivity extends Activity {
                 if(action==MotionEvent.ACTION_DOWN&&inLayerViewport){
                     mixerScrollCandidate=true;mixerScrollGesture=false;mixerTapCancelled=false;mixerDownX=event.getX();mixerDownY=event.getY();mixerStartScroll=layerScrollX;return true;
                 }
+                if(mixerScrollGesture&&action==MotionEvent.ACTION_MOVE){
+                    float dx=mixerDownX-event.getX();
+                    layerScrollX=Math.max(0,Math.min(maxLayerScroll(w),mixerStartScroll+dx));
+                    invalidate();return true;
+                }
                 if(mixerScrollCandidate&&action==MotionEvent.ACTION_MOVE){
                     float dx=mixerDownX-event.getX(),dy=mixerDownY-event.getY();
                     if(Math.abs(dx)>mixerTouchSlop&&Math.abs(dx)>Math.abs(dy)){

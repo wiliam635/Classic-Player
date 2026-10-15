@@ -57,9 +57,17 @@ final class EditorUi {
             android.util.DisplayMetrics m=body.getResources().getDisplayMetrics();
             // Keep the body inside the usable app area on short landscape
             // screens; the footer stays fixed and never covers the last row.
-            scroll.maxHeight=Math.max(dp(body.getContext(),64),m.heightPixels-dp(body.getContext(),144));
+            // The dialog is a separate window from the immersive activity, so
+            // Android may otherwise reserve the navigation-bar area and clip
+            // the fixed footer. Leave room for the panel chrome and system
+            // insets; only the body scrolls when the content is taller.
+            scroll.maxHeight=Math.max(dp(body.getContext(),96),m.heightPixels-dp(body.getContext(),208));
             dialog.show();android.view.Window w=dialog.getWindow();if(w!=null){
                 w.setBackgroundDrawableResource(android.R.color.transparent);
+                w.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN
+                        |View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        |View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        |View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
                 // Compact desktop-like panels; never impose a minimum wider
                 // than the display because editors must remain usable on a
                 // phone held in landscape.
