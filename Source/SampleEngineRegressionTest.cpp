@@ -73,9 +73,8 @@ struct SampleEngineRegressionTests
         midi.addEvent(juce::MidiMessage::controllerEvent(1, 64, 0), 0);
         audio.clear();
         engine->renderLayer(layer, audio, midi, routing);
-        // Once the sustain loop is disabled, a short sample can legitimately
-        // end during this block. Check release and identity rather than
-        // requiring voices that reached the end of their PCM to remain active.
+        // Check release and identity; a voice may retire once its envelope
+        // becomes silent, without triggering a replacement note.
         for (size_t i = 0; i < layer.voices.size(); ++i)
         {
             const auto& voice = layer.voices[i];
@@ -128,20 +127,26 @@ struct SampleEngineRegressionTests
         juce::AudioBuffer<float> audio(2, 64);
         engine->startPianoVoice(layer, 0, 60, 1, 1.0f, routing);
         auto& voice = layer.voices[0];
+        voice.age = 0;
+        audio.clear();
+        engine->renderLayer(layer, audio, midi, routing);
+        const auto initial = audio.getSample(0, 0);
+        layer.sustainDown[0] = true;
+        voice.waitingForSustain = true;
+        for (const auto seconds : { 3.0, 7.5, 14.5 })
+        {
+            voice.age = static_cast<std::uint64_t>(seconds * rate);
+            audio.clear();
+            engine->renderLayer(layer, audio, midi, routing);
+            const auto remaining = 1.0 - seconds / 15.0;
+            require(std::abs(audio.getSample(0, 0) / initial - remaining * remaining) < 0.001,
+                    "Piano did not decay progressively under sustain");
+        }
         voice.age = static_cast<std::uint64_t>(15.0 * rate);
         audio.clear();
         engine->renderLayer(layer, audio, midi, routing);
-        const auto at15 = audio.getSample(0, 0);
-        voice.age = static_cast<std::uint64_t>(16.0 * rate);
-        audio.clear();
-        engine->renderLayer(layer, audio, midi, routing);
-        require(std::abs(audio.getSample(0, 0) / at15 - 0.5f) < 0.001f,
-                "Piano lifetime did not fade smoothly from 15 to 17 seconds");
-        voice.age = static_cast<std::uint64_t>(17.0 * rate);
-        audio.clear();
-        engine->renderLayer(layer, audio, midi, routing);
         require(!voice.active && audio.getMagnitude(0, 64) == 0.0f,
-                "Piano loop survived past 17 seconds");
+                "Piano loop survived past 15 seconds");
         layer.sourcePath = juce::File::getSpecialLocation(juce::File::tempDirectory)
             .getChildFile("Organ/synthetic.npno").getFullPathName();
         engine->startPianoVoice(layer, 0, 60, 1, 1.0f, routing);
@@ -150,6 +155,102 @@ struct SampleEngineRegressionTests
         engine->renderLayer(layer, audio, midi, routing);
         require(voice.active && audio.getMagnitude(0, 64) > 0.0f,
                 "Piano lifetime incorrectly truncated an organ");
+    }
+
+    static void crossfades()
+    {
+        NordPianoDecoder::Instrument piano;
+        piano.channels = 2;
+        NordPianoDecoder::Stroke stroke;
+        const auto rate = NordPianoDecoder::sampleRate;
+        const auto start = rate;
+        const auto end = rate * 3;
+        stroke.rootNote = 60;
+        stroke.loopStartFrame = static_cast<std::uint32_t>(start);
+        stroke.loopEndFrame = static_cast<std::uint32_t>(end);
+        stroke.interleavedPcm.resize(static_cast<size_t>((end + 4) * 2));
+        for (int frame = 0; frame < end + 4; ++frame)
+        {
+            const auto phase = juce::MathConstants<double>::twoPi * 261.63 * frame / rate;
+            const auto offset = frame > end - rate / 2 ? 3000.0 : 0.0;
+            const auto value = static_cast<std::int16_t>(std::round(
+                8000.0 * std::sin(phase) + 1200.0 * std::sin(phase * 2.0) + offset));
+            stroke.interleavedPcm[static_cast<size_t>(frame * 2)] = value;
+            stroke.interleavedPcm[static_cast<size_t>(frame * 2 + 1)] = value / 2;
+        }
+        const auto original = stroke.interleavedPcm;
+        piano.strokes.push_back(stroke);
+        stroke.bank = 2;
+        piano.strokes.push_back(stroke);
+        SampleEngine::preparePianoLoops(piano);
+        auto& prepared = piano.strokes[0];
+        const auto fade = static_cast<int>(prepared.loopStartFrame) - start;
+        require(fade > rate / 2 && fade < rate * 6 / 10,
+                "Piano crossfade did not use the 550-ms target");
+        require(prepared.interleavedPcm.size() == original.size(),
+                "Loop preparation allocated a second retained PCM buffer");
+        for (int frame = 0; frame < end - fade; ++frame)
+            for (int channel = 0; channel < 2; ++channel)
+                require(prepared.interleavedPcm[static_cast<size_t>(frame * 2 + channel)]
+                            == original[static_cast<size_t>(frame * 2 + channel)],
+                        "Loop crossfade changed the attack");
+        for (int channel = 0; channel < 2; ++channel)
+            require(prepared.interleavedPcm[static_cast<size_t>((end - 1) * 2 + channel)]
+                        == original[static_cast<size_t>((start + fade - 1) * 2 + channel)],
+                    "Loop crossfade does not lead into the advanced head");
+        for (int frame = end - fade; frame < end; ++frame)
+        {
+            const auto index = static_cast<size_t>(frame * 2);
+            require(std::abs(prepared.interleavedPcm[index + 1]
+                           - prepared.interleavedPcm[index] * 0.5) <= 2.0,
+                    "Loop processing changed the stereo image");
+        }
+        require(piano.strokes[1].interleavedPcm == original
+                    && piano.strokes[1].loopStartFrame == static_cast<std::uint32_t>(start),
+                "Loop processing modified release-trigger samples");
+        const auto edge = SampleEngine::readPianoInterpolated(prepared, 2, 0, end - 0.25, true);
+        for (int frame = end; frame < end + 4; ++frame)
+            prepared.interleavedPcm[static_cast<size_t>(frame * 2)] = 32767;
+        require(edge == SampleEngine::readPianoInterpolated(prepared, 2, 0, end - 0.25, true),
+                "Interpolation leaked PCM from beyond the active loop end");
+    }
+
+    static void loopDuringRelease(double rate)
+    {
+        auto engine = instrument(rate);
+        auto& layer = engine->layers[0];
+        auto routing = config();
+        routing.release = 100.0f;
+        engine->startPianoVoice(layer, 0, 60, 1, 1.0f, routing);
+        layer.voices[0].position = 4094.0;
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+        juce::AudioBuffer<float> audio(2, 128);
+        audio.clear();
+        engine->renderLayer(layer, audio, midi, routing);
+        require(layer.voices[0].active && layer.voices[0].released
+                    && audio.getSample(0, 127) > 0.0f,
+                "The PCM end truncated a long Release tail");
+    }
+
+    static std::vector<float> partitionedDecay(double rate, int block)
+    {
+        auto engine = instrument(rate);
+        auto& layer = engine->layers[0];
+        const auto routing = config();
+        SampleEngine::preparePianoLoops(layer.piano);
+        engine->startPianoVoice(layer, 0, 60, 1, 1.0f, routing);
+        std::vector<float> result;
+        juce::MidiBuffer midi;
+        for (int start = 0; start < 16384; start += block)
+        {
+            const auto count = std::min(block, 16384 - start);
+            juce::AudioBuffer<float> audio(2, count);
+            audio.clear();
+            engine->renderLayer(layer, audio, midi, routing);
+            result.insert(result.end(), audio.getReadPointer(0), audio.getReadPointer(0) + count);
+        }
+        return result;
     }
 
     static float response(SampleEngine& engine, int mode, float frequency, double rate)
@@ -199,10 +300,14 @@ struct SampleEngineRegressionTests
     static void run()
     {
         stealing();
+        crossfades();
         for (const auto rate : { 44100.0, 48000.0 })
         {
             sustainAndPolyphony(rate);
             lifetime(rate);
+            loopDuringRelease(rate);
+            require(partitionedDecay(rate, 127) == partitionedDecay(rate, 512),
+                    "Piano decay/crossfade changed with audio block size");
             voicings(rate);
         }
     }

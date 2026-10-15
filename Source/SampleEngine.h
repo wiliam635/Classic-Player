@@ -89,6 +89,7 @@ private:
     void startPianoVoice(Layer&, int sampleIndex, int note, int channel, float velocity,
                          const Sf2Engine::LayerConfig& routing);
     static Voice& allocateVoice(Layer&);
+    static void preparePianoLoops(NordPianoDecoder::Instrument&);
     int findPianoStroke(const Layer&, int note, float velocity, int bank) const;
     void releasePianoVoice(Voice&, float releaseControl);
     void releaseVoice(Layer&, int note, int channel, float releaseControl);
@@ -98,7 +99,7 @@ private:
                               const Sf2Engine::LayerConfig&);
     static float readInterpolated(const juce::AudioBuffer<float>&, int channel, double position);
     static float readPianoInterpolated(const NordPianoDecoder::Stroke&, int channels,
-                                       int channel, double position);
+                                       int channel, double position, bool looped = false);
 
     std::array<Layer, layerCount> layers;
     std::array<juce::MidiBuffer, layerCount> combinedMidi;
