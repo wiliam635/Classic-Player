@@ -3613,6 +3613,11 @@ public:
         }
         addAndMakeVisible(importButton); addAndMakeVisible(deleteButton);
         addAndMakeVisible(splitControls);
+        // Split boundaries are set by playing the desired notes; the old note
+        // dropdowns duplicated that function and forced the three learn
+        // buttons into a cramped third column.
+        lowNoteBox.setVisible(false);
+        highNoteBox.setVisible(false);
         modeBox.addItem("POLI", 1); modeBox.addItem("MONO / LEGATO", 2); modeBox.addItem("PORTAMENTO", 3);
         sustainBox.addItem("SUSTAIN ON", 1); sustainBox.addItem("SUSTAIN OFF", 2);
         channelBox.addItem("MIDI OMNI", 1);
@@ -3649,20 +3654,37 @@ public:
         row = area.removeFromTop(compactLayout ? 22 : 25);
         presetLabel.setBounds(row.removeFromLeft(105)); presetBox.setBounds(row);
         area.removeFromTop(compactLayout ? 3 : 10);
-        const auto cell = area.getWidth() / 3;
+        const auto cell = area.getWidth() / 4;
         auto place = [compact = compactLayout](juce::Rectangle<int> r, juce::Label& l, juce::ComboBox& b)
         {
             l.setBounds(r.removeFromTop(compact ? 12 : 18));
             b.setBounds(r.reduced(2, compact ? 0 : 2));
         };
-        for (int rowIndex = 0; rowIndex < 3; ++rowIndex)
+        const auto routingRowHeight = juce::jmin(compactLayout ? 48 : 62,
+                                                  area.getHeight() / 2);
+        for (int rowIndex = 0; rowIndex < 2; ++rowIndex)
         {
-            auto line = area.removeFromTop(compactLayout ? 32 : 62);
-            if (rowIndex == 0) { place(line.removeFromLeft(cell), modeLabel, modeBox); place(line.removeFromLeft(cell), sustainLabel, sustainBox); place(line, channelLabel, channelBox); }
-            if (rowIndex == 1) { place(line.removeFromLeft(cell), deviceLabel, deviceBox); place(line.removeFromLeft(cell), octaveLabel, octaveBox); place(line, velocityLabel, velocityBox); }
-            if (rowIndex == 2) { place(line.removeFromLeft(cell), rangeLabel, lowNoteBox); place(line.removeFromLeft(cell), highRangeLabel, highNoteBox); }
+            auto line = area.removeFromTop(routingRowHeight);
+            if (rowIndex == 0)
+            {
+                place(line.removeFromLeft(cell), modeLabel, modeBox);
+                place(line.removeFromLeft(cell), sustainLabel, sustainBox);
+                place(line.removeFromLeft(cell), channelLabel, channelBox);
+                place(line, deviceLabel, deviceBox);
+                continue;
+            }
+
+            place(line.removeFromLeft(cell), octaveLabel, octaveBox);
+            auto splitArea = line.removeFromLeft(cell * 2);
+            const auto buttonWidth = splitArea.getWidth() / 3;
+            auto noteLabels = splitArea.removeFromTop(compactLayout ? 12 : 18);
+            rangeLabel.setJustificationType(juce::Justification::centred);
+            highRangeLabel.setJustificationType(juce::Justification::centred);
+            rangeLabel.setBounds(noteLabels.removeFromLeft(buttonWidth).reduced(2, 0));
+            highRangeLabel.setBounds(noteLabels.removeFromLeft(buttonWidth).reduced(2, 0));
+            splitControls.setBounds(splitArea.reduced(1, 0));
+            place(line, velocityLabel, velocityBox);
         }
-        splitControls.setBounds(getWidth() - 12 - cell, lowNoteBox.getY(), cell, lowNoteBox.getHeight());
     }
 
 private:
