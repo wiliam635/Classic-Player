@@ -2149,6 +2149,72 @@ private:
     std::unique_ptr<juce::FileChooser> chooser;
 };
 
+class NordPianoTimbrePanel final : public juce::Component
+{
+public:
+    NordPianoTimbrePanel(ClassicPlayerAudioProcessor& p, int layer)
+        : processor(p), index(layer)
+    {
+        title.setText("EQUALIZER", juce::dontSendNotification);
+        title.setColour(juce::Label::textColourId, juce::Colour(text));
+        title.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+        title.setJustificationType(juce::Justification::centredRight);
+        addAndMakeVisible(title);
+
+        const std::array<const char*, 3> names {{ "SOFT", "MID", "BRIGHT" }};
+        const std::array<const char*, 3> hints {{
+            "Seleciona uma camada de velocity mais suave do piano Nord.",
+            "Reduz levemente graves e agudos.",
+            "Realça os agudos do piano Nord."
+        }};
+        for (int mode = 0; mode < 3; ++mode)
+        {
+            auto& button = modes[(size_t) mode];
+            button.setButtonText(names[(size_t) mode]);
+            button.setTooltip(hints[(size_t) mode]);
+            button.setClickingTogglesState(true);
+            flatButton(button);
+            addAndMakeVisible(button);
+            button.onClick = [this, mode] { selectMode(mode); };
+        }
+
+        selectMode(processor.layerConfig(index).pianoTimbre, false);
+        setSize(410, 42);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds();
+        title.setBounds(area.removeFromLeft(112));
+        area.removeFromLeft(8);
+        const auto buttonWidth = area.getWidth() / 3;
+        for (int mode = 0; mode < 3; ++mode)
+        {
+            auto buttonArea = mode == 2 ? area : area.removeFromLeft(buttonWidth);
+            modes[(size_t) mode].setBounds(buttonArea.reduced(3, 4));
+        }
+    }
+
+private:
+    void selectMode(int mode, bool updateProcessor = true)
+    {
+        mode = juce::jlimit(0, 2, mode);
+        for (int i = 0; i < 3; ++i)
+            modes[(size_t) i].setToggleState(i == mode, juce::dontSendNotification);
+        if (updateProcessor)
+        {
+            auto config = processor.layerConfig(index);
+            config.pianoTimbre = mode;
+            processor.setLayerConfig(index, config);
+        }
+    }
+
+    ClassicPlayerAudioProcessor& processor;
+    int index;
+    juce::Label title;
+    std::array<juce::TextButton, 3> modes;
+};
+
 class EffectPresetFilePanel final : public juce::Component
 {
 public:
@@ -4840,6 +4906,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
             },
             [safe] { if (safe != nullptr) safe->refresh(); });
         dialog->addCustomComponent(new CenteredPanel(importNordPanel, 620, 58));
+        dialog->addCustomComponent(new CenteredPanel(
+            new NordPianoTimbrePanel(processor, index), 410, 42));
     }
 
     // On a 13-inch display the complete editor, including numeric values and

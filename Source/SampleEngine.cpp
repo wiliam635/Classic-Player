@@ -34,6 +34,8 @@ void SampleEngine::prepare(double sampleRate, int maximumBlockSize)
         layer.reverb.reset();
         layer.compressorEnvelope.fill(0.0f);
         layer.cutoffState.fill(0.0f);
+        layer.pianoLowEqState.fill(0.0f);
+        layer.pianoHighEqState.fill(0.0f);
         layer.eq.reset();
         layer.gain.reset(currentSampleRate, 0.02);
         layer.gain.setCurrentAndTargetValue(0.8f);
@@ -65,6 +67,8 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
         destination.sustainDown.fill(false);
         destination.cutoffState.fill(0.0f);
         destination.compressorEnvelope.fill(0.0f);
+        destination.pianoLowEqState.fill(0.0f);
+        destination.pianoHighEqState.fill(0.0f);
         destination.modulationAmount = 0.0f;
         destination.modulationPhase = 0.0;
         destination.eq.reset();
@@ -97,6 +101,8 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
     destination.peak.store(0.0f, std::memory_order_release);
     destination.cutoffState.fill(0.0f);
     destination.compressorEnvelope.fill(0.0f);
+    destination.pianoLowEqState.fill(0.0f);
+    destination.pianoHighEqState.fill(0.0f);
     destination.modulationAmount = 0.0f;
     destination.modulationPhase = 0.0;
     destination.eq.reset();
@@ -118,6 +124,8 @@ void SampleEngine::unload(int layer)
     destination.sustainDown.fill(false);
     destination.cutoffState.fill(0.0f);
     destination.compressorEnvelope.fill(0.0f);
+    destination.pianoLowEqState.fill(0.0f);
+    destination.pianoHighEqState.fill(0.0f);
     destination.modulationAmount = 0.0f;
     destination.modulationPhase = 0.0;
     destination.eq.reset();
@@ -215,13 +223,17 @@ void SampleEngine::startVoice(Layer& layer, int note, int channel, float velocit
     candidate->waitingForSustain = false;
 }
 
-int SampleEngine::findPianoStroke(const Layer& layer, int note, float velocity, int bank) const
+int SampleEngine::findPianoStroke(const Layer& layer, int note, float velocity, int bank, int timbre) const
 {
     if (!layer.pianoLoaded || !juce::isPositiveAndBelow(note, 128)) return -1;
     const auto root = layer.piano.keyMap[(size_t) note];
     if (root == 0xff) return -1;
 
-    const auto midiVelocity = juce::jlimit(1, 127, juce::roundToInt(velocity * 127.0f));
+    auto midiVelocity = juce::jlimit(1, 127, juce::roundToInt(velocity * 127.0f));
+    // Soft selects a gentler recorded velocity stroke without changing the
+    // MIDI velocity gain, preserving the player's dynamic response.
+    if (bank == 0 && timbre == 0)
+        midiVelocity = juce::jmax(1, midiVelocity - 20);
     const auto layerLimit = ((127 - midiVelocity) * layer.piano.velocityScale) / 127;
     int bestIndex = -1;
     int bestLayer = -1;
@@ -398,9 +410,10 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             {
                 const auto channel = juce::jlimit(1, 16, message.getChannel());
                 const auto bank = layer.sustainDown[(size_t) channel - 1] ? 1 : 0;
-                auto stroke = findPianoStroke(layer, note, velocity, bank);
+                const auto timbre = juce::jlimit(0, 2, routing.pianoTimbre);
+                auto stroke = findPianoStroke(layer, note, velocity, bank, timbre);
                 if (stroke < 0 && bank == 1)
-                    stroke = findPianoStroke(layer, note, velocity, 0);
+                    stroke = findPianoStroke(layer, note, velocity, 0, timbre);
                 if (stroke >= 0)
                     startPianoVoice(layer, stroke, note, channel, velocity, routing);
             }
@@ -526,6 +539,37 @@ void SampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<float>& 
 {
     const auto samples = scratch.getNumSamples();
     if (samples <= 0) return;
+
+    if (layer.pianoLoaded)
+    {
+        const auto timbre = juce::jlimit(0, 2, routing.pianoTimbre);
+        const auto lowCorner = juce::jmin(180.0, currentSampleRate * 0.2);
+        const auto highCorner = juce::jmin(5000.0, currentSampleRate * 0.4);
+        const auto lowPole = static_cast<float>(std::exp(
+            -juce::MathConstants<double>::twoPi * lowCorner / currentSampleRate));
+        const auto highPole = static_cast<float>(std::exp(
+            -juce::MathConstants<double>::twoPi * highCorner / currentSampleRate));
+        for (int channel = 0; channel < 2; ++channel)
+        {
+            auto& lowState = layer.pianoLowEqState[(size_t) channel];
+            auto& highState = layer.pianoHighEqState[(size_t) channel];
+            auto* values = scratch.getWritePointer(channel);
+            for (int sample = 0; sample < samples; ++sample)
+            {
+                const auto input = values[sample];
+                lowState = (1.0f - lowPole) * input + lowPole * lowState;
+                highState = (1.0f - highPole) * input + highPole * highState;
+                const auto lowBand = lowState;
+                const auto midBand = highState - lowState;
+                const auto highBand = input - highState;
+                values[sample] = timbre == 1
+                    ? 0.75f * lowBand + midBand + 0.75f * highBand
+                    : timbre == 2
+                        ? lowBand + midBand + 1.4f * highBand
+                        : input;
+            }
+        }
+    }
 
     const auto category = juce::File(layer.sourcePath).getParentDirectory().getFileName();
     const auto modulation = routing.modulationEnabled

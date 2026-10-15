@@ -71,6 +71,8 @@ private:
         std::array<bool, 16> sustainDown {};
         std::array<float, 2> cutoffState {};
         std::array<float, 2> compressorEnvelope {};
+        std::array<float, 2> pianoLowEqState {};
+        std::array<float, 2> pianoHighEqState {};
         double modulationPhase = 0.0;
         float modulationAmount = 0.0f;
         juce::SmoothedValue<float> gain;
@@ -84,7 +86,7 @@ private:
                     const Sf2Engine::LayerConfig& routing);
     void startPianoVoice(Layer&, int sampleIndex, int note, int channel, float velocity,
                          const Sf2Engine::LayerConfig& routing);
-    int findPianoStroke(const Layer&, int note, float velocity, int bank) const;
+    int findPianoStroke(const Layer&, int note, float velocity, int bank, int timbre) const;
     void releasePianoVoice(Voice&, float releaseControl);
     void releaseVoice(Layer&, int note, int channel, float releaseControl);
     void renderLayer(Layer&, juce::AudioBuffer<float>&,
