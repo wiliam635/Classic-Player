@@ -9,7 +9,7 @@
 
 namespace nord_android {
 constexpr int sampleRate = 35002;
-constexpr int maxVoices = 256;
+constexpr int maxVoices = 128;
 
 struct Stroke {
     uint8_t root = 60, bank = 0, velocityLayer = 0;

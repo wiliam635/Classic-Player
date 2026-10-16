@@ -28,8 +28,8 @@ namespace
 constexpr int kLayerCount = 6;
 constexpr int kSampleRate = 44100;
 constexpr int kMaxFrames = 2048;
-constexpr int kMaximumPolyphony = 256;
-constexpr size_t kVoicePoolCapacity = kMaximumPolyphony;
+constexpr int kMaximumPolyphonyPerLayer = 128;
+constexpr size_t kVoicePoolCapacity = kMaximumPolyphonyPerLayer;
 constexpr int kHammondDelayFrames = 1204;
 
 std::array<tsf*, kLayerCount> fonts {};
@@ -271,62 +271,20 @@ struct HammondLayer {
     uint32_t noise=0x1341257u;
 };
 std::array<HammondLayer,kLayerCount> hammondLayers{};
-constexpr int kLowPolyphonyEngineLimit = 32;
 
 std::array<int,kLayerCount> calculateLayerVoiceBudgets(
         int overrideLayer = -1, EngineType overrideType = EngineType::empty)
 {
     std::array<int,kLayerCount> budgets{};
-    std::array<bool,kLayerCount> eligible{};
-    int eligibleLayers=0;
     for(int layer=0;layer<kLayerCount;++layer){
         const EngineType type=layer==overrideLayer?overrideType:engineTypes[(size_t)layer];
-        eligible[(size_t)layer]=type!=EngineType::empty;
-        if(eligible[(size_t)layer])++eligibleLayers;
-    }
-
-    // Divide the 256-voice app pool fairly, but cap the DX7, Hammond and
-    // Minimoog-style analog engines at 32 voices each. Recompute the split
-    // after applying caps so SoundFont layers can use the released capacity.
-    int remainingVoices=kMaximumPolyphony;
-    while(eligibleLayers>0){
-        const int base=remainingVoices/eligibleLayers;
-        const int remainder=remainingVoices%eligibleLayers;
-        bool cappedAny=false;
-        int ordinal=0;
-        for(int layer=0;layer<kLayerCount;++layer){
-            const auto li=(size_t)layer;
-            if(!eligible[li])continue;
-            const EngineType type=layer==overrideLayer?overrideType:engineTypes[li];
-            const int fairShare=base+(ordinal<remainder?1:0);
-            ++ordinal;
-            const bool limited=type==EngineType::dx7||type==EngineType::analog||type==EngineType::hammond;
-            if(limited&&fairShare>kLowPolyphonyEngineLimit){
-                budgets[li]=kLowPolyphonyEngineLimit;
-                eligible[li]=false;
-                --eligibleLayers;
-                remainingVoices-=kLowPolyphonyEngineLimit;
-                cappedAny=true;
-            }
-        }
-        if(eligibleLayers==0)break;
-        if(cappedAny)continue;
-
-        ordinal=0;
-        for(int layer=0;layer<kLayerCount;++layer){
-            const auto li=(size_t)layer;
-            if(!eligible[li])continue;
-            budgets[li]=base+(ordinal<remainder?1:0);
-            ++ordinal;
-        }
-        break;
+        if(type!=EngineType::empty)budgets[(size_t)layer]=kMaximumPolyphonyPerLayer;
     }
     return budgets;
 }
 
-// The 256-voice ceiling is shared by all loaded layers. Recompute fair
-// per-layer quotas whenever a motor is added or removed. DX7, Hammond and
-// Moog-style analog layers are capped at 32; their unused share is redistributed.
+// Each loaded layer has its own 128-voice ceiling; adding another layer does
+// not reduce the polyphony available to the existing layers.
 void distributeLayerVoiceBudgets()
 {
     const auto budgets=calculateLayerVoiceBudgets();
@@ -336,16 +294,15 @@ void distributeLayerVoiceBudgets()
         if(engineTypes[li]==EngineType::empty){layerVoiceBudgets[li]=0;continue;}
         int effectiveBudget=budget;
         if(engineTypes[li]==EngineType::dx7){
-            // DX7 note objects are large enough that eagerly allocating 256
-            // for every DX7 layer wastes memory on Android. Allocate only this
-            // layer's shared quota, and degrade safely if the device is tight.
+            // Allocate this layer's voices before publishing the DX7 engine;
+            // Note On never allocates on the audio thread.
             auto& voices=dxLayers[li].voices;
             for(int i=0;i<budget;++i){
                 if(voices[(size_t)i].synth)continue;
                 try{voices[(size_t)i].synth=std::make_unique<Dx7Note>(tuning,nullptr);}
                 catch(...){effectiveBudget=i;break;}
             }
-            for(int i=effectiveBudget;i<kMaximumPolyphony;++i){
+            for(int i=effectiveBudget;i<kMaximumPolyphonyPerLayer;++i){
                 auto& voice=voices[(size_t)i];
                 voice.active=false;voice.note=-1;voice.read=N;voice.synth.reset();
             }
@@ -355,7 +312,7 @@ void distributeLayerVoiceBudgets()
             tsf_set_max_voices(fonts[li],effectiveBudget);
         // When another motor is added, trim any now-out-of-budget voices.
         // These fixed pools are preallocated; no allocation occurs here.
-        for(int i=budget;i<kMaximumPolyphony;++i){
+        for(int i=budget;i<kMaximumPolyphonyPerLayer;++i){
             auto& dx=dxLayers[li].voices[(size_t)i];dx.active=false;dx.note=-1;dx.read=N;
             analogLayers[li].voices[(size_t)i]={};
             hammondLayers[li].voices[(size_t)i]={};
@@ -503,10 +460,10 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadLayer(
     // a little headroom for layered chords and PCM output clipping.
     // Four more dB of headroom keeps dense layered chords clean.
     tsf_set_output(loaded, TSF_STEREO_INTERLEAVED, kSampleRate, -6.0f);
-    // Preallocate the largest pool once. The active quota is distributed
-    // across loaded layers after publishing this font; SF2 voices count sample
-    // regions, so a layered preset may use more than one voice per MIDI key.
-    if (!tsf_set_max_voices(loaded, kMaximumPolyphony)) {
+    // Prepare this layer's 128-voice ceiling before publishing the font;
+    // SF2 voices count sample regions, so layered presets may consume more
+    // than one voice per MIDI key.
+    if (!tsf_set_max_voices(loaded, kMaximumPolyphonyPerLayer)) {
         tsf_close(loaded);
         return JNI_FALSE;
     }
@@ -643,7 +600,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadDx7(
         // buffer to prepare. Do not hold the renderer's mutex while doing so.
         initialiseDx();
         std::array<std::unique_ptr<Dx7Note>,kVoicePoolCapacity> preparedVoices{};
-        for(int i=0;i<kLowPolyphonyEngineLimit;++i)
+        for(int i=0;i<kMaximumPolyphonyPerLayer;++i)
             preparedVoices[(size_t)i]=std::make_unique<Dx7Note>(tuning,nullptr);
 
         std::lock_guard<std::mutex> lock(synthMutex);

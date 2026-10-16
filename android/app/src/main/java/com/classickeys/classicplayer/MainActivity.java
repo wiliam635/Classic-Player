@@ -2318,7 +2318,9 @@ public final class MainActivity extends Activity {
             if(engine.equals("NPNO"))return R.drawable.category_piano_nord;
             if(engine.equals("HAMMOND"))return R.drawable.category_organ;
             if(engine.equals("ANALOG"))return R.drawable.category_synth;
-            if(name.contains("nord"))return R.drawable.category_piano_nord;
+            // The Nord artwork identifies the NPNO engine only. A SoundFont
+            // may have "Nord" in its filename/preset name, but its artwork
+            // must still follow the instrument category rather than the brand.
             if(name.contains("eletric")||name.contains("electric")||name.contains("rhodes"))return R.drawable.category_piano_eletrico;
             if(name.contains("string")||name.contains("corda"))return R.drawable.category_strings;
             if(name.contains("pad"))return R.drawable.category_pad;
