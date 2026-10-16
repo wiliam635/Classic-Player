@@ -55,7 +55,7 @@ struct SampleEngineRegressionTests
         audio.clear();
         juce::MidiBuffer midi;
         midi.addEvent(juce::MidiMessage::noteOn(1, 60,
-            static_cast<juce::uint8>(inputVelocity)), 0);
+            static_cast<float>(inputVelocity) / 127.0f), 0);
         engine->renderLayer(engine->layers[0], audio, midi, routing);
         const auto voice = std::find_if(engine->layers[0].voices.begin(),
             engine->layers[0].voices.end(), [](const auto& candidate) { return candidate.active; });
