@@ -340,9 +340,9 @@ public final class MainActivity extends Activity {
         midiManager = (MidiManager) getSystemService(MIDI_SERVICE);
         audioEngine = new PolySynthEngine(this);
         SharedPreferences audioPrefs=getSharedPreferences("audio",MODE_PRIVATE);
-        if(!audioPrefs.getBoolean("approved_audio_config_migration_2",false)){
-            audioPrefs.edit().putBoolean("oboe_preferred",false).putInt("sample_rate_mode",0)
-                    .putInt("buffer_frames",512).putBoolean("approved_audio_config_migration_2",true).apply();
+        if(!audioPrefs.getBoolean("approved_audio_config_migration_3",false)){
+            audioPrefs.edit().putBoolean("oboe_preferred",true).putInt("sample_rate_mode",0)
+                    .putInt("buffer_frames",512).putBoolean("approved_audio_config_migration_3",true).apply();
         }
         audioEngine.setSampleRateMode(audioPrefs.getInt("sample_rate_mode",audioPrefs.getBoolean("native_rate",true)?0:1));
         audioEngine.setOboePreferred(getSharedPreferences("audio",MODE_PRIVATE).getBoolean("oboe_preferred",false));
@@ -632,16 +632,16 @@ public final class MainActivity extends Activity {
 
     private void restoreApprovedAudioSettings(){
         SharedPreferences prefs=getSharedPreferences("audio",MODE_PRIVATE);
-        prefs.edit().putBoolean("oboe_preferred",false).putInt("sample_rate_mode",0)
+        prefs.edit().putBoolean("oboe_preferred",true).putInt("sample_rate_mode",0)
                 .putInt("buffer_frames",512).apply();
         if(audioEngine!=null){
             audioEngine.stop();
-            audioEngine.setOboePreferred(false);
+            audioEngine.setOboePreferred(true);
             audioEngine.setSampleRateMode(0);
             audioEngine.setBufferFrames(512);
             audioEngine.start();
         }
-        if(screen!=null){screen.setAudioStatus("ÁUDIO RESTAURADO · AudioTrack · nativo · 512 frames");screen.invalidate();}
+        if(screen!=null){screen.setAudioStatus("ÁUDIO RESTAURADO · Oboe/AAudio · nativo · 512 frames");screen.invalidate();}
     }
 
     private void showAudioSampleRateChooser() {
