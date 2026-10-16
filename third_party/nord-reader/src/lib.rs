@@ -1,5 +1,5 @@
 use nord_format::formats::nsmp::codec;
-use nord_format::{from_path, Entity};
+use nord_format::{from_path, Entity, Sample};
 use std::ffi::{c_char, c_void, CStr};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
@@ -49,6 +49,15 @@ fn decode(
     if zones.is_empty() {
         return Err("O sample Nord não contém zonas de teclado.".to_owned());
     }
+    let velocity_windows = match &sample {
+        Sample::V2(_) => vec![None; zones.len()],
+        Sample::V3(body) => body
+            .zones()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .map(|zone| zone.velocity.map(|window| (window.low, window.high)))
+            .collect(),
+    };
 
     let mut ranges = Vec::with_capacity(zones.len());
     for zone in &zones {
@@ -74,9 +83,7 @@ fn decode(
     let mut covered = [[false; 128]; 128];
     for (index, zone) in zones.iter().enumerate() {
         let (low, high) = ranges[index];
-        let (low_velocity, high_velocity) = zone
-            .velocity
-            .map(|window| (window.low, window.high))
+        let (low_velocity, high_velocity) = velocity_windows[index]
             .unwrap_or((0, 127));
         if low > high || high > 127 || zone.root_key > 127
             || low_velocity > high_velocity || high_velocity > 127
@@ -126,9 +133,7 @@ fn decode(
             .unwrap_or(0.0)
             .clamp(-60.0, 24.0);
         let (low, high) = ranges[index];
-        let (low_velocity, high_velocity) = zone
-            .velocity
-            .map(|window| (window.low, window.high))
+        let (low_velocity, high_velocity) = velocity_windows[index]
             .unwrap_or((0, 127));
         let accepted = unsafe {
             callback(
