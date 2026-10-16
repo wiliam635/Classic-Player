@@ -2230,6 +2230,7 @@ public final class MainActivity extends Activity {
                 text(canvas, routedAudioLabel(), 52, h * .34f, h * .026f, EditorUi.MUTED);
                 text(canvas, midiStatus, 52, h * .42f, h * .026f, EditorUi.MUTED);
                 fittedText(canvas,audioCapabilityStatus,52,w-52,h*.465f,h*.016f,EditorUi.MUTED);
+                fittedText(canvas,"ROTA ATIVA · "+audioEngine.outputMode()+" · TOQUE PARA TROCAR",52,w*.46f,h*.505f,h*.016f,EditorUi.MUTED);
                 text(canvas, "Toque nas linhas acima para alternar a saída e o controlador.", 52, h * .54f, h * .022f, EditorUi.MUTED);
                 float actionRight = Math.min(w - 52, 430);
                 button(canvas, "MIDI LEARN · VOLUME", 52, h*.59f, actionRight, h*.66f, pendingLearnTarget>=0);
@@ -2341,7 +2342,7 @@ public final class MainActivity extends Activity {
             if(focusedLayer<0&&activeCount>0)focusedLayer=activeLayerAt(0);
             layerScrollX=Math.max(0,Math.min(mixerMaxScroll(w),layerScrollX));
             String focusText=focusedLayer>=0&&focusedLayer<6&&!"VAZIA".equals(engineNames[focusedLayer])?" · FOCO LAYER "+(focusedLayer+1):"";
-            text(canvas, "MIXER · " + activeCount + " / 6 LAYERS"+focusText, left, h * .16f, h * .024f, EditorUi.MUTED);
+            fittedText(canvas, "MIXER · " + activeCount + " / 6 LAYERS"+focusText+" · TESTE NPNO 16.10.2", left, w-EditorUi.dp(getContext(),18), h * .16f, h * .024f, EditorUi.MUTED);
             setContentDescription("Mixer, "+activeCount+" layers. Deslize horizontalmente para percorrer as layers; master permanece fixo à direita.");
             if (activeCount == 0)
                 text(canvas, "TOQUE EM + LAYER PARA ADICIONAR UM MOTOR", left + 12, h * .36f, h * .024f, EditorUi.MUTED);
@@ -2424,6 +2425,7 @@ public final class MainActivity extends Activity {
                 paint.setStyle(Paint.Style.FILL);paint.setColor(EditorUi.PANEL);canvas.drawRoundRect(viewLeft,trackTop,viewRight,trackBottom,trackBottom-trackTop,trackBottom-trackTop,paint);
                 paint.setColor(teal);canvas.drawRoundRect(thumbLeft,trackTop,thumbLeft+thumbWidth,trackBottom,trackBottom-trackTop,trackBottom-trackTop,paint);
             }
+            button(canvas,"TEMA · "+EditorUi.THEME_NAMES[EditorUi.themeIndex],left,h*.943f,Math.min(w*.34f,EditorUi.dp(getContext(),185)),h*.991f,false);
             button(canvas, "PANIC", w*.88f, h*.943f, w-left, h*.991f, false);
             postInvalidateDelayed(70);
         }
@@ -2472,6 +2474,7 @@ public final class MainActivity extends Activity {
             }
             if (settings && tap) {
                 if(event.getX()>=52&&event.getX()<Math.min(w-52,430)&&event.getY()>=h*.87f&&event.getY()<=h*.925f){showThemeChooser();return true;}
+                if(event.getX()>=52&&event.getX()<w*.46f&&event.getY()>=h*.48f&&event.getY()<=h*.53f){showAudioBackendChooser();return true;}
                 if(event.getX()>w*.48f&&event.getY()>h*.50f){
                     if(event.getY()<h*.565f)showAudioSampleRateChooser();
                     else if(event.getY()<h*.645f)showAudioBufferChooser();
@@ -2502,6 +2505,7 @@ public final class MainActivity extends Activity {
             if(liveSet&&tap&&event.getY()>h*.14f&&event.getY()<h*.22f){liveBank=Math.max(0,Math.min(7,(int)(event.getX()/(w/8f))));selected=0;loadLiveNames();return true;}
             if(liveSet&&tap&&event.getY()>h*.90f&&event.getX()<300){savingLiveSlot=!savingLiveSlot;invalidate();return true;}
             if (!liveSet && !settings && tap && event.getY() >= h*.943f && event.getY() <= h*.991f) {
+                if(event.getX()>=18&&event.getX()<=Math.min(w*.34f,EditorUi.dp(getContext(),185))){showThemeChooser();return true;}
                 if (event.getX() >= w*.88f && event.getX() <= w-18) { panicMidiState(); invalidate(); return true; }
             }
             if (!liveSet && dragging && event.getY() > h * .17f && event.getY() < h * .93f) {

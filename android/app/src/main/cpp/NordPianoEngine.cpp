@@ -92,17 +92,31 @@ void smoothLoop(Stroke& s,int channels){
         s.pcm[size_t(end-fade+f)*size_t(channels)+size_t(ch)]=(int16_t)std::lround(blend(f,ch,compensate));
     s.loopStart+=(uint32_t)fade;
 }
-float sample(const Stroke& s,int channels,int ch,double position){
-    const int count=(int)(s.pcm.size()/size_t(channels));if(!count)return 0;
-    const int first=std::clamp((int)position,0,count-1);float t=(float)(position-first),t2=t*t,t3=t2*t;
-    auto at=[&](int frame){
-        if(s.loopEnd>s.loopStart&&frame>=(int)s.loopEnd)
+void sampleStereo(const Stroke& s,int channels,double position,float& left,float& right){
+    const int count=(int)(s.pcm.size()/size_t(channels));
+    if(!count){left=right=0.f;return;}
+    const int first=std::clamp((int)position,0,count-1);
+    const float t=(float)(position-first),t2=t*t,t3=t2*t;
+    const float coefficients[4]={
+        .5f*(-t+2.f*t2-t3),
+        .5f*(2.f-5.f*t2+3.f*t3),
+        .5f*(t+4.f*t2-3.f*t3),
+        .5f*(-t2+t3)
+    };
+    int frames[4]={first-1,first,first+1,first+2};
+    const bool loop=s.loopEnd>s.loopStart;
+    for(int& frame:frames){
+        if(loop&&frame>=(int)s.loopEnd)
             frame=(int)s.loopStart+(frame-(int)s.loopEnd)%int(s.loopEnd-s.loopStart);
         frame=std::clamp(frame,0,count-1);
-        return float(s.pcm[size_t(frame)*size_t(channels)+size_t(std::min(ch,channels-1))])/32768.f;
-    };
-    float a=at(first-1),b=at(first),c=at(first+1),d=at(first+2);
-    return .5f*((2*b)+(-a+c)*t+(2*a-5*b+4*c-d)*t2+(-a+3*b-3*c+d)*t3);
+    }
+    float l=0.f,r=0.f;
+    for(int i=0;i<4;++i){
+        const size_t offset=size_t(frames[i])*size_t(channels);
+        l+=coefficients[i]*float(s.pcm[offset]);
+        r+=coefficients[i]*float(s.pcm[offset+size_t(channels>1)]);
+    }
+    left=l/32768.f;right=r/32768.f;
 }
 }
 
@@ -212,8 +226,9 @@ void render(Layer& layer,float* stereo,int frames,int outputRate,int budget,floa
             float remaining=std::max(0.f,1.f-float(v.age)/float(outputRate*15));
             float decay=layer.finitePiano?remaining*remaining:1.f;
             float gain=v.level*v.attackGain*v.releaseGain*decay;
-            stereo[(size_t)f*2]+=sample(s,piano.channels,0,v.position)*gain;
-            stereo[(size_t)f*2+1]+=sample(s,piano.channels,1,v.position)*gain;
+            float left,right;sampleStereo(s,piano.channels,v.position,left,right);
+            stereo[(size_t)f*2]+=left*gain;
+            stereo[(size_t)f*2+1]+=right*gain;
             v.position+=v.increment*44100.0/outputRate;
         }
     }
