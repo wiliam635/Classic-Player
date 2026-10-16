@@ -8,7 +8,7 @@ on:
         type: boolean
         default: false
   push:
-    branches: [codex/fix-user-refresh, codex/nord-piano-2.0.5-teste]
+    branches: [codex/fix-user-refresh, codex/nord-piano-2.0.5-teste, codex/desktop-velocity-vst3-test]
     paths:
       - .github/workflows/test-vst3-macos.yml
       - installer/macos/components-vst3-test.plist
