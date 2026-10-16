@@ -65,6 +65,9 @@ import java.util.LinkedHashMap;
  * the UI so MIDI/SoundFont integration can be tested without blocking it.
  */
 public final class MainActivity extends Activity {
+    // Temporary test build: keep the NPNO implementation and saved files intact,
+    // but do not expose or instantiate the motor until it is enabled again.
+    private static final boolean NPNO_ENABLED = false;
     private static final int[] PAD_COLOURS={
             0xfff3e4d8,0xffeef0d8,0xffdff1d7,0xffd8f0e5,
             0xffd9f0f1,0xffdbe8f5,0xffe3def5,0xffefdff1,
@@ -376,6 +379,12 @@ public final class MainActivity extends Activity {
             int engine = prefs.getInt("engine_" + i, 1);
             boolean muted=screen.muted[i];
             if(engine==7){
+                if(!NPNO_ENABLED){
+                    screen.setLayerName(i,"NPNO desativado");
+                    screen.setEngineName(i,"VAZIA");
+                    screen.setPresetName(i,"");
+                    continue;
+                }
                 final int layer=i;
                 String name=prefs.getString("name_"+i,"Piano Nord");
                 screen.setLayerName(i,name);screen.setEngineName(i,"NPNO");
@@ -1019,6 +1028,7 @@ public final class MainActivity extends Activity {
         startActivityForResult(intent,702);
     }
     private void loadNordLibraryFile(int layer,File file,String category,boolean resetControls){
+        if(!NPNO_ENABLED){screen.setAudioStatus("NPNO temporariamente desativado nesta versão de teste");return;}
         if(audioEngine==null||file==null||!file.isFile())return;
         screen.setAudioStatus("NPNO: decodificando "+file.getName()+"…");
         try{fontImporter.execute(()->{
@@ -1051,6 +1061,7 @@ public final class MainActivity extends Activity {
         });}catch(java.util.concurrent.RejectedExecutionException ex){screen.setAudioStatus("NPNO: importação indisponível");}
     }
     private void openNordEditor(int layer){
+        if(!NPNO_ENABLED){screen.setAudioStatus("NPNO temporariamente desativado nesta versão de teste");return;}
         SharedPreferences p=getSharedPreferences("layers",MODE_PRIVATE);
         String category=p.getString("nord_browser_category_"+layer,p.getString("nord_category_"+layer,NORD_CATEGORIES[0]));
         int selectedCategory=Math.max(0,java.util.Arrays.asList(NORD_CATEGORIES).indexOf(category));
@@ -1093,12 +1104,15 @@ public final class MainActivity extends Activity {
 
     private void chooseLayerSource(int layer) {
         EditorUi.Panel panel=new EditorUi.Panel(this,"ADICIONAR MOTOR · LAYER "+(layer+1),"Escolha o motor sonoro desta camada.");
-        String[] names={"SOUNDFONT 2 (.sf2)","NORD PIANO (.npno)","DX7 SYSEX (.syx)","CLASSIC KEYS ANALOG","HAMMOND / LESLIE","DRUM PADS","PADS CONTÍNUOS"};
+        String[] names=NPNO_ENABLED
+                ?new String[]{"SOUNDFONT 2 (.sf2)","NORD PIANO (.npno)","DX7 SYSEX (.syx)","CLASSIC KEYS ANALOG","HAMMOND / LESLIE","DRUM PADS","PADS CONTÍNUOS"}
+                :new String[]{"SOUNDFONT 2 (.sf2)","DX7 SYSEX (.syx)","CLASSIC KEYS ANALOG","HAMMOND / LESLIE","DRUM PADS","PADS CONTÍNUOS"};
         for(int i=0;i<names.length;i+=2){LinearLayout row=EditorUi.gridRow(panel.body);for(int j=i;j<Math.min(i+2,names.length);j++){final int which=j;Button b=EditorUi.button(this,names[which],()->{
-            panel.dialog.dismiss();if(which==0)openSf2Picker(layer);else if(which==1)openNordEditor(layer);else if(which==2)openDx7Picker(layer);
-            else if(which==3){activateAnalog(layer);openAnalogEditor(layer);}
-            else if(which==4){activateHammond(layer);openHammondEditor(layer);}
-            else openPadEditor(layer,which==6);
+            panel.dialog.dismiss();int source=NPNO_ENABLED||which==0?which:which+1;
+            if(source==0)openSf2Picker(layer);else if(source==1)openNordEditor(layer);else if(source==2)openDx7Picker(layer);
+            else if(source==3){activateAnalog(layer);openAnalogEditor(layer);}
+            else if(source==4){activateHammond(layer);openHammondEditor(layer);}
+            else openPadEditor(layer,source==6);
             });row.addView(b,new LinearLayout.LayoutParams(0,EditorUi.dp(this,44),1));}}
         EditorUi.addButton(panel.footer,"CANCELAR",panel.dialog::dismiss);panel.show();
     }
@@ -1238,6 +1252,7 @@ public final class MainActivity extends Activity {
             return name==null||name.isEmpty()?"DX7 · Timbre "+(selected+1):name;
         }
         if(engine==7){
+            if(!NPNO_ENABLED)return null;
             String path=prefs.getString("npno_"+layer,null);
             String category=prefs.getString("nord_category_"+layer,NORD_CATEGORIES[0]);
             if(path==null)return null;
