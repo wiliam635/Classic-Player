@@ -340,9 +340,9 @@ public final class MainActivity extends Activity {
         midiManager = (MidiManager) getSystemService(MIDI_SERVICE);
         audioEngine = new PolySynthEngine(this);
         SharedPreferences audioPrefs=getSharedPreferences("audio",MODE_PRIVATE);
-        if(!audioPrefs.getBoolean("approved_audio_config_migration_1",false)){
+        if(!audioPrefs.getBoolean("approved_audio_config_migration_2",false)){
             audioPrefs.edit().putBoolean("oboe_preferred",false).putInt("sample_rate_mode",0)
-                    .putInt("buffer_frames",512).putBoolean("approved_audio_config_migration_1",true).apply();
+                    .putInt("buffer_frames",512).putBoolean("approved_audio_config_migration_2",true).apply();
         }
         audioEngine.setSampleRateMode(audioPrefs.getInt("sample_rate_mode",audioPrefs.getBoolean("native_rate",true)?0:1));
         audioEngine.setOboePreferred(getSharedPreferences("audio",MODE_PRIVATE).getBoolean("oboe_preferred",false));
