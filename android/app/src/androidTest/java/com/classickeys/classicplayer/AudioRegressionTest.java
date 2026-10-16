@@ -87,9 +87,9 @@ public class AudioRegressionTest {
         assertTrue("MIDI queue overflow must be reported",saturated[2]>overflowsBefore);
         assertTrue("Queue depth cannot exceed its fixed capacity",saturated[0]<=2047);
         assertTrue("High-water mark must include the saturation point",saturated[1]>=2046);
-        assertTrue("Diagnostics must include queue wait and limiter activity",saturated.length>=7);
+        assertTrue("Diagnostics must include queue wait and PCM clipping activity",saturated.length>=7);
         assertTrue("Queue wait must be a non-negative duration",saturated[5]>=0);
-        assertTrue("Limiter block count must not be negative",saturated[6]>=0);
+        assertTrue("PCM clipping block count must not be negative",saturated[6]>=0);
 
         engine.allNotesOff();
         pcm(BLOCK);

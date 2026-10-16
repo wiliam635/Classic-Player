@@ -118,7 +118,7 @@ final class PolySynthEngine {
     String outputDspStatus() {
         int[] midi=nativeMidiQueueDiagnostics();
         String queue=String.format(java.util.Locale.US,
-            "MIDI fila %d/pico %d · estouros %d · locks fila/synth %d/%d · espera máx %.1f ms · limitador em %d blocos",
+            "MIDI fila %d/pico %d · estouros %d · locks fila/synth %d/%d · espera máx %.1f ms · clipping PCM em %d blocos",
             midi[0],midi[1],midi[2],midi[3],midi[4],midi[5]/1000.0,midi[6]);
         if(nativeOutputActive)return sampleRateMode==1
             ?"DSP: Oboe SRC desligado · motor e fluxo 44,1 kHz · "+queue

@@ -96,7 +96,7 @@ std::atomic<int> midiQueueOverflows {0};
 std::atomic<int> midiQueueConsumerLockMisses {0};
 std::atomic<int> synthRealtimeLockMisses {0};
 std::atomic<int> midiQueueMaxWaitMicros {0};
-std::atomic<int> masterGuardedBlocks {0};
+std::atomic<int> masterClippedBlocks {0};
 
 uint64_t monotonicNanos()
 {
@@ -480,7 +480,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeMidiQueueDiagnostics(JN
         midiQueueConsumerLockMisses.load(std::memory_order_relaxed),
         synthRealtimeLockMisses.load(std::memory_order_relaxed),
         midiQueueMaxWaitMicros.load(std::memory_order_relaxed),
-        masterGuardedBlocks.load(std::memory_order_relaxed)
+        masterClippedBlocks.load(std::memory_order_relaxed)
     };
     auto result=env->NewIntArray(7);
     if(result)env->SetIntArrayRegion(result,0,7,values);
@@ -500,7 +500,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadLayer(
     if (loaded == nullptr) return JNI_FALSE;
 
     // Keep the SF2 engine close to the desktop reference level while leaving
-    // a little headroom for layered chords and the final safety limiter.
+    // a little headroom for layered chords and PCM output clipping.
     // Four more dB of headroom keeps dense layered chords clean.
     tsf_set_output(loaded, TSF_STEREO_INTERLEAVED, kSampleRate, -6.0f);
     // Preallocate the largest pool once. The active quota is distributed
@@ -1430,12 +1430,11 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
     }
     smoothedMasterGain = masterGain;
     float renderedMasterPeak = 0.0f;
-    bool guardActiveThisBlock=false;
+    bool clippedThisBlock=false;
     for (int sample = 0; sample < samples; ++sample) {
-        // Keep the mix linear through normal piano dynamics. The previous
-        // tanh(effect * 0.62) applied continuous gain reduction to every
-        // sample, flattening the SF2 attack even when the mix was nowhere near
-        // clipping. Only bend the last 5% of headroom as a safety guard.
+        // Preserve the summed signal's natural dynamics. Do not apply a soft
+        // limiter here; only saturate at final PCM conversion if the mix truly
+        // exceeds the representable output range.
         const int baseDelay=(int)(reverbDelayMs*kSampleRate/1000.0f);
         const int delay=baseDelay+((sample&1)!=0?(int)(reverbStereoWidth*kSampleRate*.018f):0);
         const int read = (effectCursor + (int)reverbBuffer.size() - delay + (int)reverbBuffer.size()) % (int)reverbBuffer.size();
@@ -1446,16 +1445,12 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
         const float effected = dry + delayed * 0.55f + (chorus - dry) * chorusMix * 0.22f;
         reverbBuffer[(size_t)effectCursor] = send + delayed * reverbFeedback;
         effectCursor = (effectCursor + 1) % (int)reverbBuffer.size();
-        constexpr float kPeakGuardStart=0.95f;
-        const float magnitude=std::abs(effected);
-        guardActiveThisBlock=guardActiveThisBlock||magnitude>kPeakGuardStart;
-        const float limited=magnitude<=kPeakGuardStart?effected:
-                std::copysign(kPeakGuardStart+(1.0f-kPeakGuardStart)*
-                    (1.0f-std::exp(-(magnitude-kPeakGuardStart)/(1.0f-kPeakGuardStart))),effected);
-        output[sample] = (short)std::clamp((int)(limited * 32767.0f), -32768, 32767);
+        clippedThisBlock=clippedThisBlock||effected>1.f||effected< -1.f;
+        const float pcm=std::clamp(effected*32767.0f,-32768.0f,32767.0f);
+        output[sample]=static_cast<short>(pcm);
         renderedMasterPeak = std::max(renderedMasterPeak, std::abs((float) output[sample]) / 32768.0f);
     }
-    if(guardActiveThisBlock)masterGuardedBlocks.fetch_add(1,std::memory_order_relaxed);
+    if(clippedThisBlock)masterClippedBlocks.fetch_add(1,std::memory_order_relaxed);
     for (int layer = 0; layer < kLayerCount; ++layer) {
         layerPeaks[(size_t) layer] = std::max(renderedPeaks[(size_t) layer], layerPeaks[(size_t) layer] * 0.88f);
         publishedLayerPeaks[(size_t)layer].store(layerPeaks[(size_t)layer],std::memory_order_relaxed);
