@@ -39,6 +39,53 @@ final class AudioOutputManager {
                     && name.contentEquals(device.getProductName())) return device;
         return null;
     }
+    String formatCapabilities(AudioDeviceInfo device) {
+        if (device == null) return "FORMATOS (Android): rota de saída ainda não confirmada";
+        return "FORMATOS (Android): " + sampleRates(device.getSampleRates())
+                + " · " + channelCounts(device.getChannelCounts())
+                + " · " + encodings(device.getEncodings());
+    }
+    private static String sampleRates(int[] rates) {
+        if (rates == null) return "taxas indisponíveis";
+        if (rates.length == 0) return "qualquer taxa (sem lista restritiva)";
+        StringBuilder text = new StringBuilder();
+        int shown = Math.min(rates.length, 5);
+        for (int i = 0; i < shown; i++) {
+            if (i > 0) text.append('/');
+            text.append(String.format(Locale.forLanguageTag("pt-BR"), "%.1f", rates[i] / 1000.0));
+        }
+        if (rates.length > shown) text.append("/…");
+        return text.append(" kHz").toString();
+    }
+    private static String channelCounts(int[] counts) {
+        if (counts == null) return "canais indisponíveis";
+        if (counts.length == 0) return "qualquer nº de canais (sem lista restritiva)";
+        StringBuilder text = new StringBuilder();
+        int shown = Math.min(counts.length, 4);
+        for (int i = 0; i < shown; i++) {
+            if (i > 0) text.append('/');
+            text.append(counts[i]);
+        }
+        if (counts.length > shown) text.append("/…");
+        return text.insert(0, "canais ").toString();
+    }
+    private static String encodings(int[] formats) {
+        if (formats == null) return "formatos indisponíveis";
+        if (formats.length == 0) return "qualquer formato (sem lista restritiva)";
+        StringBuilder text = new StringBuilder();
+        int shown = Math.min(formats.length, 4);
+        for (int i = 0; i < shown; i++) {
+            if (i > 0) text.append('/');
+            switch (formats[i]) {
+                case android.media.AudioFormat.ENCODING_PCM_8BIT: text.append("PCM 8"); break;
+                case android.media.AudioFormat.ENCODING_PCM_16BIT: text.append("PCM 16"); break;
+                case android.media.AudioFormat.ENCODING_PCM_FLOAT: text.append("PCM float/alta precisão"); break;
+                default: text.append("formato ").append(formats[i]); break;
+            }
+        }
+        if (formats.length > shown) text.append("/…");
+        return text.toString();
+    }
     AudioDeviceInfo automaticUsbOutput() {
         if (audio == null) return null;
         AudioDeviceInfo firstUsbOutput = null;

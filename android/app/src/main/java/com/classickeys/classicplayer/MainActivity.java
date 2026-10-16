@@ -89,6 +89,7 @@ public final class MainActivity extends Activity {
     private SoundFontLayer[] soundFontLayers;
     private LicenseManager licenseManager;
     private AudioOutputManager audioOutputManager;
+    private volatile String audioCapabilityStatus = "FORMATOS: aguardando rota de áudio";
     private final AudioDeviceCallback audioDeviceCallback = new AudioDeviceCallback() {
         @Override public void onAudioDevicesAdded(AudioDeviceInfo[] added) { refreshMidiDevices(); restorePreferredAudioDevice(); if(screen!=null)screen.postDelayed(MainActivity.this::restorePreferredAudioDevice,1000); }
         @Override public void onAudioDevicesRemoved(AudioDeviceInfo[] removed) { refreshMidiDevices(); restorePreferredAudioDevice(); }
@@ -492,6 +493,7 @@ public final class MainActivity extends Activity {
                 "MIDI: " + count + (count == 1 ? " entrada" : " entradas"));
         AudioDeviceInfo routed = audioEngine == null ? null : audioEngine.routedDevice();
         screen.setAudioStatus(routed == null ? "ÁUDIO: saída do sistema" : "ÁUDIO: " + routed.getProductName());
+        refreshAudioCapabilityStatus();
         if (count > 0 && midiDevice == null) {
             String preferred=getSharedPreferences("midi_device",MODE_PRIVATE).getString("identity","");int selected=-1;
             if(!preferred.isEmpty())for(int i=0;i<count;i++)if(preferred.equals(midiDeviceIdentity(devices[i]))){selected=i;break;}
@@ -535,6 +537,7 @@ public final class MainActivity extends Activity {
         if (device == null) {
             AudioDeviceInfo routed=audioEngine.routedDevice();
             screen.setAudioStatus(routed==null?"ÁUDIO: saída do sistema":"ÁUDIO: "+routed.getProductName());
+            refreshAudioCapabilityStatus();
             return;
         }
 
@@ -556,6 +559,14 @@ public final class MainActivity extends Activity {
             android.util.Log.w("ClassicAudio", "Could not route audio to USB device "
                     + outputName + " (ID " + device.getId() + ")");
         }
+        refreshAudioCapabilityStatus();
+    }
+
+    private void refreshAudioCapabilityStatus() {
+        AudioDeviceInfo routed = audioEngine == null ? null : audioEngine.routedDevice();
+        audioCapabilityStatus = audioOutputManager == null ? "FORMATOS: consulta indisponível"
+                : audioOutputManager.formatCapabilities(routed);
+        if (screen != null) screen.postInvalidate();
     }
 
     private void showAudioBufferChooser() {
@@ -624,6 +635,7 @@ public final class MainActivity extends Activity {
                                 .putInt("output_type", device.getType()).putString("output_name", device.getProductName().toString())
                                 .putBoolean("output_user_selected", true).apply();
                         screen.setAudioStatus("ÁUDIO: " + names.get(which));
+                        refreshAudioCapabilityStatus();
                     } else {
                         new AlertDialog.Builder(this).setTitle("SAÍDA DE ÁUDIO")
                                 .setMessage("O Android não permitiu selecionar esta saída. Desconecte e reconecte a interface USB.")
@@ -1997,6 +2009,7 @@ public final class MainActivity extends Activity {
                 text(canvas,"ÁUDIO / MIDI",52,h*.25f,h*.04f,text);
                 text(canvas,routedAudioLabel(),52,h*.34f,h*.026f,EditorUi.MUTED);
                 text(canvas,midiStatus,52,h*.42f,h*.026f,EditorUi.MUTED);
+                fittedText(canvas,audioCapabilityStatus,52,w-52,h*.465f,h*.016f,EditorUi.MUTED);
                 text(canvas,"Toque nas linhas acima para alternar a saída e o controlador.",52,h*.54f,h*.022f,EditorUi.MUTED);
                 button(canvas,"MOTOR · "+audioEngine.outputMode(),w*.48f,h*.50f,w-52,h*.555f,false);
                 float actionRight = Math.min(w - 52, 430);
