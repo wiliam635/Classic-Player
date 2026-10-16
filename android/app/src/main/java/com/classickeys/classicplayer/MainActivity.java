@@ -630,20 +630,6 @@ public final class MainActivity extends Activity {
                 }).setNegativeButton("CANCELAR",null).show();
     }
 
-    private void restoreApprovedAudioSettings(){
-        SharedPreferences prefs=getSharedPreferences("audio",MODE_PRIVATE);
-        prefs.edit().putBoolean("oboe_preferred",true).putInt("sample_rate_mode",0)
-                .putInt("buffer_frames",512).apply();
-        if(audioEngine!=null){
-            audioEngine.stop();
-            audioEngine.setOboePreferred(true);
-            audioEngine.setSampleRateMode(0);
-            audioEngine.setBufferFrames(512);
-            audioEngine.start();
-        }
-        if(screen!=null){screen.setAudioStatus("ÁUDIO RESTAURADO · Oboe/AAudio · nativo · 512 frames");screen.invalidate();}
-    }
-
     private void showAudioSampleRateChooser() {
         String[] choices={"Taxa nativa do dispositivo · Oboe SRC","44.100 Hz · motor e saída","48.000 Hz · saída Oboe com conversão"};
         int selected=audioEngine.sampleRateMode();
@@ -2259,7 +2245,6 @@ public final class MainActivity extends Activity {
                 fittedText(canvas,audioEngine.outputDspStatus(),w*.48f,w-52,h*.74f,h*.015f,text);
                 fittedText(canvas,audioEngine.outputLatency(),w*.48f,w-52,h*.78f,h*.015f,text);
                 button(canvas,"REINICIAR ÁUDIO",w*.48f,h*.81f,w-52,h*.86f,false);
-                button(canvas,"RESTAURAR ÁUDIO DO TESTE APROVADO",w*.48f,h*.87f,w-52,h*.925f,false);
                 return;
             }
 
@@ -2491,7 +2476,6 @@ public final class MainActivity extends Activity {
             }
             if (settings && tap) {
                 if(event.getX()>=52&&event.getX()<Math.min(w-52,430)&&event.getY()>=h*.87f&&event.getY()<=h*.925f){showThemeChooser();return true;}
-                if(event.getX()>w*.48f&&event.getY()>=h*.87f&&event.getY()<=h*.925f){restoreApprovedAudioSettings();return true;}
                 if(event.getX()>w*.48f&&event.getY()>h*.50f){
                     if(event.getY()<h*.565f)showAudioSampleRateChooser();
                     else if(event.getY()<h*.645f)showAudioBufferChooser();
