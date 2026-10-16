@@ -134,7 +134,11 @@ bool load(const std::string& path,size_t budget,Instrument& out,std::string& err
     for(size_t i=dirEnd;i<firstAudio;++i)if(body[i]){error="Preenchimento NPNO inválido";return false;}
     uint64_t decodedBytes=0;int highestLayer=0;
     for(int i=0;i<count;++i){const uint8_t* rec=body+directory+size_t(i)*recordBytes;
-        if(rec[4]<=1){decodedBytes+=uint64_t(be32(rec+6))*channels*2u;if(rec[4]==0)highestLayer=std::max(highestLayer,int(rec[5]));}}
+        if(rec[4]<=1){
+            if(be32(rec+6)>uint32_t(std::numeric_limits<int>::max())){error="Gravação NPNO longa demais";return false;}
+            decodedBytes+=uint64_t(be32(rec+6))*channels*2u;
+            if(rec[4]==0)highestLayer=std::max(highestLayer,int(rec[5]));
+        }}
     if(decodedBytes>budget){error="Áudio NPNO decodificado excede limite de memória";return false;}
     Instrument result;result.channels=channels;result.gainTenthsDb=(int8_t)body[0x40c];
     std::copy_n(body+0x8c,128,result.keyMap.begin());
@@ -205,8 +209,8 @@ void render(Layer& layer,float* stereo,int frames,int outputRate,int budget,floa
             v.attackGain=std::min(1.f,v.attackGain+attackStep);
             if(v.released)v.releaseGain*=releaseFactor;
             if(v.releaseGain<.0001f){v={};break;}
-            double time=double(v.age)/outputRate;
-            float decay=layer.finitePiano?std::pow(std::max(0.0,1.0-time/15.0),2.0):1.f;
+            float remaining=std::max(0.f,1.f-float(v.age)/float(outputRate*15));
+            float decay=layer.finitePiano?remaining*remaining:1.f;
             float gain=v.level*v.attackGain*v.releaseGain*decay;
             stereo[(size_t)f*2]+=sample(s,piano.channels,0,v.position)*gain;
             stereo[(size_t)f*2+1]+=sample(s,piano.channels,1,v.position)*gain;

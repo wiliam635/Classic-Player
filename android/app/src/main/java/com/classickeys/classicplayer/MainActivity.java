@@ -854,6 +854,7 @@ public final class MainActivity extends Activity {
         if(raw.toLowerCase(java.util.Locale.ROOT).endsWith(".npno"))raw=raw.substring(0,raw.length()-5);
         String base=raw.replaceAll("[^\\p{L}\\p{N} _.-]","_").trim();
         if(base.isEmpty())base="Piano Nord";
+        if(base.length()>80)base=base.substring(0,80);
         File target=new File(dir,base+".npno");int suffix=2;
         while(target.exists())target=new File(dir,base+" ("+(suffix++)+").npno");
         try(InputStream in=getContentResolver().openInputStream(uri);FileOutputStream out=new FileOutputStream(target)){
@@ -2259,7 +2260,7 @@ public final class MainActivity extends Activity {
                 int col = i % 4, row = i / 4;
                 float x = margin + col * (cardW + gap), y = top + row * (cardH + gap);
                 box(canvas, x, y, x + cardW, y + cardH, EditorUi.SURFACE, true);
-                paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(i==selected?EditorUi.dp(this,3):EditorUi.dp(this,1));paint.setColor(i==selected?teal:EditorUi.BORDER);canvas.drawRoundRect(x,y,x+cardW,y+cardH,EditorUi.dp(this,7),EditorUi.dp(this,7),paint);paint.setStyle(Paint.Style.FILL);
+                paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(i==selected?EditorUi.dp(getContext(),3):EditorUi.dp(getContext(),1));paint.setColor(i==selected?teal:EditorUi.BORDER);canvas.drawRoundRect(x,y,x+cardW,y+cardH,EditorUi.dp(getContext(),7),EditorUi.dp(getContext(),7),paint);paint.setStyle(Paint.Style.FILL);
                 text(canvas, String.format("%02d", i + 1), x + cardW * .40f, y + cardH * .29f, cardH * .28f, teal);
                 paint.setColor(teal); canvas.drawRect(x + 18, y + cardH * .40f, x + cardW - 18, y + cardH * .407f, paint);
                 text(canvas, names[i], x + 20, y + cardH * .67f, cardH * .15f, text);
@@ -2379,7 +2380,7 @@ public final class MainActivity extends Activity {
                         canvas.drawRoundRect(px,py,px+cellW,py+cellH,EditorUi.dp(getContext(),6),EditorUi.dp(getContext(),6),paint);
                         paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(EditorUi.dp(getContext(),1));paint.setColor(loaded?EditorUi.LAYER_ACCENTS[i]:EditorUi.BORDER);
                         canvas.drawRoundRect(px,py,px+cellW,py+cellH,EditorUi.dp(getContext(),6),EditorUi.dp(getContext(),6),paint);paint.setStyle(Paint.Style.FILL);
-                        fittedCenteredText(canvas,loaded?padEngine.name(pad,continuous):"PAD "+(pad+1),px+EditorUi.dp(getContext(),5),px+cellW-EditorUi.dp(getContext(),5),py+cellH*.55f,h*.015f,loaded?EditorUi.BACKGROUND:textColour);
+                        fittedCenteredText(canvas,loaded?padEngine.name(pad,continuous):"PAD "+(pad+1),px+EditorUi.dp(getContext(),5),px+cellW-EditorUi.dp(getContext(),5),py+cellH*.55f,h*.015f,loaded?0xff14273b:textColour);
                     }
                     if(continuous)button(canvas,"STOP",gridLeft,top+cardH-h*.085f,gridRight,top+cardH-h*.027f,false);
                     float railTop=top+h*.185f,railBottom=top+cardH-h*.09f;
@@ -2470,7 +2471,7 @@ public final class MainActivity extends Activity {
                 invalidate(); return true;
             }
             if (settings && tap) {
-                if(event.getX()<Math.min(w-52,430)&&event.getY()>=h*.87f&&event.getY()<=h*.925f){showThemeChooser();return true;}
+                if(event.getX()>=52&&event.getX()<Math.min(w-52,430)&&event.getY()>=h*.87f&&event.getY()<=h*.925f){showThemeChooser();return true;}
                 if(event.getX()>w*.48f&&event.getY()>h*.50f){
                     if(event.getY()<h*.565f)showAudioSampleRateChooser();
                     else if(event.getY()<h*.645f)showAudioBufferChooser();
