@@ -420,6 +420,8 @@ public final class MainActivity extends Activity {
             String name = displaySafeSoundFontName(prefs.getString("name_" + i, null));
             if (sf2Uris[i] != null) {
                 Uri saved = Uri.parse(sf2Uris[i]);
+                File savedFile = new File(sf2Uris[i]);
+                if (savedFile.isFile()) saved = Uri.fromFile(savedFile);
                 soundFontLayers[i].load(saved, name);
                 screen.setLayerName(i,name==null?"SF2 carregado":name);
                 screen.setEngineName(i,"SF2");
@@ -429,6 +431,7 @@ public final class MainActivity extends Activity {
                 }else{
                     String cachedPath = restoreSoundFont(sf2Uris[i], i);
                     if (cachedPath != null && audioEngine.loadLayer(i, cachedPath)) {
+                    soundFontLayers[i].load(Uri.fromFile(new File(cachedPath)), name);
                     int preset = prefs.getInt("preset_" + i, 0);
                     if (audioEngine.setPreset(i, preset)) {
                         soundFontLayers[i].setPreset(preset);
@@ -820,6 +823,32 @@ public final class MainActivity extends Activity {
     }
 
     private void openSf2Picker(int layer) {
+        File[] library = soundFontLibraryFiles();
+        EditorUi.Panel panel = new EditorUi.Panel(this, "BANCO DE TIMBRES SF2", "Toque no nome para carregar o SoundFont nesta layer.");
+        EditorUi.addButton(EditorUi.gridRow(panel.body), "IMPORTAR SF2", () -> {
+            panel.dialog.dismiss();
+            openSf2FilePicker(layer);
+        });
+        if (library.length == 0) {
+            panel.body.addView(EditorUi.label(this, "Nenhum SF2 importado ainda.", 11));
+        } else {
+            for (File file : library) {
+                String current = getSharedPreferences("layers", MODE_PRIVATE).getString("sf2_" + layer, null);
+                String label = (file.getAbsolutePath().equals(current) ? "✓  " : "") + soundFontFileDisplayName(file);
+                Button item = EditorUi.button(this, label, () -> {
+                    panel.dialog.dismiss();
+                    boolean reset = !file.getAbsolutePath().equals(current)
+                            || !"SF2".equals(screen.engineName(layer));
+                    loadSoundFontLibraryFile(layer, file, reset);
+                });
+                panel.body.addView(item, new LinearLayout.LayoutParams(-1, EditorUi.dp(this, 44)));
+            }
+        }
+        EditorUi.addButton(panel.footer, "FECHAR", panel.dialog::dismiss);
+        panel.show();
+    }
+
+    private void openSf2FilePicker(int layer) {
         pendingLayer = layer;
         pendingEngine = 1;
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -831,6 +860,113 @@ public final class MainActivity extends Activity {
                 "audio/x-soundfont", "audio/sf2", "application/octet-stream"
         });
         startActivityForResult(i, 700);
+    }
+
+    private File soundFontLibraryDirectory() {
+        return new File(new File(getFilesDir(), "soundfonts"), "library");
+    }
+
+    /** Includes older per-layer cached files so upgrades keep those timbres available in the bank. */
+    private File[] soundFontLibraryFiles() {
+        ArrayList<File> files = new ArrayList<>();
+        File root = new File(getFilesDir(), "soundfonts");
+        File[] legacy = root.listFiles((dir, name) -> name.toLowerCase(java.util.Locale.ROOT).endsWith(".sf2"));
+        if (legacy != null) java.util.Collections.addAll(files, legacy);
+        File[] stored = soundFontLibraryDirectory().listFiles((dir, name) -> name.toLowerCase(java.util.Locale.ROOT).endsWith(".sf2"));
+        if (stored != null) java.util.Collections.addAll(files, stored);
+        for (int i = files.size() - 1; i >= 0; i--) if (!files.get(i).isFile()) files.remove(i);
+        java.util.Collections.sort(files, (a, b) -> soundFontFileDisplayName(a).compareToIgnoreCase(soundFontFileDisplayName(b)));
+        return files.toArray(new File[0]);
+    }
+
+    private String soundFontFileDisplayName(File file) {
+        String path = file.getAbsolutePath();
+        SharedPreferences prefs = getSharedPreferences("layers", MODE_PRIVATE);
+        for (int i = 0; i < 6; i++) {
+            if (path.equals(prefs.getString("sf2_" + i, null))) {
+                String saved = displaySafeSoundFontName(prefs.getString("name_" + i, null));
+                if (saved != null && !saved.isEmpty()) return saved;
+            }
+        }
+        String name = file.getName();
+        return name.replaceFirst("(?i)\\.sf2$", "");
+    }
+
+    private String cacheSoundFontToLibrary(Uri source, String displayName) {
+        if (source == null) return null;
+        File directory = soundFontLibraryDirectory();
+        if (!directory.exists() && !directory.mkdirs()) return null;
+        String base = displayName == null ? "SoundFont" : new File(displayName).getName();
+        base = base.replaceFirst("(?i)\\.sf2$", "").replaceAll("[^\\p{L}\\p{N} _.-]", "_").trim();
+        if (base.isEmpty()) base = "SoundFont";
+        if (base.length() > 100) base = base.substring(0, 100);
+        File target = new File(directory, base + ".sf2");
+        int suffix = 2;
+        while (target.exists()) target = new File(directory, base + " (" + (suffix++) + ").sf2");
+        try (InputStream input = getContentResolver().openInputStream(source);
+             FileOutputStream output = new FileOutputStream(target, false)) {
+            if (input == null) {
+                target.delete();
+                return null;
+            }
+            byte[] block = new byte[64 * 1024];
+            int count;
+            while ((count = input.read(block)) >= 0) output.write(block, 0, count);
+            output.flush();
+            return target.getAbsolutePath();
+        } catch (Exception ignored) {
+            if (target.exists()) target.delete();
+            return null;
+        }
+    }
+
+    private void loadSoundFontLibraryFile(int layer, File file, boolean resetControls) {
+        if (layer < 0 || layer >= 6 || file == null || !file.isFile() || audioEngine == null) return;
+        screen.setAudioStatus("SF2: carregando " + soundFontFileDisplayName(file) + "…");
+        try {
+            fontImporter.execute(() -> {
+                final boolean loaded;
+                synchronized (importLifecycleLock) {
+                    loaded = !closing && audioEngine != null && audioEngine.loadLayer(layer, file.getAbsolutePath());
+                }
+                runOnUiThread(() -> {
+                    if (closing || isFinishing() || isDestroyed()) return;
+                    if (!loaded) {
+                        screen.setAudioStatus("SF2: falha ao abrir " + soundFontFileDisplayName(file));
+                        new AlertDialog.Builder(this).setTitle("FALHA AO ABRIR SF2")
+                                .setMessage("O arquivo " + soundFontFileDisplayName(file) + " não pôde ser carregado.")
+                                .setPositiveButton("OK", null).show();
+                        return;
+                    }
+                    prepareLayerMotorReplacement(layer);
+                    deactivatePadLayer(layer);
+                    String name = soundFontFileDisplayName(file);
+                    screen.setLayerName(layer, name);
+                    screen.setEngineName(layer, "SF2");
+                    if (resetControls) screen.resetSf2Processing(layer);
+                    if (audioEngine.presetCount(layer) > 0) audioEngine.setPreset(layer, 0);
+                    String firstPreset = audioEngine.presetCount(layer) > 0
+                            ? audioEngine.presetName(layer, 0) : "Preset 1";
+                    screen.setPresetName(layer, firstPreset);
+                    soundFontLayers[layer].load(Uri.fromFile(file), name);
+                    soundFontLayers[layer].setPreset(0);
+                    getSharedPreferences("layers", MODE_PRIVATE).edit()
+                            .putString("sf2_" + layer, file.getAbsolutePath())
+                            .putString("name_" + layer, name)
+                            .putInt("preset_" + layer, 0)
+                            .putInt("engine_" + layer, 1)
+                            .apply();
+                    sf2Uris[layer] = file.getAbsolutePath();
+                    screen.applyLoadedEditorState(layer);
+                    restorePreferredAudioDevice();
+                    screen.setAudioStatus("SF2: " + name + " carregado da biblioteca");
+                    screen.invalidate();
+                    openSoundFontEditor(layer);
+                });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            screen.setAudioStatus("SF2: importação indisponível");
+        }
     }
 
     private void openDx7Picker(int layer) {
@@ -1495,48 +1631,23 @@ public final class MainActivity extends Activity {
             catch (SecurityException ignored) { }
             final int layer = pendingLayer;
             pendingLayer = -1;
-            final PolySynthEngine importingEngine = audioEngine;
             screen.setAudioStatus("ÁUDIO: importando SF2…");
-            fontImporter.execute(() -> {
-            if (closing) return;
-            String cachedPath = cacheSoundFont(uri, layer);
-            final boolean loaded;
-            synchronized (importLifecycleLock) {
-                loaded = cachedPath != null && importingEngine != null && !closing
-                        && importingEngine.loadLayer(layer, cachedPath);
+            try {
+                fontImporter.execute(() -> {
+                    if (closing) return;
+                    String cachedPath = cacheSoundFont(uri, layer);
+                    runOnUiThread(() -> {
+                        if (closing || isFinishing() || isDestroyed()) return;
+                        if (cachedPath == null) {
+                            screen.setAudioStatus("SF2: falha ao copiar para a biblioteca");
+                            return;
+                        }
+                        loadSoundFontLibraryFile(layer, new File(cachedPath), true);
+                    });
+                });
+            } catch (java.util.concurrent.RejectedExecutionException ignored) {
+                screen.setAudioStatus("SF2: importação indisponível");
             }
-            runOnUiThread(() -> {
-            if (closing || isFinishing() || isDestroyed()) return;
-            if (!loaded) {
-                screen.setAudioStatus("ÁUDIO: falha ao abrir o arquivo SF2");
-                pendingLayer = -1;
-                return;
-            }
-            prepareLayerMotorReplacement(layer);
-            deactivatePadLayer(layer);
-            String name = soundFontDisplayName(uri);
-            screen.setLayerName(layer, name);
-            screen.setEngineName(layer, "SF2");
-            // A newly imported SoundFont starts with its own region envelopes
-            // and no inherited processing from the previous layer instrument.
-            screen.resetSf2Processing(layer);
-            String firstPreset = audioEngine.presetCount(layer) > 0 ? audioEngine.presetName(layer, 0) : "Preset 1";
-            screen.setPresetName(layer, firstPreset);
-            soundFontLayers[layer].load(uri, name);
-            soundFontLayers[layer].setPreset(0);
-            getSharedPreferences("layers", MODE_PRIVATE).edit()
-                    .putString("sf2_" + layer, cachedPath)
-                    .putString("name_" + layer, name)
-                    .putInt("preset_" + layer, 0)
-                    .putInt("engine_" + layer, 1)
-                    .apply();
-            sf2Uris[layer] = cachedPath;
-            screen.applyLoadedEditorState(layer);
-        restorePreferredAudioDevice();
-            pendingLayer = -1;
-            openSoundFontEditor(layer);
-            });
-            });
         }
     }
 
@@ -1545,7 +1656,11 @@ public final class MainActivity extends Activity {
         if(stored==null||stored.isEmpty())return null;
         File existing = new File(stored);
         if (existing.isFile()) return existing.getAbsolutePath();
-        try { return cacheSoundFont(Uri.parse(stored), layer); }
+        try {
+            String cached = cacheSoundFont(Uri.parse(stored), layer);
+            if (cached != null) getSharedPreferences("layers", MODE_PRIVATE).edit().putString("sf2_" + layer, cached).apply();
+            return cached;
+        }
         catch (Exception ignored) { return null; }
     }
 
@@ -1573,7 +1688,7 @@ public final class MainActivity extends Activity {
     }
 
     private String cacheSoundFont(Uri source, int layer) {
-        return cacheDocument(source, layer, "sf2");
+        return cacheSoundFontToLibrary(source, soundFontDisplayName(source));
     }
 
     private String padDisplayName(Uri source,int pad){
