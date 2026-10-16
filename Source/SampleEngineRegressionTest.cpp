@@ -71,11 +71,16 @@ struct SampleEngineRegressionTests
         routing.velocitySoftInput = 20;
         routing.velocityMidInput = 64;
         routing.velocityHardInput = 108;
-        require(std::abs(renderedNoteVelocity(20, routing) - 24.0f / 127.0f) < 0.001f,
+        const auto soft = renderedNoteVelocity(20, routing);
+        const auto medium = renderedNoteVelocity(64, routing);
+        const auto hard = renderedNoteVelocity(108, routing);
+        std::cout << "Adaptive velocity outputs: soft=" << soft
+                  << ", medium=" << medium << ", hard=" << hard << '\n';
+        require(std::abs(soft - 24.0f / 127.0f) < 0.001f,
                 "Adaptive velocity missed its soft calibration point");
-        require(std::abs(renderedNoteVelocity(64, routing) - 64.0f / 127.0f) < 0.001f,
+        require(std::abs(medium - 64.0f / 127.0f) < 0.001f,
                 "Adaptive velocity missed its medium calibration point");
-        require(std::abs(renderedNoteVelocity(108, routing) - 112.0f / 127.0f) < 0.001f,
+        require(std::abs(hard - 112.0f / 127.0f) < 0.001f,
                 "Adaptive velocity missed its hard calibration point");
 
         routing.velocityCalibrationEnabled = false;
