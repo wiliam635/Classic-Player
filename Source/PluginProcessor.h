@@ -94,6 +94,12 @@ public:
     juce::String soundFontPath(int layer) const;
     Sf2Engine::LayerConfig layerConfig(int layer) const;
     void setLayerConfig(int layer, const Sf2Engine::LayerConfig& config);
+    juce::Result beginNordVelocityCalibration(int layer);
+    juce::Result advanceNordVelocityCalibration(int layer);
+    juce::Result finishNordVelocityCalibration(int layer);
+    void cancelNordVelocityCalibration(int layer);
+    int nordVelocityCalibrationStage(int layer) const;
+    int nordVelocityCalibrationCount(int layer) const;
     std::vector<Sf2Engine::Preset> layerPresets(int layer) const;
     int layerPresetBank(int layer) const;
     int layerPresetProgram(int layer) const;
@@ -278,6 +284,15 @@ private:
 
     Sf2Engine engine;
     SampleEngine sampleEngine;
+    struct NordVelocityCapture
+    {
+        mutable juce::SpinLock lock;
+        int stage = -1;
+        int count = 0;
+        std::array<std::array<int, 5>, 3> samples {};
+    };
+    void captureNordVelocityCalibrationNote(int layer, int velocity) noexcept;
+    std::array<NordVelocityCapture, Sf2Engine::layerCount> nordVelocityCaptures;
     std::array<std::atomic<bool>, Sf2Engine::layerCount> nordLoaded {};
     Dx7Engine dx7Engine;
     AnalogSynthEngine analogSynthEngine;

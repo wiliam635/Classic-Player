@@ -47,6 +47,42 @@ struct SampleEngineRegressionTests
             engine.layers[0].voices.end(), [](const auto& voice) { return voice.active; }));
     }
 
+    static float renderedNoteVelocity(int inputVelocity, Sf2Engine::LayerConfig routing)
+    {
+        auto engine = instrument(48000.0);
+        routing.enabled = true;
+        juce::AudioBuffer<float> audio(2, 64);
+        audio.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60,
+            static_cast<juce::uint8>(inputVelocity)), 0);
+        engine->renderLayer(engine->layers[0], audio, midi, routing);
+        const auto voice = std::find_if(engine->layers[0].voices.begin(),
+            engine->layers[0].voices.end(), [](const auto& candidate) { return candidate.active; });
+        require(voice != engine->layers[0].voices.end(), "Velocity test failed to start a piano voice");
+        return voice->velocity;
+    }
+
+    static void adaptiveVelocity()
+    {
+        auto routing = config();
+        routing.velocityCurve = 3;
+        routing.velocityCalibrationEnabled = true;
+        routing.velocitySoftInput = 20;
+        routing.velocityMidInput = 64;
+        routing.velocityHardInput = 108;
+        require(std::abs(renderedNoteVelocity(20, routing) - 24.0f / 127.0f) < 0.001f,
+                "Adaptive velocity missed its soft calibration point");
+        require(std::abs(renderedNoteVelocity(64, routing) - 64.0f / 127.0f) < 0.001f,
+                "Adaptive velocity missed its medium calibration point");
+        require(std::abs(renderedNoteVelocity(108, routing) - 112.0f / 127.0f) < 0.001f,
+                "Adaptive velocity missed its hard calibration point");
+
+        routing.velocityCalibrationEnabled = false;
+        require(std::abs(renderedNoteVelocity(20, routing) - 20.0f / 127.0f) < 0.001f,
+                "An uncalibrated adaptive curve must safely fall back to linear");
+    }
+
     static void sustainAndPolyphony(double rate)
     {
         auto engine = instrument(rate);
@@ -301,6 +337,7 @@ struct SampleEngineRegressionTests
     {
         stealing();
         crossfades();
+        adaptiveVelocity();
         for (const auto rate : { 44100.0, 48000.0 })
         {
             sustainAndPolyphony(rate);
@@ -318,7 +355,7 @@ int main()
     try
     {
         SampleEngineRegressionTests::run();
-        std::cout << "NPNO polyphony, sustain, lifetime and EQ: OK\n";
+        std::cout << "NPNO velocity calibration, polyphony, sustain, lifetime and EQ: OK\n";
         return 0;
     }
     catch (const std::exception& error)

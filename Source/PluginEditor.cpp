@@ -3743,7 +3743,7 @@ private:
     std::unique_ptr<juce::FileChooser> chooser;
 };
 
-class LayerRoutingEditorPanel final : public juce::Component
+class LayerRoutingEditorPanel final : public juce::Component, private juce::Timer
 {
 public:
     LayerRoutingEditorPanel(ClassicPlayerAudioProcessor& p, int layer)
@@ -3787,6 +3787,7 @@ public:
             highNoteBox.addItem(midiNoteName(note), note + 1);
         }
         velocityBox.addItem("VEL LINEAR", 1); velocityBox.addItem("VEL SOFT", 2); velocityBox.addItem("VEL HARD", 3);
+        velocityBox.addItem("VEL CALIBRADA", 4);
         for (auto* box : { &modeBox, &sustainBox, &channelBox, &octaveBox,
                            &lowNoteBox, &highNoteBox, &velocityBox })
             box->onChange = [this] { applyRouting(); };
@@ -3797,12 +3798,37 @@ public:
             processor.setLayerMidiDevice(index, juce::isPositiveAndBelow(selected, devices.size())
                                                    ? devices.getReference(selected).identifier : juce::String{});
         };
+        const auto isNord = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord;
+        calibrationButton.onClick = [this] { handleCalibrationButton(); };
+        calibrationCancelButton.onClick = [this]
+        {
+            processor.cancelNordVelocityCalibration(index);
+            calibrationFeedback.clear();
+            refreshCalibrationControls();
+        };
+        addAndMakeVisible(calibrationButton);
+        addAndMakeVisible(calibrationCancelButton);
+        addAndMakeVisible(calibrationStatus);
+        calibrationButton.setVisible(isNord);
+        calibrationCancelButton.setVisible(false);
+        calibrationStatus.setVisible(isNord);
+        calibrationStatus.setColour(juce::Label::textColourId, juce::Colour(mutedText));
+        calibrationStatus.setFont(juce::FontOptions(10.0f));
         refresh();
         if(processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::hammond){
             modeBox.setSelectedId(1,juce::dontSendNotification);modeBox.setEnabled(false);
             velocityBox.setEnabled(false);
         }
         setSize(700, 170);
+        if (isNord) startTimerHz(8);
+    }
+
+    ~LayerRoutingEditorPanel() override
+    {
+        stopTimer();
+        if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord
+            && processor.nordVelocityCalibrationStage(index) >= 0)
+            processor.cancelNordVelocityCalibration(index);
     }
 
     void resized() override
@@ -3815,7 +3841,9 @@ public:
             label.setBounds(cell.removeFromTop(18));
             box.setBounds(cell.reduced(2, 1));
         };
-        const auto rowHeight = juce::jmax(1, area.getHeight() / 2);
+        const auto calibrationRowHeight = calibrationButton.isVisible() ? 28 : 0;
+        const auto routingHeight = juce::jmax(1, area.getHeight() - calibrationRowHeight);
+        const auto rowHeight = juce::jmax(1, routingHeight / 2);
         for (int row = 0; row < 2; ++row)
         {
             auto line = area.removeFromTop(rowHeight);
@@ -3834,9 +3862,72 @@ public:
                 place(line, velocityLabel, velocityBox);
             }
         }
+        if (calibrationRowHeight > 0)
+        {
+            auto calibrationRow = area.removeFromBottom(calibrationRowHeight);
+            calibrationButton.setBounds(calibrationRow.removeFromLeft(168).reduced(2, 1));
+            calibrationCancelButton.setBounds(calibrationRow.removeFromLeft(92).reduced(2, 1));
+            calibrationStatus.setBounds(calibrationRow.reduced(4, 1));
+        }
     }
 
 private:
+    void timerCallback() override { refreshCalibrationControls(); }
+
+    void handleCalibrationButton()
+    {
+        const auto stage = processor.nordVelocityCalibrationStage(index);
+        juce::Result result = juce::Result::ok();
+        if (stage < 0)
+            result = processor.beginNordVelocityCalibration(index);
+        else if (processor.nordVelocityCalibrationCount(index) >= 5 && stage < 2)
+            result = processor.advanceNordVelocityCalibration(index);
+        else if (processor.nordVelocityCalibrationCount(index) >= 5)
+            result = processor.finishNordVelocityCalibration(index);
+        if (result.failed())
+            calibrationFeedback = result.getErrorMessage();
+        else
+            calibrationFeedback.clear();
+        refreshCalibrationControls();
+        refresh();
+    }
+
+    void refreshCalibrationControls()
+    {
+        if (!calibrationButton.isVisible()) return;
+        const auto stage = processor.nordVelocityCalibrationStage(index);
+        const auto count = processor.nordVelocityCalibrationCount(index);
+        const auto config = processor.layerConfig(index);
+        velocityBox.setItemEnabled(4,
+            processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord
+                && config.velocityCalibrationEnabled);
+        if (stage < 0)
+        {
+            calibrationButton.setButtonText(config.velocityCalibrationEnabled
+                ? "RECALIBRAR VELOCITY" : "CALIBRAR VELOCITY");
+            calibrationButton.setEnabled(true);
+            calibrationCancelButton.setVisible(false);
+            juce::String status = config.velocityCalibrationEnabled
+                ? "Perfil salvo para a entrada MIDI selecionada."
+                : "Use a entrada selecionada; toque suave, medio e forte.";
+            if (calibrationFeedback.isNotEmpty()) status = calibrationFeedback;
+            calibrationStatus.setText(status, juce::dontSendNotification);
+            return;
+        }
+
+        const std::array<const char*, 3> levels {{ "suave", "medio", "forte" }};
+        calibrationCancelButton.setVisible(true);
+        calibrationButton.setEnabled(count >= 5);
+        if (stage < 2)
+            calibrationButton.setButtonText(stage == 0 ? "PROXIMO: MEDIO" : "PROXIMO: FORTE");
+        else
+            calibrationButton.setButtonText("CONCLUIR CALIBRACAO");
+        auto status = "Toque 5 notas " + juce::String(levels[(size_t) stage])
+                    + " (" + juce::String(count) + "/5)";
+        if (calibrationFeedback.isNotEmpty()) status = calibrationFeedback;
+        calibrationStatus.setText(status, juce::dontSendNotification);
+    }
+
     void refresh()
     {
         const auto config = processor.layerConfig(index);
@@ -3846,7 +3937,21 @@ private:
         octaveBox.setSelectedId(config.octave + 5, juce::dontSendNotification);
         lowNoteBox.setSelectedId(config.lowNote + 1, juce::dontSendNotification);
         highNoteBox.setSelectedId(config.highNote + 1, juce::dontSendNotification);
+        velocityBox.setItemEnabled(4,
+            processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord
+                && config.velocityCalibrationEnabled);
         velocityBox.setSelectedId(config.velocityCurve + 1, juce::dontSendNotification);
+        refreshCalibrationControls();
+        int selectedDeviceId = 1;
+        const auto selectedDevice = processor.layerMidiDevice(index);
+        const auto devices = processor.availableMidiDevices();
+        for (int device = 0; device < devices.size(); ++device)
+            if (devices.getReference(device).identifier == selectedDevice)
+            {
+                selectedDeviceId = device + 2;
+                break;
+            }
+        deviceBox.setSelectedId(selectedDeviceId, juce::dontSendNotification);
     }
 
     void applyRouting()
@@ -3859,7 +3964,9 @@ private:
         config.octave = octaveBox.getSelectedId() - 5;
         config.lowNote = lowNoteBox.getSelectedId() - 1;
         config.highNote = highNoteBox.getSelectedId() - 1;
-        config.velocityCurve = velocityBox.getSelectedId() - 1;
+        const auto nord = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord;
+        config.velocityCurve = juce::jlimit(0, nord && config.velocityCalibrationEnabled ? 3 : 2,
+                                            velocityBox.getSelectedId() - 1);
         processor.setLayerConfig(index, config);
     }
 
@@ -3870,6 +3977,9 @@ private:
     juce::ComboBox modeBox, sustainBox, channelBox, deviceBox, octaveBox,
                    lowNoteBox, highNoteBox, velocityBox;
     SplitLearnControls splitControls;
+    juce::TextButton calibrationButton { "CALIBRAR VELOCITY" }, calibrationCancelButton { "CANCELAR" };
+    juce::Label calibrationStatus;
+    juce::String calibrationFeedback;
 };
 
 class LayerMidiLearnPanel final : public juce::Component, private juce::Timer
@@ -4837,6 +4947,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::initialiseComboBoxes()
     velocityCurve.addItem("VEL LINEAR", 1);
     velocityCurve.addItem("VEL SOFT", 2);
     velocityCurve.addItem("VEL HARD", 3);
+    velocityCurve.addItem("VEL CALIBRADA", 4);
     for (auto* box : { &mode, &sustain, &midiChannel, &octave, &lowNote, &highNote, &velocityCurve })
     {
         box->onChange = [this] { applyConfig(); };
@@ -4963,8 +5074,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
             [safe] { if (safe != nullptr) safe->refresh(); });
         dialog->addCustomComponent(new CenteredPanel(importNordPanel, 620, 58));
         auto* nordRouting = new LayerRoutingEditorPanel(processor, index);
-        nordRouting->setSize(620, 122);
-        dialog->addCustomComponent(new CenteredPanel(nordRouting, 620, 122));
+        nordRouting->setSize(620, 156);
+        dialog->addCustomComponent(new CenteredPanel(nordRouting, 620, 156));
         dialog->addCustomComponent(new CenteredPanel(
             new NordPianoTimbrePanel(processor, index), 410, 42));
     }
@@ -6121,6 +6232,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     const auto isAnalog = type == ClassicPlayerAudioProcessor::LayerType::analog;
     const auto isHammond = type == ClassicPlayerAudioProcessor::LayerType::hammond;
     const auto isDrumPads = type == ClassicPlayerAudioProcessor::LayerType::drumPads || type == ClassicPlayerAudioProcessor::LayerType::continuousPads;
+    const auto layerConfig = processor.layerConfig(index);
+    velocityCurve.setItemEnabled(4, isNord && layerConfig.velocityCalibrationEnabled);
     // Drum samples are edited in their dedicated window. The mixer strip
     // mirrors the other layers: vertical fader, meter and volume CC Learn.
     drumPadPanel.setVisible(isDrumPads);
@@ -6155,6 +6268,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     dx7Button.setVisible(isDx7 || isAnalog || isHammond);
     modulationButton.setVisible(false);
     mode.setEnabled(!isHammond); velocityCurve.setEnabled(!isHammond);
+    if (!isNord && layerConfig.velocityCurve == 3)
+        velocityCurve.setSelectedId(1, juce::dontSendNotification);
     dx7LibraryBox.setVisible(isDx7);
     dx7PatchBox.setVisible(isDx7);
     deleteDx7LibraryButton.setVisible(isDx7);
@@ -6543,6 +6658,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
     octave.setSelectedId(config.octave + 5, juce::dontSendNotification);
     lowNote.setSelectedId(config.lowNote + 1, juce::dontSendNotification);
     highNote.setSelectedId(config.highNote + 1, juce::dontSendNotification);
+    velocityCurve.setItemEnabled(4,
+        type == ClassicPlayerAudioProcessor::LayerType::nord && config.velocityCalibrationEnabled);
     velocityCurve.setSelectedId(config.velocityCurve + 1, juce::dontSendNotification);
     updateSourceTypeVisibility();
     repaint();
@@ -6558,7 +6675,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::applyConfig()
     config.octave = octave.getSelectedId() - 5;
     config.lowNote = juce::jlimit(0, 127, lowNote.getSelectedId() - 1);
     config.highNote = juce::jlimit(0, 127, highNote.getSelectedId() - 1);
-    config.velocityCurve = juce::jlimit(0, 2, velocityCurve.getSelectedId() - 1);
+    const auto maxVelocityCurve = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord
+        && config.velocityCalibrationEnabled ? 3 : 2;
+    config.velocityCurve = juce::jlimit(0, maxVelocityCurve, velocityCurve.getSelectedId() - 1);
     if (config.lowNote > config.highNote)
     {
         config.highNote = config.lowNote;

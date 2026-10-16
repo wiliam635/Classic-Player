@@ -35,7 +35,9 @@ public:
             c.routing=old.routing;c.cc=old.cc;c.channel=old.channel;c.level=old.level;
             processor.setHammondConfig(index,c);refresh();
         };
-        const std::array<const char*,9> namesOfBars {"16'","5 1/3'","8'","4'","2 2/3'","2'","1 3/5'","1 1/3'","1'"};
+        // Keep these labels strictly ASCII: some macOS/Windows UI fonts render
+        // the prime/foot mark as accented or superscript characters at small sizes.
+        const std::array<const char*,9> namesOfBars {"16 ft","5 1/3 ft","8 ft","4 ft","2 2/3 ft","2 ft","1 3/5 ft","1 1/3 ft","1 ft"};
         for(size_t i=0;i<bars.size();++i){
             labels[i].setText(namesOfBars[i],juce::dontSendNotification);
             labels[i].setJustificationType(juce::Justification::centred);addAndMakeVisible(labels[i]);

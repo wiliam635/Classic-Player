@@ -19,6 +19,33 @@ float releaseCoefficientFor(float releaseControl, double sampleRate)
     const auto releaseSamples = juce::jmax(1.0, static_cast<double>(releaseSeconds) * sampleRate);
     return static_cast<float>(std::exp(std::log(silenceThreshold) / releaseSamples));
 }
+
+float calibratedVelocity(float input, const Sf2Engine::LayerConfig& config)
+{
+    const auto soft = config.velocitySoftInput;
+    const auto medium = config.velocityMidInput;
+    const auto hard = config.velocityHardInput;
+    if (soft < 1 || medium - soft < 8 || hard - medium < 8 || hard > 127)
+        return input;
+
+    const auto raw = juce::jlimit(1.0f, 127.0f, input * 127.0f);
+    const auto hardOutput = hard >= 120 ? 127.0f : 112.0f;
+    const std::array<float, 5> outputAnchors { 1.0f, 24.0f, 64.0f, hardOutput, 127.0f };
+    const std::array<float, 5> inputAnchors {
+        1.0f, static_cast<float>(soft), static_cast<float>(medium),
+        static_cast<float>(hard), 127.0f
+    };
+    for (size_t point = 1; point < inputAnchors.size(); ++point)
+    {
+        if (raw > inputAnchors[point]) continue;
+        const auto span = inputAnchors[point] - inputAnchors[point - 1];
+        const auto amount = span > 0.0f
+            ? (raw - inputAnchors[point - 1]) / span : 0.0f;
+        const auto mapped = juce::jmap(amount, outputAnchors[point - 1], outputAnchors[point]);
+        return juce::jlimit(1.0f, 127.0f, mapped / 127.0f);
+    }
+    return 1.0f;
+}
 }
 
 SampleEngine::SampleEngine()
@@ -522,7 +549,9 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             if (inputNote < routing.lowNote || inputNote > routing.highNote) continue;
             const auto note = juce::jlimit(0, 127, inputNote + routing.octave * 12);
             auto velocity = juce::jlimit(0.0f, 1.0f, message.getFloatVelocity());
-            if (routing.velocityCurve == 1) velocity = std::sqrt(velocity);
+            if (routing.velocityCurve == 3 && routing.velocityCalibrationEnabled)
+                velocity = calibratedVelocity(velocity, routing);
+            else if (routing.velocityCurve == 1) velocity = std::sqrt(velocity);
             else if (routing.velocityCurve == 2) velocity *= velocity;
             if (layer.pianoLoaded)
             {

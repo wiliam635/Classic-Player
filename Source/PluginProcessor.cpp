@@ -604,6 +604,9 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         inspectDrumPadMidi(metadata.getMessage());
         processMidiControlMessage(metadata.getMessage());
         processMasterMidiMessage(metadata.getMessage());
+        if (metadata.getMessage().isNoteOn())
+            for (int layer = 0; layer < activeLayerCount(); ++layer)
+                captureNordVelocityCalibrationNote(layer, metadata.getMessage().getVelocity());
         // STOP is a safety action for a playing pad. The Learn gesture is
         // captured before MIDI device/channel routing, so playback must see
         // the same CC even if that routing excludes its channel.
@@ -1359,6 +1362,106 @@ juce::String ClassicPlayerAudioProcessor::soundFontPath(int layer) const
 }
 Sf2Engine::LayerConfig ClassicPlayerAudioProcessor::layerConfig(int layer) const { return engine.getConfig(layer); }
 void ClassicPlayerAudioProcessor::setLayerConfig(int layer, const Sf2Engine::LayerConfig& c) { engine.setConfig(layer, c); }
+
+juce::Result ClassicPlayerAudioProcessor::beginNordVelocityCalibration(int layer)
+{
+    if (!juce::isPositiveAndBelow(layer, activeLayerCount())
+        || layerType(layer) != LayerType::nord || !nordLoaded[(size_t) layer].load())
+        return juce::Result::fail("Carregue um piano NPNO na layer antes de calibrar.");
+    auto& capture = nordVelocityCaptures[(size_t) layer];
+    const juce::SpinLock::ScopedLockType guard(capture.lock);
+    capture.stage = 0;
+    capture.count = 0;
+    for (auto& stage : capture.samples) stage.fill(0);
+    return juce::Result::ok();
+}
+
+juce::Result ClassicPlayerAudioProcessor::advanceNordVelocityCalibration(int layer)
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
+        return juce::Result::fail("Layer inválida.");
+    auto& capture = nordVelocityCaptures[(size_t) layer];
+    const juce::SpinLock::ScopedLockType guard(capture.lock);
+    if (capture.stage < 0 || capture.stage >= 2)
+        return juce::Result::fail("A calibração não está aguardando esta etapa.");
+    if (capture.count < 5)
+        return juce::Result::fail("Toque cinco notas para registrar esta etapa.");
+    ++capture.stage;
+    capture.count = 0;
+    return juce::Result::ok();
+}
+
+juce::Result ClassicPlayerAudioProcessor::finishNordVelocityCalibration(int layer)
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)
+        || layerType(layer) != LayerType::nord)
+        return juce::Result::fail("Esta calibração é exclusiva da layer NPNO.");
+
+    std::array<int, 3> medians {};
+    auto& capture = nordVelocityCaptures[(size_t) layer];
+    {
+        const juce::SpinLock::ScopedLockType guard(capture.lock);
+        if (capture.stage != 2 || capture.count < 5)
+            return juce::Result::fail("Toque cinco notas fortes antes de concluir.");
+        for (size_t stage = 0; stage < medians.size(); ++stage)
+        {
+            auto values = capture.samples[stage];
+            std::sort(values.begin(), values.end());
+            medians[stage] = values[values.size() / 2];
+        }
+        if (medians[1] - medians[0] < 8 || medians[2] - medians[1] < 8)
+            return juce::Result::fail("As três intensidades ficaram muito próximas. Cancele e repita com toques mais distintos.");
+        capture.stage = -1;
+        capture.count = 0;
+    }
+
+    auto config = engine.getConfig(layer);
+    config.velocityCalibrationEnabled = true;
+    config.velocitySoftInput = medians[0];
+    config.velocityMidInput = medians[1];
+    config.velocityHardInput = medians[2];
+    config.velocityCurve = 3;
+    engine.setConfig(layer, config);
+    return juce::Result::ok();
+}
+
+void ClassicPlayerAudioProcessor::cancelNordVelocityCalibration(int layer)
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return;
+    auto& capture = nordVelocityCaptures[(size_t) layer];
+    const juce::SpinLock::ScopedLockType guard(capture.lock);
+    capture.stage = -1;
+    capture.count = 0;
+}
+
+int ClassicPlayerAudioProcessor::nordVelocityCalibrationStage(int layer) const
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return -1;
+    const auto& capture = nordVelocityCaptures[(size_t) layer];
+    const juce::SpinLock::ScopedLockType guard(capture.lock);
+    return capture.stage;
+}
+
+int ClassicPlayerAudioProcessor::nordVelocityCalibrationCount(int layer) const
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return 0;
+    const auto& capture = nordVelocityCaptures[(size_t) layer];
+    const juce::SpinLock::ScopedLockType guard(capture.lock);
+    return capture.count;
+}
+
+void ClassicPlayerAudioProcessor::captureNordVelocityCalibrationNote(int layer,
+                                                                      int velocity) noexcept
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)
+        || layerType(layer) != LayerType::nord) return;
+    auto& capture = nordVelocityCaptures[(size_t) layer];
+    if (!capture.lock.tryEnter()) return; // Never block a MIDI or audio callback.
+    if (capture.stage >= 0 && capture.stage < 3 && capture.count < 5)
+        capture.samples[(size_t) capture.stage][(size_t) capture.count++] = juce::jlimit(1, 127, velocity);
+    capture.lock.exit();
+}
+
 bool ClassicPlayerAudioProcessor::isLayerMuted(int layer) const
 {
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return false;
@@ -2516,6 +2619,8 @@ void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* sou
     {
         const auto& selected = layerMidiDeviceIds[(size_t) layer];
         if (selected.isNotEmpty() && selected != sourceId) continue;
+        if (message.isNoteOn())
+            captureNordVelocityCalibrationNote(layer, message.getVelocity());
         routedMidiCollectors[(size_t) layer].addMessageToQueue(message);
         processMidiControlMessage(message, layer);
         routed = true;
@@ -2945,7 +3050,7 @@ void ClassicPlayerAudioProcessor::resetToNewProgram()
     if (hadUiVirtualKeyboardVisible)
         state.setProperty("uiVirtualKeyboardVisible", uiVirtualKeyboardVisible, nullptr);
     state.setProperty("uiDisplaySpectrum", uiDisplaySpectrum, nullptr);
-    state.setProperty("stateVersion", 170, nullptr);
+    state.setProperty("stateVersion", 171, nullptr);
     state.setProperty("activeLayers", 0, nullptr);
     state.setProperty("masterLearnCC", savedMasterCC, nullptr);
     state.setProperty("masterLearnChannel", savedMasterChannel, nullptr);
@@ -3063,7 +3168,8 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
     for (const auto& prefix : oneBased)
         copyProperty(prefix + sourceOne, prefix + destinationOne);
     const juce::StringArray zeroBased {
-        "midiChannel", "low", "high", "octave", "velocityCurve", "mono", "portamento",
+        "midiChannel", "low", "high", "octave", "velocityCurve", "velocityCalibrated",
+        "velocitySoftInput", "velocityMidInput", "velocityHardInput", "mono", "portamento",
         "sustain", "highPassHz", "lowPassHz", "midiDevice"
     };
     for (const auto& prefix : zeroBased)
@@ -3141,7 +3247,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
     }
     state.setProperty("panicLearnCC", panicCC.load(), nullptr);
     state.setProperty("panicLearnChannel", panicCCChannel.load(), nullptr);
-    state.setProperty("stateVersion", 170, nullptr);
+    state.setProperty("stateVersion", 171, nullptr);
     state.setProperty("activeLayers", activeLayerCount(), nullptr);
     for (int position = 0; position < Sf2Engine::layerCount; ++position)
         state.setProperty("visualLayer" + juce::String(position), visualLayerAt(position), nullptr);
@@ -3168,6 +3274,10 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("high" + juce::String(i), config.highNote, nullptr);
         state.setProperty("octave" + juce::String(i), config.octave, nullptr);
         state.setProperty("velocityCurve" + juce::String(i), config.velocityCurve, nullptr);
+        state.setProperty("velocityCalibrated" + juce::String(i), config.velocityCalibrationEnabled, nullptr);
+        state.setProperty("velocitySoftInput" + juce::String(i), config.velocitySoftInput, nullptr);
+        state.setProperty("velocityMidInput" + juce::String(i), config.velocityMidInput, nullptr);
+        state.setProperty("velocityHardInput" + juce::String(i), config.velocityHardInput, nullptr);
         state.setProperty("pianoTimbre" + juce::String(i + 1), config.pianoTimbre, nullptr);
         // Mono Legato and Portamento are distinct layer modes and must remain
         // distinct when a performance is saved and restored.
@@ -3386,7 +3496,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     state.addChild(presetState, -1, nullptr);
                 }
             }
-            state.setProperty("stateVersion", 170, nullptr);
+            state.setProperty("stateVersion", 171, nullptr);
             parameters.replaceState(state);
             for(int layer=0;layer<Sf2Engine::layerCount;++layer)
             {
@@ -3567,6 +3677,18 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.highNote = state.getProperty("high" + juce::String(i), 127);
                 config.octave = state.getProperty("octave" + juce::String(i), 0);
                 config.velocityCurve = state.getProperty("velocityCurve" + juce::String(i), 0);
+                config.velocityCalibrationEnabled = state.getProperty(
+                    "velocityCalibrated" + juce::String(i), false);
+                config.velocitySoftInput = juce::jlimit(1, 119, static_cast<int>(state.getProperty(
+                    "velocitySoftInput" + juce::String(i), 20)));
+                config.velocityMidInput = juce::jlimit(2, 126, static_cast<int>(state.getProperty(
+                    "velocityMidInput" + juce::String(i), 64)));
+                config.velocityHardInput = juce::jlimit(3, 127, static_cast<int>(state.getProperty(
+                    "velocityHardInput" + juce::String(i), 108)));
+                config.velocityCurve = juce::jlimit(0,
+                    savedType == static_cast<int>(LayerType::nord)
+                        && config.velocityCalibrationEnabled ? 3 : 2,
+                    config.velocityCurve);
                 config.pianoTimbre = juce::jlimit(0, 2, static_cast<int>(state.getProperty(
                     "pianoTimbre" + juce::String(i + 1), config.pianoTimbre)));
                 // State created before the separate Portamento mode used the
