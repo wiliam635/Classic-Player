@@ -118,42 +118,6 @@ struct SampleEngineRegressionTests
                 "Voice stealing did not prefer the quietest released tail");
     }
 
-    static void explicitZoneRouting()
-    {
-        auto engine = instrument(48000.0);
-        auto& piano = engine->layers[0].piano;
-        piano.keyMap.fill(0xff);
-        for (auto& velocityMap : piano.zoneMap) velocityMap.fill(-1);
-        piano.strokes.clear();
-
-        NordPianoDecoder::Stroke low;
-        low.rootNote = 48;
-        piano.strokes.push_back(std::move(low));
-        NordPianoDecoder::Stroke high;
-        high.rootNote = 72;
-        piano.strokes.push_back(std::move(high));
-        for (int note = 0; note <= 59; ++note)
-            for (int velocity = 0; velocity <= 127; ++velocity)
-                piano.zoneMap[(size_t) note][(size_t) velocity] = 0;
-        for (int note = 60; note <= 127; ++note)
-            for (int velocity = 0; velocity <= 127; ++velocity)
-                piano.zoneMap[(size_t) note][(size_t) velocity] = 1;
-        for (int velocity = 0; velocity <= 63; ++velocity)
-            piano.zoneMap[60][(size_t) velocity] = 0;
-
-        require(engine->findPianoStroke(engine->layers[0], 59, 0.8f, 0) == 0,
-                "A Nord Sample 4 note did not select its lower key zone");
-        require(engine->findPianoStroke(engine->layers[0], 60, 0.8f, 0) == 1,
-                "A Nord Sample 4 note did not select its upper key zone");
-        require(engine->findPianoStroke(engine->layers[0], 60, 0.2f, 0) == 0
-                    && engine->findPianoStroke(engine->layers[0], 60, 0.8f, 0) == 1,
-                "Nord Sample 4 key/velocity map selected an unexpected region");
-        require(engine->findPianoStroke(engine->layers[0], 60, 0.51f, 0) == 1,
-                "A Nord Sample 4 velocity boundary did not choose the expected sample");
-        require(engine->findPianoStroke(engine->layers[0], 60, 0.8f, 1) == -1,
-                "A Nord Sample 4 zone ignored its bank selector");
-    }
-
     static void lifetime(double rate)
     {
         auto engine = instrument(rate);
@@ -336,7 +300,6 @@ struct SampleEngineRegressionTests
     static void run()
     {
         stealing();
-        explicitZoneRouting();
         crossfades();
         for (const auto rate : { 44100.0, 48000.0 })
         {

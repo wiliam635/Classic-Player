@@ -18,11 +18,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Rust target for the Nord sample decoder
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
       - name: Define download version
         shell: pwsh
         run: |
@@ -97,9 +92,6 @@ jobs:
           $sf2Source = Get-Content "Source\Sf2Engine.cpp" -Raw
           if ($sf2Source -notmatch "Do not also enable FluidSynth CC126/127 mode") { throw "Mono SF2 ainda delega CC126/127 ao FluidSynth" }
           if ($sf2Source -notmatch "if \(!monoMode\)") { throw "Sustain mono SF2 não é isolado" }
-          if (-not (Test-Path "Source\NordSampleDecoder.cpp")) { throw "Decoder Nord Sample 4 ausente" }
-          if (-not (Test-Path "third_party\nord-reader\Cargo.toml")) { throw "Ponte Rust do decoder Nord ausente" }
-          if ($cmake -notmatch "ClassicNordReader") { throw "Biblioteca Nord Sample 4 ausente do CMake" }
 
       - name: Set up CMake
         uses: lukka/get-cmake@latest

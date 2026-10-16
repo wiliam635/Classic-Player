@@ -2005,7 +2005,7 @@ public:
         categoryLabel.setColour(juce::Label::textColourId, juce::Colour(text));
         categoryLabel.setFont(juce::FontOptions(10.0f, juce::Font::bold));
         addAndMakeVisible(categoryLabel);
-        libraryLabel.setText("BIBLIOTECA NORD", juce::dontSendNotification);
+        libraryLabel.setText("BIBLIOTECA NPNO", juce::dontSendNotification);
         libraryLabel.setColour(juce::Label::textColourId, juce::Colour(text));
         libraryLabel.setFont(juce::FontOptions(10.0f, juce::Font::bold));
         addAndMakeVisible(libraryLabel);
@@ -2048,13 +2048,12 @@ public:
         addAndMakeVisible(libraryBox);
 
         flatButton(importButton);
-        importButton.setButtonText("IMPORTAR NORD");
-        importButton.setTooltip("Importar piano .npno, sample .nsmp4 ou pacote .ns4pbundle");
+        importButton.setButtonText("IMPORTAR NPNO");
+        importButton.setTooltip("Importar um piano Nord (.npno) nesta categoria");
         importButton.onClick = [this]
         {
             chooser = std::make_unique<juce::FileChooser>(
-                "Escolha um timbre ou pacote Nord", juce::File{},
-                "*.npno;*.NPNO;*.nsmp4;*.NSMP4;*.ns4pbundle;*.NS4PBUNDLE");
+                "Escolha um piano Nord (.npno)", juce::File{}, "*.npno;*.NPNO");
             chooser->launchAsync(juce::FileBrowserComponent::openMode
                                      | juce::FileBrowserComponent::canSelectFiles,
                 [this](const juce::FileChooser& fileChooser)
@@ -2062,52 +2061,24 @@ public:
                     const auto source = fileChooser.getResult();
                     if (!source.existsAsFile()) return;
                     juce::File imported;
-                    auto result = juce::Result::ok();
-                    int skippedStage4Programs = 0;
-                    if (source.hasFileExtension(".ns4pbundle"))
-                    {
-                        juce::Array<juce::File> importedFiles;
-                        result = processor.importNordBundle(source, importedFiles, skippedStage4Programs);
-                        if (result.wasOk() && !importedFiles.isEmpty())
-                        {
-                            imported = importedFiles.getReference(0);
-                            const auto categories = ClassicPlayerAudioProcessor::soundFontCategories();
-                            const auto importedCategory = imported.getParentDirectory().getFileName();
-                            const auto categoryIndex = categories.indexOf(importedCategory);
-                            if (categoryIndex >= 0)
-                                categoryBox.setSelectedId(categoryIndex + 1, juce::sendNotification);
-                        }
-                    }
-                    else
-                    {
-                        const auto category = selectedCategoryId(categoryBox);
-                        result = processor.importNordPiano(source, category, imported);
-                        if (result.wasOk())
-                            result = processor.loadNordPiano(index, imported, category);
-                    }
+                    auto result = processor.importNordPiano(
+                        source, selectedCategoryId(categoryBox), imported);
+                    if (result.wasOk())
+                        result = processor.loadNordPiano(index, imported, selectedCategoryId(categoryBox));
                     if (result.failed())
                         juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                            "Falha ao importar timbre Nord", result.getErrorMessage());
+                            "Falha ao importar piano Nord", result.getErrorMessage());
                     else
                     {
                         rebuildLibrary();
                         if (instrumentChanged) instrumentChanged();
-                        if (source.hasFileExtension(".ns4pbundle"))
-                        {
-                            auto message = "Timbres compatíveis foram salvos na biblioteca Nord. Escolha uma categoria e clique no nome do timbre para carregá-lo.";
-                            if (skippedStage4Programs > 0)
-                                message += " Os " + juce::String(skippedStage4Programs)
-                                    + " programas .ns4p do Stage 4 ainda não são convertidos para o formato de layers do Classic Player.";
-                            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
-                                "Importação Nord concluída", message);
-                        }
                     }
                 });
         };
         addAndMakeVisible(importButton);
 
         flatButton(deleteButton);
-        deleteButton.setButtonText("EXCLUIR TIMBRE");
+        deleteButton.setButtonText("EXCLUIR NPNO");
         deleteButton.setTooltip("Excluir o piano Nord selecionado da biblioteca");
         deleteButton.onClick = [this]
         {
@@ -2161,7 +2132,7 @@ private:
             if (file.getFullPathName() == currentPath) selectedId = i + 1;
         }
         libraryBox.setTextWhenNothingSelected(libraryFiles.isEmpty()
-            ? "CATEGORIA VAZIA" : "ESCOLHA O TIMBRE NORD");
+            ? "CATEGORIA VAZIA" : "ESCOLHA O NPNO");
         if (selectedId > 0)
             libraryBox.setSelectedId(selectedId, juce::dontSendNotification);
         deleteButton.setEnabled(selectedId > 0);
@@ -6027,9 +5998,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
 {
     const auto isNord = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord;
-    const auto title = isNord ? "Escolha um timbre ou pacote Nord" : "Escolha um SoundFont (.sf2)";
-    const auto filter = isNord ? "*.npno;*.NPNO;*.nsmp4;*.NSMP4;*.ns4pbundle;*.NS4PBUNDLE"
-                               : "*.sf2;*.SF2";
+    const auto title = isNord ? "Escolha um piano Nord (.npno)" : "Escolha um SoundFont (.sf2)";
+    const auto filter = isNord ? "*.npno;*.NPNO" : "*.sf2;*.SF2";
     fileChooser = std::make_unique<juce::FileChooser>(
         localizedUiText(title, activeUiLanguage.load()), juce::File{}, filter);
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode |
@@ -6043,30 +6013,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
             fileLabel.setText(localizedUiText("Carregando...", activeUiLanguage.load()), juce::dontSendNotification);
             juce::File importedFile;
             auto result = juce::Result::ok();
-            int skippedStage4Programs = 0;
             if (isNord)
             {
-                if (file.hasFileExtension(".ns4pbundle"))
-                {
-                    juce::Array<juce::File> importedFiles;
-                    result = processor.importNordBundle(file, importedFiles, skippedStage4Programs);
-                    if (result.wasOk() && !importedFiles.isEmpty())
-                    {
-                        importedFile = importedFiles.getReference(0);
-                        const auto categories = ClassicPlayerAudioProcessor::soundFontCategories();
-                        const auto importedCategory = importedFile.getParentDirectory().getFileName();
-                        const auto categoryIndex = categories.indexOf(importedCategory);
-                        if (categoryIndex >= 0)
-                            categoryBox.setSelectedId(categoryIndex + 1, juce::sendNotification);
-                    }
-                }
-                else
-                {
-                    const auto category = selectedCategoryId(categoryBox);
-                    result = processor.importNordPiano(file, category, importedFile);
-                    if (result.wasOk())
-                        result = processor.loadNordPiano(index, importedFile, category);
-                }
+                result = processor.importNordPiano(file, selectedCategoryId(categoryBox), importedFile);
+                if (result.wasOk())
+                    result = processor.loadNordPiano(index, importedFile, selectedCategoryId(categoryBox));
             }
             else
             {
@@ -6077,14 +6028,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
             loadButton.setEnabled(true);
             if (result.failed())
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                    isNord ? "Falha ao importar timbre Nord" : "Falha ao importar SF2",
+                    isNord ? "Falha ao importar piano Nord" : "Falha ao importar SF2",
                     result.getErrorMessage());
-            else if (isNord && file.hasFileExtension(".ns4pbundle") && skippedStage4Programs > 0)
-                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
-                    "Importação Nord concluída",
-                    "Os timbres .npno e .nsmp4 compatíveis foram salvos na biblioteca. Os "
-                    + juce::String(skippedStage4Programs)
-                    + " programas .ns4p do Stage 4 ainda não são convertidos para layers do Classic Player.");
             refresh();
         });
 }
@@ -6196,13 +6141,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     for (auto* control : sharedControls)
         control->setVisible(!isDrumPads);
 
-    loadButton.setButtonText(isNord ? "IMPORTAR NORD" : "IMPORTAR SF2");
-    loadButton.setTooltip(isNord ? "Importar .npno, .nsmp4 ou pacote .ns4pbundle" : "Importar um SoundFont (.sf2)");
+    loadButton.setButtonText(isNord ? "IMPORTAR NPNO" : "IMPORTAR SF2");
+    loadButton.setTooltip(isNord ? "Importar um piano Nord (.npno)" : "Importar um SoundFont (.sf2)");
     loadButton.setVisible(isSf2 || isNord);
     categoryBox.setVisible(isSf2 || isNord);
     libraryBox.setVisible(isSf2 || isNord);
     deleteLibraryButton.setVisible(isSf2 || isNord);
-    deleteLibraryButton.setButtonText(isNord ? "EXCLUIR TIMBRE" : "EXCLUIR SF2");
+    deleteLibraryButton.setButtonText(isNord ? "EXCLUIR NPNO" : "EXCLUIR SF2");
     presetBox.setVisible(isSf2);
     externalInstrumentBox.setVisible(isVst && processor.supportsExternalInstruments());
     externalInstrumentButton.setVisible(isVst && processor.supportsExternalInstruments());
@@ -6414,7 +6359,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::rebuildLibrary()
         if (file.getFullPathName() == currentPath) selectedId = item + 1;
     }
     libraryBox.setTextWhenNothingSelected(libraryFiles.isEmpty()
-        ? "CATEGORIA VAZIA" : isNord ? "ESCOLHA O TIMBRE NORD" : "ESCOLHA O SF2");
+        ? "CATEGORIA VAZIA" : isNord ? "ESCOLHA O NPNO" : "ESCOLHA O SF2");
     if (selectedId > 0) libraryBox.setSelectedId(selectedId, juce::dontSendNotification);
     deleteLibraryButton.setEnabled(libraryBox.getSelectedItemIndex() >= 0);
 }

@@ -1,5 +1,4 @@
 #include "SampleEngine.h"
-#include "NordSampleDecoder.h"
 #include <algorithm>
 #include <cmath>
 
@@ -56,22 +55,16 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
     if (!juce::isPositiveAndBelow(layer, layerCount) || !file.existsAsFile())
         return juce::Result::fail("Arquivo de sample invalido.");
 
-    if (file.getFileExtension().equalsIgnoreCase(".npno")
-        || file.getFileExtension().equalsIgnoreCase(".nsmp4"))
+    if (file.getFileExtension().equalsIgnoreCase(".npno"))
     {
         NordPianoDecoder::Instrument decodedPiano;
-        const auto isNordSample = file.getFileExtension().equalsIgnoreCase(".nsmp4");
-        const auto result = isNordSample
-            ? NordSampleDecoder::decodeFile(file, decodedPiano)
-            : NordPianoDecoder::decodeFile(file, decodedPiano);
+        const auto result = NordPianoDecoder::decodeFile(file, decodedPiano);
         if (result.failed()) return result;
 
         // Prepare fresh decoded PCM outside the audio lock/callback. The
         // source NPNO stays untouched and voices need no extra fade buffers.
-        if (!isNordSample && file.getParentDirectory().getFileName() != "Organ")
+        if (file.getParentDirectory().getFileName() != "Organ")
             preparePianoLoops(decodedPiano);
-        if (!isNordSample && file.getParentDirectory().getFileName() == "Organ")
-            decodedPiano.finitePianoDecay = false;
 
         const juce::ScopedLock stateLock(lock);
         auto& destination = layers[(size_t) layer];
@@ -79,7 +72,7 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
         destination.piano = std::move(decodedPiano);
         destination.pianoLoaded = true;
         destination.sourcePath = file.getFullPathName();
-        destination.sourceSampleRate = destination.piano.sampleRateHz;
+        destination.sourceSampleRate = NordPianoDecoder::sampleRate;
         destination.config.startSeconds = 0.0;
         destination.config.endSeconds = 0.0;
         destination.config.loop = false;
@@ -266,16 +259,10 @@ void SampleEngine::startVoice(Layer& layer, int note, int channel, float velocit
 int SampleEngine::findPianoStroke(const Layer& layer, int note, float velocity, int bank) const
 {
     if (!layer.pianoLoaded || !juce::isPositiveAndBelow(note, 128)) return -1;
-    const auto midiVelocity = juce::jlimit(1, 127, juce::roundToInt(velocity * 127.0f));
-    const auto zoneIndex = static_cast<int>(layer.piano.zoneMap[(size_t) note][(size_t) midiVelocity]);
-    if (juce::isPositiveAndBelow(zoneIndex, static_cast<int>(layer.piano.strokes.size())))
-    {
-        const auto& zoneStroke = layer.piano.strokes[(size_t) zoneIndex];
-        return zoneStroke.bank == bank ? zoneIndex : -1;
-    }
     const auto root = layer.piano.keyMap[(size_t) note];
     if (root == 0xff) return -1;
 
+    const auto midiVelocity = juce::jlimit(1, 127, juce::roundToInt(velocity * 127.0f));
     const auto layerLimit = ((127 - midiVelocity) * layer.piano.velocityScale) / 127;
     int bestIndex = -1;
     int bestLayer = -1;
@@ -304,11 +291,10 @@ void SampleEngine::preparePianoLoops(NordPianoDecoder::Instrument& piano)
             || end > stroke.frameCount(channels))
             continue;
         const auto maximum = static_cast<int>(length * 0.45);
-        const auto sampleRate = juce::jmax(1.0, piano.sampleRateHz);
         const auto aim = juce::jmin(maximum, juce::roundToInt(
-            pianoCrossfadeSeconds * sampleRate));
+            pianoCrossfadeSeconds * NordPianoDecoder::sampleRate));
         const auto frequency = 440.0 * std::pow(2.0, (stroke.rootNote - 69) / 12.0);
-        const auto period = sampleRate / frequency;
+        const auto period = NordPianoDecoder::sampleRate / frequency;
         const auto low = juce::jmax(2, juce::roundToInt(aim - period));
         const auto high = juce::jmin(maximum, juce::roundToInt(aim + period));
         const auto step = juce::jmax(1, juce::roundToInt(period / 24.0));
@@ -389,8 +375,7 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     const auto strokeGainDb = layer.piano.signedTenthsDbTrim
                             ? -static_cast<double>(signedTrim) / 10.0
                             : -static_cast<double>(trim);
-    const auto strokeGain = static_cast<float>(std::pow(10.0, (globalGainDb + strokeGainDb) / 20.0))
-                          * juce::jmax(0.0f, stroke.levelGain);
+    const auto strokeGain = static_cast<float>(std::pow(10.0, (globalGainDb + strokeGainDb) / 20.0));
 
     candidate->active = frames > 0;
     candidate->released = false;
@@ -400,7 +385,7 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     candidate->sampleIndex = sampleIndex;
     candidate->position = 0.0;
     candidate->increment = std::pow(2.0, semitones / 12.0)
-                         * layer.piano.sampleRateHz / currentSampleRate;
+                         * static_cast<double>(NordPianoDecoder::sampleRate) / currentSampleRate;
     candidate->level = velocity * strokeGain;
     candidate->velocity = velocity;
     const auto attackSamples = juce::jmax(1.0, routing.attack * 0.001 * currentSampleRate);
@@ -591,7 +576,8 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
     float peak = 0.0f;
     // Piano loops must not occupy the pool indefinitely under a held pedal.
     // Organs retain continuous sustain; piano notes decay throughout 15 s.
-    const auto finitePiano = layer.pianoLoaded && layer.piano.finitePianoDecay;
+    const auto finitePiano = layer.pianoLoaded
+        && juce::File(layer.sourcePath).getParentDirectory().getFileName() != "Organ";
 
     for (auto& voice : layer.voices)
     {
@@ -687,7 +673,7 @@ void SampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<float>& 
     const auto samples = scratch.getNumSamples();
     if (samples <= 0) return;
 
-    if (layer.pianoLoaded && layer.piano.applyPianoTimbre)
+    if (layer.pianoLoaded)
     {
         const auto timbre = juce::jlimit(0, 2, routing.pianoTimbre);
         const auto lowCorner = juce::jmin(250.0, currentSampleRate * 0.2);
