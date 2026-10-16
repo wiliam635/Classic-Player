@@ -741,6 +741,23 @@ juce::Result ClassicPlayerAudioProcessor::loadSample(int layer, const juce::File
     return result;
 }
 
+juce::File ClassicPlayerAudioProcessor::nordBankLibraryDirectory()
+{
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("Classic Player").getChildFile("Nord Banks");
+}
+
+juce::Result ClassicPlayerAudioProcessor::importNordBundle(
+    const juce::File& file, NordBundleImporter::ImportSummary& summary) const
+{
+    return NordBundleImporter::importBundle(file, nordBankLibraryDirectory(), summary);
+}
+
+juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordPianos() const
+{
+    return NordBundleImporter::findNordPianos(nordBankLibraryDirectory());
+}
+
 void ClassicPlayerAudioProcessor::unloadSample(int layer)
 {
     const juce::ScopedLock callbackLock(getCallbackLock());

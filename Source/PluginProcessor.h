@@ -8,6 +8,7 @@
 #include "Dx7Engine.h"
 #include "AnalogSynthEngine.h"
 #include "SampleEngine.h"
+#include "NordBundleImporter.h"
 #include "ExternalInstrumentHost.h"
 #include <atomic>
 
@@ -152,6 +153,10 @@ public:
     juce::Result loadDrumPad(int pad, const juce::File& file);
 
     juce::Result loadSample(int layer, const juce::File& file);
+    juce::Result importNordBundle(const juce::File& file,
+                                  NordBundleImporter::ImportSummary& summary) const;
+    juce::Array<juce::File> libraryNordPianos() const;
+    static juce::File nordBankLibraryDirectory();
     void unloadSample(int layer);
     bool hasSample(int layer) const;
     juce::String samplePath(int layer) const;

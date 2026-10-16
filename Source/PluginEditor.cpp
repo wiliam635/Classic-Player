@@ -966,6 +966,8 @@ public:
     LayerRoutingEditorPanel(ClassicPlayerAudioProcessor& p, int layer)
         : processor(p), index(layer)
     {
+        const auto isSampleLayer = processor.layerType(index)
+                                == ClassicPlayerAudioProcessor::LayerType::sample;
         const std::array<std::pair<juce::Label*, const char*>, 8> fields {{
             { &modeLabel, "MODO" }, { &sustainLabel, "SUSTAIN" },
             { &channelLabel, "CANAL MIDI" }, { &deviceLabel, "ENTRADA MIDI" },
@@ -978,6 +980,26 @@ public:
             field.first->setColour(juce::Label::textColourId, juce::Colour(text));
             field.first->setFont(juce::FontOptions(10.0f, juce::Font::bold));
             addAndMakeVisible(*field.first);
+        }
+        if (isSampleLayer)
+        {
+            nordLibraryLabel.setText("BIBLIOTECA NORD", juce::dontSendNotification);
+            nordLibraryLabel.setColour(juce::Label::textColourId, juce::Colour(text));
+            nordLibraryLabel.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+            addAndMakeVisible(nordLibraryLabel);
+            nordLibraryBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
+            nordLibraryBox.setColour(juce::ComboBox::textColourId, juce::Colour(text));
+            nordLibraryBox.onChange = [this]
+            {
+                const auto selected = nordLibraryBox.getSelectedItemIndex();
+                if (!juce::isPositiveAndBelow(selected, nordPianos.size())) return;
+                const auto result = processor.loadSample(index, nordPianos.getReference(selected));
+                if (result.failed())
+                    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                           "Falha ao carregar piano Nord", result.getErrorMessage());
+                refresh();
+            };
+            addAndMakeVisible(nordLibraryBox);
         }
         for (auto* box : { &modeBox, &sustainBox, &channelBox, &deviceBox,
                            &octaveBox, &lowNoteBox, &highNoteBox, &velocityBox })
@@ -1013,12 +1035,19 @@ public:
                                                    ? devices.getReference(selected).identifier : juce::String{});
         };
         refresh();
-        setSize(700, 170);
+        setSize(700, 200);
     }
 
     void resized() override
     {
         auto area = getLocalBounds().reduced(8);
+        if (nordLibraryLabel.isVisible())
+        {
+            auto libraryRow = area.removeFromTop(26);
+            nordLibraryLabel.setBounds(libraryRow.removeFromLeft(122));
+            nordLibraryBox.setBounds(libraryRow.reduced(2, 1));
+            area.removeFromTop(4);
+        }
         const auto cellWidth = area.getWidth() / 4;
         auto place = [](juce::Rectangle<int> cell, juce::Label& label, juce::ComboBox& box)
         {
@@ -1049,6 +1078,7 @@ public:
 private:
     void refresh()
     {
+        if (nordLibraryLabel.isVisible()) rebuildNordLibrary();
         const auto config = processor.layerConfig(index);
         modeBox.setSelectedId(config.portamento ? 3 : config.mono ? 2 : 1, juce::dontSendNotification);
         sustainBox.setSelectedId(config.sustainEnabled ? 1 : 2, juce::dontSendNotification);
@@ -1057,6 +1087,35 @@ private:
         lowNoteBox.setSelectedId(config.lowNote + 1, juce::dontSendNotification);
         highNoteBox.setSelectedId(config.highNote + 1, juce::dontSendNotification);
         velocityBox.setSelectedId(config.velocityCurve + 1, juce::dontSendNotification);
+    }
+
+    void rebuildNordLibrary()
+    {
+        nordPianos = processor.libraryNordPianos();
+        nordLibraryBox.clear(juce::dontSendNotification);
+        const auto currentPath = processor.samplePath(index);
+        const auto libraryRoot = ClassicPlayerAudioProcessor::nordBankLibraryDirectory();
+        int selectedId = 0;
+
+        for (int item = 0; item < nordPianos.size(); ++item)
+        {
+            const auto& file = nordPianos.getReference(item);
+            auto bankDirectory = file.getParentDirectory();
+            while (bankDirectory.getParentDirectory() != libraryRoot
+                   && bankDirectory.getParentDirectory() != bankDirectory)
+                bankDirectory = bankDirectory.getParentDirectory();
+
+            const auto displayName = bankDirectory.getFileName() + " / "
+                                   + file.getRelativePathFrom(bankDirectory);
+            nordLibraryBox.addItem(displayName, item + 1);
+            if (file.getFullPathName() == currentPath) selectedId = item + 1;
+        }
+
+        nordLibraryBox.setTextWhenNothingSelected(nordPianos.isEmpty()
+            ? "IMPORTE UM BANCO NORD OU UM NPNO" : "ESCOLHA UM PIANO NORD IMPORTADO");
+        nordLibraryBox.setEnabled(!nordPianos.isEmpty());
+        if (selectedId > 0)
+            nordLibraryBox.setSelectedId(selectedId, juce::dontSendNotification);
     }
 
     void applyRouting()
@@ -1079,6 +1138,9 @@ private:
                 lowNoteLabel, highNoteLabel, velocityLabel;
     juce::ComboBox modeBox, sustainBox, channelBox, deviceBox, octaveBox,
                    lowNoteBox, highNoteBox, velocityBox;
+    juce::Label nordLibraryLabel;
+    juce::ComboBox nordLibraryBox;
+    juce::Array<juce::File> nordPianos;
 };
 
 class NordPianoTimbrePanel final : public juce::Component
@@ -1612,7 +1674,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     };
     loadButton.onClick = [this] { chooseSoundFont(); };
     sampleButton.onClick = [this] { chooseSample(); };
-    sampleButton.setTooltip("Importar áudio ou piano Nord (.npno)");
+    sampleButton.setTooltip("Importar audio, piano Nord (.npno) ou banco Nord (.ns4pbundle)");
     externalInstrumentButton.onClick = [this] { chooseExternalInstrument(); };
     dx7Button.onClick = [this]
     {
@@ -1781,6 +1843,14 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     refresh();
 }
 
+ClassicPlayerAudioProcessorEditor::LayerStrip::~LayerStrip()
+{
+    // Bundle extraction is kept off the message thread; finish it before this
+    // layer's controls are destroyed so no callback can outlive the strip.
+    if (nordBundleImportThread.joinable())
+        nordBundleImportThread.join();
+}
+
 void ClassicPlayerAudioProcessorEditor::LayerStrip::initialiseComboBoxes()
 {
     mode.addItem("POLI", 1);
@@ -1915,7 +1985,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     // library/import panel.  Add the three Nord piano EQ voicings only for
     // NPNO instruments.
     dialog->addCustomComponent(new CenteredPanel(sourcePanel, 620,
-                                                   isSampleLayer ? 170 : 275));
+                                                   isSampleLayer ? 200 : 275));
     if (isNordPiano)
         dialog->addCustomComponent(new CenteredPanel(
             new NordPianoTimbrePanel(processor, index), 410, 42));
@@ -2252,7 +2322,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSample()
 {
     fileChooser = std::make_unique<juce::FileChooser>(
         "Escolha um sample de audio ou piano Nord", juce::File{},
-        "*.wav;*.WAV;*.aif;*.AIF;*.aiff;*.AIFF;*.flac;*.FLAC;*.ogg;*.OGG;*.mp3;*.MP3;*.npno;*.NPNO");
+        "*.wav;*.WAV;*.aif;*.AIF;*.aiff;*.AIFF;*.flac;*.FLAC;*.ogg;*.OGG;*.mp3;*.MP3;*.npno;*.NPNO;*.ns4pbundle;*.NS4PBUNDLE");
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode
                              | juce::FileBrowserComponent::canSelectFiles,
         [this](const juce::FileChooser& chooser)
@@ -2260,6 +2330,47 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSample()
             const auto file = chooser.getResult();
             if (file == juce::File{}) return;
             sampleButton.setEnabled(false);
+            if (file.getFileExtension().equalsIgnoreCase(".ns4pbundle"))
+            {
+                if (nordBundleImportThread.joinable())
+                    nordBundleImportThread.join();
+                sampleButton.setButtonText("IMPORTANDO...");
+                const juce::Component::SafePointer<LayerStrip> safeThis(this);
+                auto* processorToImport = &processor;
+                nordBundleImportThread = std::thread([safeThis, file, processorToImport]
+                {
+                    NordBundleImporter::ImportSummary summary;
+                    const auto result = processorToImport->importNordBundle(file, summary);
+                    const auto succeeded = result.wasOk();
+                    const auto error = result.getErrorMessage();
+                    const auto pianoCount = summary.pianoCount;
+                    const auto programCount = summary.programCount;
+                    const auto sampleCount = summary.sampleLibraryCount;
+                    juce::MessageManager::callAsync([safeThis, succeeded, error,
+                                                     pianoCount, programCount, sampleCount]
+                    {
+                        if (safeThis == nullptr) return;
+                        safeThis->sampleButton.setEnabled(true);
+                        safeThis->refresh();
+                        if (!succeeded)
+                        {
+                            juce::AlertWindow::showMessageBoxAsync(
+                                juce::MessageBoxIconType::WarningIcon,
+                                "Falha ao importar banco Nord", error);
+                            return;
+                        }
+
+                        juce::AlertWindow::showMessageBoxAsync(
+                            juce::MessageBoxIconType::InfoIcon, "Banco Nord importado",
+                            juce::String(pianoCount) + " pianos .npno estao disponiveis na biblioteca.\n\n"
+                                + juce::String(programCount) + " programas .ns4p e "
+                                + juce::String(sampleCount) + " sample libraries .nsmp4 foram preservados.\n\n"
+                                + "A reproducao dos programas e dos .nsmp4 sera habilitada quando os respectivos decodificadores forem implementados.");
+                    });
+                });
+                return;
+            }
+
             const auto result = processor.loadSample(index, file);
             sampleButton.setEnabled(true);
             if (result.failed())

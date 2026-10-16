@@ -8,7 +8,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(CLASSIC_PLAYER_FETCH_JUCE "Download JUCE when JUCE_DIR is not supplied" ON)
 option(CLASSIC_PLAYER_STANDALONE_ONLY "Build only the standalone application" OFF)
-option(CLASSIC_PLAYER_BUILD_TESTS "Build the native SF2 smoke test" OFF)
+option(CLASSIC_PLAYER_BUILD_TESTS "Build the native smoke tests" OFF)
 option(CLASSIC_PLAYER_BUILD_WEBUI_APP "Build the legacy WebUI standalone application instead of the native editor" OFF)
 
 if(DEFINED JUCE_DIR)
@@ -99,6 +99,8 @@ target_sources(ClassicPlayer PRIVATE
     Source/AnalogSynthEngine.h
     Source/NordPianoDecoder.cpp
     Source/NordPianoDecoder.h
+    Source/NordBundleImporter.cpp
+    Source/NordBundleImporter.h
     Source/SampleEngine.cpp
     Source/SampleEngine.h
     third_party/msfa/dx7note.cc
@@ -181,6 +183,7 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES
     Source/Dx7Engine.cpp Source/Dx7Engine.h
     Source/AnalogSynthEngine.cpp Source/AnalogSynthEngine.h
     Source/NordPianoDecoder.cpp Source/NordPianoDecoder.h
+    Source/NordBundleImporter.cpp Source/NordBundleImporter.h
     Source/SampleEngine.cpp Source/SampleEngine.h
     Source/ExternalInstrumentHost.cpp Source/ExternalInstrumentHost.h
     Source/LicenseVerifier.cpp Source/LicenseVerifier.h
@@ -251,6 +254,16 @@ if(CLASSIC_PLAYER_BUILD_TESTS)
         ${CLASSIC_PLAYER_FLUID_TARGET}
         juce::juce_audio_formats
         juce::juce_audio_basics
+        juce::juce_core
+        PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
+    juce_add_console_app(ClassicPlayerNordBundleImporterTest PRODUCT_NAME "Classic Player Nord Bundle Importer Test")
+    target_sources(ClassicPlayerNordBundleImporterTest PRIVATE
+        Source/NordBundleImporterSmokeTest.cpp
+        Source/NordBundleImporter.cpp
+        Source/NordBundleImporter.h)
+    target_compile_definitions(ClassicPlayerNordBundleImporterTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+    target_link_libraries(ClassicPlayerNordBundleImporterTest PRIVATE
         juce::juce_core
         PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 endif()

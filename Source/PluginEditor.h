@@ -6,6 +6,7 @@
 #include "ChordDetector.h"
 #include <array>
 #include <atomic>
+#include <thread>
 
 class ClassicPlayerAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                                 private juce::Timer,
@@ -62,6 +63,7 @@ private:
     {
     public:
         LayerStrip(ClassicPlayerAudioProcessor&, int layerIndex, std::function<void()> mixChanged);
+        ~LayerStrip() override;
         void paint(juce::Graphics&) override;
         void resized() override;
         void refresh();
@@ -112,6 +114,7 @@ private:
         juce::Array<juce::File> libraryFiles;
         juce::Array<juce::File> externalInstrumentFiles;
         juce::Array<juce::File> dx7LibraryFiles;
+        std::thread nordBundleImportThread;
 
         juce::Label layerTitle;
         juce::TextButton muteButton { "M" };
