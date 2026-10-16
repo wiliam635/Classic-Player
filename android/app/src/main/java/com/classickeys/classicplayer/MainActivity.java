@@ -340,6 +340,10 @@ public final class MainActivity extends Activity {
         midiManager = (MidiManager) getSystemService(MIDI_SERVICE);
         audioEngine = new PolySynthEngine(this);
         SharedPreferences audioPrefs=getSharedPreferences("audio",MODE_PRIVATE);
+        if(!audioPrefs.getBoolean("approved_audio_config_migration_1",false)){
+            audioPrefs.edit().putBoolean("oboe_preferred",false).putInt("sample_rate_mode",0)
+                    .putInt("buffer_frames",512).putBoolean("approved_audio_config_migration_1",true).apply();
+        }
         audioEngine.setSampleRateMode(audioPrefs.getInt("sample_rate_mode",audioPrefs.getBoolean("native_rate",true)?0:1));
         audioEngine.setOboePreferred(getSharedPreferences("audio",MODE_PRIVATE).getBoolean("oboe_preferred",false));
         audioEngine.setBufferFrames(getSharedPreferences("audio",MODE_PRIVATE).getInt("buffer_frames",512));
@@ -454,6 +458,17 @@ public final class MainActivity extends Activity {
         if(!prefs.getBoolean("sf2_effects_neutral_migration_3",false)){
             for(int i=0;i<6;i++)if("SF2".equals(screen.engineName(i)))screen.resetSf2Processing(i);
             prefs.edit().putBoolean("sf2_effects_neutral_migration_3",true).apply();
+        }
+        // Older Android builds could retain a non-zero compressor mix on any
+        // engine. Start every layer uncompressed once; the COMP control remains
+        // available and only applies again after the user explicitly enables it.
+        if(!prefs.getBoolean("all_layers_comp_mix_neutral_migration_1",false)){
+            SharedPreferences.Editor compressorMigration=prefs.edit();
+            for(int i=0;i<6;i++){
+                screen.layerCompMix[i]=0f;
+                compressorMigration.putFloat("control_comp_"+i,0f);
+            }
+            compressorMigration.putBoolean("all_layers_comp_mix_neutral_migration_1",true).apply();
         }
         for(int i=0;i<6;i++)screen.applyLoadedEditorState(i);
         String account = licenseManager.userName();
@@ -613,18 +628,6 @@ public final class MainActivity extends Activity {
                     dialog.dismiss();
                     if(screen!=null)screen.invalidate();
                 }).setNegativeButton("CANCELAR",null).show();
-    }
-
-    private void showAudioBackendChooser() {
-        String[] choices={"AudioTrack · rota estável", "Oboe · teste de baixa latência"};
-        new AlertDialog.Builder(this).setTitle("MOTOR DE SAÍDA · OBOE EXPERIMENTAL")
-            .setSingleChoiceItems(choices,audioEngine.oboePreferred()?1:0,(dialog,which)->{
-                boolean useOboe=which==1;
-                audioEngine.setOboePreferred(useOboe);
-                getSharedPreferences("audio",MODE_PRIVATE).edit().putBoolean("oboe_preferred",useOboe).apply();
-                screen.invalidate();dialog.dismiss();
-            })
-            .setNegativeButton("CANCELAR",null).show();
     }
 
     private void restoreApprovedAudioSettings(){
@@ -1287,9 +1290,9 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("SALVAR NO LIVE SET "+(slot+1)).setView(input)
                 .setPositiveButton("SALVAR",(d,w)->{
                     SharedPreferences layers=getSharedPreferences("layers",MODE_PRIVATE),live=getSharedPreferences("live_set",MODE_PRIVATE);SharedPreferences.Editor e=live.edit();
-                    String root="bank_"+bank+"_slot_"+slot;e.putInt(root+"_version",12).putFloat(root+"_master",screen.masterVolume);for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";e.putInt(p+"engine",layers.getInt("engine_"+layer,0));e.putString(p+"sf2",layers.getString("sf2_"+layer,null));e.putString(p+"dx7",layers.getString("dx7_"+layer,null));e.putString(p+"npno",layers.getString("npno_"+layer,null));e.putString(p+"nordCategory",layers.getString("nord_category_"+layer,NORD_CATEGORIES[0]));e.putInt(p+"nordEq",layers.getInt("nord_eq_mode_"+layer,1));e.putString(p+"name",layers.getString("name_"+layer,null));e.putInt(p+"preset",layers.getInt("preset_"+layer,0));e.putInt(p+"dx7_patch",layers.getInt("dx7_patch_"+layer,0));e.putInt(p+"analog",layers.getInt("analog_preset_"+layer,0));e.putInt(p+"hammond",layers.getInt("hammond_preset_"+layer,0));e.putFloat(p+"volume",screen.layerVolumes[layer]).putFloat(p+"pan",screen.layerPan[layer]).putBoolean(p+"muted",screen.muted[layer]).putBoolean(p+"solo",screen.solo[layer]);}
+                    String root="bank_"+bank+"_slot_"+slot;e.putInt(root+"_version",13).putFloat(root+"_master",screen.masterVolume);for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";e.putInt(p+"engine",layers.getInt("engine_"+layer,0));e.putString(p+"sf2",layers.getString("sf2_"+layer,null));e.putString(p+"dx7",layers.getString("dx7_"+layer,null));e.putString(p+"npno",layers.getString("npno_"+layer,null));e.putString(p+"nordCategory",layers.getString("nord_category_"+layer,NORD_CATEGORIES[0]));e.putInt(p+"nordEq",layers.getInt("nord_eq_mode_"+layer,1));e.putString(p+"name",layers.getString("name_"+layer,null));e.putInt(p+"preset",layers.getInt("preset_"+layer,0));e.putInt(p+"dx7_patch",layers.getInt("dx7_patch_"+layer,0));e.putInt(p+"analog",layers.getInt("analog_preset_"+layer,0));e.putInt(p+"hammond",layers.getInt("hammond_preset_"+layer,0));e.putFloat(p+"volume",screen.layerVolumes[layer]).putFloat(p+"pan",screen.layerPan[layer]).putBoolean(p+"muted",screen.muted[layer]).putBoolean(p+"solo",screen.solo[layer]);}
                     SharedPreferences pads=getSharedPreferences("pads",MODE_PRIVATE);e.putFloat(root+"_pad_fade",pads.getFloat("crossfade_seconds",1f)).putInt(root+"_pad_stop_cc",pads.getInt("pad_stop_cc",-1));for(int pad=0;pad<12;pad++){e.putString(root+"_drum_pad_"+pad,pads.getString(padSampleKey(false,pad),null)).putString(root+"_continuous_pad_"+pad,pads.getString(padSampleKey(true,pad),null)).putString(root+"_drum_pad_name_"+pad,pads.getString(padNameKey(false,pad),null)).putString(root+"_continuous_pad_name_"+pad,pads.getString(padNameKey(true,pad),null)).putInt(root+"_pad_note_"+pad,pads.getInt("pad_note_"+pad,36+pad)).putInt(root+"_pad_cc_"+pad,pads.getInt("pad_cc_"+pad,-1));}
-                    e.putInt(root+"_version",12).putFloat(root+"_reverb",screen.masterReverb).putFloat(root+"_chorus",screen.masterChorus);
+                    e.putInt(root+"_version",13).putFloat(root+"_reverb",screen.masterReverb).putFloat(root+"_chorus",screen.masterChorus);
                     SharedPreferences midiLearn=getSharedPreferences("midi_learn",MODE_PRIVATE);
                     for(int layer=0;layer<6;layer++)for(int target=0;target<5;target++){
                         String key="layer_"+layer+"_"+target;
@@ -1338,7 +1341,7 @@ public final class MainActivity extends Activity {
             .putFloat("eq_high_db_"+layer,version>=4?live.getFloat(p+"eqHigh",screen.eqHigh[layer]):(float)(20*Math.log10(Math.max(.125f,live.getFloat(p+"eqHigh",1f)))))
             .putFloat("eq_low_freq_"+layer,live.getFloat(p+"eqLowFreq",220)).putFloat("eq_mid_freq_"+layer,live.getFloat(p+"eqMidFreq",1200)).putFloat("eq_high_freq_"+layer,live.getFloat(p+"eqHighFreq",4200)).putFloat("eq_low_q_"+layer,live.getFloat(p+"eqLowQ",.707f)).putFloat("eq_mid_q_"+layer,live.getFloat(p+"eqMidQ",1)).putFloat("eq_high_q_"+layer,live.getFloat(p+"eqHighQ",.707f)).putFloat("eq_highpass_"+layer,live.getFloat(p+"eqHighPass",20)).putFloat("eq_lowpass_"+layer,live.getFloat(p+"eqLowPass",20000))
             .putFloat("comp_threshold_"+layer,live.getFloat(p+"compThreshold",.126f)).putFloat("comp_ratio_"+layer,live.getFloat(p+"compRatio",4)).putFloat("comp_attack_"+layer,live.getFloat(p+"compAttack",10)).putFloat("comp_release_"+layer,live.getFloat(p+"compRelease",120)).putFloat("comp_makeup_"+layer,live.getFloat(p+"compMakeup",0))
-            .putFloat("control_cutoff_"+layer,live.getFloat(p+"cutoff",100)).putFloat("control_reverb_"+layer,live.getFloat(p+"reverbSend",0)).putFloat("control_comp_"+layer,live.getFloat(p+"compMix",0)).putFloat("control_chorus_"+layer,live.getFloat(p+"chorus",0)).putFloat("reverb_size_"+layer,live.getFloat(p+"reverbSize",55)).putFloat("reverb_damping_"+layer,live.getFloat(p+"reverbDamping",45)).putFloat("reverb_width_"+layer,live.getFloat(p+"reverbWidth",100))
+            .putFloat("control_cutoff_"+layer,live.getFloat(p+"cutoff",100)).putFloat("control_reverb_"+layer,live.getFloat(p+"reverbSend",0)).putFloat("control_comp_"+layer,version>=13?live.getFloat(p+"compMix",0):0f).putFloat("control_chorus_"+layer,live.getFloat(p+"chorus",0)).putFloat("reverb_size_"+layer,live.getFloat(p+"reverbSize",55)).putFloat("reverb_damping_"+layer,live.getFloat(p+"reverbDamping",45)).putFloat("reverb_width_"+layer,live.getFloat(p+"reverbWidth",100))
             .putInt("route_channel_"+layer,live.getInt(p+"routeChannel",-1)).putInt("route_octave_"+layer,live.getInt(p+"routeOctave",0)).remove("route_low_"+layer).remove("route_high_"+layer).putInt("route_velocity_"+layer,live.getInt(p+"routeVelocity",0)).putInt("route_mode_"+layer,live.getInt(p+"routeMode",0)).putBoolean("route_sustain_"+layer,live.getBoolean(p+"routeSustain",true))
             .putInt("hammond_leslie_"+layer,live.getInt(p+"hammondLeslie",1)).putInt("hammond_percussion_"+layer,live.getInt(p+"hammondPercussion",0));
             for(int bar=0;bar<9;bar++)e.putInt("hammond_bar_"+layer+"_"+bar,live.getInt(p+"hammondBar"+bar,6));
@@ -1958,7 +1961,6 @@ public final class MainActivity extends Activity {
         // Desktop builds open directly on the mixer; keep the same workflow on Android.
         private boolean liveSet = false;
         private boolean settings = false;
-        private int outputIndex = 0;
         private int selected = 0;
         private boolean savingLiveSlot;
         private int liveBank;
@@ -2244,8 +2246,8 @@ public final class MainActivity extends Activity {
                 text(canvas, routedAudioLabel(), 52, h * .34f, h * .026f, EditorUi.MUTED);
                 text(canvas, midiStatus, 52, h * .42f, h * .026f, EditorUi.MUTED);
                 fittedText(canvas,audioCapabilityStatus,52,w-52,h*.465f,h*.016f,EditorUi.MUTED);
-                fittedText(canvas,"ROTA ATIVA · "+audioEngine.outputMode()+" · TOQUE PARA TROCAR",52,w*.46f,h*.505f,h*.016f,EditorUi.MUTED);
-                text(canvas, "Toque nas linhas acima para alternar a saída e o controlador.", 52, h * .54f, h * .022f, EditorUi.MUTED);
+                fittedText(canvas,"MOTOR DE ÁUDIO · "+audioEngine.outputMode()+" · CONFIGURAÇÃO ESTÁVEL",52,w*.46f,h*.505f,h*.016f,EditorUi.MUTED);
+                text(canvas, "Toque nas linhas ÁUDIO e MIDI acima para selecionar dispositivos.", 52, h * .54f, h * .022f, EditorUi.MUTED);
                 float actionRight = Math.min(w - 52, 430);
                 button(canvas, "MIDI LEARN · VOLUME", 52, h*.59f, actionRight, h*.66f, pendingLearnTarget>=0);
                 button(canvas, "PARAR TODAS AS NOTAS", 52, h*.69f, actionRight, h*.76f, false);
@@ -2489,7 +2491,6 @@ public final class MainActivity extends Activity {
             }
             if (settings && tap) {
                 if(event.getX()>=52&&event.getX()<Math.min(w-52,430)&&event.getY()>=h*.87f&&event.getY()<=h*.925f){showThemeChooser();return true;}
-                if(event.getX()>=52&&event.getX()<w*.46f&&event.getY()>=h*.48f&&event.getY()<=h*.53f){showAudioBackendChooser();return true;}
                 if(event.getX()>w*.48f&&event.getY()>=h*.87f&&event.getY()<=h*.925f){restoreApprovedAudioSettings();return true;}
                 if(event.getX()>w*.48f&&event.getY()>h*.50f){
                     if(event.getY()<h*.565f)showAudioSampleRateChooser();
