@@ -42,7 +42,7 @@ float calibratedVelocity(float input, const Sf2Engine::LayerConfig& config)
         const auto amount = span > 0.0f
             ? (raw - inputAnchors[point - 1]) / span : 0.0f;
         const auto mapped = juce::jmap(amount, outputAnchors[point - 1], outputAnchors[point]);
-        return juce::jlimit(1.0f, 127.0f, mapped / 127.0f);
+        return juce::jlimit(1.0f / 127.0f, 1.0f, mapped / 127.0f);
     }
     return 1.0f;
 }
