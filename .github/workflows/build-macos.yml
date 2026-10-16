@@ -18,6 +18,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Rust targets for the Nord sample decoder
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
       - name: Define download version
         shell: bash
         run: |
@@ -47,6 +52,9 @@ jobs:
           test -f Source/HammondEngine.cpp
           test -f Source/AnalogEditorPanel.h
           grep -q 'HammondEngine.cpp' CMakeLists.txt
+          test -f Source/NordSampleDecoder.cpp
+          test -f third_party/nord-reader/Cargo.toml
+          grep -q 'ClassicNordReader' CMakeLists.txt
 
       - name: Set up vcpkg
         uses: lukka/run-vcpkg@v11

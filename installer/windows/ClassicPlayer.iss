@@ -31,6 +31,7 @@ UninstallDisplayIcon={app}\Classic Player.exe
 Source: "{#BuildRoot}\Standalone\Classic Player.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildRoot}\Standalone\*.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#BuildRoot}\Standalone\Resources\WebUI\*"; DestDir: "{app}\Resources\WebUI"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\third_party\nord-format-LICENSE.txt"; DestDir: "{app}\ThirdPartyLicenses"; Flags: ignoreversion
 Source: "{#BuildRoot}\WebView2Bootstrapper.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist
 Source: "{#BuildRoot}\VST3\Classic Player.vst3\*"; DestDir: "{commoncf64}\VST3\Classic Player.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 

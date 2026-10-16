@@ -22,6 +22,10 @@ on:
       - Source/SampleEngine.cpp
       - Source/SampleEngine.h
       - Source/SampleEngineRegressionTest.cpp
+      - Source/NordSampleDecoder.cpp
+      - Source/NordSampleDecoder.h
+      - Source/NordPianoDecoder.h
+      - third_party/nord-reader/**
       - Source/Sf2Engine.cpp
       - Source/Sf2Engine.h
 
@@ -31,6 +35,11 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Rust target for the Nord sample decoder
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
 
       - name: Set up CMake
         uses: lukka/get-cmake@latest

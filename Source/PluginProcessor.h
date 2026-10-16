@@ -170,6 +170,8 @@ public:
     juce::Result deleteLibrarySoundFont(const juce::File&);
     juce::Result importNordPiano(const juce::File&, const juce::String& category,
                                  juce::File& importedFile) const;
+    juce::Result importNordBundle(const juce::File&, juce::Array<juce::File>& importedFiles,
+                                  int& skippedStage4Programs) const;
     juce::Array<juce::File> libraryNordPianos(const juce::String& category) const;
     juce::Result deleteLibraryNordPiano(const juce::File&);
 

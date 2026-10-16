@@ -24,6 +24,9 @@ cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 
 mkdir -p "$STAGE/Applications" "$PACKAGES" "$OUTPUT"
+mkdir -p "$APP/Contents/Resources/ThirdPartyLicenses"
+cp "$ROOT/third_party/nord-format-LICENSE.txt" \
+  "$APP/Contents/Resources/ThirdPartyLicenses/nord-format-LICENSE.txt"
 ditto --noextattr --noqtn "$APP" "$STAGE/Applications/Classic Player.app"
 /usr/bin/xattr -cr "$STAGE/Applications/Classic Player.app"
 

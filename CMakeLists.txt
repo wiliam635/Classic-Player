@@ -35,6 +35,79 @@ endif()
 find_package(FluidSynth CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 
+# Nord's Stage 4 sample codec is maintained as a small Rust library. Build it
+# for the exact desktop target architecture so the same decoder is available
+# to the standalone app, plug-in and sample-engine regression test.
+if(APPLE OR WIN32)
+    find_program(CLASSIC_PLAYER_CARGO cargo REQUIRED)
+    set(_nord_manifest "${CMAKE_CURRENT_SOURCE_DIR}/third_party/nord-reader/Cargo.toml")
+    set(_nord_target_dir "${CMAKE_BINARY_DIR}/nord-reader-target")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/nord-reader/Cargo.toml"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/nord-reader/src/lib.rs")
+    if(APPLE)
+        set(_nord_architectures ${CMAKE_OSX_ARCHITECTURES})
+        if(NOT _nord_architectures)
+            set(_nord_architectures "${CMAKE_SYSTEM_PROCESSOR}")
+        endif()
+        set(_nord_arch_libraries)
+        foreach(_nord_arch IN LISTS _nord_architectures)
+            if(_nord_arch STREQUAL "arm64" OR _nord_arch STREQUAL "aarch64")
+                set(_nord_target "aarch64-apple-darwin")
+            elseif(_nord_arch STREQUAL "x86_64")
+                set(_nord_target "x86_64-apple-darwin")
+            else()
+                message(FATAL_ERROR "Nord sample decoder does not support macOS architecture: ${_nord_arch}")
+            endif()
+            execute_process(
+                COMMAND "${CMAKE_COMMAND}" -E env
+                    "MACOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}"
+                    "${CLASSIC_PLAYER_CARGO}" build
+                    --manifest-path "${_nord_manifest}"
+                    --target-dir "${_nord_target_dir}"
+                    --target "${_nord_target}" --release
+                RESULT_VARIABLE _nord_build_result
+                OUTPUT_VARIABLE _nord_build_stdout
+                ERROR_VARIABLE _nord_build_stderr)
+            if(NOT _nord_build_result EQUAL 0)
+                message(FATAL_ERROR "Could not build Nord sample decoder (${_nord_target}):\n${_nord_build_stdout}\n${_nord_build_stderr}")
+            endif()
+            list(APPEND _nord_arch_libraries "${_nord_target_dir}/${_nord_target}/release/libclassic_nord_reader.a")
+        endforeach()
+        list(LENGTH _nord_arch_libraries _nord_arch_count)
+        if(_nord_arch_count GREATER 1)
+            find_program(CLASSIC_PLAYER_LIPO lipo REQUIRED)
+            set(_nord_library "${CMAKE_BINARY_DIR}/libclassic_nord_reader.a")
+            file(REMOVE "${_nord_library}")
+            execute_process(COMMAND "${CLASSIC_PLAYER_LIPO}" -create ${_nord_arch_libraries} -output "${_nord_library}"
+                RESULT_VARIABLE _nord_lipo_result ERROR_VARIABLE _nord_lipo_stderr)
+            if(NOT _nord_lipo_result EQUAL 0)
+                message(FATAL_ERROR "Could not combine Nord sample decoder architectures: ${_nord_lipo_stderr}")
+            endif()
+        else()
+            list(GET _nord_arch_libraries 0 _nord_library)
+        endif()
+    elseif(WIN32)
+        execute_process(
+            COMMAND "${CLASSIC_PLAYER_CARGO}" build
+                --manifest-path "${_nord_manifest}"
+                --target-dir "${_nord_target_dir}"
+                --target x86_64-pc-windows-msvc --release
+            RESULT_VARIABLE _nord_build_result
+            OUTPUT_VARIABLE _nord_build_stdout
+            ERROR_VARIABLE _nord_build_stderr)
+        if(NOT _nord_build_result EQUAL 0)
+            message(FATAL_ERROR "Could not build Nord sample decoder (x86_64-pc-windows-msvc):\n${_nord_build_stdout}\n${_nord_build_stderr}")
+        endif()
+        set(_nord_library "${_nord_target_dir}/x86_64-pc-windows-msvc/release/classic_nord_reader.lib")
+    endif()
+    if(NOT EXISTS "${_nord_library}")
+        message(FATAL_ERROR "Nord sample decoder library was not produced: ${_nord_library}")
+    endif()
+    add_library(ClassicNordReader STATIC IMPORTED GLOBAL)
+    set_target_properties(ClassicNordReader PROPERTIES IMPORTED_LOCATION "${_nord_library}")
+endif()
+
 if(TARGET FluidSynth::libfluidsynth)
     set(CLASSIC_PLAYER_FLUID_TARGET FluidSynth::libfluidsynth)
 elseif(TARGET fluidsynth)
@@ -128,6 +201,8 @@ target_sources(ClassicPlayer PRIVATE
     Source/SampleEngine.h
     Source/NordPianoDecoder.cpp
     Source/NordPianoDecoder.h
+    Source/NordSampleDecoder.cpp
+    Source/NordSampleDecoder.h
     Source/Dx7Engine.cpp
     Source/Dx7Engine.h
     Source/AnalogSynthEngine.cpp
@@ -198,6 +273,14 @@ target_link_libraries(ClassicPlayer PRIVATE
     juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags)
 
+if(TARGET ClassicNordReader)
+    target_compile_definitions(ClassicPlayer PRIVATE CLASSIC_PLAYER_HAS_NORD_NSMP4_DECODER=1)
+    target_link_libraries(ClassicPlayer PRIVATE ClassicNordReader)
+    if(WIN32)
+        target_link_libraries(ClassicPlayer PRIVATE bcrypt userenv ws2_32 ntdll advapi32)
+    endif()
+endif()
+
 # Keep the complete WebUI inside plugin bundles as well.  The VST3/AU editor
 # can then resolve resources relative to its own bundle instead of the host's
 # working directory.
@@ -248,10 +331,18 @@ if(CLASSIC_PLAYER_BUILD_TESTS)
     enable_testing()
     juce_add_console_app(ClassicPlayerSampleEngineTest PRODUCT_NAME "Classic Player NPNO Regression Test")
     target_sources(ClassicPlayerSampleEngineTest PRIVATE
-        Source/SampleEngineRegressionTest.cpp Source/SampleEngine.cpp Source/NordPianoDecoder.cpp)
+        Source/SampleEngineRegressionTest.cpp Source/SampleEngine.cpp Source/NordPianoDecoder.cpp
+        Source/NordSampleDecoder.cpp Source/NordSampleDecoder.h)
     target_compile_definitions(ClassicPlayerSampleEngineTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
     target_link_libraries(ClassicPlayerSampleEngineTest PRIVATE
         ${CLASSIC_PLAYER_FLUID_TARGET} juce::juce_audio_formats)
+    if(TARGET ClassicNordReader)
+        target_compile_definitions(ClassicPlayerSampleEngineTest PRIVATE CLASSIC_PLAYER_HAS_NORD_NSMP4_DECODER=1)
+        target_link_libraries(ClassicPlayerSampleEngineTest PRIVATE ClassicNordReader)
+        if(WIN32)
+            target_link_libraries(ClassicPlayerSampleEngineTest PRIVATE bcrypt userenv ws2_32 ntdll advapi32)
+        endif()
+    endif()
     add_test(NAME npno-regression COMMAND ClassicPlayerSampleEngineTest)
     if(WIN32)
         juce_add_console_app(ClassicPlayerVst3HostSmokeTest PRODUCT_NAME "Classic Player VST3 Host Smoke Test")

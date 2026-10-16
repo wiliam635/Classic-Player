@@ -23,6 +23,10 @@ on:
       - Source/SampleEngine.cpp
       - Source/SampleEngine.h
       - Source/SampleEngineRegressionTest.cpp
+      - Source/NordSampleDecoder.cpp
+      - Source/NordSampleDecoder.h
+      - Source/NordPianoDecoder.h
+      - third_party/nord-reader/**
       - Source/Sf2Engine.cpp
       - Source/Sf2Engine.h
       - CMakeLists.txt
@@ -33,6 +37,11 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Rust targets for the Nord sample decoder
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Set up vcpkg
         uses: lukka/run-vcpkg@v11

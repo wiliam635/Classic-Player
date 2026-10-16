@@ -32,6 +32,23 @@ void applyCategoryReleaseDefault(juce::AudioProcessorValueTreeState& parameters,
     if (auto* parameter = parameters.getParameter("layer" + juce::String(layer + 1) + "Release"))
         parameter->setValueNotifyingHost(parameter->convertTo0to1(release));
 }
+
+juce::String nordBundleCategory(const juce::String& path, const juce::String& fallback)
+{
+    const auto value = path.toLowerCase();
+    if (value.contains("piano/electric")) return "Piano Eletrico";
+    if (value.contains("piano/digital")) return "Piano DX";
+    if (value.contains("piano/grand") || value.contains("piano/upright")) return "Piano Acustico";
+    if (value.contains("strings")) return "Strings";
+    if (value.contains("organ")) return "Organ";
+    if (value.contains("synth")) return "Synth";
+    if (value.contains("brass")) return "Brass";
+    if (value.contains("guitar")) return "Guitar";
+    if (value.contains("bass")) return "Bass";
+    if (value.contains("bell")) return "Bells";
+    if (value.contains("pad")) return "Pad";
+    return fallback;
+}
 }
 
 juce::File ClassicPlayerAudioProcessor::startupSettingsFile() const
@@ -1175,7 +1192,7 @@ juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::F
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
         return juce::Result::fail("Layer inválida.");
     if (layerType(layer) != LayerType::sf2)
-        return juce::Result::fail("Esta layer aceita arquivos SF2. Use uma layer Nord para importar .npno.");
+        return juce::Result::fail("Esta layer aceita arquivos SF2. Use uma layer Nord para importar timbres Nord.");
     if (file.hasFileExtension(".npno"))
         return juce::Result::fail("Arquivos .npno devem ser carregados em uma layer Nord.");
     if (category.isNotEmpty() && !soundFontCategories().contains(category))
@@ -1203,9 +1220,9 @@ juce::Result ClassicPlayerAudioProcessor::loadNordPiano(int layer, const juce::F
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
         return juce::Result::fail("Layer inválida.");
     if (layerType(layer) != LayerType::nord)
-        return juce::Result::fail("Adicione uma layer Nord para importar um piano .npno.");
-    if (!file.hasFileExtension(".npno"))
-        return juce::Result::fail("A layer Nord aceita somente arquivos .npno.");
+        return juce::Result::fail("Adicione uma layer Nord para importar timbres Nord.");
+    if (!file.hasFileExtension(".npno") && !file.hasFileExtension(".nsmp4"))
+        return juce::Result::fail("A layer Nord aceita arquivos de piano .npno e samples .nsmp4.");
     if (category.isNotEmpty() && !soundFontCategories().contains(category))
         return juce::Result::fail("Categoria de piano Nord inválida.");
 
@@ -2424,10 +2441,13 @@ juce::Result ClassicPlayerAudioProcessor::importNordPiano(const juce::File& sour
                                                            const juce::String& category,
                                                            juce::File& importedFile) const
 {
-    if (!source.existsAsFile() || !source.hasFileExtension(".npno"))
-        return juce::Result::fail("Selecione um arquivo de piano Nord .npno valido");
+    const auto extension = source.getFileExtension().toLowerCase();
+    if (!source.existsAsFile() || (extension != ".npno" && extension != ".nsmp4"))
+        return juce::Result::fail("Selecione um arquivo Nord .npno ou .nsmp4 valido");
+    if (extension == ".nsmp4" && source.getSize() > 350ll * 1024ll * 1024ll)
+        return juce::Result::fail("O sample Nord excede o limite de 350 MB.");
     if (!soundFontCategories().contains(category))
-        return juce::Result::fail("Categoria de piano Nord invalida");
+        return juce::Result::fail("Categoria Nord invalida");
 
     auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                     .getChildFile("Classic Player").getChildFile("NordPianos").getChildFile(category);
@@ -2442,11 +2462,145 @@ juce::Result ClassicPlayerAudioProcessor::importNordPiano(const juce::File& sour
             importedFile = destination;
             return juce::Result::ok();
         }
-        destination = folder.getNonexistentChildFile(source.getFileNameWithoutExtension(), ".npno", true);
+        destination = folder.getNonexistentChildFile(source.getFileNameWithoutExtension(), extension, true);
     }
     if (!source.copyFileTo(destination))
         return juce::Result::fail("Nao foi possivel copiar o piano Nord para a biblioteca do aplicativo");
     importedFile = destination;
+    return juce::Result::ok();
+}
+
+juce::Result ClassicPlayerAudioProcessor::importNordBundle(
+    const juce::File& source, juce::Array<juce::File>& importedFiles,
+    int& skippedStage4Programs) const
+{
+    importedFiles.clear();
+    skippedStage4Programs = 0;
+    if (!source.existsAsFile() || !source.hasFileExtension(".ns4pbundle"))
+        return juce::Result::fail("Selecione um pacote Nord Stage 4 .ns4pbundle valido.");
+
+    juce::ZipFile archive(source);
+    if (archive.getNumEntries() <= 0 || archive.getNumEntries() > 10000)
+        return juce::Result::fail("O pacote Nord esta vazio ou possui uma quantidade invalida de itens.");
+
+    constexpr std::int64_t maximumEntryBytes = 350ll * 1024ll * 1024ll;
+    constexpr std::int64_t maximumTotalBytes = 1536ll * 1024ll * 1024ll;
+    std::int64_t totalBytes = 0;
+    juce::Array<juce::File> stagedFiles;
+    const auto libraryRoot = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                                 .getChildFile("Classic Player").getChildFile("NordPianos");
+    const auto stagingRoot = libraryRoot.getChildFile(".import-" + juce::Uuid().toString());
+    const auto stagingResult = stagingRoot.createDirectory();
+    if (stagingResult.failed()) return stagingResult;
+
+    auto cleanupStaging = [&]
+    {
+        if (stagingRoot.exists()) stagingRoot.deleteRecursively();
+    };
+
+    for (int i = 0; i < archive.getNumEntries(); ++i)
+    {
+        const auto* entry = archive.getEntry(i);
+        if (entry == nullptr || entry->isSymbolicLink) continue;
+        const auto entryPath = entry->filename.replaceCharacter('\\', '/');
+        const auto extension = juce::File(entryPath).getFileExtension().toLowerCase();
+        if (extension == ".ns4p")
+        {
+            ++skippedStage4Programs;
+            continue;
+        }
+        if (extension != ".npno" && extension != ".nsmp4") continue;
+
+        bool unsafePath = entryPath.startsWithChar('/') || entryPath.contains(":");
+        for (const auto& component : juce::StringArray::fromTokens(entryPath, "/", ""))
+            if (component == ".." || component == ".") unsafePath = true;
+        if (unsafePath || entry->uncompressedSize <= 0
+            || entry->uncompressedSize > maximumEntryBytes
+            || totalBytes > maximumTotalBytes - entry->uncompressedSize)
+        {
+            cleanupStaging();
+            return juce::Result::fail("O pacote Nord contem um caminho inseguro ou excede o limite de tamanho.");
+        }
+
+        const auto category = nordBundleCategory(entryPath, "Outros");
+        if (!soundFontCategories().contains(category))
+        {
+            cleanupStaging();
+            return juce::Result::fail("O pacote Nord contem uma categoria nao suportada.");
+        }
+        const auto categoryFolder = stagingRoot.getChildFile(category);
+        const auto categoryResult = categoryFolder.createDirectory();
+        if (categoryResult.failed())
+        {
+            cleanupStaging();
+            return categoryResult;
+        }
+        const auto stagedFile = categoryFolder.getChildFile(juce::File(entryPath).getFileName());
+        if (stagedFile.existsAsFile())
+        {
+            cleanupStaging();
+            return juce::Result::fail("O pacote Nord contem nomes de timbres duplicados na mesma categoria.");
+        }
+
+        std::unique_ptr<juce::InputStream> input(archive.createStreamForEntry(i));
+        juce::FileOutputStream output(stagedFile);
+        if (input == nullptr || !output.openedOk())
+        {
+            cleanupStaging();
+            return juce::Result::fail("Nao foi possivel ler um timbre dentro do pacote Nord.");
+        }
+        const auto bytesCopied = output.writeFromInputStream(*input, entry->uncompressedSize);
+        output.flush();
+        if (bytesCopied != entry->uncompressedSize || output.getStatus().failed())
+        {
+            cleanupStaging();
+            return juce::Result::fail("Um timbre do pacote Nord foi extraido incompleto.");
+        }
+        totalBytes += entry->uncompressedSize;
+        stagedFiles.add(stagedFile);
+    }
+
+    if (stagedFiles.isEmpty())
+    {
+        cleanupStaging();
+        return juce::Result::fail("O pacote nao contem samples .npno ou .nsmp4 suportados.");
+    }
+
+    juce::Array<juce::File> newlyInstalled;
+    for (const auto& stagedFile : stagedFiles)
+    {
+        const auto category = stagedFile.getParentDirectory().getFileName();
+        const auto folder = libraryRoot.getChildFile(category);
+        const auto folderResult = folder.createDirectory();
+        if (folderResult.failed())
+        {
+            for (const auto& created : newlyInstalled) created.deleteFile();
+            cleanupStaging();
+            return folderResult;
+        }
+        auto destination = folder.getChildFile(stagedFile.getFileName());
+        if (destination.existsAsFile())
+        {
+            if (stagedFile.hasIdenticalContentTo(destination))
+            {
+                importedFiles.add(destination);
+                continue;
+            }
+            destination = folder.getNonexistentChildFile(stagedFile.getFileNameWithoutExtension(),
+                                                          stagedFile.getFileExtension(), true);
+        }
+        if (!stagedFile.copyFileTo(destination))
+        {
+            for (const auto& created : newlyInstalled) created.deleteFile();
+            cleanupStaging();
+            importedFiles.clear();
+            return juce::Result::fail("Nao foi possivel instalar todos os timbres do pacote Nord.");
+        }
+        newlyInstalled.add(destination);
+        importedFiles.add(destination);
+    }
+
+    cleanupStaging();
     return juce::Result::ok();
 }
 
@@ -2457,7 +2611,8 @@ juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordPianos(
     if (!soundFontCategories().contains(category)) return result;
     const auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                             .getChildFile("Classic Player").getChildFile("NordPianos").getChildFile(category);
-    folder.findChildFiles(result, juce::File::findFiles, false, "*.npno;*.NPNO");
+    folder.findChildFiles(result, juce::File::findFiles, false,
+                          "*.npno;*.NPNO;*.nsmp4;*.NSMP4");
     std::sort(result.begin(), result.end(), [](const auto& a, const auto& b)
     {
         return a.getFileName().compareNatural(b.getFileName()) < 0;
@@ -2467,8 +2622,8 @@ juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordPianos(
 
 juce::Result ClassicPlayerAudioProcessor::deleteLibraryNordPiano(const juce::File& file)
 {
-    if (!file.existsAsFile() || !file.hasFileExtension(".npno"))
-        return juce::Result::fail("Selecione um piano Nord .npno valido da biblioteca");
+    if (!file.existsAsFile() || (!file.hasFileExtension(".npno") && !file.hasFileExtension(".nsmp4")))
+        return juce::Result::fail("Selecione um timbre Nord .npno ou .nsmp4 valido da biblioteca");
 
     const auto libraryRoot = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                                  .getChildFile("Classic Player").getChildFile("NordPianos");
