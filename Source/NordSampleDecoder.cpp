@@ -58,7 +58,7 @@ extern "C" bool appendZone(void* opaque, std::uint8_t rootNote, std::uint8_t low
     NordPianoDecoder::Stroke stroke;
     stroke.rootNote = rootNote;
     stroke.bank = 0;
-    stroke.levelGain = juce::Decibels::decibelsToGain(juce::jlimit(-60.0f, 24.0f, gainDb));
+    stroke.levelGain = std::pow(10.0f, juce::jlimit(-60.0f, 24.0f, gainDb) / 20.0f);
     if (loopStart != std::numeric_limits<std::uint32_t>::max() && loopEnd > loopStart
         && loopEnd <= sampleCount / channels)
     {

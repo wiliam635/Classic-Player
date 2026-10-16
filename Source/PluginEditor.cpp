@@ -2094,7 +2094,7 @@ public:
                         if (instrumentChanged) instrumentChanged();
                         if (source.hasFileExtension(".ns4pbundle"))
                         {
-                            auto message = "Timbres compatíveis foram salvos na biblioteca Nord. Escolha uma categoria e clique no nome do timbre para carregá-lo.";
+                            juce::String message = "Timbres compatíveis foram salvos na biblioteca Nord. Escolha uma categoria e clique no nome do timbre para carregá-lo.";
                             if (skippedStage4Programs > 0)
                                 message += " Os " + juce::String(skippedStage4Programs)
                                     + " programas .ns4p do Stage 4 ainda não são convertidos para o formato de layers do Classic Player.";
