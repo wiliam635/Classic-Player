@@ -916,7 +916,7 @@ public final class MainActivity extends Activity {
         else panel.body.addView(EditorUi.label(this,"Nenhum NPNO nesta categoria.",11));
         LinearLayout actions=EditorUi.gridRow(panel.body);
         EditorUi.addButton(actions,"IMPORTAR NPNO",()->{panel.dialog.dismiss();openNordPicker(layer,category);});
-        EditorUi.addButton(actions,"CONTROLES",()->{panel.dialog.dismiss();showPresetEditor(layer,"LAYER "+(layer+1)+" · NPNO","Ajuste a layer Nord.",new String[]{screen.layerNames[layer]},0,i->{},"IMPORTAR NPNO",()->openNordPicker(layer,category));});
+        if("NPNO".equals(screen.engineName(layer)))EditorUi.addButton(actions,"CONTROLES",()->{panel.dialog.dismiss();showPresetEditor(layer,"LAYER "+(layer+1)+" · NPNO","Ajuste a layer Nord.",new String[]{screen.layerNames[layer]},0,i->{},"IMPORTAR NPNO",()->openNordPicker(layer,category));});
         EditorUi.addButton(panel.footer,"FECHAR",panel.dialog::dismiss);panel.show();
     }
 
