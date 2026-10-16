@@ -470,6 +470,17 @@ public final class MainActivity extends Activity {
             }
             compressorMigration.putBoolean("all_layers_comp_mix_neutral_migration_1",true).apply();
         }
+        // Some installs already ran the global migration before importing
+        // NPNO layers, so clear any previously saved COMP mix on those layers
+        // once as well. The COMP control remains manually available afterward.
+        if(!prefs.getBoolean("nord_comp_mix_neutral_migration_1",false)){
+            SharedPreferences.Editor nordCompressorMigration=prefs.edit();
+            for(int i=0;i<6;i++)if("NPNO".equals(screen.engineName(i))){
+                screen.layerCompMix[i]=0f;
+                nordCompressorMigration.putFloat("control_comp_"+i,0f);
+            }
+            nordCompressorMigration.putBoolean("nord_comp_mix_neutral_migration_1",true).apply();
+        }
         for(int i=0;i<6;i++)screen.applyLoadedEditorState(i);
         String account = licenseManager.userName();
         if (account == null || account.isEmpty()) account = licenseManager.userEmail();
