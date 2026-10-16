@@ -21,6 +21,7 @@
 #include "env.h"
 #include "pitchenv.h"
 #include "porta.h"
+#include "NordPianoEngine.h"
 
 namespace
 {
@@ -32,8 +33,9 @@ constexpr size_t kVoicePoolCapacity = kMaximumPolyphony;
 constexpr int kHammondDelayFrames = 1204;
 
 std::array<tsf*, kLayerCount> fonts {};
-enum class EngineType : int { empty = 0, sf2 = 1, dx7 = 2, analog = 3, hammond = 4 };
+enum class EngineType : int { empty = 0, sf2 = 1, dx7 = 2, analog = 3, hammond = 4, nord = 7 };
 std::array<EngineType, kLayerCount> engineTypes {};
+std::array<nord_android::Layer,kLayerCount> nordLayers {};
 // Audition SoundFonts without layer processing or envelope overrides.
 std::array<bool, kLayerCount> sf2OriginalSound {true,true,true,true,true,true};
 std::array<int, kLayerCount> layerVoiceBudgets {};
@@ -42,6 +44,7 @@ std::array<float, kLayerCount> smoothedLayerGains { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f
 std::array<float,kLayerCount> layerPan{},smoothedLayerPan{};
 std::array<int,kLayerCount> layerMidiChannel { -1,-1,-1,-1,-1,-1 }, layerOctave {}, layerLowNote {0,0,0,0,0,0}, layerHighNote {127,127,127,127,127,127}, layerVelocityCurve {};
 std::array<int,kLayerCount> layerMidiMode {};
+std::array<std::array<int,3>,kLayerCount> nordVelocityCalibration {};
 std::array<bool,kLayerCount> layerSustainEnabled {true,true,true,true,true,true};
 std::array<std::array<std::array<int,128>,16>,kLayerCount> routedNotes {};
 // SF2 editor values are additive seconds. Zero means use each region's exact
@@ -356,6 +359,7 @@ void distributeLayerVoiceBudgets()
             auto& dx=dxLayers[li].voices[(size_t)i];dx.active=false;dx.note=-1;dx.read=N;
             analogLayers[li].voices[(size_t)i]={};
             hammondLayers[li].voices[(size_t)i]={};
+            nordLayers[li].voices[(size_t)i]={};
         }
     }
 }
@@ -445,6 +449,7 @@ void releaseLayer(const int layer)
     clearDxLayer(layer);
     analogLayers[(size_t)layer]={};
     hammondLayers[(size_t)layer]={};
+    nordLayers[(size_t)layer]={};
     engineTypes[(size_t)layer] = EngineType::empty;
 }
 
@@ -460,6 +465,7 @@ void sendAllNotesOff()
         // oscillator running while changing screens/devices.
         for(auto& voice:analogLayers[(size_t)layer].voices)voice={};
         for(auto& voice:hammondLayers[(size_t)layer].voices)voice={};
+        for(auto& voice:nordLayers[(size_t)layer].voices)voice={};
     }
 }
 }
@@ -523,6 +529,54 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadLayer(
     engineTypes[(size_t) layer] = EngineType::sf2;
     distributeLayerVoiceBudgets();
     return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadNord(
+        JNIEnv* env,jclass,jint layer,jstring path,jlong budget,jboolean finitePiano)
+{
+    if(layer<0||layer>=kLayerCount||path==nullptr||budget<=0)
+        return env->NewStringUTF("Layer, caminho ou memória NPNO inválidos");
+    const char* utf8=env->GetStringUTFChars(path,nullptr);
+    if(!utf8)return env->NewStringUTF("Caminho NPNO indisponível");
+    std::string file(utf8);env->ReleaseStringUTFChars(path,utf8);
+    std::string error;
+    try {
+        auto instrument=std::make_shared<nord_android::Instrument>();
+        if(!nord_android::load(file,(size_t)budget,*instrument,error))
+            return env->NewStringUTF(error.c_str());
+        std::lock_guard<std::mutex> lock(synthMutex);
+        releaseLayer(layer);
+        auto& nord=nordLayers[(size_t)layer];
+        nord.instrument=std::move(instrument);
+        nord.finitePiano=finitePiano==JNI_TRUE;
+        nord.eqMode=1;
+        layerAttack[(size_t)layer]=0.005f;
+        layerRelease[(size_t)layer]=nord.finitePiano?.30f:.01f;
+        engineTypes[(size_t)layer]=EngineType::nord;
+        distributeLayerVoiceBudgets();
+    }catch(const std::bad_alloc&){return env->NewStringUTF("Memória insuficiente para decodificar o NPNO");}
+    catch(...){return env->NewStringUTF("Falha inesperada ao decodificar NPNO");}
+    return nullptr;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetNordEqMode(JNIEnv*,jclass,jint layer,jint mode)
+{
+    if(layer<0||layer>=kLayerCount)return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    nordLayers[(size_t)layer].eqMode=std::clamp((int)mode,0,2);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetNordVelocityCalibration(
+        JNIEnv*,jclass,jint layer,jint soft,jint mid,jint hard)
+{
+    if(layer<0||layer>=kLayerCount)return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    if(soft>=1&&mid-soft>=8&&hard-mid>=8&&hard<=127)
+        nordVelocityCalibration[(size_t)layer]={(int)soft,(int)mid,(int)hard};
+    else nordVelocityCalibration[(size_t)layer]={0,0,0};
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -757,7 +811,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerRouting(JNIEnv*
     if(layer<0||layer>=kLayerCount)return;std::lock_guard<std::mutex> lock(synthMutex);
     const auto i=(size_t)layer;layerMidiChannel[i]=channel<0?-1:std::clamp((int)channel,0,15);
     layerOctave[i]=std::clamp((int)octave,-4,4);layerLowNote[i]=std::clamp((int)low,0,127);
-    layerHighNote[i]=std::clamp((int)high,layerLowNote[i],127);layerVelocityCurve[i]=std::clamp((int)velocityCurve,0,2);
+    layerHighNote[i]=std::clamp((int)high,layerLowNote[i],127);layerVelocityCurve[i]=std::clamp((int)velocityCurve,0,3);
     layerSustainEnabled[i]=sustain==JNI_TRUE;layerMidiMode[i]=std::clamp((int)mode,0,2);
 }
 
@@ -888,6 +942,18 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
         int routedVelocity=std::clamp((int)velocity,1,127);
         if(layerVelocityCurve[li]==1)routedVelocity=std::clamp((int)std::lround(std::sqrt(routedVelocity/127.0f)*127.0f),1,127);
         else if(layerVelocityCurve[li]==2)routedVelocity=std::clamp((int)std::lround((routedVelocity/127.0f)*(routedVelocity/127.0f)*127.0f),1,127);
+        else if(layerVelocityCurve[li]==3&&engineTypes[li]==EngineType::nord){
+            const auto& c=nordVelocityCalibration[li];
+            if(c[0]>0){
+                const int input[5]={1,c[0],c[1],c[2],127};
+                const int output[5]={1,24,64,c[2]>=120?127:112,127};
+                for(int point=1;point<5;++point)if(routedVelocity<=input[point]){
+                    const float fraction=(float)(routedVelocity-input[point-1])/(float)std::max(1,input[point]-input[point-1]);
+                    routedVelocity=std::clamp((int)std::lround(output[point-1]+fraction*(output[point]-output[point-1])),1,127);
+                    break;
+                }
+            }
+        }
         routedNotes[li][(size_t)midiChannel][(size_t)note]=routedNote+1;
         double priorAnalogPitch=69.0;bool hasPriorAnalog=false;
         if(layerMidiMode[li]!=0||(engineTypes[li]==EngineType::analog&&analogLayers[li].monophonic)){
@@ -897,6 +963,7 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
                 old.active=false;old.note=-1;old.read=N;
             }
             for(auto& old:hammondLayers[li].voices)old={};
+            for(auto& old:nordLayers[li].voices)old={};
             for(auto& old:analogLayers[li].voices)if(old.active){priorAnalogPitch=old.pitch;hasPriorAnalog=true;old={};}
             routedNotes[li][(size_t)midiChannel][(size_t)note]=routedNote+1;
         }
@@ -913,6 +980,11 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
             target->active=true; target->note=routedNote; target->channel=midiChannel; target->read=N; target->samples.fill(0);
             if(!target->synth){target->active=false;continue;}
             target->synth->init(dx.patches[(size_t)dx.selected].data(),routedNote,routedVelocity,1,&controllers);
+        }
+        else if(engineTypes[li]==EngineType::nord) {
+            nord_android::noteOn(nordLayers[li],routedNote,routedVelocity,midiChannel,
+                    layerSustainEnabled[li]&&sustainDown[(size_t)midiChannel],
+                    voiceBudget,layerAttack[li]);
         }
         else if(engineTypes[(size_t)layer]==EngineType::analog) {
             auto& analog=analogLayers[(size_t)layer]; AnalogVoice* target=nullptr;
@@ -978,6 +1050,8 @@ static void applyNoteOff(jint note, jint midiChannel)
             continue;
         }
         if(layerSustainEnabled[li]&&sustainDown[(size_t)midiChannel]){
+            if(type==EngineType::nord)
+                nord_android::noteOff(nordLayers[li],routedNote,midiChannel,true);
             if(type==EngineType::hammond)
                 for(auto& voice:hammondLayers[li].voices)
                     if(voice.active&&voice.note==routedNote&&voice.channel==midiChannel)voice.down=false;
@@ -1000,6 +1074,8 @@ static void applyNoteOff(jint note, jint midiChannel)
         if (type == EngineType::hammond)
             for (auto& voice: hammondLayers[(size_t)layer].voices)
                 if (voice.active && voice.note == routedNote && voice.channel==midiChannel) releaseHammondVoice(voice);
+        if (type == EngineType::nord)
+            nord_android::noteOff(nordLayers[li],routedNote,midiChannel,false);
     }
 }
 
@@ -1035,6 +1111,8 @@ static void applyControl(jint controller, jint value, jint midiChannel)
                             if (voice.active && voice.note == routedNote && voice.channel==midiChannel && voice.synth) voice.synth->keyup();
                     } else if (engineTypes[li] == EngineType::sf2 && fonts[li] != nullptr) {
                         tsf_channel_note_off(fonts[li],0,routedNote);
+                    } else if (engineTypes[li] == EngineType::nord) {
+                        nord_android::pedalUp(nordLayers[li],midiChannel);
                     }
                 }
             }
@@ -1079,6 +1157,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeActiveVoices(JNIEnv*,jc
     if(engineTypes[layer]==EngineType::dx7)for(auto& voice:dxLayers[layer].voices)if(voice.active)++count;
     if(engineTypes[layer]==EngineType::analog)for(auto& voice:analogLayers[layer].voices)if(voice.active)++count;
     if(engineTypes[layer]==EngineType::hammond)for(auto& voice:hammondLayers[layer].voices)if(voice.active)++count;
+    if(engineTypes[layer]==EngineType::nord)return nord_android::activeVoices(nordLayers[(size_t)layer]);
     return count;
 }
 
@@ -1124,6 +1203,9 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
         const bool originalSf2=engineTypes[li]==EngineType::sf2&&sf2OriginalSound[li];
         std::memset(scratch.data(), 0, (size_t) samples * sizeof(float));
         if(engineTypes[(size_t)layer]==EngineType::sf2 && font!=nullptr) tsf_render_float(font, scratch.data(), frames, TSF_FALSE);
+        else if(engineTypes[li]==EngineType::nord)
+            nord_android::render(nordLayers[li],scratch.data(),frames,kSampleRate,
+                    layerVoiceBudgets[li],layerAttack[li],layerRelease[li]);
         else if(engineTypes[(size_t)layer]==EngineType::dx7) {
             auto& dx=dxLayers[(size_t)layer];
             // Traverse the voice pool once per block instead of once per
@@ -1331,7 +1413,7 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
             // instead of applying the -3 dB constant-power law for mono synths.
             // TSF supplies stereo in both SF2 modes. Processing must not
             // silently add a -3 dB center-pan attenuation to its dry signal.
-            const bool stereoSf2=engineTypes[li]==EngineType::sf2;
+            const bool stereoSf2=engineTypes[li]==EngineType::sf2||engineTypes[li]==EngineType::nord;
             const float leftPan=stereoSf2?std::min(1.0f,1.0f-pan):(fixedPan?fixedLeft:std::cos((pan+1.0f)*0.7853981634f));
             const float rightPan=stereoSf2?std::min(1.0f,1.0f+pan):(fixedPan?fixedRight:std::sin((pan+1.0f)*0.7853981634f));
             for(int channel=0;channel<2;++channel){

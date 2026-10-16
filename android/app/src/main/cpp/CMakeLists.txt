@@ -16,6 +16,7 @@ FetchContent_MakeAvailable(oboe)
 set(MSFA_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../../../third_party/msfa")
 add_library(classic_player_native SHARED
     ClassicPlayerNative.cpp
+    NordPianoEngine.cpp
     NativeAudioOutput.cpp
     ${MSFA_DIR}/dx7note.cc
     ${MSFA_DIR}/env.cc
