@@ -2227,20 +2227,19 @@ public final class MainActivity extends Activity {
             button(canvas, "ÁUDIO/MIDI", w*.915f, h*.101f, w*.995f, h*.139f, settings);
 
             if (settings) {
-                box(canvas, 28, h * .17f, w - 28, h * .93f, panel, true);
+                box(canvas, 28, h * .17f, w - 28, h * .86f, panel, true);
                 text(canvas, "ÁUDIO / MIDI", 52, h * .25f, h * .04f, text);
                 text(canvas, routedAudioLabel(), 52, h * .34f, h * .026f, EditorUi.MUTED);
                 text(canvas, midiStatus, 52, h * .42f, h * .026f, EditorUi.MUTED);
                 fittedText(canvas,audioCapabilityStatus,52,w-52,h*.465f,h*.016f,EditorUi.MUTED);
-                fittedText(canvas,"MOTOR DE ÁUDIO · "+audioEngine.outputMode()+" · CONFIGURAÇÃO ESTÁVEL",52,w*.46f,h*.505f,h*.016f,EditorUi.MUTED);
-                text(canvas, "Toque nas linhas ÁUDIO e MIDI acima para selecionar dispositivos.", 52, h * .54f, h * .022f, EditorUi.MUTED);
+                text(canvas, "Toque nas linhas acima para alternar a saída e o controlador.", 52, h * .54f, h * .022f, EditorUi.MUTED);
                 float actionRight = Math.min(w - 52, 430);
                 button(canvas, "MIDI LEARN · VOLUME", 52, h*.59f, actionRight, h*.66f, pendingLearnTarget>=0);
                 button(canvas, "PARAR TODAS AS NOTAS", 52, h*.69f, actionRight, h*.76f, false);
                 button(canvas, "VOLTAR AO MIXER", 52, h*.79f, actionRight, h*.86f, false);
-                button(canvas, "TEMA · "+EditorUi.THEME_NAMES[EditorUi.themeIndex],52,h*.87f,actionRight,h*.925f,false);
-                button(canvas,"TAXA · "+(audioEngine.sampleRateMode()==0?"NATIVA":audioEngine.sampleRateMode()==2?"48 kHz":"44,1 kHz"),w*.48f,h*.50f,w-52,h*.565f,false);
-                button(canvas, "AJUSTAR BUFFER · "+audioEngine.bufferFrames()+" FRAMES",w*.48f,h*.58f,w-52,h*.645f,false);
+                button(canvas,"MOTOR · "+audioEngine.outputMode(),w*.48f,h*.50f,w-52,h*.555f,false);
+                button(canvas,"TAXA · "+(audioEngine.sampleRateMode()==0?"NATIVA":audioEngine.sampleRateMode()==2?"48 kHz":"44,1 kHz"),w*.48f,h*.56f,w-52,h*.615f,false);
+                button(canvas, "AJUSTAR BUFFER · "+audioEngine.bufferFrames()+" FRAMES",w*.48f,h*.62f,w-52,h*.67f,false);
                 fittedText(canvas,audioEngine.outputStatus(),w*.48f,w-52,h*.70f,h*.017f,text);
                 fittedText(canvas,audioEngine.outputDspStatus(),w*.48f,w-52,h*.74f,h*.015f,text);
                 fittedText(canvas,audioEngine.outputLatency(),w*.48f,w-52,h*.78f,h*.015f,text);
@@ -2475,10 +2474,9 @@ public final class MainActivity extends Activity {
                 invalidate(); return true;
             }
             if (settings && tap) {
-                if(event.getX()>=52&&event.getX()<Math.min(w-52,430)&&event.getY()>=h*.87f&&event.getY()<=h*.925f){showThemeChooser();return true;}
                 if(event.getX()>w*.48f&&event.getY()>h*.50f){
-                    if(event.getY()<h*.565f)showAudioSampleRateChooser();
-                    else if(event.getY()<h*.645f)showAudioBufferChooser();
+                    if(event.getY()>=h*.56f&&event.getY()<h*.615f)showAudioSampleRateChooser();
+                    else if(event.getY()>=h*.62f&&event.getY()<h*.67f)showAudioBufferChooser();
                     else if(event.getY()>h*.81f&&event.getY()<h*.87f){audioEngine.stop();audioEngine.start();invalidate();}
                     return true;
                 }
