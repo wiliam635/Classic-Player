@@ -38,6 +38,8 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 
 [Files]
 Source: "..\..\THIRD_PARTY_NORD_PROGRAM_LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\THIRD_PARTY_NORD_SAMPLE_LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\THIRD_PARTY_NORD_SAMPLE_LICENSE.txt"; DestDir: "{commoncf64}\VST3\Classic Player.vst3\Contents\Resources"; Flags: ignoreversion
 Source: "..\..\THIRD_PARTY_NORD_PROGRAM_LICENSE.txt"; DestDir: "{commoncf64}\VST3\Classic Player.vst3\Contents\Resources"; Flags: ignoreversion
 Source: "{#BuildRoot}\Standalone\Classic Player.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildRoot}\Standalone\*.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist

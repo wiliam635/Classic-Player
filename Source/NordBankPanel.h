@@ -43,7 +43,7 @@ private:
         banksButton.setButtonText("BANCOS IMPORTADOS (" + juce::String(banks.size()) + ")");
         const auto path = processor.nordBanks().path(index);
         status.setText(path.isEmpty()
-            ? "Importe o banco e escolha um programa em BANCOS IMPORTADOS.\nTeste: piano/B3. Synth e NSMP4 ainda nao reproduzidos."
+            ? "Importe o banco e escolha um programa em BANCOS IMPORTADOS.\nPiano/B3, NSMP4 e synth analogico adaptado. FM/WAVE ainda indisponiveis."
             : juce::File(path).getFileNameWithoutExtension() + " - Cena "
                 + (processor.nordBanks().scene(index) == 0 ? "I" : "II") + "\n"
                 + processor.nordBanks().description(index), juce::dontSendNotification);
@@ -55,6 +55,9 @@ private:
         for (const auto& bank : NordBankEngine::banks()) {
             juce::PopupMenu entries;
             for (const auto& program : NordBankEngine::programs(bank)) {
+                if(program.file.hasFileExtension("nsmp4")) {
+                    choices->push_back({program.file,0});entries.addItem(int(choices->size()),program.name);continue;
+                }
                 juce::PopupMenu scenes;
                 for (int scene = 0; scene < 2; ++scene) {
                     choices->push_back({ program.file, scene });

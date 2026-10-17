@@ -50,8 +50,8 @@ jobs:
 
       - name: Verify Nord bank decoder and saved state
         run: |
-          cmake --build build/macos-compat-arm64 --target ClassicPlayerNordProgramTest ClassicPlayerNordBankStateTest --parallel 4
-          ctest --test-dir build/macos-compat-arm64 -C Release -R 'nord-(program-regression|bank-state)' --output-on-failure
+          cmake --build build/macos-compat-arm64 --target ClassicPlayerNordProgramTest ClassicPlayerNordBankStateTest ClassicPlayerNordSampleTest --parallel 4
+          ctest --test-dir build/macos-compat-arm64 -C Release -R 'nord-(program-regression|bank-state|sample-regression)' --output-on-failure
 
       - name: Assemble and verify universal VST3
         shell: bash

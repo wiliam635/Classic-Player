@@ -37,6 +37,8 @@ ditto --noextattr --noqtn "$APP" "$STAGE/Applications/$APP_NAME"
 mkdir -p "$STAGE/Library/Application Support/Classic Keys/Classic Player"
 cp "$ROOT/THIRD_PARTY_NORD_PROGRAM_LICENSE.txt" \
   "$STAGE/Library/Application Support/Classic Keys/Classic Player/THIRD_PARTY_NORD_PROGRAM_LICENSE.txt"
+cp "$ROOT/THIRD_PARTY_NORD_SAMPLE_LICENSE.txt" \
+  "$STAGE/Library/Application Support/Classic Keys/Classic Player/THIRD_PARTY_NORD_SAMPLE_LICENSE.txt"
 ditto --noextattr --noqtn "$VST3" "$STAGE/Library/Audio/Plug-Ins/VST3/Classic Player.vst3"
 ditto --noextattr --noqtn "$AU" "$STAGE/Library/Audio/Plug-Ins/Components/Classic Player.component"
 

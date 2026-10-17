@@ -17,7 +17,8 @@ juce_add_console_app(NordBankProbe PRODUCT_NAME "Nord Bank Probe")
 target_sources(NordBankProbe PRIVATE "${ROOT}/Source/NordBankRegressionTest.cpp"
     "${ROOT}/Source/NordBankEngine.cpp" "${ROOT}/Source/NordBundleImporter.cpp"
     "${ROOT}/Source/NordProgramDecoder.cpp" "${ROOT}/Source/SampleEngine.cpp"
-    "${ROOT}/Source/NordPianoDecoder.cpp" "${ROOT}/Source/HammondEngine.cpp")
+    "${ROOT}/Source/NordPianoDecoder.cpp" "${ROOT}/Source/HammondEngine.cpp" "${ROOT}/Source/NordSampleDecoder.cpp"
+    "${ROOT}/Source/NordSampleEngine.cpp" "${ROOT}/Source/AnalogSynthEngine.cpp" "${ROOT}/Source/NordSampleRegressionTest.cpp")
 target_include_directories(NordBankProbe PRIVATE "${ROOT}/Source" "${CMAKE_CURRENT_BINARY_DIR}/include" "${FLUID_HEADERS}")
-target_compile_definitions(NordBankProbe PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_compile_definitions(NordBankProbe PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 NORD_SAMPLE_TEST_EMBEDDED=1)
 target_link_libraries(NordBankProbe PRIVATE juce::juce_audio_formats juce::juce_dsp juce::juce_data_structures)

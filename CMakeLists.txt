@@ -128,6 +128,10 @@ target_sources(ClassicPlayer PRIVATE
     Source/SampleEngine.h
     Source/NordBankEngine.cpp
     Source/NordBankEngine.h
+    Source/NordSampleDecoder.cpp
+    Source/NordSampleDecoder.h
+    Source/NordSampleEngine.cpp
+    Source/NordSampleEngine.h
     Source/NordProgramDecoder.cpp
     Source/NordProgramDecoder.h
     Source/NordProgramSchema.h
@@ -255,6 +259,11 @@ if(CLASSIC_PLAYER_BUILD_TESTS)
     enable_testing()
     add_executable(ClassicPlayerNordProgramTest Source/NordProgramRegressionTest.cpp Source/NordProgramDecoder.cpp)
     add_test(NAME nord-program-regression COMMAND ClassicPlayerNordProgramTest)
+    juce_add_console_app(ClassicPlayerNordSampleTest PRODUCT_NAME "Classic Player NSMP4 Test")
+    target_sources(ClassicPlayerNordSampleTest PRIVATE Source/NordSampleRegressionTest.cpp Source/NordSampleDecoder.cpp Source/NordSampleEngine.cpp)
+    target_compile_definitions(ClassicPlayerNordSampleTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+    target_link_libraries(ClassicPlayerNordSampleTest PRIVATE ${CLASSIC_PLAYER_FLUID_TARGET} juce::juce_audio_basics juce::juce_core)
+    add_test(NAME nord-sample-regression COMMAND ClassicPlayerNordSampleTest)
     juce_add_console_app(ClassicPlayerNordBankStateTest PRODUCT_NAME "Classic Player Nord Bank State Test")
     target_sources(ClassicPlayerNordBankStateTest PRIVATE Source/NordBankStateRegressionTest.cpp)
     target_include_directories(ClassicPlayerNordBankStateTest PRIVATE third_party/msfa)

@@ -1,5 +1,8 @@
 #include "NordBankEngine.h"
+#include "NordSampleEngine.h"
+#include "AnalogSynthEngine.h"
 #include <algorithm>
+#include <map>
 
 namespace {
 bool readProgram(const juce::File& file, NordProgramDecoder::Program& p, juce::String& reason)
@@ -38,13 +41,13 @@ juce::String compact(const juce::String& s)
     return tokens.joinIntoString(" ");
 }
 juce::File pianoDependency(const juce::File& bank, const juce::StringArray& deps,
-                           const std::string& name)
+                           const std::string& name, const juce::String& extension = "npno")
 {
     if (name.empty()) return {};
     const auto wanted = compact(juce::String::fromUTF8(name.c_str()));
     for (const auto& relative : deps) {
         const auto file = safeChild(bank, relative);
-        if (!file.hasFileExtension("npno") || !file.existsAsFile()) continue;
+        if (!file.hasFileExtension(extension) || !file.existsAsFile()) continue;
         auto stem = compact(file.getFileNameWithoutExtension());
         if (stem == wanted) return file;
         if (stem.startsWith(wanted + " ")) {
@@ -63,6 +66,11 @@ struct NordBankEngine::State
     NordProgramDecoder::Program program;
     SampleEngine pianos;
     HammondEngine organs;
+    NordSampleEngine samples;
+    AnalogSynthEngine analog;
+    std::array<AnalogSynthEngine::Config,Sf2Engine::layerCount> synthConfig {};
+    std::array<juce::MidiBuffer,Sf2Engine::layerCount> synthMidi;
+    std::array<Sf2Engine::LayerConfig,3> sampleConfig {};
     std::array<Sf2Engine::LayerConfig, Sf2Engine::layerCount> pianoConfig {};
     std::array<HammondEngine::Config, Sf2Engine::layerCount> organConfig {};
     std::array<juce::MidiBuffer, Sf2Engine::layerCount> pianoMidi, organMidi;
@@ -96,6 +104,10 @@ std::vector<NordBankEngine::ProgramInfo> NordBankEngine::programs(const juce::Fi
     if (xml == nullptr || !xml->hasTagName("bundle")) return result;
     for (const auto* child : xml->getChildIterator()) {
         const auto file = safeChild(bank, child->getStringAttribute("name"));
+        if(file.hasFileExtension("nsmp4") && file.existsAsFile()) {
+            ProgramInfo info;info.file=file;info.name="NSMP4 - "+file.getFileNameWithoutExtension();
+            info.playable[0]=true;info.reason[1]="Sample individual, sem Cena II.";result.push_back(std::move(info));continue;
+        }
         if (!file.hasFileExtension("ns4p") || !file.existsAsFile()) continue;
         ProgramInfo info;
         info.file = file;
@@ -112,6 +124,15 @@ std::vector<NordBankEngine::ProgramInfo> NordBankEngine::programs(const juce::Fi
         } else info.reason.fill(error);
         result.push_back(std::move(info));
     }
+    juce::StringArray samplesSeen;
+    for(const auto& info:result)if(info.file.hasFileExtension("nsmp4"))samplesSeen.add(info.file.getFullPathName());
+    for(const auto* child:xml->getChildIterator())for(int i=0;i<juce::jlimit(0,32,child->getIntAttribute("depCnt"));++i) {
+        const auto relative=child->getStringAttribute("dep"+juce::String(i));const auto file=safeChild(bank,relative);
+        if(file.hasFileExtension("nsmp4") && file.existsAsFile() && !samplesSeen.contains(file.getFullPathName())) {
+            samplesSeen.add(file.getFullPathName());ProgramInfo info;info.file=file;info.name="NSMP4 - "+file.getFileNameWithoutExtension();
+            info.playable[0]=true;info.reason[1]="Sample individual, sem Cena II.";result.push_back(std::move(info));
+        }
+    }
     std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
         return a.name.compareNatural(b.name) < 0;
     });
@@ -125,6 +146,7 @@ void NordBankEngine::prepare(double sampleRate, int blockSize)
         if (auto* s = slot.state.get()) {
             s->pianos.prepare(sampleRate, blockSize);
             s->organs.prepare(sampleRate, blockSize);
+            s->samples.prepare(sampleRate); s->analog.prepare(sampleRate,blockSize);
             s->scratch.setSize(2, blockSize);
         }
     }
@@ -136,7 +158,12 @@ juce::Result NordBankEngine::load(int layer, const juce::File& file, int selecte
     if (!bank.exists()) return juce::Result::fail("Importe o bundle para a biblioteca antes de abrir um programa.");
     auto s = std::make_unique<State>();
     juce::String error;
-    if (!readProgram(file, s->program, error)) return juce::Result::fail(error);
+    const auto directSample=file.hasFileExtension("nsmp4");
+    if(directSample) {
+        s->program.sections[0][2]=true;auto& src=s->program.synths[0];
+        src.sample=true;src.enabled[0]=true;src.gain=1;src.attackMs=10;src.releaseMs=120;
+        src.sampleName=file.getFileNameWithoutExtension().toStdString();
+    } else if (!readProgram(file, s->program, error)) return juce::Result::fail(error);
     s->scene = selectedScene < 0 ? s->program.scene : selectedScene;
     std::string reason;
     if (!s->program.playable(s->scene, reason)) return juce::Result::fail(juce::String::fromUTF8(reason.c_str()));
@@ -150,14 +177,22 @@ juce::Result NordBankEngine::load(int layer, const juce::File& file, int selecte
             const auto count = child->getIntAttribute("depCnt");
             if (count < 0 || count > 32) return juce::Result::fail("Dependencias do programa invalidas.");
             for (int i = 0; i < count; ++i) dependencies.add(child->getStringAttribute("dep" + juce::String(i)));
+            if(directSample)dependencies.add(file.getRelativePathFrom(bank));
         }
-    if (!found) return juce::Result::fail("Programa ausente no manifesto do banco.");
+    if(directSample && !found)for(const auto* child:xml->getChildIterator())for(int i=0;i<juce::jlimit(0,32,child->getIntAttribute("depCnt"));++i) {
+        const auto relative=child->getStringAttribute("dep"+juce::String(i));
+        if(safeChild(bank,relative)==file){found=true;dependencies.addIfNotAlreadyThere(relative);}
+    }
+    if (!found) return juce::Result::fail("Programa ou sample ausente no manifesto do banco.");
     s->file = file;
     s->pianos.prepare(rate.load(), block.load());
     s->organs.prepare(rate.load(), block.load());
+    s->samples.prepare(rate.load());s->analog.prepare(rate.load(),block.load());
     s->scratch.setSize(2, block.load());
     for (auto& c : s->pianoConfig) c.enabled = false;
     for (auto& c : s->organConfig) c.routing.enabled = false;
+    for(auto& c:s->synthConfig)c.routing.enabled=false;
+    for(auto& c:s->sampleConfig)c.enabled=false;
     const auto& sections = s->program.sections[size_t(s->scene)];
     juce::StringArray parts;
     for (int part = 0; part < 2; ++part) {
@@ -176,10 +211,46 @@ juce::Result NordBankEngine::load(int layer, const juce::File& file, int selecte
             auto& c = s->organConfig[size_t(part)];
             c.routing.enabled = true; c.bars = o.drawbars; c.leslie = s->program.leslie;
             c.percussion = o.percussion; c.drive = s->program.organDrive; c.level = 1; c.preset = -1;
+            // These are Classic Player defaults, not decoded Nord parameters.
+            // Do not inject synthetic click/noise or leakage into imported banks.
+            c.click=0;c.leakage=0;
             parts.add("B3 " + juce::String(part == 0 ? "A" : "B"));
         }
     }
-    s->details = parts.joinIntoString(" | ") + "\nPianos/B3 adaptados; efeitos e morphs Nord nao sao identicos.";
+    std::map<juce::String,std::shared_ptr<const NordSampleDecoder::Instrument>> cache;
+    for(int part=0;part<3;++part) {
+        const auto& src=s->program.synths[size_t(part)];
+        if(!sections[2] || !src.enabled[size_t(s->scene)] || src.gain<=0)continue;
+        if(src.sample) {
+            const auto sample=pianoDependency(bank,dependencies,src.sampleName,"nsmp4");
+            if(!sample.existsAsFile())return juce::Result::fail("NSMP4 requerido nao localizado: "+juce::String::fromUTF8(src.sampleName.c_str()));
+            auto& instrument=cache[sample.getFullPathName()];
+            if(!instrument) {
+                auto decoded=std::make_shared<NordSampleDecoder::Instrument>();
+                const auto result=NordSampleDecoder::decode(sample,*decoded);if(result.failed())return result;instrument=std::move(decoded);
+            }
+            s->samples.set(part,instrument);s->sampleConfig[size_t(part)].enabled=true;
+            parts.add("NSMP4 "+juce::String(char('A'+part))+": "+instrument->name);
+        } else {
+            auto& c=s->synthConfig[size_t(part)];c.routing.enabled=true;
+            using W=AnalogSynthEngine::Waveform;
+            c.oscillator1Wave=(src.category==0||src.category==7)?(src.wave==0?W::sine:src.wave==1?W::triangle:src.wave==2?W::saw:W::square)
+                :src.category==1?(src.wave==0?W::triangle:src.wave==1?W::saw:W::pulse)
+                :src.category==2?W::sine:W::saw;
+            c.oscillator1Level=0.8f;c.oscillator2Enabled=src.category==3||src.category==4;c.oscillator3Enabled=src.category==4;
+            c.oscillator2Wave=c.oscillator3Wave=c.oscillator1Wave;
+            c.oscillator2Level=.35f;c.oscillator3Level=.35f;
+            c.oscillator2Semitones=src.category==3?-12:0;c.oscillator3Semitones=0;
+            c.oscillator1Semitones=src.coarse;c.oscillator1FineCents=src.fine;
+            c.oscillator2FineCents=-src.control*25;c.oscillator3FineCents=src.control*25;
+            c.ampAttackMs=src.attackMs;c.ampDecayMs=src.decayMs<0?1000:src.decayMs;c.ampSustain=src.decayMs<0?1:0;
+            c.ampReleaseMs=src.releaseMs;c.monophonic=src.mono;c.noiseLevel=0;
+            c.resonance=src.resonance;c.filterEnvelopeAmount=src.filterEnv;
+            c.filterAttackMs=src.filterAttackMs;c.filterDecayMs=src.filterDecayMs;c.filterSustain=0;
+            parts.add("Synth "+juce::String(char('A'+part))+" analogico adaptado");
+        }
+    }
+    s->details = parts.joinIntoString(" | ") + "\nReproducao adaptada; DSP, efeitos e morphs Nord nao sao identicos.";
     std::unique_ptr<State> old;
     { const juce::ScopedLock lock(slots[size_t(layer)].lock);
       old = std::move(slots[size_t(layer)].state); slots[size_t(layer)].state = std::move(s); }
@@ -195,7 +266,7 @@ void NordBankEngine::unload(int layer)
 void NordBankEngine::stopAllSounds()
 {
     for (auto& slot : slots) { const juce::ScopedLock lock(slot.lock);
-        if (slot.state) { slot.state->pianos.stopAllSounds(); slot.state->organs.stopAllSounds(); } }
+        if (slot.state) { slot.state->pianos.stopAllSounds(); slot.state->organs.stopAllSounds();slot.state->samples.stop();slot.state->analog.stopAllSounds(); } }
 }
 bool NordBankEngine::isLoaded(int layer) const { return path(layer).isNotEmpty(); }
 juce::String NordBankEngine::path(int layer) const
@@ -247,6 +318,17 @@ void NordBankEngine::process(int layer, juce::AudioBuffer<float>& output, const 
         configure(s->program.organs[size_t(part)], s->organConfig[size_t(part)].routing, false);
         s->pianoMidi[size_t(part)].clear(); s->organMidi[size_t(part)].clear();
     }
+    for(int part=0;part<3;++part) {
+        const auto& src=s->program.synths[size_t(part)];
+        configure(src,s->sampleConfig[size_t(part)],false);
+        auto& c=s->synthConfig[size_t(part)];configure(src,c.routing,false);
+        c.routing.pan=juce::jlimit(-1.f,1.f,outer.pan+src.pan);
+        const auto sourceCutoff=juce::jlimit(0.0f,100.0f,100*std::log(std::max(40.0f,src.filterHz)/40)/std::log(450.0f));
+        c.cutoff=std::min(outer.cutoff,sourceCutoff);
+        c.ampAttackMs=juce::jlimit(.5f,45000.f,src.attackMs+outer.attack-5);
+        c.ampReleaseMs=juce::jlimit(3.f,45000.f,src.releaseMs*std::pow(2.f,(outer.release-30)/10));
+        s->synthMidi[size_t(part)].clear();
+    }
     const auto collect = [&](const juce::MidiBuffer& events) {
         for (const auto metadata : events) {
             auto message = metadata.getMessage();
@@ -262,15 +344,20 @@ void NordBankEngine::process(int layer, juce::AudioBuffer<float>& output, const 
                     if (s->program.accepts(s->program.organs[size_t(part)], note))
                         s->organMidi[size_t(part)].addEvent(message, metadata.samplePosition);
                 }
+                for(int part=0;part<3;++part)if(s->program.accepts(s->program.synths[size_t(part)],note))s->synthMidi[size_t(part)].addEvent(message,metadata.samplePosition);
             } else for (int part = 0; part < 2; ++part) {
                 s->pianoMidi[size_t(part)].addEvent(message, metadata.samplePosition);
                 s->organMidi[size_t(part)].addEvent(message, metadata.samplePosition);
             }
+            if(!message.isNoteOnOrOff())for(int part=0;part<3;++part)s->synthMidi[size_t(part)].addEvent(message,metadata.samplePosition);
         }
     };
     collect(host); collect(routed);
     s->pianos.process(s->scratch, s->empty, s->pianoMidi, s->pianoConfig);
     s->organs.process(s->scratch, s->empty, s->organConfig, &s->organMidi);
+    s->analog.process(s->scratch,s->empty,s->synthConfig,&s->synthMidi);
+    for(int part=0;part<3;++part)if(s->sampleConfig[size_t(part)].enabled)
+        s->samples.process(part,s->scratch,s->synthMidi[size_t(part)],s->program.synths[size_t(part)],s->sampleConfig[size_t(part)]);
     slot.peak.store(outer.enabled ? s->scratch.getMagnitude(0, s->scratch.getNumSamples()) : 0);
     if (outer.enabled) for (int channel = 0; channel < output.getNumChannels(); ++channel)
         output.addFrom(channel, 0, s->scratch, juce::jmin(channel, 1), 0, output.getNumSamples());

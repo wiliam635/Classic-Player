@@ -19,9 +19,20 @@ public:
         std::array<int, 9> drawbars {};
         int percussion = 0;
     };
+    struct SynthPart : Part {
+        bool sample = false, mono = false, arp = false;
+        int synthType = 0, category = 0, wave = 0;
+        float control = 0, coarse = 0, fine = 0, pan = 0;
+        float attackMs = 5, decayMs = -1, releaseMs = 100, filterHz = 20000;
+        float resonance = 0, filterEnv = 0, filterAttackMs = 5, filterDecayMs = 1000;
+        float lfoHz = 5, lfoAmount = 0, glideMs = 0;
+        std::uint32_t sampleId = 0;
+        std::string sampleName;
+    };
     struct Program
     {
         std::array<Part, 2> pianos, organs;
+        std::array<SynthPart, 3> synths;
         std::array<std::array<bool, 3>, 2> sections {};
         std::array<int, 3> splitNotes { 36, 60, 77 };
         std::array<bool, 3> splitEnabled {};

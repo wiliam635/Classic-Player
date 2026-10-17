@@ -37,8 +37,12 @@ bool NordProgramDecoder::Program::playable(int selectedScene, std::string& reaso
 {
     if (selectedScene < 0 || selectedScene > 1) { reason = "Cena invalida."; return false; }
     const auto& active = sections[size_t(selectedScene)];
-    if (active[2]) { reason = "Este programa usa synth/NSMP4; a reproducao dessa secao ainda nao esta disponivel."; return false; }
     bool any = false;
+    for (const auto& s : synths) if(active[2] && s.enabled[size_t(selectedScene)] && s.gain>0) {
+        if(!s.sample && s.synthType!=0) { reason="FM/WAVE reconhecido, mas esse motor ainda nao e reproduzido.";return false; }
+        if(s.arp) { reason="Arpeggiador reconhecido, mas ainda nao reproduzido.";return false; }
+        any=true;
+    }
     for (const auto& p : pianos) any |= active[0] && p.enabled[size_t(selectedScene)] && p.gain > 0;
     for (const auto& o : organs) if (active[1] && o.enabled[size_t(selectedScene)] && o.gain > 0) {
         if (o.model != 0) { reason = "Este programa usa um modelo de orgao diferente de B3, ainda nao suportado."; return false; }
@@ -101,6 +105,34 @@ bool NordProgramDecoder::decode(const std::vector<std::uint8_t>& bytes,
     result.leslie = !read(bytes, "m", "organ rotary spkr on/off") || read(bytes, "m", "rotary spkr stop on/off")
         ? 0 : read(bytes, "m", "rotary spkr slow/fast") ? 2 : 1;
     result.organDrive = float(read(bytes, "m", "rotary spkr drive")) / 127.0f;
+    for(int part=0;part<3;++part) {
+        auto& s=result.synths[size_t(part)];
+        s.enabled={read(bytes,"y","layer on/off",part)!=0,read(bytes,"y","layer on/off (scene II)",part)!=0};
+        const auto volume=float(read(bytes,"y","volume",part))/127.0f;s.gain=volume*volume;
+        s.sample=read(bytes,"y","samples/analog",part)==0;
+        s.synthType=int(read(bytes,"y","analog type (knob 1)",part));
+        s.category=int(read(bytes,"y","analog cat (knob 2)",part));
+        s.wave=int(read(bytes,"y","analog wave/partial (knob 3)",part));
+        s.sampleId=read(bytes,"y","sample ID/name",part);
+        for(const auto& sample:nord_program_schema::samples)if(sample.id==s.sampleId){s.sampleName=sample.name;break;}
+        s.zones=int(read(bytes,"y","KB zones",part));
+        const auto oct=int(read(bytes,"y","octave shift",part));s.octave=oct<8?oct:oct-16;
+        s.sustain=read(bytes,"y","susped on/off",part)!=0;
+        s.mono=read(bytes,"y","mono on/off",part)!=0;s.arp=read(bytes,"y","arpeggiator run on/off",part)!=0;
+        s.control=float(read(bytes,"y","osc ctrl",part))/127.0f;
+        s.attackMs=nord_program_schema::attackMs[read(bytes,"y","amp env attack",part)];
+        const auto decay=read(bytes,"y","amp env decay",part);
+        s.decayMs=decay==127?-1:nord_program_schema::releaseMs[decay];
+        s.releaseMs=nord_program_schema::releaseMs[read(bytes,"y","amp env release",part)];
+        s.filterHz=read(bytes,"y","filter on/off",part)?nord_program_schema::filterHz[read(bytes,"y","filter freq",part)]:32000;
+        s.resonance=float(read(bytes,"y","filter resonance / freq HP",part))/127.0f;
+        s.filterEnv=float(read(bytes,"y","filter env amt",part))/127.0f;
+        s.filterAttackMs=nord_program_schema::attackMs[read(bytes,"y","filter env attack",part)];
+        s.filterDecayMs=nord_program_schema::releaseMs[read(bytes,"y","filter env decay",part)];
+        const auto coarse=int(read(bytes,"y","pitch coarse",part));s.coarse=float(coarse<32?coarse:coarse-64);
+        const auto fine=int(read(bytes,"y","pitch fine",part));s.fine=float(fine<64?fine:fine-128);
+        const auto pan=int(read(bytes,"y","pan",part));s.pan=float(pan<32?pan:pan-64)/31.0f;
+    }
     for (int part = 0; part < 2; ++part)
         for (int group = 0; group < 2; ++group) {
             const auto* key = group == 0 ? "p" : "o";
