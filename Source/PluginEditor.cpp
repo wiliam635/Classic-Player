@@ -2149,7 +2149,7 @@ private:
     std::unique_ptr<juce::FileChooser> chooser;
 };
 
-class NordPianoTimbrePanel final : public juce::Component
+class NordPianoTimbrePanel final : public juce::Component, private juce::Timer
 {
 public:
     NordPianoTimbrePanel(ClassicPlayerAudioProcessor& p, int layer)
@@ -2165,6 +2165,8 @@ public:
         velocityBox.addItem("VEL LINEAR", 1);
         velocityBox.addItem("VEL SOFT", 2);
         velocityBox.addItem("VEL HARD", 3);
+        velocityBox.addItem("VEL ADAPTATIVA", 4);
+        velocityBox.setItemEnabled(4, processor.layerConfig(index).velocityCalibrationEnabled);
         velocityBox.setSelectedId(processor.layerConfig(index).velocityCurve + 1,
                                   juce::dontSendNotification);
         velocityBox.onChange = [this]
@@ -2200,6 +2202,7 @@ public:
 
         selectMode(processor.layerConfig(index).pianoTimbre, false);
         setSize(620, 42);
+        startTimerHz(5);
     }
 
     void resized() override
@@ -2218,6 +2221,13 @@ public:
     }
 
 private:
+    void timerCallback() override
+    {
+        const auto config = processor.layerConfig(index);
+        velocityBox.setItemEnabled(4, config.velocityCalibrationEnabled);
+        velocityBox.setSelectedId(config.velocityCurve + 1, juce::dontSendNotification);
+    }
+
     void selectMode(int mode, bool updateProcessor = true)
     {
         mode = juce::jlimit(0, 2, mode);
