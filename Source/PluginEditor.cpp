@@ -8884,7 +8884,7 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
     public:
         Content()
         {
-            heading.setText(juce::String::fromUTF8("Drawbars, Leslie e MIDI. Salve a programação para guardar o timbre."),
+            heading.setText(juce::String::fromUTF8("ÓRGÃO TONEWHEEL · 9 DRAWBARS · LESLIE E PERCUSSÃO"),
                             juce::dontSendNotification);
             heading.setJustificationType(juce::Justification::centred);
             heading.setColour(juce::Label::textColourId,juce::Colour(text));
