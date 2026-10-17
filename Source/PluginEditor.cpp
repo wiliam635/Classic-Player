@@ -1623,6 +1623,7 @@ public:
     void visibilityChanged() override
     {
         if (isVisible()) applyLanguage();
+        if (customLayoutFitted) fitCustomComponentsVertically();
     }
 
     void fitWithinApp(juce::Component* owner)
@@ -1659,22 +1660,30 @@ public:
 
         const auto* first = getCustomComponent(0);
         if (first == nullptr) return;
+        if (!customLayoutFitted) preferredContentTop = first->getY();
+        customLayoutFitted = true;
         int contentHeight = 0;
         for (int i = 0; i < count; ++i)
             if (const auto* component = getCustomComponent(i))
                 contentHeight += component->getHeight();
 
-        // AlertWindow's default 10 px gaps can push the last row below a
-        // window capped to the app height. Keep a bottom inset for the native
-        // window frame while preserving every control's own height.
-        const int availableForGaps = getHeight() - 10 - first->getY() - contentHeight;
-        const int gap = juce::jlimit(2, 10, availableForGaps / (count - 1));
-        int y = first->getY();
+        // Fit the complete panels, including the footer, after JUCE has laid
+        // out the title/message. Short windows need scaling as well as gaps.
+        const auto available = juce::jmax(1, getHeight() - 10 - preferredContentTop);
+        const auto gap = juce::jlimit(2, 10, (available - contentHeight) / (count - 1));
+        const auto scale = juce::jmin(1.0f,
+            static_cast<float>(juce::jmax(1, available - gap * (count - 1)))
+                / static_cast<float>(juce::jmax(1, contentHeight)));
+        float y = static_cast<float>(preferredContentTop);
         for (int i = 0; i < count; ++i)
             if (auto* component = getCustomComponent(i))
             {
-                component->setTopLeftPosition(component->getX(), y);
-                y += component->getHeight() + gap;
+                const auto x = juce::roundToInt((getWidth() - component->getWidth() * scale) * 0.5f);
+                const auto top = juce::roundToInt(y);
+                component->setTopLeftPosition(x, top);
+                component->setTransform(juce::AffineTransform::scale(scale).translated(
+                    x * (1.0f - scale), top * (1.0f - scale)));
+                y += component->getHeight() * scale + gap;
             }
     }
 
@@ -1690,9 +1699,12 @@ public:
                 bounds.setX((getWidth() - bounds.getWidth()) / 2);
                 component->setBounds(bounds);
             }
+        if (customLayoutFitted) fitCustomComponentsVertically();
     }
 private:
     juce::String sourceTitle, sourceMessage;
+    bool customLayoutFitted = false;
+    int preferredContentTop = 0;
 };
 
 class KnobEditorPanel final : public juce::Component
@@ -2166,12 +2178,26 @@ public:
         velocityBox.addItem("VEL SOFT", 2);
         velocityBox.addItem("VEL HARD", 3);
         velocityBox.addItem("VEL ADAPTATIVA", 4);
-        velocityBox.setItemEnabled(4, processor.layerConfig(index).velocityCalibrationEnabled);
+        velocityBox.setTooltip("Selecione ADAPTATIVA para calibrar com 5 toques suaves, medios e fortes.");
         velocityBox.setSelectedId(processor.layerConfig(index).velocityCurve + 1,
                                   juce::dontSendNotification);
         velocityBox.onChange = [this]
         {
             auto config = processor.layerConfig(index);
+            if (velocityBox.getSelectedId() == 4 && !config.velocityCalibrationEnabled)
+            {
+                if (processor.nordVelocityCalibrationStage(index) < 0)
+                {
+                    const auto result = processor.beginNordVelocityCalibration(index);
+                    if (result.failed())
+                        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                            "Calibrar velocity", result.getErrorMessage());
+                }
+                return;
+            }
+            if (velocityBox.getSelectedId() != 4
+                && processor.nordVelocityCalibrationStage(index) >= 0)
+                processor.cancelNordVelocityCalibration(index);
             config.velocityCurve = velocityBox.getSelectedId() - 1;
             processor.setLayerConfig(index, config);
         };
@@ -2224,8 +2250,9 @@ private:
     void timerCallback() override
     {
         const auto config = processor.layerConfig(index);
-        velocityBox.setItemEnabled(4, config.velocityCalibrationEnabled);
-        velocityBox.setSelectedId(config.velocityCurve + 1, juce::dontSendNotification);
+        const auto calibrating = processor.nordVelocityCalibrationStage(index) >= 0;
+        velocityBox.setSelectedId(calibrating ? 4 : config.velocityCurve + 1,
+                                  juce::dontSendNotification);
     }
 
     void selectMode(int mode, bool updateProcessor = true)
@@ -3980,7 +4007,7 @@ private:
             calibrationCancelButton.setVisible(false);
             juce::String status = config.velocityCalibrationEnabled
                 ? "Perfil salvo para a entrada MIDI selecionada."
-                : "Use a entrada selecionada; toque suave, medio e forte.";
+                : "Calibre 5 toques suaves, medios e fortes para ativar.";
             if (calibrationFeedback.isNotEmpty()) status = calibrationFeedback;
             calibrationStatus.setText(status, juce::dontSendNotification);
             return;
