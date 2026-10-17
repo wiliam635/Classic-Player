@@ -6,6 +6,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "Sf2Engine.h"
 #include "SampleEngine.h"
+#include "NordBankEngine.h"
 #include "Dx7Engine.h"
 #include "AnalogSynthEngine.h"
 #include "HammondEngine.h"
@@ -44,7 +45,10 @@ public:
     void panic();
     // A source is chosen only when a new layer is created. The initial four
     // layers are SF2 by design.
-    enum class LayerType { sf2 = 0, vst, dx7, analog, drumPads, hammond, continuousPads, nord };
+    enum class LayerType { sf2 = 0, vst, dx7, analog, drumPads, hammond, continuousPads, nord, nordBank };
+    juce::Result importNordBank(const juce::File&);
+    juce::Result loadNordBankProgram(int layer, const juce::File&, int scene = -1);
+    NordBankEngine& nordBanks() { return nordBankEngine; }
     ContinuousPadBank& continuousPads(int layer) { return *continuousBanks[(size_t)layer]; }
     explicit ClassicPlayerAudioProcessor(juce::File programStorageOverride = {});
     ~ClassicPlayerAudioProcessor() override;
@@ -294,6 +298,8 @@ private:
     void captureNordVelocityCalibrationNote(int layer, int velocity) noexcept;
     std::array<NordVelocityCapture, Sf2Engine::layerCount> nordVelocityCaptures;
     std::array<std::atomic<bool>, Sf2Engine::layerCount> nordLoaded {};
+    NordBankEngine nordBankEngine;
+    std::array<int, Sf2Engine::layerCount> savedNordBankScenes {};
     Dx7Engine dx7Engine;
     AnalogSynthEngine analogSynthEngine;
     HammondEngine hammondEngine;

@@ -1,4 +1,4 @@
-name: Test Classic Player VST3 - Windows x64
+name: Test Classic Player Nord Banks + VST3 - Windows x64
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
         type: boolean
         default: false
   push:
-    branches: [codex/fix-user-refresh, codex/nord-piano-2.0.5-teste, codex/desktop-velocity-vst3-test]
+    branches: [codex/fix-user-refresh, codex/nord-piano-2.0.5-teste, codex/desktop-velocity-vst3-test, codex/nord-bank-layer-205-20261017]
     paths:
       - .github/workflows/test-vst3-windows.yml
       - installer/windows/ClassicPlayerVst3Test.iss
@@ -45,6 +45,14 @@ jobs:
       - name: Build standalone and VST3
         shell: pwsh
         run: cmake --build build\windows-x64 --target ClassicPlayer_Standalone ClassicPlayer_VST3 ClassicPlayerVst3HostSmokeTest ClassicPlayerHammondTest ClassicPlayerUpdateCheckerTest ClassicPlayerAudioRegressionTest ClassicPlayerEngineSmokeTest ClassicPlayerChordDetectorTest ClassicPlayerMasterMidiTest ClassicPlayerSampleEngineTest --config Release --parallel 2
+
+      - name: Verify Nord bank decoder and saved state
+        shell: pwsh
+        run: |
+          cmake --build build\windows-x64 --target ClassicPlayerNordProgramTest ClassicPlayerNordBankStateTest --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "Falha ao compilar testes de bancos Nord" }
+          ctest --test-dir build\windows-x64 -C Release -R 'nord-(program-regression|bank-state)' --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw "Falha nos testes de bancos Nord" }
 
       - name: Verify NPNO polyphony, sustain, lifetime and EQ
         shell: pwsh
@@ -196,7 +204,7 @@ jobs:
         if: ${{ inputs.final_release != true }}
         uses: actions/upload-artifact@v4
         with:
-          name: Classic-Player-2.0.5-VST3-teste-${{ github.run_number }}-Windows-x64
+          name: Classic-Player-2.0.5-Nord-Banks-VST3-teste-${{ github.run_number }}-Windows-x64
           if-no-files-found: error
           path: |
             outputs/vst3-test/Classic-Player-2.0.5-VST3-teste-Windows-x64.zip

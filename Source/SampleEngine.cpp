@@ -702,7 +702,7 @@ void SampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<float>& 
     const auto samples = scratch.getNumSamples();
     if (samples <= 0) return;
 
-    if (layer.pianoLoaded)
+    if (layer.pianoLoaded && routing.pianoTimbre >= 0)
     {
         const auto timbre = juce::jlimit(0, 2, routing.pianoTimbre);
         const auto lowCorner = juce::jmin(250.0, currentSampleRate * 0.2);

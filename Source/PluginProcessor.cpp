@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "NordBundleImporter.h"
 #include "OutputSafety.h"
 #include "AnalogBrowserPresets.h"
 #include "PluginEditor.h"
@@ -481,6 +482,7 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     for (auto& sample : spectrumSamples) sample.store(0.0f, std::memory_order_relaxed);
     engine.prepare(sampleRate, samplesPerBlock);
     sampleEngine.prepare(sampleRate, samplesPerBlock);
+    nordBankEngine.prepare(sampleRate, samplesPerBlock);
     dx7Engine.prepare(sampleRate, samplesPerBlock);
     analogSynthEngine.prepare(sampleRate, samplesPerBlock);
     hammondEngine.prepare(sampleRate, samplesPerBlock);
@@ -713,6 +715,9 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
     engine.process(buffer, midi, &routedMidiBuffers);
     sampleEngine.process(buffer, midi, routedMidiBuffers, nordRouting);
+    for (int i = 0; i < activeLayerCount(); ++i)
+        if (layerType(i) == LayerType::nordBank)
+            nordBankEngine.process(i, buffer, midi, routedMidiBuffers[(size_t)i], engine.getConfig(i));
     renderExternalInstruments(buffer, midi);
     dx7Engine.process(buffer, midi, &routedMidiBuffers, dx7LayerConfigs);
     analogSynthEngine.process(buffer, midi, analogLayerConfigs, &routedMidiBuffers);
@@ -1355,6 +1360,7 @@ void ClassicPlayerAudioProcessor::renderExternalInstruments(juce::AudioBuffer<fl
 
 juce::String ClassicPlayerAudioProcessor::soundFontPath(int layer) const
 {
+    if (layerType(layer) == LayerType::nordBank) return nordBankEngine.path(layer);
     if (juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)
         && nordLoaded[(size_t) layer].load(std::memory_order_acquire))
         return sampleEngine.path(layer);
@@ -1493,6 +1499,7 @@ float ClassicPlayerAudioProcessor::layerPeak(int layer) const
     {
         case LayerType::sf2: return engine.getLayerPeak(layer);
         case LayerType::nord: return sampleEngine.getLayerPeak(layer);
+        case LayerType::nordBank: return nordBankEngine.peak(layer);
         case LayerType::dx7: return dx7Engine.getLayerPeak(layer);
         case LayerType::analog: return analogSynthEngine.getLayerPeak(layer);
         case LayerType::hammond: return hammondEngine.getLayerPeak(layer);
@@ -1507,7 +1514,7 @@ ClassicPlayerAudioProcessor::LayerType ClassicPlayerAudioProcessor::layerType(in
 {
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return LayerType::sf2;
     const auto value = layerTypes[(size_t) layer].load(std::memory_order_relaxed);
-    return static_cast<LayerType>(juce::jlimit(0, 7, value));
+    return static_cast<LayerType>(juce::jlimit(0, 8, value));
 }
 
 void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
@@ -1517,6 +1524,16 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
 
     const juce::ScopedLock callbackLock(getCallbackLock());
     const auto previousType = layerType(layer);
+    if (type != LayerType::nordBank) nordBankEngine.unload(layer);
+    if (type == LayerType::nordBank && previousType != type)
+    {
+        externalInstruments[(size_t)layer].unload();
+        engine.unloadSoundFont(layer); dx7Engine.unload(layer);
+        analogSynthEngine.unload(layer); hammondEngine.unload(layer);
+        savedPaths[(size_t)layer].clear(); savedNordBankScenes[(size_t)layer] = 0;
+        if (auto* p = parameters.getParameter("layer" + juce::String(layer + 1) + "Release"))
+            p->setValueNotifyingHost(p->convertTo0to1(30.0f));
+    }
     if (type != LayerType::nord)
     {
         nordLoaded[(size_t) layer].store(false, std::memory_order_release);
@@ -1715,6 +1732,8 @@ bool ClassicPlayerAudioProcessor::addLayer(LayerType type)
             engine.unloadSoundFont(count);
             nordLoaded[(size_t) count].store(false);
             sampleEngine.unload(count);
+            nordBankEngine.unload(count);
+            savedNordBankScenes[(size_t)count] = 0;
             dx7Engine.unload(count);
             analogSynthEngine.unload(count);
             hammondEngine.unload(count);
@@ -1833,6 +1852,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
                 parameters.state.getProperty(juce::String(key) + juce::String(source + 1), juce::String{}), nullptr);
         std::swap(continuousBanks[(size_t)destination],continuousBanks[(size_t)source]);
         const auto sourceType = layerType(source);
+        const auto bankPath = nordBankEngine.path(source);
+        const auto bankScene = savedNordBankScenes[(size_t)source];
         const auto sourcePath = engine.getSoundFontPath(source);
         const auto sourceNordPath = nordLoaded[(size_t) source].load(std::memory_order_acquire)
             ? sampleEngine.path(source) : juce::String{};
@@ -1848,13 +1869,16 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
 
         externalInstruments[(size_t) destination].unload();
         engine.unloadSoundFont(destination);
+        nordBankEngine.unload(destination);
         nordLoaded[(size_t) destination].store(false, std::memory_order_release);
         sampleEngine.unload(destination);
         dx7Engine.unload(destination);
         analogSynthEngine.unload(destination);
         hammondEngine.unload(destination);
 
-        if (sourceType == LayerType::sf2 && sourcePath.isNotEmpty())
+        if (sourceType == LayerType::nordBank && bankPath.isNotEmpty())
+            nordBankEngine.load(destination, juce::File(bankPath), bankScene);
+        else if (sourceType == LayerType::sf2 && sourcePath.isNotEmpty())
         {
             if (engine.loadSoundFont(destination, juce::File(sourcePath)).wasOk())
                 engine.selectPreset(destination, sourceBank, sourceProgram);
@@ -1881,7 +1905,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         hammondLayerConfigs[(size_t)destination] = restoredType == LayerType::hammond ? sourceHammondConfig : HammondEngine::Config{};
         hammondLayerConfigs[(size_t)destination].routing = sourceConfig;
         hammondLayerConfigs[(size_t)destination].learning = -1;
-        savedPaths[(size_t) destination] = (restoredType == LayerType::sf2 || restoredType == LayerType::nord)
+        savedNordBankScenes[(size_t)destination] = bankScene;
+        savedPaths[(size_t) destination] = (restoredType == LayerType::sf2 || restoredType == LayerType::nord || restoredType == LayerType::nordBank)
             ? sourceSavedPath : juce::String{};
         savedSf2Banks[(size_t) destination] = sourceBank;
         savedSf2Programs[(size_t) destination] = sourceProgram;
@@ -1919,6 +1944,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
 
     externalInstruments[(size_t) last].unload();
     engine.unloadSoundFont(last);
+    nordBankEngine.unload(last);
+    savedNordBankScenes[(size_t)last] = 0;
     nordLoaded[(size_t) last].store(false, std::memory_order_release);
     sampleEngine.unload(last);
     dx7Engine.unload(last);
@@ -2960,6 +2987,7 @@ void ClassicPlayerAudioProcessor::stopAllSoundsBeforeProgramChange()
     for(auto& bank:continuousBanks)bank->stopImmediately();
     engine.stopAllSounds();
     sampleEngine.stopAllSounds();
+    nordBankEngine.stopAllSounds();
     dx7Engine.stopAllSounds();
     analogSynthEngine.stopAllSounds();
     hammondEngine.stopAllSounds();
@@ -3152,7 +3180,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
     const auto sourceZero = juce::String(sourceLayer);
     const auto destinationZero = juce::String(destinationLayer);
     const juce::StringArray oneBased {
-        "layerType", "dx7Layer", "dx7Patch", "sf2Layer", "sf2Bank", "sf2Program", "pianoTimbre",
+        "layerType", "dx7Layer", "dx7Patch", "sf2Layer", "sf2Bank", "sf2Program", "pianoTimbre", "nordBankScene",
         "externalInstrument", "externalInstrumentState", "analogOsc1Wave", "analogOsc2Wave",
         "analogOsc3Wave", "analogOsc1Level", "analogOsc2Level", "analogOsc3Level",
         "analogOsc1Semitones", "analogOsc2Semitones", "analogOsc3Semitones",
@@ -3256,6 +3284,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("layerType" + juce::String(i + 1),
                           layerTypes[(size_t) i].load(std::memory_order_relaxed), nullptr);
         state.setProperty("dx7Layer" + juce::String(i + 1), dx7Engine.path(i), nullptr);
+        state.setProperty("nordBankScene" + juce::String(i + 1), savedNordBankScenes[(size_t)i], nullptr);
         state.setProperty("dx7Patch" + juce::String(i + 1), dx7Engine.selectedPatch(i), nullptr);
         const auto key = "sf2Layer" + juce::String(i + 1);
         const auto path = soundFontPath(i);
@@ -3368,6 +3397,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             {
                 nordLoaded[(size_t) i].store(false, std::memory_order_release);
                 sampleEngine.unload(i);
+                nordBankEngine.unload(i);
             }
             // MIDI changes queued for the previous performance must not
             // overwrite the effects and volumes restored below on the next
@@ -3538,7 +3568,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             }
             for (int i = 0; i < Sf2Engine::layerCount; ++i)
             {
-                auto savedType = juce::jlimit(0, 7, static_cast<int>(state.getProperty(
+                auto savedType = juce::jlimit(0, 8, static_cast<int>(state.getProperty(
                     "layerType" + juce::String(i + 1), static_cast<int>(LayerType::sf2))));
                 // Programs created by older releases may contain VST layers.
                 // They are restored as empty SF2 layers rather than loading a
@@ -3553,8 +3583,10 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     && juce::File(savedSourcePath).hasFileExtension(".npno"))
                     savedType = static_cast<int>(LayerType::nord);
                 layerTypes[(size_t) i].store(savedType, std::memory_order_relaxed);
+                savedNordBankScenes[(size_t)i] = juce::jlimit(0, 1, int(state.getProperty("nordBankScene" + juce::String(i + 1), 0)));
                 savedPaths[(size_t) i] = (savedType == static_cast<int>(LayerType::sf2)
-                                          || savedType == static_cast<int>(LayerType::nord))
+                                          || savedType == static_cast<int>(LayerType::nord)
+                                          || savedType == static_cast<int>(LayerType::nordBank))
                     ? savedSourcePath : juce::String{};
                 savedSf2Banks[(size_t) i] = juce::jlimit(0, 16383, static_cast<int>(
                     state.getProperty("sf2Bank" + juce::String(i + 1), 0)));
@@ -3765,6 +3797,12 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
 void ClassicPlayerAudioProcessor::restoreLayerPaths()
 {
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
+        if (layerType(i) == LayerType::nordBank && savedPaths[(size_t)i].isNotEmpty())
+        {
+            const auto result = nordBankEngine.load(i, juce::File(savedPaths[(size_t)i]), savedNordBankScenes[(size_t)i]);
+            if (result.failed()) juce::Logger::writeToLog("Banco Nord: " + result.getErrorMessage());
+        }
+    for (int i = 0; i < Sf2Engine::layerCount; ++i)
         if ((layerType(i) == LayerType::sf2 || layerType(i) == LayerType::nord)
             && savedPaths[(size_t) i].isNotEmpty())
         {
@@ -3782,6 +3820,24 @@ void ClassicPlayerAudioProcessor::restoreLayerPaths()
                 engine.selectPreset(i, savedSf2Banks[(size_t) i], savedSf2Programs[(size_t) i]);
             }
         }
+}
+
+juce::Result ClassicPlayerAudioProcessor::importNordBank(const juce::File& file)
+{
+    NordBundleImporter::ImportSummary summary;
+    return NordBundleImporter::importBundle(file, NordBankEngine::libraryRoot(), summary);
+}
+
+juce::Result ClassicPlayerAudioProcessor::loadNordBankProgram(int layer, const juce::File& file, int scene)
+{
+    if (!juce::isPositiveAndBelow(layer, activeLayerCount()) || layerType(layer) != LayerType::nordBank)
+        return juce::Result::fail("Selecione uma layer Bancos Nord.");
+    const auto result = nordBankEngine.load(layer, file, scene);
+    if (result.wasOk()) {
+        savedPaths[(size_t)layer] = file.getFullPathName();
+        savedNordBankScenes[(size_t)layer] = nordBankEngine.scene(layer);
+    }
+    return result;
 }
 
 juce::AudioProcessorEditor* ClassicPlayerAudioProcessor::createEditor()

@@ -126,6 +126,13 @@ target_sources(ClassicPlayer PRIVATE
     Source/Sf2Engine.h
     Source/SampleEngine.cpp
     Source/SampleEngine.h
+    Source/NordBankEngine.cpp
+    Source/NordBankEngine.h
+    Source/NordProgramDecoder.cpp
+    Source/NordProgramDecoder.h
+    Source/NordProgramSchema.h
+    Source/NordBundleImporter.cpp
+    Source/NordBundleImporter.h
     Source/NordPianoDecoder.cpp
     Source/NordPianoDecoder.h
     Source/Dx7Engine.cpp
@@ -246,6 +253,14 @@ endif()
 
 if(CLASSIC_PLAYER_BUILD_TESTS)
     enable_testing()
+    add_executable(ClassicPlayerNordProgramTest Source/NordProgramRegressionTest.cpp Source/NordProgramDecoder.cpp)
+    add_test(NAME nord-program-regression COMMAND ClassicPlayerNordProgramTest)
+    juce_add_console_app(ClassicPlayerNordBankStateTest PRODUCT_NAME "Classic Player Nord Bank State Test")
+    target_sources(ClassicPlayerNordBankStateTest PRIVATE Source/NordBankStateRegressionTest.cpp)
+    target_include_directories(ClassicPlayerNordBankStateTest PRIVATE third_party/msfa)
+    target_link_libraries(ClassicPlayerNordBankStateTest PRIVATE ClassicPlayer ${CLASSIC_PLAYER_FLUID_TARGET}
+        juce::juce_audio_utils juce::juce_dsp)
+    add_test(NAME nord-bank-state COMMAND ClassicPlayerNordBankStateTest)
     juce_add_console_app(ClassicPlayerSampleEngineTest PRODUCT_NAME "Classic Player NPNO Regression Test")
     target_sources(ClassicPlayerSampleEngineTest PRIVATE
         Source/SampleEngineRegressionTest.cpp Source/SampleEngine.cpp Source/NordPianoDecoder.cpp)

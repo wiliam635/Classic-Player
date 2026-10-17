@@ -1,4 +1,4 @@
-name: Test Classic Player VST3 - macOS Universal
+name: Test Classic Player Nord Banks + VST3 - macOS Universal
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
         type: boolean
         default: false
   push:
-    branches: [codex/fix-user-refresh, codex/nord-piano-2.0.5-teste, codex/desktop-velocity-vst3-test]
+    branches: [codex/fix-user-refresh, codex/nord-piano-2.0.5-teste, codex/desktop-velocity-vst3-test, codex/nord-bank-layer-205-20261017]
     paths:
       - .github/workflows/test-vst3-macos.yml
       - installer/macos/components-vst3-test.plist
@@ -47,6 +47,11 @@ jobs:
         run: |
           cmake --build build/macos-compat-x86_64 --target ClassicPlayer_VST3 ClassicPlayer_AU --parallel 4
           cmake --build build/macos-compat-arm64 --target ClassicPlayer_VST3 ClassicPlayer_AU --parallel 4
+
+      - name: Verify Nord bank decoder and saved state
+        run: |
+          cmake --build build/macos-compat-arm64 --target ClassicPlayerNordProgramTest ClassicPlayerNordBankStateTest --parallel 4
+          ctest --test-dir build/macos-compat-arm64 -C Release -R 'nord-(program-regression|bank-state)' --output-on-failure
 
       - name: Assemble and verify universal VST3
         shell: bash
@@ -97,7 +102,7 @@ jobs:
         if: ${{ inputs.final_release != true }}
         uses: actions/upload-artifact@v4
         with:
-          name: Classic-Player-2.0.5-VST3-AU-teste-${{ github.run_number }}-macOS-Universal
+          name: Classic-Player-2.0.5-Nord-Banks-VST3-AU-teste-${{ github.run_number }}-macOS-Universal
           if-no-files-found: error
           path: |
             outputs/vst3-test/Classic-Player-2.0.5-Standalone-VST3-AU-teste-macOS-Universal.pkg

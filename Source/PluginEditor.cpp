@@ -2161,6 +2161,8 @@ private:
     std::unique_ptr<juce::FileChooser> chooser;
 };
 
+#include "NordBankPanel.h"
+
 class NordPianoTimbrePanel final : public juce::Component, private juce::Timer
 {
 public:
@@ -5160,6 +5162,14 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
 
     const auto isNordLayer = processor.layerType(index)
         == ClassicPlayerAudioProcessor::LayerType::nord;
+    if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordBank)
+    {
+        dialog->addCustomComponent(new CenteredPanel(new NordBankPanel(processor, index,
+            [safe] { if (safe != nullptr) safe->refresh(); }), 620, 130));
+        auto* routing = new LayerRoutingEditorPanel(processor, index);
+        routing->setSize(620, 100);
+        dialog->addCustomComponent(new CenteredPanel(routing, 620, 100));
+    }
     if (isNordLayer)
     {
         auto* importNordPanel = new NordPianoImportPanel(processor, index,
@@ -5349,6 +5359,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::saveLayerPreset()
     {
         case ClassicPlayerAudioProcessor::LayerType::sf2: typeName = "SF2"; break;
         case ClassicPlayerAudioProcessor::LayerType::nord: typeName = "Nord"; break;
+        case ClassicPlayerAudioProcessor::LayerType::nordBank: typeName = "Banco Nord"; break;
         case ClassicPlayerAudioProcessor::LayerType::dx7: typeName = "DX7"; break;
         case ClassicPlayerAudioProcessor::LayerType::analog: typeName = "Moog"; break;
         case ClassicPlayerAudioProcessor::LayerType::hammond: typeName = "Hammond"; break;
@@ -5797,6 +5808,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDown(const juce::MouseE
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showQuickPresetMenu()
 {
+    if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordBank)
+    { showLayerEditor(); return; }
     if (quickPresetMenuOpen) return;
     const auto type = processor.layerType(index);
     const auto sourcePath = (type == ClassicPlayerAudioProcessor::LayerType::sf2
@@ -6005,7 +6018,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
     paintPanel();
     const auto type = processor.layerType(index);
     auto category = type == ClassicPlayerAudioProcessor::LayerType::sf2 ? selectedCategoryId(categoryBox)
-                  : type == ClassicPlayerAudioProcessor::LayerType::nord ? "Nord"
+                  : (type == ClassicPlayerAudioProcessor::LayerType::nord || type == ClassicPlayerAudioProcessor::LayerType::nordBank) ? "Nord"
                   : type == ClassicPlayerAudioProcessor::LayerType::dx7 ? "DX7"
                   : type == ClassicPlayerAudioProcessor::LayerType::hammond ? "Hammond"
                   : type == ClassicPlayerAudioProcessor::LayerType::analog ? "Moog Analog"
@@ -6375,6 +6388,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     dx7PatchBox.setVisible(isDx7);
     deleteDx7LibraryButton.setVisible(isDx7);
     editButton.setVisible(true);
+    editButton.setButtonText(type == ClassicPlayerAudioProcessor::LayerType::nordBank ? "BANCOS" : "EDITAR");
     chorus.setVisible(isDx7 && expanded);
     chorusEditButton.setVisible(isDx7 && expanded);
     chorusLabel.setVisible(isDx7 && expanded);
@@ -6716,13 +6730,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
     }
 
     const auto hasSource = (type == ClassicPlayerAudioProcessor::LayerType::sf2
-                            || type == ClassicPlayerAudioProcessor::LayerType::nord) ? path.isNotEmpty()
+                            || type == ClassicPlayerAudioProcessor::LayerType::nord
+                            || type == ClassicPlayerAudioProcessor::LayerType::nordBank) ? path.isNotEmpty()
         : type == ClassicPlayerAudioProcessor::LayerType::vst ? externalName.isNotEmpty()
         : type == ClassicPlayerAudioProcessor::LayerType::dx7 ? processor.hasDx7(index)
         : type == ClassicPlayerAudioProcessor::LayerType::hammond || processor.hasAnalogSynth(index);
     const auto sourceLabel = type == ClassicPlayerAudioProcessor::LayerType::sf2
         ? (path.isNotEmpty() ? juce::File(path).getFileNameWithoutExtension()
                              : localizedUiText("Sem SoundFont", activeUiLanguage.load()))
+        : type == ClassicPlayerAudioProcessor::LayerType::nordBank
+            ? (path.isNotEmpty() ? juce::File(path).getFileNameWithoutExtension() : juce::String("Escolha um banco Nord"))
         : type == ClassicPlayerAudioProcessor::LayerType::nord
             ? (path.isNotEmpty() ? juce::File(path).getFileNameWithoutExtension()
                                  : localizedUiText("Sem piano Nord", activeUiLanguage.load()))
@@ -7027,6 +7044,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
         menu.addItem(5, localizedUiText("Layer Drum Pads (8)", uiLanguage));
         menu.addItem(6, localizedUiText("Hammond", uiLanguage));
         menu.addItem(7, localizedUiText("Pad Continuo (12)", uiLanguage));
+        menu.addItem(8, "Bancos Nord (.ns4pbundle) - teste");
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addLayerButton),
             [safeThis = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this)](int choice)
             {
@@ -7037,6 +7055,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
                                 : choice == 4 ? ClassicPlayerAudioProcessor::LayerType::analog
                                 : choice == 6 ? ClassicPlayerAudioProcessor::LayerType::hammond
                                 : choice == 7 ? ClassicPlayerAudioProcessor::LayerType::continuousPads
+                                : choice == 8 ? ClassicPlayerAudioProcessor::LayerType::nordBank
                                               : ClassicPlayerAudioProcessor::LayerType::drumPads;
                 safeThis->addLayer(type);
             });
