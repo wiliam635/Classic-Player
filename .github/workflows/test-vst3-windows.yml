@@ -8,7 +8,7 @@ on:
         type: boolean
         default: false
   push:
-    branches: [codex/fix-user-refresh, codex/nord-piano-3.0.0-teste, codex/desktop-velocity-vst3-test, codex/desktop-3.0-approved-20261017]
+    branches: [codex/fix-user-refresh, codex/nord-piano-3.0.0-teste, codex/desktop-velocity-vst3-test, codex/desktop-3.0-approved-20261017, codex/desktop-3.0-split-layout-20261018]
     paths:
       - .github/workflows/test-vst3-windows.yml
       - installer/windows/ClassicPlayerVst3Test.iss
