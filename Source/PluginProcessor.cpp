@@ -100,14 +100,21 @@ void ClassicPlayerAudioProcessor::saveStartupSettings()
 
 void ClassicPlayerAudioProcessor::restoreStartupSettings()
 {
+    restoringStartupSettings = true;
     if (auto settings = juce::XmlDocument::parse(startupSettingsFile());
         settings != nullptr && settings->hasTagName("ClassicPlayerStartup"))
     {
+        bool missingStartupProgram = false;
         lastSavedProgram = settings->getStringAttribute("lastSavedProgram");
         if (lastSavedProgram.isNotEmpty())
         {
             const auto result = loadProgram(juce::File(lastSavedProgram));
-            if (result.failed()) juce::Logger::writeToLog("Última programação: " + result.getErrorMessage());
+            if (result.failed())
+            {
+                juce::Logger::writeToLog("Última programação: " + result.getErrorMessage());
+                missingStartupProgram = true;
+                lastSavedProgram.clear();
+            }
         }
         // Hardware mapping survives even if another/older program is restored.
         masterCC.store(juce::jlimit(-1, 119, settings->getIntAttribute("masterCC", -1)));
@@ -121,6 +128,8 @@ void ClassicPlayerAudioProcessor::restoreStartupSettings()
         panicCCChannel.store(juce::jlimit(-1, 16, settings->getIntAttribute("panicChannel", -1)));
         if (lastSavedProgram.isEmpty())
             resetToNewProgram();
+        if (missingStartupProgram)
+            saveStartupSettings();
     }
     else if (!startupSettingsFile().existsAsFile())
     {
@@ -135,6 +144,7 @@ void ClassicPlayerAudioProcessor::restoreStartupSettings()
             saveStartupSettings();
         }
     }
+    restoringStartupSettings = false;
 }
 
 void ClassicPlayerAudioProcessor::beginMasterMidiLearn()
@@ -465,6 +475,21 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
         result.push_back(std::make_unique<juce::AudioParameterBool>(
             juce::ParameterID{"layer" + n + "Muted", 1}, "Layer " + n + " Muted", false));
     }
+    // Append rather than inserting into the existing per-layer group: DAW
+    // automation of older projects keeps all of its parameter indices.
+    for (int i = 0; i < Sf2Engine::layerCount; ++i)
+    {
+        const auto n = juce::String(i + 1);
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "Sf2Chorus", 1}, "Layer " + n + " SF2 Chorus Mix",
+            juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 0.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "Sf2ChorusRate", 1}, "Layer " + n + " SF2 Chorus Rate",
+            juce::NormalisableRange<float>(0.1f, 5.0f, 0.01f), 0.8f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "Sf2ChorusDepth", 1}, "Layer " + n + " SF2 Chorus Depth",
+            juce::NormalisableRange<float>(0.0f, 20.0f, 0.1f), 8.0f));
+    }
     return { result.begin(), result.end() };
 }
 
@@ -646,9 +671,20 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
 
     std::array<Sf2Engine::LayerConfig, Sf2Engine::layerCount> nordRouting;
+    const auto activeLayers = activeLayerCount();
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
         auto config = engine.getConfig(i);
+        if (i >= activeLayers)
+        {
+            config.enabled = false;
+            engine.setConfig(i, config);
+            nordRouting[(size_t) i] = config;
+            dx7LayerConfigs[(size_t) i].enabled = false;
+            analogLayerConfigs[(size_t) i].routing.enabled = false;
+            hammondLayerConfigs[(size_t) i].routing.enabled = false;
+            continue;
+        }
         const auto prefix = "layer" + juce::String(i + 1);
         auto layerGain = parameters.getRawParameterValue(prefix + "Gain")->load() / 100.0f;
         if (isLayerMuted(i)) layerGain = 0.0f;
@@ -685,6 +721,9 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         config.compressorRelease = parameters.getRawParameterValue(prefix + "CompRelease")->load();
         config.compressorMakeup = parameters.getRawParameterValue(prefix + "CompMakeup")->load();
         config.dx7Chorus = parameters.getRawParameterValue(prefix + "Dx7Chorus")->load();
+        config.sf2Chorus = parameters.getRawParameterValue(prefix + "Sf2Chorus")->load();
+        config.sf2ChorusRate = parameters.getRawParameterValue(prefix + "Sf2ChorusRate")->load();
+        config.sf2ChorusDepth = parameters.getRawParameterValue(prefix + "Sf2ChorusDepth")->load();
         config.modulationEnabled = parameters.getRawParameterValue(prefix + "ModulationEnabled")->load() >= 0.5f;
         engine.setConfig(i, config);
         nordRouting[(size_t) i] = config;
@@ -1814,12 +1853,13 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     }
     for (int position = visualPosition; position < Sf2Engine::layerCount; ++position)
         visualLayerOrder[(size_t) position].store(position, std::memory_order_relaxed);
-    static constexpr std::array<const char*, 27> parameterSuffixes {
+    static constexpr std::array<const char*, 30> parameterSuffixes {
         "Gain", "Muted", "Attack", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh",
         "EqLowFrequency", "EqMidFrequency", "EqHighFrequency", "EqLowQ", "EqMidQ", "EqHighQ",
         "Reverb", "ReverbSize", "ReverbDamping",
         "ReverbWidth", "ReverbPreset", "Comp", "CompThreshold", "CompRatio", "CompAttack",
-        "CompRelease", "CompMakeup", "Dx7Chorus", "ModulationEnabled"
+        "CompRelease", "CompMakeup", "Dx7Chorus", "ModulationEnabled",
+        "Sf2Chorus", "Sf2ChorusRate", "Sf2ChorusDepth"
     };
 
     // Preserve the visual and audio order. The previous implementation moved
@@ -2630,8 +2670,7 @@ void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* sou
 
 juce::File ClassicPlayerAudioProcessor::liveSetStorageFile() const
 {
-    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-        .getChildFile("Classic Player").getChildFile("LiveSet.xml");
+    return programStorageDirectory().getChildFile("LiveSet.xml");
 }
 
 int ClassicPlayerAudioProcessor::liveSetIndex(int bank, int slot) const
@@ -2693,7 +2732,8 @@ void ClassicPlayerAudioProcessor::saveLiveSetState() const
             }
         }
     }
-    xml.writeTo(file);
+    if (!xml.writeTo(file))
+        juce::Logger::writeToLog("Não foi possível salvar o Live Set: " + file.getFullPathName());
 }
 
 juce::File ClassicPlayerAudioProcessor::liveSetSlotProgram(int bank, int slot) const
@@ -3002,6 +3042,11 @@ juce::Result ClassicPlayerAudioProcessor::loadProgram(const juce::File& programF
     stopAllSoundsBeforeProgramChange();
     setStateInformation(data.getData(), static_cast<int>(data.getSize()));
     currentSavedProgram = programFile.getFileNameWithoutExtension();
+    if (wrapperType == wrapperType_Standalone && !restoringStartupSettings)
+    {
+        lastSavedProgram = programFile.getFullPathName();
+        saveStartupSettings();
+    }
     return juce::Result::ok();
 }
 
@@ -3197,6 +3242,26 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
                 break;
             }
     }
+    // A preset created before SF2 chorus existed must load dry, rather than
+    // inheriting whatever chorus happens to be active in the destination.
+    if (savedType == static_cast<int>(LayerType::sf2))
+        for (const auto* suffix : { "Sf2Chorus", "Sf2ChorusRate", "Sf2ChorusDepth" })
+        {
+            const auto sourceId = sourceParameterPrefix + suffix;
+            const auto destinationId = destinationParameterPrefix + suffix;
+            bool found = false;
+            for (const auto& sourceChild : sourceState)
+                found |= sourceChild.getProperty("id").toString() == sourceId;
+            if (found) continue;
+            if (auto* parameter = parameters.getParameter(destinationId))
+                for (auto destinationChild : destinationState)
+                    if (destinationChild.getProperty("id").toString() == destinationId)
+                    {
+                        destinationChild.setProperty("value",
+                            parameter->convertFrom0to1(parameter->getDefaultValue()), nullptr);
+                        break;
+                    }
+        }
 
     for (int child = destinationState.getNumChildren(); --child >= 0;)
     {

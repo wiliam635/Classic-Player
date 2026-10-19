@@ -236,14 +236,20 @@ SampleEngine::Voice& SampleEngine::allocateVoice(Layer& layer)
         if (!voice.active) return voice;
         const auto rank = priority(voice);
         const auto candidateRank = priority(*candidate);
-        // Recycle quiet release tails first, then the oldest sustained note,
-        // and only finally a held key. The old comparison stole the newest key.
+        // Recycle quiet release tails first, then the quietest sustained
+        // note, and only finally a held key. With a long piano decay the
+        // oldest sustained note can still be loud when the pool fills.
+        const auto loudness = [this] (const Voice& v)
+        {
+            const auto seconds = static_cast<double>(v.age) / currentSampleRate;
+            const auto decay = v.sampleIndex >= 0
+                ? juce::jmax(0.0, 1.0 - seconds / pianoDecaySeconds) : 1.0;
+            return v.level * v.releaseGain * v.attackGain * static_cast<float>(decay * decay);
+        };
         if (rank < candidateRank
             || (rank == candidateRank
-                && ((rank == 0 && voice.level * voice.releaseGain
-                                    < candidate->level * candidate->releaseGain)
-                    || ((rank != 0 || voice.level * voice.releaseGain
-                                      == candidate->level * candidate->releaseGain)
+                && ((rank < 2 && loudness(voice) < loudness(*candidate))
+                    || (loudness(voice) == loudness(*candidate)
                         && voice.age > candidate->age))))
             candidate = &voice;
     }

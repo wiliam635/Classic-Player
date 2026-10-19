@@ -423,8 +423,11 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
     if (audioCursor != bodyBytes)
         return fail("O fluxo CNSP contém bytes extras após as gravações de áudio.");
 
-    // Some newer pianos use signed tenths of a dB and an extended velocity scale.
-    parsed.signedTenthsDbTrim = hasSignedTrim;
+    // CNSP 0x464 stores per-stroke trim in signed tenths of a dB even when
+    // every trim happens to be positive (for example Soft Grand/Felt Upright
+    // XL 6.2). Inferring the unit from a negative value made those pianos
+    // almost silent: a stored 64 was treated as -64 dB instead of -6.4 dB.
+    parsed.signedTenthsDbTrim = streamVersion == 0x464 || hasSignedTrim;
     if (highestAttackLayer > 30)
         parsed.velocityScale = std::max(31, (highestAttackLayer * 31 + 26) / 27);
 

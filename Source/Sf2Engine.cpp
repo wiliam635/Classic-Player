@@ -33,6 +33,8 @@ void Sf2Engine::createSynth(Layer& layer)
     // calibration; the shared output limiter still prevents clipping.
     fluid_settings_setnum(layer.settings.get(), "synth.gain", 0.65);
     layer.synth.reset(new_fluid_synth(layer.settings.get()));
+    // Keep legacy SF2 patches dry until this layer explicitly requests chorus.
+    fluid_synth_chorus_on(layer.synth.get(), -1, 0);
     layer.soundFontId = -1;
     layer.monoNote = -1;
     layer.monoChannel = 1;
@@ -46,6 +48,7 @@ void Sf2Engine::createSynth(Layer& layer)
     layer.lastAttack = -1;
     layer.lastPortamento = -1;
     layer.lastMono = -1;
+    layer.lastAppliedReleaseTimecents = -100000.0f;
     layer.lastMuteVolumeChannels.fill(0);
     layer.filterState = { 0.0f, 0.0f };
     layer.highPassInput = { 0.0f, 0.0f };
@@ -57,6 +60,7 @@ void Sf2Engine::createSynth(Layer& layer)
     layer.eq.reset();
     layer.nativeReverb.reset();
     layer.lastReverbParameters.fill(-1.0f);
+    layer.lastChorusParameters.fill(-1.0f);
 }
 
 void Sf2Engine::prepare(double sampleRate, int maximumBlockSize)
@@ -130,6 +134,7 @@ void Sf2Engine::reset()
         if (layer.synth)
         {
             fluid_synth_system_reset(layer.synth.get());
+            layer.lastChorusParameters.fill(-1.0f);
             layer.filterState = { 0.0f, 0.0f };
             layer.highPassInput = { 0.0f, 0.0f };
             layer.highPassOutput = { 0.0f, 0.0f };
@@ -447,6 +452,31 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
             layer.lastMono = mono;
         }
 
+        // Each SF2 layer owns a separate FluidSynth instance, so these chorus
+        // settings cannot leak into another layer. Apply only on changes; a
+        // held pedal otherwise makes repeated effect reconfiguration costly.
+        const std::array<float, 3> chorusValues {
+            juce::jlimit(0.0f, 100.0f, layer.config.sf2Chorus),
+            juce::jlimit(0.1f, 5.0f, layer.config.sf2ChorusRate),
+            juce::jlimit(0.0f, 20.0f, layer.config.sf2ChorusDepth)
+        };
+        if (chorusValues != layer.lastChorusParameters)
+        {
+            const auto enabled = chorusValues[0] > 0.0f;
+            if (enabled)
+            {
+                fluid_synth_set_chorus_group_nr(layer.synth.get(), -1, 3);
+                fluid_synth_set_chorus_group_level(layer.synth.get(), -1,
+                                                  chorusValues[0] * 0.0065);
+                fluid_synth_set_chorus_group_speed(layer.synth.get(), -1, chorusValues[1]);
+                fluid_synth_set_chorus_group_depth(layer.synth.get(), -1, chorusValues[2]);
+            }
+            fluid_synth_chorus_on(layer.synth.get(), -1, enabled ? 1 : 0);
+            for (int channel = 0; channel < 16; ++channel)
+                fluid_synth_cc(layer.synth.get(), channel, 93, enabled ? 127 : 0);
+            layer.lastChorusParameters = chorusValues;
+        }
+
         // CC72 only works when the SF2 defines a corresponding modulator.
         // Set the actual voice envelope in timecents instead, consistently
         // Preserve the existing default (50 = 0.5s), while the upper half
@@ -467,14 +497,28 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
                     fluid_voice_update_param(voice, GEN_VOLENVRELEASE);
                 }
         };
-        applyRelease();
+        if (releaseTimecents != layer.lastAppliedReleaseTimecents)
+        {
+            applyRelease();
+            layer.lastAppliedReleaseTimecents = releaseTimecents;
+        }
+        bool startedVoice = false;
         for (const auto metadata : midi)
+        {
+            startedVoice |= metadata.getMessage().isNoteOn();
             dispatchMidi(layer, metadata.getMessage());
+        }
         if (routedMidi != nullptr)
             for (const auto metadata : (*routedMidi)[static_cast<size_t>(&layer - layers.data())])
+            {
+                startedVoice |= metadata.getMessage().isNoteOn();
                 dispatchMidi(layer, metadata.getMessage());
+            }
 
-        applyRelease();
+        // Only newly allocated voices need the generator override. Scanning
+        // every active voice twice per audio block grows costly under sustain.
+        if (startedVoice)
+            applyRelease();
         scratch.clear();
         fluid_synth_write_float(layer.synth.get(), output.getNumSamples(),
                                 scratch.getWritePointer(0), 0, 1,

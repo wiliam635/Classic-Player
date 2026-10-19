@@ -88,7 +88,7 @@ private:
                     const Sf2Engine::LayerConfig& routing);
     void startPianoVoice(Layer&, int sampleIndex, int note, int channel, float velocity,
                          const Sf2Engine::LayerConfig& routing);
-    static Voice& allocateVoice(Layer&);
+    Voice& allocateVoice(Layer&);
     static void preparePianoLoops(NordPianoDecoder::Instrument&);
     int findPianoStroke(const Layer&, int note, float velocity, int bank) const;
     void releasePianoVoice(Voice&, float releaseControl);

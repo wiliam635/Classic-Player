@@ -187,9 +187,10 @@ static void startupPrograms()
     p = open(true);
     p->setStateInformation(unsaved.getData(), static_cast<int>(unsaved.getSize()));
     p->prepareToPlay(48000, 128);
-    check(p->parameters.getRawParameterValue("master")->load() == 75, "startup did not restore last SAVED program");
-    check(p->currentSavedProgramName() == "Last", "restored program name");
-    check(p->activeLayerCount() == 4, "startup expanded four layers to six");
+    check(p->parameters.getRawParameterValue("master")->load() == 25, "startup did not restore last OPENED program");
+    check(p->currentSavedProgramName() == "First", "restored program name");
+    check(p->activeLayerCount() == 6, "startup lost opened program layer count");
+    check(p->loadProgram(last).wasOk(), "load newer program after reopening");
     for (const auto& [id, expected] : std::array<std::pair<const char*, float>, 8> {{
              { "layer1Attack", 12.0f }, { "layer1Release", 42.0f },
              { "layer1Cutoff", 37.0f }, { "layer1Reverb", 33.0f },
@@ -218,7 +219,7 @@ static void startupPrograms()
     p->prepareToPlay(48000, 128);
     check(p->parameters.getRawParameterValue("master")->load() == 80, "missing program fallback unsafe");
     p.reset();
-    std::cout << "Last-saved restore, program name, device restart, plugin isolation and missing file passed\n";
+    std::cout << "Last-opened restore, program name, device restart, plugin isolation and missing file passed\n";
 }
 
 static void programLibraryExportImport()

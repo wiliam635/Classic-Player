@@ -250,6 +250,7 @@ private:
     juce::String lastSavedProgram;
     juce::String currentSavedProgram;
     bool startupRestored = false;
+    bool restoringStartupSettings = false;
     std::atomic<bool> masterLearning { false }, panicLearning { false },
                       startupSettingsDirty { false }, pendingPanic { false },
                       panicCCArmed { true };

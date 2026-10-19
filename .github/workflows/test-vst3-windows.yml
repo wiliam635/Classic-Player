@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       final_release:
-        description: Publicar somente o instalador final 2.0.5
+        description: Publicar somente o instalador final 3.0.0
         type: boolean
         default: false
   push:
-    branches: [codex/fix-user-refresh, codex/nord-piano-2.0.5-teste, codex/desktop-velocity-vst3-test]
+    branches: [codex/fix-user-refresh, codex/nord-piano-3.0.0-teste, codex/desktop-velocity-vst3-test, codex/desktop-3.0-approved-20261017]
     paths:
       - .github/workflows/test-vst3-windows.yml
       - installer/windows/ClassicPlayerVst3Test.iss
@@ -165,7 +165,7 @@ jobs:
           & $hostTest (Resolve-Path $bundle).Path
           if ($LASTEXITCODE -ne 0) { throw "Host nao conseguiu descobrir/instanciar o VST3" }
           New-Item -ItemType Directory -Force "outputs\vst3-test" | Out-Null
-          Compress-Archive -Path $bundle -DestinationPath "outputs\vst3-test\Classic-Player-2.0.5-VST3-teste-Windows-x64.zip" -Force
+          Compress-Archive -Path $bundle -DestinationPath "outputs\vst3-test\Classic-Player-3.0.0-VST3-teste-Windows-x64.zip" -Force
 
       - name: Package combined test installer
         shell: pwsh
@@ -174,10 +174,10 @@ jobs:
           $final = "${{ inputs.final_release }}" -eq "true"
           if ($final) {
             & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DFINAL_RELEASE "installer\windows\ClassicPlayerVst3Test.iss"
-            $setup = "outputs\vst3-test\Classic-Player-2.0.5-Windows-x64-Setup.exe"
+            $setup = "outputs\vst3-test\Classic-Player-3.0.0-Windows-x64-Setup.exe"
           } else {
             & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\windows\ClassicPlayerVst3Test.iss"
-            $setup = "outputs\vst3-test\Classic-Player-2.0.5-Standalone-VST3-teste-Windows-x64-Setup.exe"
+            $setup = "outputs\vst3-test\Classic-Player-3.0.0-Standalone-VST3-teste-Windows-x64-Setup.exe"
           }
           if ($LASTEXITCODE -ne 0) { throw "Instalador de teste falhou" }
           if (-not (Test-Path $setup)) { throw "Instalador de teste não foi criado" }
@@ -196,16 +196,16 @@ jobs:
         if: ${{ inputs.final_release != true }}
         uses: actions/upload-artifact@v4
         with:
-          name: Classic-Player-2.0.5-VST3-teste-${{ github.run_number }}-Windows-x64
+          name: Classic-Player-3.0.0-VST3-teste-${{ github.run_number }}-Windows-x64
           if-no-files-found: error
           path: |
-            outputs/vst3-test/Classic-Player-2.0.5-VST3-teste-Windows-x64.zip
-            outputs/vst3-test/Classic-Player-2.0.5-Standalone-VST3-teste-Windows-x64-Setup.exe
+            outputs/vst3-test/Classic-Player-3.0.0-VST3-teste-Windows-x64.zip
+            outputs/vst3-test/Classic-Player-3.0.0-Standalone-VST3-teste-Windows-x64-Setup.exe
 
       - name: Upload final installer
         if: ${{ inputs.final_release == true }}
         uses: actions/upload-artifact@v4
         with:
-          name: Classic-Player-2.0.5-Windows-x64
+          name: Classic-Player-3.0.0-Windows-x64
           if-no-files-found: error
-          path: outputs/vst3-test/Classic-Player-2.0.5-Windows-x64-Setup.exe
+          path: outputs/vst3-test/Classic-Player-3.0.0-Windows-x64-Setup.exe

@@ -3515,6 +3515,13 @@ public:
                        juce::ComboBox& low, juce::ComboBox& high)
         : processor(p), index(layer), lowBox(low), highBox(high)
     {
+        for (auto* label : { &lowLabel, &highLabel })
+        {
+            label->setJustificationType(juce::Justification::centred);
+            label->setColour(juce::Label::textColourId, juce::Colour(text));
+            label->setFont(juce::FontOptions(9.0f, juce::Font::bold));
+            addAndMakeVisible(*label);
+        }
         for (auto* button : { &lowButton, &highButton, &resetButton })
         {
             flatButton(*button);
@@ -3533,10 +3540,27 @@ public:
     void resized() override
     {
         auto area = getLocalBounds();
+        area.removeFromTop(16); // SPLIT POINT heading and divider
+        auto labels = area.removeFromTop(14);
+        const auto labelWidth = labels.getWidth() / 3;
+        lowLabel.setBounds(labels.removeFromLeft(labelWidth));
+        highLabel.setBounds(labels.removeFromLeft(labelWidth));
         const auto width = area.getWidth() / 3;
         lowButton.setBounds(area.removeFromLeft(width).reduced(1));
         highButton.setBounds(area.removeFromLeft(width).reduced(1));
         resetButton.setBounds(area.reduced(1));
+    }
+    void paint(juce::Graphics& g) override
+    {
+        auto heading = getLocalBounds().removeFromTop(16);
+        g.setColour(juce::Colour(mutedText));
+        g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+        const auto centre = heading.getCentreX();
+        g.drawText("SPLIT POINT", centre - 48, 0, 96, 14, juce::Justification::centred);
+        g.setColour(juce::Colour(mutedText).withAlpha(0.65f));
+        g.drawLine(2.0f, 8.0f, static_cast<float>(centre - 51), 8.0f);
+        g.drawLine(static_cast<float>(centre + 51), 8.0f,
+                   static_cast<float>(getWidth() - 2), 8.0f);
     }
 private:
     void timerCallback() override { refresh(); }
@@ -3553,6 +3577,7 @@ private:
     int index;
     juce::ComboBox& lowBox;
     juce::ComboBox& highBox;
+    juce::Label lowLabel { {}, "NOTA BAIXA" }, highLabel { {}, "NOTA ALTA" };
     juce::TextButton lowButton, highButton, resetButton { "RESET" };
 };
 
@@ -3566,7 +3591,7 @@ public:
             box->getProperties().set("uiDataItems", true);
         for (auto* label : { &categoryLabel, &libraryLabel, &presetLabel, &modeLabel,
                              &sustainLabel, &channelLabel, &deviceLabel, &octaveLabel,
-                             &rangeLabel, &highRangeLabel, &velocityLabel })
+                             &velocityLabel })
         {
             label->setColour(juce::Label::textColourId, juce::Colour(text));
             label->setFont(juce::FontOptions(11.0f, juce::Font::bold));
@@ -3580,8 +3605,6 @@ public:
         channelLabel.setText("CANAL MIDI", juce::dontSendNotification);
         deviceLabel.setText("ENTRADA MIDI", juce::dontSendNotification);
         octaveLabel.setText("OITAVA", juce::dontSendNotification);
-        rangeLabel.setText("NOTA GRAVE", juce::dontSendNotification);
-        highRangeLabel.setText("NOTA AGUDA", juce::dontSendNotification);
         velocityLabel.setText("VELOCIDADE", juce::dontSendNotification);
 
         for (const auto& category : ClassicPlayerAudioProcessor::soundFontCategories())
@@ -3697,11 +3720,9 @@ public:
             l.setBounds(r.removeFromTop(compact ? 12 : 18));
             b.setBounds(r.reduced(2, compact ? 0 : 2));
         };
-        const auto routingRowHeight = juce::jmin(compactLayout ? 48 : 62,
-                                                  area.getHeight() / 2);
         for (int rowIndex = 0; rowIndex < 2; ++rowIndex)
         {
-            auto line = area.removeFromTop(routingRowHeight);
+            auto line = area.removeFromTop(rowIndex == 0 ? 42 : 60);
             if (rowIndex == 0)
             {
                 place(line.removeFromLeft(cell), modeLabel, modeBox);
@@ -3712,16 +3733,11 @@ public:
             }
 
             place(line.removeFromLeft(cell), octaveLabel, octaveBox);
-            auto splitArea = line.removeFromLeft(cell * 2);
-            const auto buttonWidth = splitArea.getWidth() / 3;
-            auto noteLabels = splitArea.removeFromTop(compactLayout ? 12 : 18);
-            rangeLabel.setJustificationType(juce::Justification::centred);
-            highRangeLabel.setJustificationType(juce::Justification::centred);
-            rangeLabel.setBounds(noteLabels.removeFromLeft(buttonWidth).reduced(2, 0));
-            highRangeLabel.setBounds(noteLabels.removeFromLeft(buttonWidth).reduced(2, 0));
+            auto splitArea = line.removeFromLeft(cell * 3);
             splitControls.setBounds(splitArea.reduced(1, 0));
-            place(line, velocityLabel, velocityBox);
         }
+        auto velocityRow = area.removeFromTop(compactLayout ? 38 : 44);
+        place(velocityRow.removeFromLeft(cell), velocityLabel, velocityBox);
     }
 
 private:
@@ -3818,7 +3834,7 @@ private:
     }
     ClassicPlayerAudioProcessor& processor; int index;
     bool compactLayout = false;
-    juce::Label categoryLabel, libraryLabel, presetLabel, modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel, rangeLabel, highRangeLabel, velocityLabel;
+    juce::Label categoryLabel, libraryLabel, presetLabel, modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel, velocityLabel;
     juce::ComboBox categoryBox, libraryBox, presetBox, modeBox, sustainBox, channelBox, deviceBox, octaveBox, lowNoteBox, highNoteBox, velocityBox;
     SplitLearnControls splitControls;
     juce::TextButton importButton, deleteButton; juce::Array<juce::File> libraryFiles; std::vector<Sf2Engine::Preset> presets;
@@ -3832,17 +3848,14 @@ public:
         : processor(p), index(layer), splitControls(p, layer, lowNoteBox, highNoteBox)
     {
         const auto layerType = processor.layerType(index);
-        wideSplitRow = layerType == ClassicPlayerAudioProcessor::LayerType::nord
-                    || layerType == ClassicPlayerAudioProcessor::LayerType::hammond;
         velocityHandledExternally = layerType == ClassicPlayerAudioProcessor::LayerType::nord;
         velocityDisabled = layerType == ClassicPlayerAudioProcessor::LayerType::hammond;
         addAndMakeVisible(splitControls);
         deviceBox.getProperties().set("uiDataItems", true);
-        const std::array<std::pair<juce::Label*, const char*>, 8> fields {{
+        const std::array<std::pair<juce::Label*, const char*>, 6> fields {{
             { &modeLabel, "MODO" }, { &sustainLabel, "SUSTAIN" },
             { &channelLabel, "CANAL MIDI" }, { &deviceLabel, "ENTRADA MIDI" },
-            { &octaveLabel, "OITAVA" }, { &lowNoteLabel, "NOTA BAIXA" },
-            { &highNoteLabel, "NOTA ALTA" }, { &velocityLabel, "VELOCIDADE" }
+            { &octaveLabel, "OITAVA" }, { &velocityLabel, "VELOCIDADE" }
         }};
         for (const auto& field : fields)
         {
@@ -3913,7 +3926,7 @@ public:
             modeBox.setSelectedId(1,juce::dontSendNotification);modeBox.setEnabled(false);
             velocityBox.setEnabled(false);
         }
-        setSize(700, 170);
+        setSize(700, isNord ? 186 : 160);
         if (isNord) startTimerHz(8);
     }
 
@@ -3936,26 +3949,19 @@ public:
         };
         const auto calibrationRowHeight = calibrationButton.isVisible() ? 28 : 0;
         auto calibrationRow = area.removeFromBottom(calibrationRowHeight);
-        const auto rowHeight = juce::jmax(1, area.getHeight() / 2);
-        auto modeRow = area.removeFromTop(rowHeight);
+        auto modeRow = area.removeFromTop(42);
         place(modeRow.removeFromLeft(cellWidth), modeLabel, modeBox);
         place(modeRow.removeFromLeft(cellWidth), sustainLabel, sustainBox);
         place(modeRow.removeFromLeft(cellWidth), channelLabel, channelBox);
         place(modeRow, deviceLabel, deviceBox);
 
-        auto splitRow = area;
+        auto splitRow = area.removeFromTop(60);
         place(splitRow.removeFromLeft(cellWidth), octaveLabel, octaveBox);
-        const auto splitColumns = wideSplitRow ? 3 : 2;
-        auto splitArea = splitRow.removeFromLeft(cellWidth * splitColumns);
-        const auto buttonWidth = splitArea.getWidth() / 3;
-        auto noteLabels = splitArea.removeFromTop(18);
-        lowNoteLabel.setJustificationType(juce::Justification::centred);
-        highNoteLabel.setJustificationType(juce::Justification::centred);
-        lowNoteLabel.setBounds(noteLabels.removeFromLeft(buttonWidth).reduced(2, 0));
-        highNoteLabel.setBounds(noteLabels.removeFromLeft(buttonWidth).reduced(2, 0));
+        auto splitArea = splitRow.removeFromLeft(cellWidth * 3);
         splitControls.setBounds(splitArea.reduced(1, 0));
-        if (!wideSplitRow)
-            place(splitRow, velocityLabel, velocityBox);
+        auto velocityRow = area;
+        if (!velocityHandledExternally && !velocityDisabled)
+            place(velocityRow.removeFromLeft(cellWidth), velocityLabel, velocityBox);
         else
         {
             velocityLabel.setBounds({});
@@ -4070,11 +4076,10 @@ private:
 
     ClassicPlayerAudioProcessor& processor;
     int index = 0;
-    bool wideSplitRow = false;
     bool velocityHandledExternally = false;
     bool velocityDisabled = false;
     juce::Label modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel,
-                lowNoteLabel, highNoteLabel, velocityLabel;
+                velocityLabel;
     juce::ComboBox modeBox, sustainBox, channelBox, deviceBox, octaveBox,
                    lowNoteBox, highNoteBox, velocityBox;
     SplitLearnControls splitControls;
@@ -5123,14 +5128,17 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     if (sf2Panel != nullptr)
     {
         sf2Panel->useCompactLayout(true);
-        sf2Panel->setSize(620, 190);
+        sf2Panel->setSize(620, 236);
     }
     knobs->useDenseGrid(true);
     knobs->setSize(620, 128);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     auto* effectButtons = new LayerEffectButtons(
         [safe] { if (safe != nullptr) safe->showReverbEditor(); },
-        [safe] { if (safe != nullptr) safe->showCompressorEditor(); }, {},
+        [safe] { if (safe != nullptr) safe->showCompressorEditor(); },
+        processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::sf2
+            ? std::function<void()>([safe] { if (safe != nullptr) safe->showChorusEditor(); })
+            : std::function<void()>{},
         [safe] { if (safe != nullptr) safe->showEqEditor(); });
     auto* midiPanel = new LayerMidiLearnPanel(processor, index);
 
@@ -5175,8 +5183,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
             [safe] { if (safe != nullptr) safe->refresh(); });
         dialog->addCustomComponent(new CenteredPanel(importNordPanel, 620, 58));
         auto* nordRouting = new LayerRoutingEditorPanel(processor, index);
-        nordRouting->setSize(620, 156);
-        dialog->addCustomComponent(new CenteredPanel(nordRouting, 620, 156));
+        nordRouting->setSize(620, 186);
+        dialog->addCustomComponent(new CenteredPanel(nordRouting, 620, 186));
         dialog->addCustomComponent(new CenteredPanel(
             new NordPianoTimbrePanel(processor, index), 620, 42));
     }
@@ -5184,7 +5192,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     // On a 13-inch display the complete editor, including numeric values and
     // footer, must fit without an inner scroll area.
     if (sf2Panel != nullptr)
-        dialog->addCustomComponent(new CenteredPanel(sf2Panel, 620, 190));
+        dialog->addCustomComponent(new CenteredPanel(sf2Panel, 620, 236));
     dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
         [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 620, 28));
@@ -5647,8 +5655,34 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showChorusEditor()
 {
-    if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::dx7) return;
+    const auto type = processor.layerType(index);
+    if (type != ClassicPlayerAudioProcessor::LayerType::dx7
+        && type != ClassicPlayerAudioProcessor::LayerType::sf2) return;
     const auto prefix = "layer" + juce::String(index + 1);
+    if (type == ClassicPlayerAudioProcessor::LayerType::sf2)
+    {
+        auto* dialog = new LayerEditorWindow(
+            "CHORUS DA LAYER SF2", "Ajuste a intensidade, velocidade e profundidade do chorus.",
+            juce::MessageBoxIconType::NoIcon);
+        dialog->setLookAndFeel(&classicLookAndFeel);
+        auto* knobs = new KnobEditorPanel({
+            { "MIX %", processor.parameters.getRawParameterValue(prefix + "Sf2Chorus")->load(),
+              0.0f, 100.0f, 1.0f, 0 },
+            { "VELOCIDADE Hz", processor.parameters.getRawParameterValue(prefix + "Sf2ChorusRate")->load(),
+              0.1f, 5.0f, 0.01f, 2 },
+            { "PROFUNDIDADE ms", processor.parameters.getRawParameterValue(prefix + "Sf2ChorusDepth")->load(),
+              0.0f, 20.0f, 0.1f, 1 }
+        }, 3);
+        knobs->bindParameter(0, processor.parameters, prefix + "Sf2Chorus");
+        knobs->bindParameter(1, processor.parameters, prefix + "Sf2ChorusRate");
+        knobs->bindParameter(2, processor.parameters, prefix + "Sf2ChorusDepth");
+        dialog->addCustomComponent(knobs);
+        const juce::Component::SafePointer<LayerStrip> safe(this);
+        dialog->fitWithinApp(this);
+        dialog->enterModalState(true, juce::ModalCallbackFunction::create(
+            [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
+        return;
+    }
     auto* dialog = new LayerEditorWindow(
         "CHORUS DA LAYER DX7", "Ajuste o chorus em tempo real.", juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
@@ -6509,6 +6543,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resetLayer()
     cutoff.setValue(100.0);
     reverb.setValue(0.0);
     compressor.setValue(0.0);
+    for (const auto* suffix : { "Sf2Chorus", "Sf2ChorusRate", "Sf2ChorusDepth" })
+        if (auto* parameter = processor.parameters.getParameter(
+                "layer" + juce::String(index + 1) + suffix))
+            parameter->setValueNotifyingHost(parameter->getDefaultValue());
     gain.setValue(80.0);
     mode.setSelectedId(1);
     sustain.setSelectedId(1);
@@ -7416,7 +7454,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
         [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 600, 38));
-    dialog->addCustomComponent(new CenteredPanel(routing, 600, 122));
+    dialog->addCustomComponent(new CenteredPanel(routing, 600, 160));
     dialog->addCustomComponent(new CenteredPanel(common, 600, 100));
     const auto actionWidth = editorContentWidth(this, 930);
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
@@ -7453,7 +7491,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     auto* dx7Panel = new Dx7EditorPanel(processor, index);
     auto* routingPanel = new LayerRoutingEditorPanel(processor, index);
     dx7Panel->setSize(560, Dx7EditorPanel::preferredHeight);
-    routingPanel->setSize(600, 122);
+    routingPanel->setSize(600, 160);
     auto valueOf = [this, prefix](const juce::String& suffix, float fallback)
     {
         if (auto* value = processor.parameters.getRawParameterValue(prefix + suffix)) return value->load();
@@ -7513,7 +7551,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
         [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 600, 30));
-    dialog->addCustomComponent(new CenteredPanel(routingPanel, 600, 122));
+    dialog->addCustomComponent(new CenteredPanel(routingPanel, 600, 160));
     dialog->addCustomComponent(new CenteredPanel(common, 600, 128));
     const auto actionWidth = editorContentWidth(this, 930);
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
@@ -9019,7 +9057,7 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
     content->add(new EngineProgramSavePanel(processor,index,"Hammond"),28);
     content->add(new LayerPresetFilePanel(std::move(saveLayerCallback),
                                           std::move(loadLayerCallback)),28);
-    content->add(new LayerRoutingEditorPanel(processor,index),96);
+    content->add(new LayerRoutingEditorPanel(processor,index),160);
     const auto prefix="layer"+juce::String(index+1);
     const auto value=[&processor,prefix](const char* name){return processor.parameters.getRawParameterValue(prefix+name)->load();};
     auto* common=new KnobEditorPanel({
@@ -9043,7 +9081,7 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
     content->add(new SideBySideEditorPanel(
         new LayerEffectButtons(std::move(reverbCallback), std::move(compressorCallback), {}, std::move(eqCallback)),
         new LayerMidiLearnPanel(processor,index), 680, 56), 56);
-    content->setSize(704,548);
+    content->setSize(704,612);
     return content;
 }
 
@@ -9071,7 +9109,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showHammondEditor()
             const auto centre=visibleAppBounds.isEmpty()?screen.getCentre()
                                                         :visibleAppBounds.getCentre();
             const auto width=juce::jmax(1,juce::jmin(740,usable.getWidth()));
-            const auto height=juce::jmax(1,juce::jmin(580,usable.getHeight()));
+            const auto height=juce::jmax(1,juce::jmin(650,usable.getHeight()));
             const auto x=juce::jlimit(usable.getX(),usable.getRight()-width,centre.x-width/2);
             const auto y=juce::jlimit(usable.getY(),usable.getBottom()-height,centre.y-height/2);
             setBounds(x,y,width,height);
@@ -9081,7 +9119,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showHammondEditor()
         {
             DocumentWindow::resized();
             if(auto* content=getContentComponent())
-                content->setSize(juce::jmax(620,getWidth()-12),548);
+                content->setSize(juce::jmax(620,getWidth()-12),juce::jmax(1,getHeight()-32));
         }
         void closeButtonPressed() override { exitModalState(0); }
     };

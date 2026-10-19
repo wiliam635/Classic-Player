@@ -16,7 +16,7 @@ public:
     // created with + LAYER without the former eight-layer ceiling.
     static constexpr int defaultLayerCount = 6;
     static constexpr int layerCount = 16;
-    static constexpr int polyphonyPerLayer = 512;
+    static constexpr int polyphonyPerLayer = 192;
 
     struct LayerConfig
     {
@@ -67,6 +67,9 @@ public:
         float compressorAttack = 10.0f;
         float compressorRelease = 120.0f;
         float compressorMakeup = 0.0f;
+        float sf2Chorus = 0.0f; // Off by default; independent of DX7 chorus.
+        float sf2ChorusRate = 0.8f; // Hz
+        float sf2ChorusDepth = 8.0f; // ms
         // Used only by DX7 layers.  Keeping it in the common routing config
         // preserves source-specific controls without mixing their engines.
         float dx7Chorus = 20.0f;
@@ -126,6 +129,7 @@ private:
         int lastAttack = -1;
         int lastPortamento = -1;
         int lastMono = -1;
+        float lastAppliedReleaseTimecents = -100000.0f;
         std::array<unsigned int, 2> lastMuteVolumeChannels {};
         float modulationAmount = 0.0f;
         double modulationPhase = 0.0;
@@ -138,6 +142,7 @@ private:
         LayerEqState eq;
         juce::Reverb nativeReverb;
         std::array<float, 4> lastReverbParameters { -1.0f, -1.0f, -1.0f, -1.0f };
+        std::array<float, 3> lastChorusParameters { -1.0f, -1.0f, -1.0f };
         std::atomic<float> peak { 0.0f };
     };
 

@@ -88,6 +88,21 @@ struct SampleEngineRegressionTests
                 "An uncalibrated adaptive curve must safely fall back to linear");
     }
 
+    static void positiveOnlyTenthsDbTrim()
+    {
+        auto engine = instrument(48000.0);
+        auto& layer = engine->layers[0];
+        layer.piano.signedTenthsDbTrim = true;
+        layer.piano.gainTenthsDb = 80;
+        layer.piano.strokes[0].trimDb = 64;
+        engine->startPianoVoice(layer, 0, 60, 1, 1.0f, config());
+        const auto voice = std::find_if(layer.voices.begin(), layer.voices.end(),
+            [](const auto& candidate) { return candidate.active; });
+        require(voice != layer.voices.end(), "Positive-trim piano voice did not start");
+        require(std::abs(voice->level - std::pow(10.0f, 1.6f / 20.0f)) < 0.001f,
+                "Positive-only 0x464 trim was interpreted as whole decibels");
+    }
+
     static void sustainAndPolyphony(double rate)
     {
         auto engine = instrument(rate);
@@ -140,6 +155,7 @@ struct SampleEngineRegressionTests
     {
         auto engine = instrument(48000.0);
         auto& layer = engine->layers[0];
+        require(layer.voices.size() == 192, "NPNO polyphony must be 192 voices per layer");
         for (size_t i = 0; i < layer.voices.size(); ++i)
         {
             auto& voice = layer.voices[i];
@@ -152,6 +168,10 @@ struct SampleEngineRegressionTests
         layer.voices[4].waitingForSustain = true;
         require(&SampleEngine::allocateVoice(layer) == &layer.voices[4],
                 "Voice stealing cut a held key before a sustained tail");
+        layer.voices[7].waitingForSustain = true;
+        layer.voices[7].level = 0.1f;
+        require(&SampleEngine::allocateVoice(layer) == &layer.voices[7],
+                "Voice stealing did not prefer the quietest sustained tail");
         layer.voices[5].released = true;
         layer.voices[6].released = true;
         layer.voices[6].releaseGain = 0.001f;
@@ -341,6 +361,7 @@ struct SampleEngineRegressionTests
     static void run()
     {
         stealing();
+        positiveOnlyTenthsDbTrim();
         crossfades();
         adaptiveVelocity();
         for (const auto rate : { 44100.0, 48000.0 })
