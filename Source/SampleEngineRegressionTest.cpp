@@ -163,19 +163,19 @@ struct SampleEngineRegressionTests
             voice.level = 1.0f;
             voice.age = i;
         }
-        require(&SampleEngine::allocateVoice(layer) == &layer.voices.back(),
+        require(&engine->allocateVoice(layer) == &layer.voices.back(),
                 "Voice stealing chose the newest held note");
         layer.voices[4].waitingForSustain = true;
-        require(&SampleEngine::allocateVoice(layer) == &layer.voices[4],
+        require(&engine->allocateVoice(layer) == &layer.voices[4],
                 "Voice stealing cut a held key before a sustained tail");
         layer.voices[7].waitingForSustain = true;
         layer.voices[7].level = 0.1f;
-        require(&SampleEngine::allocateVoice(layer) == &layer.voices[7],
+        require(&engine->allocateVoice(layer) == &layer.voices[7],
                 "Voice stealing did not prefer the quietest sustained tail");
         layer.voices[5].released = true;
         layer.voices[6].released = true;
         layer.voices[6].releaseGain = 0.001f;
-        require(&SampleEngine::allocateVoice(layer) == &layer.voices[6],
+        require(&engine->allocateVoice(layer) == &layer.voices[6],
                 "Voice stealing did not prefer the quietest released tail");
     }
 
