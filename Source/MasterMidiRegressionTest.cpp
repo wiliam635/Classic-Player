@@ -174,6 +174,10 @@ static void startupPrograms()
     setLayerParameter("layer1Release", 42.0f);
     setLayerParameter("layer1Cutoff", 37.0f);
     setLayerParameter("layer1Reverb", 33.0f);
+    setLayerParameter("layer1ReverbSize", 55.0f);
+    setLayerParameter("layer1ReverbDamping", 45.0f);
+    setLayerParameter("layer1ReverbWidth", 100.0f);
+    setLayerParameter("layer1ReverbPreset", 1.0f);
     setLayerParameter("layer1Comp", 45.0f);
     setLayerParameter("layer1EqLow", -4.5f);
     setLayerParameter("layer1EqMid", 2.5f);
@@ -191,9 +195,11 @@ static void startupPrograms()
     check(p->currentSavedProgramName() == "First", "restored program name");
     check(p->activeLayerCount() == 6, "startup lost opened program layer count");
     check(p->loadProgram(last).wasOk(), "load newer program after reopening");
-    for (const auto& [id, expected] : std::array<std::pair<const char*, float>, 8> {{
+    for (const auto& [id, expected] : std::array<std::pair<const char*, float>, 12> {{
              { "layer1Attack", 12.0f }, { "layer1Release", 42.0f },
              { "layer1Cutoff", 37.0f }, { "layer1Reverb", 33.0f },
+             { "layer1ReverbSize", 55.0f }, { "layer1ReverbDamping", 45.0f },
+             { "layer1ReverbWidth", 100.0f }, { "layer1ReverbPreset", 1.0f },
              { "layer1Comp", 45.0f }, { "layer1EqLow", -4.5f },
              { "layer1EqMid", 2.5f }, { "layer1EqHigh", -1.5f }
          }})

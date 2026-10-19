@@ -3584,8 +3584,10 @@ private:
 class Sf2EditorPanel final : public juce::Component
 {
 public:
-    Sf2EditorPanel(ClassicPlayerAudioProcessor& p, int layer)
-        : processor(p), index(layer), splitControls(p, layer, lowNoteBox, highNoteBox)
+    Sf2EditorPanel(ClassicPlayerAudioProcessor& p, int layer,
+                   std::function<void()> onInstrumentChanged)
+        : processor(p), index(layer), splitControls(p, layer, lowNoteBox, highNoteBox),
+          instrumentChanged(std::move(onInstrumentChanged))
     {
         for (auto* box : { &libraryBox, &presetBox, &deviceBox })
             box->getProperties().set("uiDataItems", true);
@@ -3621,7 +3623,11 @@ public:
                 if (result.failed())
                     juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
                                                            "Falha ao carregar SF2", result.getErrorMessage());
-                rebuildPresets();
+                else
+                {
+                    rebuildPresets();
+                    if (instrumentChanged) instrumentChanged();
+                }
             }
         };
         presetBox.onChange = [this]
@@ -3649,8 +3655,15 @@ public:
                                                                "Falha ao importar SF2", result.getErrorMessage());
                     else
                     {
-                        processor.loadSoundFont(index, imported, selectedCategoryId(categoryBox));
-                        rebuildLibrary();
+                        const auto loadResult = processor.loadSoundFont(index, imported, selectedCategoryId(categoryBox));
+                        if (loadResult.failed())
+                            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                                   "Falha ao carregar SF2", loadResult.getErrorMessage());
+                        else
+                        {
+                            rebuildLibrary();
+                            if (instrumentChanged) instrumentChanged();
+                        }
                     }
                 });
         };
@@ -3661,6 +3674,7 @@ public:
             {
                 processor.deleteLibrarySoundFont(libraryFiles.getReference(selected));
                 rebuildLibrary();
+                if (instrumentChanged) instrumentChanged();
             }
         };
         for (auto* box : { &categoryBox, &libraryBox, &presetBox, &modeBox, &sustainBox,
@@ -3837,6 +3851,7 @@ private:
     juce::Label categoryLabel, libraryLabel, presetLabel, modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel, velocityLabel;
     juce::ComboBox categoryBox, libraryBox, presetBox, modeBox, sustainBox, channelBox, deviceBox, octaveBox, lowNoteBox, highNoteBox, velocityBox;
     SplitLearnControls splitControls;
+    std::function<void()> instrumentChanged;
     juce::TextButton importButton, deleteButton; juce::Array<juce::File> libraryFiles; std::vector<Sf2Engine::Preset> presets;
     std::unique_ptr<juce::FileChooser> chooser;
 };
@@ -5123,8 +5138,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     for (int control = 0; control < (int) editorParameterSuffixes.size(); ++control)
         knobs->bindParameter(control, processor.parameters,
                              prefix + editorParameterSuffixes[(size_t) control]);
+    const juce::Component::SafePointer<LayerStrip> safe(this);
     auto* sf2Panel = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::sf2
-        ? new Sf2EditorPanel(processor, index) : nullptr;
+        ? new Sf2EditorPanel(processor, index,
+            [safe] { if (safe != nullptr) safe->refresh(); }) : nullptr;
     if (sf2Panel != nullptr)
     {
         sf2Panel->useCompactLayout(true);
@@ -5132,7 +5149,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     }
     knobs->useDenseGrid(true);
     knobs->setSize(620, 128);
-    const juce::Component::SafePointer<LayerStrip> safe(this);
     auto* effectButtons = new LayerEffectButtons(
         [safe] { if (safe != nullptr) safe->showReverbEditor(); },
         [safe] { if (safe != nullptr) safe->showCompressorEditor(); },
@@ -5271,16 +5287,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
             && std::abs(current("ReverbWidth") - values[2]) < 0.1f
             && std::abs(current("Reverb") - values[3]) < 0.1f;
     };
-    if (selectedPreset != -1 && !presetMatchesCurrentValues(selectedPreset))
-    {
-        // A manual adjustment (or an older/custom imported preset) no longer
-        // represents the last factory preset selected for this layer.
-        selectedPreset = -1;
-        if (auto* parameter = processor.parameters.getParameter(prefix + "ReverbPreset"))
-            parameter->setValueNotifyingHost(parameter->convertTo0to1(-1.0f));
-    }
-    // Older performances predate the explicit preset marker. Preserve their
-    // familiar selection by inferring it once from the stored reverb values.
+    // Keep the identity of the last chosen preset even if the player fine-tunes
+    // its knobs. The four audio parameters are saved separately and must not
+    // be reset just to display the preset name after reopening a performance.
+    // Older performances without a marker can only be identified when their
+    // values still match a factory preset exactly.
     if (selectedPreset < 0)
     {
         for (int preset = 0; preset < (int) factoryReverbPresets.size(); ++preset)
@@ -5297,12 +5308,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
     dialog->addCustomComponent(new CentredEditorPanel(presets, 700));
     dialog->addCustomComponent(new CentredEditorPanel(new EffectPresetFilePanel(
         [safe] { if (safe != nullptr) safe->saveEffectPreset("REVERB"); },
-        [safe, knobs, prefix]
+        [safe, knobs, presets, prefix]
         {
             if (safe == nullptr) return;
-            safe->loadEffectPreset("REVERB", [safe, knobs, prefix]
+            safe->loadEffectPreset("REVERB", [safe, knobs, presets, prefix]
             {
                 if (safe == nullptr) return;
+                presets->setSelectedPreset(-1);
                 knobs->setValue(0, safe->processor.parameters.getRawParameterValue(prefix + "ReverbSize")->load());
                 knobs->setValue(1, 100.0f - safe->processor.parameters.getRawParameterValue(prefix + "ReverbDamping")->load());
                 knobs->setValue(2, safe->processor.parameters.getRawParameterValue(prefix + "ReverbWidth")->load());
@@ -5340,7 +5352,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
             if (auto* parameter = safe->processor.parameters.getParameter(prefix + id))
                 parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
         };
-        set("ReverbPreset", -1.0f);
         set("ReverbSize", juce::jlimit(0.0f, 100.0f, knobs->value(0)));
         set("ReverbDamping", 100.0f - juce::jlimit(0.0f, 100.0f, knobs->value(1)));
         set("ReverbWidth", juce::jlimit(0.0f, 100.0f, knobs->value(2)));

@@ -196,8 +196,11 @@ bool SampleEngine::isLoaded(int layer) const
 juce::String SampleEngine::path(int layer) const
 {
     if (!juce::isPositiveAndBelow(layer, layerCount)) return {};
-    const juce::ScopedTryLock stateLock(lock);
-    return stateLock.isLocked() ? layers[(size_t) layer].sourcePath : juce::String{};
+    // This is queried by the UI and state serializer, never by the audio
+    // callback. A failed try-lock made a loaded piano briefly look absent,
+    // and that empty path could then be saved over the real instrument.
+    const juce::ScopedLock stateLock(lock);
+    return layers[(size_t) layer].sourcePath;
 }
 
 float SampleEngine::getLayerPeak(int layer) const
