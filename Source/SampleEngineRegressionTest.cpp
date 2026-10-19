@@ -226,13 +226,13 @@ struct SampleEngineRegressionTests
         const auto rate = NordPianoDecoder::sampleRate;
         const auto start = rate;
         const auto end = rate * 3;
-        stroke.rootNote = 60;
+        stroke.rootNote = 57; // A3: protect the 220-Hz body while smoothing the loop.
         stroke.loopStartFrame = static_cast<std::uint32_t>(start);
         stroke.loopEndFrame = static_cast<std::uint32_t>(end);
         stroke.interleavedPcm.resize(static_cast<size_t>((end + 4) * 2));
         for (int frame = 0; frame < end + 4; ++frame)
         {
-            const auto phase = juce::MathConstants<double>::twoPi * 261.63 * frame / rate;
+            const auto phase = juce::MathConstants<double>::twoPi * 220.0 * frame / rate;
             const auto offset = frame > end - rate / 2 ? 3000.0 : 0.0;
             const auto value = static_cast<std::int16_t>(std::round(
                 8000.0 * std::sin(phase) + 1200.0 * std::sin(phase * 2.0) + offset));
@@ -246,8 +246,8 @@ struct SampleEngineRegressionTests
         SampleEngine::preparePianoLoops(piano);
         auto& prepared = piano.strokes[0];
         const auto fade = static_cast<int>(prepared.loopStartFrame) - start;
-        require(fade > rate / 2 && fade < rate * 6 / 10,
-                "Piano crossfade did not use the 550-ms target");
+        require(fade > rate * 45 / 100 && fade < rate * 65 / 100,
+                "Piano crossfade escaped its adaptive 550-ms target");
         require(prepared.interleavedPcm.size() == original.size(),
                 "Loop preparation allocated a second retained PCM buffer");
         for (int frame = 0; frame < end - fade; ++frame)
@@ -266,6 +266,21 @@ struct SampleEngineRegressionTests
                            - prepared.interleavedPcm[index] * 0.5) <= 2.0,
                     "Loop processing changed the stereo image");
         }
+        double processedEnergy = 0.0, plainEnergy = 0.0;
+        for (int frame = fade / 4; frame < fade * 3 / 4; ++frame)
+        {
+            const auto weight = 0.5 - 0.5 * std::cos(
+                juce::MathConstants<double>::pi * frame / (fade - 1));
+            const auto tail = original[static_cast<size_t>((end - fade + frame) * 2)];
+            const auto head = original[static_cast<size_t>((start + frame) * 2)];
+            const auto plain = (1.0 - weight) * tail + weight * head;
+            const auto processed = prepared.interleavedPcm[
+                static_cast<size_t>((end - fade + frame) * 2)];
+            plainEnergy += plain * plain;
+            processedEnergy += processed * processed;
+        }
+        require(processedEnergy >= plainEnergy * 0.999,
+                "Loop crossfade attenuated the piano body");
         require(piano.strokes[1].interleavedPcm == original
                     && piano.strokes[1].loopStartFrame == static_cast<std::uint32_t>(start),
                 "Loop processing modified release-trigger samples");
