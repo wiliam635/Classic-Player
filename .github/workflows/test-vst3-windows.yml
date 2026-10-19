@@ -1,0 +1,211 @@
+name: Test Classic Player VST3 - Windows x64
+
+on:
+  workflow_dispatch:
+    inputs:
+      final_release:
+        description: Publicar somente o instalador final 3.0.0
+        type: boolean
+        default: false
+  push:
+    branches: [codex/fix-user-refresh, codex/nord-piano-3.0.0-teste, codex/desktop-velocity-vst3-test, codex/desktop-3.0-approved-20261017]
+    paths:
+      - .github/workflows/test-vst3-windows.yml
+      - installer/windows/ClassicPlayerVst3Test.iss
+      - CMakeLists.txt
+      - tools/vst3_host_smoke_test.cpp
+      - Source/PluginEditor.cpp
+      - Source/PluginEditor.h
+      - Source/PluginProcessor.cpp
+      - Source/PluginProcessor.h
+      - Source/HammondRegressionTest.cpp
+      - Source/SampleEngine.cpp
+      - Source/SampleEngine.h
+      - Source/SampleEngineRegressionTest.cpp
+      - Source/Sf2Engine.cpp
+      - Source/Sf2Engine.h
+
+jobs:
+  vst3-windows:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Install vcpkg dependencies
+        uses: lukka/run-vcpkg@v11
+
+      - name: Configure x64
+        shell: pwsh
+        run: cmake --preset windows-x64 -DVCPKG_TARGET_TRIPLET=x64-windows-static '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>'
+
+      - name: Build standalone and VST3
+        shell: pwsh
+        run: cmake --build build\windows-x64 --target ClassicPlayer_Standalone ClassicPlayer_VST3 ClassicPlayerVst3HostSmokeTest ClassicPlayerHammondTest ClassicPlayerUpdateCheckerTest ClassicPlayerAudioRegressionTest ClassicPlayerEngineSmokeTest ClassicPlayerChordDetectorTest ClassicPlayerMasterMidiTest ClassicPlayerSampleEngineTest --config Release --parallel 2
+
+      - name: Verify NPNO polyphony, sustain, lifetime and EQ
+        shell: pwsh
+        run: |
+          $test = Get-ChildItem "build\windows-x64" -Recurse -Filter "ClassicPlayerSampleEngineTest.exe" -File |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $test) { throw "Teste NPNO ausente" }
+          & $test
+          if ($LASTEXITCODE -ne 0) { throw "Falha na polifonia, sustain ou EQ NPNO" }
+
+      - name: Verify audio at 44.1 and 48 kHz
+        shell: pwsh
+        run: |
+          $test = Get-ChildItem "build\windows-x64" -Recurse -Filter "ClassicPlayerAudioRegressionTest.exe" -File |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $test) { throw "Teste de audio ausente" }
+          & $test
+          if ($LASTEXITCODE -ne 0) { throw "Falha na regressao de audio" }
+
+      - name: Verify SF2 after returning to 44.1 kHz
+        shell: pwsh
+        run: |
+          $fixture = Join-Path $env:RUNNER_TEMP "VintageDreamsWaves-v2.sf2"
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/FluidSynth/fluidsynth/v2.5.5/sf2/VintageDreamsWaves-v2.sf2" -OutFile $fixture
+          $expected = "52132b2b83994f0067d3a66b93b4f1b67d53ff8c0d3be90d39f23f92b4585cdd"
+          if ((Get-FileHash $fixture -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+            throw "Fixture SF2 inesperado"
+          }
+          $test = Get-ChildItem "build\windows-x64" -Recurse -Filter "ClassicPlayerEngineSmokeTest.exe" -File |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $test) { throw "Teste SF2 ausente" }
+          & $test $fixture
+          if ($LASTEXITCODE -ne 0) { throw "SF2 falhou ao retornar para 44.1 kHz" }
+
+      - name: Verify update feed validation
+        shell: pwsh
+        run: |
+          $test = Get-ChildItem "build\windows-x64" -Recurse -Filter "ClassicPlayerUpdateCheckerTest.exe" -File |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $test) { throw "Teste das atualizacoes ausente" }
+          & $test
+          if ($LASTEXITCODE -ne 0) { throw "Falha na validacao de versoes ou downloads" }
+
+      - name: Verify saved effects return through menu and Live Set
+        shell: pwsh
+        run: |
+          $test = Get-ChildItem "build\windows-x64" -Recurse -Filter "*Hammond*Test.exe" -File |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $test) { throw "Teste de performance ausente" }
+          & $test --performance-effects
+          if ($LASTEXITCODE -ne 0) { throw "Falha ao restaurar efeitos da performance" }
+          & $test --midi-learn
+          if ($LASTEXITCODE -ne 0) { throw "Falha no MIDI Learn ou STOP dos pads contínuos" }
+          & $test --silver-ui
+          $silverUiExitCode = $LASTEXITCODE
+          if ($silverUiExitCode -ne 0) { throw "Falha na skin prateada ou bandeiras de idioma (exit $silverUiExitCode)" }
+          & $test --dark-steel-ui
+          $darkSteelExitCode = $LASTEXITCODE
+          if ($darkSteelExitCode -ne 0) { throw "Falha na skin de aco escovado escuro (exit $darkSteelExitCode)" }
+          & $test --display
+          if ($LASTEXITCODE -ne 0) { throw "Falha no visor de acordes/espectro" }
+          & $test --layer-colours
+          if ($LASTEXITCODE -ne 0) { throw "Falha nas cores independentes dos canais" }
+
+      - name: Verify extended chords and saved MIDI mute modes
+        shell: pwsh
+        run: |
+          foreach ($name in @("ClassicPlayerChordDetectorTest.exe", "ClassicPlayerMasterMidiTest.exe")) {
+            $test = Get-ChildItem "build\windows-x64" -Recurse -Filter $name -File |
+              Select-Object -First 1 -ExpandProperty FullName
+            if (-not $test) { throw "Teste ausente: $name" }
+            & $test
+            if ($LASTEXITCODE -ne 0) { throw "Falha: $name" }
+          }
+          & $test --sf2-mute (Join-Path $env:RUNNER_TEMP "VintageDreamsWaves-v2.sf2")
+          if ($LASTEXITCODE -ne 0) { throw "SF2 ficou silencioso depois de desmutar" }
+
+      - name: Verify self-contained VST3 loads like a DAW
+        shell: pwsh
+        run: |
+          $bundle = "build\windows-x64\ClassicPlayer_artefacts\Release\VST3\Classic Player.vst3"
+          if (-not (Test-Path $bundle -PathType Container)) { throw "VST3 não gerado: $bundle" }
+          $binary = Get-ChildItem $bundle -Recurse -Filter "*.vst3" -File | Select-Object -First 1
+          if (-not $binary) { throw "Binário VST3 não encontrado dentro do bundle" }
+          # A DAW may not search the plug-in folder for dependent DLLs. Static
+          # vcpkg libraries remove FluidSynth/OpenSSL runtime DLL requirements.
+          $standaloneDir = "build\windows-x64\ClassicPlayer_artefacts\Release\Standalone"
+          if (-not (Test-Path "$standaloneDir\Classic Player.exe")) { throw "Standalone ausente" }
+          New-Item -ItemType Directory -Force "$standaloneDir\Resources\WebUI" | Out-Null
+          Copy-Item "Resources\WebUI\*" "$standaloneDir\Resources\WebUI" -Recurse -Force
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class Vst3Loader {
+              [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+              public static extern IntPtr LoadLibraryEx(string path, IntPtr file, uint flags);
+              [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
+              public static extern IntPtr GetProcAddress(IntPtr module, string name);
+              [DllImport("kernel32.dll", SetLastError = true)]
+              public static extern bool FreeLibrary(IntPtr module);
+          }
+          '@
+          $module = [Vst3Loader]::LoadLibraryEx($binary.FullName, [IntPtr]::Zero, 0)
+          if ($module -eq [IntPtr]::Zero) {
+            throw "VST3 não carrega no Windows (erro Win32 $([Runtime.InteropServices.Marshal]::GetLastWin32Error()))."
+          }
+          try {
+            if ([Vst3Loader]::GetProcAddress($module, "GetPluginFactory") -eq [IntPtr]::Zero) {
+              throw "GetPluginFactory ausente no VST3."
+            }
+          } finally {
+            [Vst3Loader]::FreeLibrary($module) | Out-Null
+          }
+          Write-Host "VST3 carregado e GetPluginFactory encontrado."
+          $hostTest = Get-ChildItem "build\windows-x64" -Recurse -Filter "*VST3*Host*Smoke*Test.exe" -File |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $hostTest) { throw "Teste de host VST3 ausente" }
+          & $hostTest (Resolve-Path $bundle).Path
+          if ($LASTEXITCODE -ne 0) { throw "Host nao conseguiu descobrir/instanciar o VST3" }
+          New-Item -ItemType Directory -Force "outputs\vst3-test" | Out-Null
+          Compress-Archive -Path $bundle -DestinationPath "outputs\vst3-test\Classic-Player-3.0.0-VST3-teste-Windows-x64.zip" -Force
+
+      - name: Package combined test installer
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          $final = "${{ inputs.final_release }}" -eq "true"
+          if ($final) {
+            & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DFINAL_RELEASE "installer\windows\ClassicPlayerVst3Test.iss"
+            $setup = "outputs\vst3-test\Classic-Player-3.0.0-Windows-x64-Setup.exe"
+          } else {
+            & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\windows\ClassicPlayerVst3Test.iss"
+            $setup = "outputs\vst3-test\Classic-Player-3.0.0-Standalone-VST3-teste-Windows-x64-Setup.exe"
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Instalador de teste falhou" }
+          if (-not (Test-Path $setup)) { throw "Instalador de teste não foi criado" }
+          $setup = (Resolve-Path $setup).Path
+          $process = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Instalacao de teste falhou: $($process.ExitCode)" }
+          $installedBundle = Join-Path $env:ProgramFiles "Common Files\VST3\Classic Player.vst3"
+          if (-not (Test-Path $installedBundle -PathType Container)) { throw "VST3 nao foi instalado no caminho padrao: $installedBundle" }
+          $hostTest = Get-ChildItem "build\windows-x64" -Recurse -Filter "*VST3*Host*Smoke*Test.exe" -File |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $hostTest) { throw "Teste de host VST3 ausente apos a instalacao" }
+          & $hostTest $installedBundle
+          if ($LASTEXITCODE -ne 0) { throw "Host nao conseguiu abrir o VST3 instalado" }
+
+      - name: Upload test plugin
+        if: ${{ inputs.final_release != true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Classic-Player-3.0.0-VST3-teste-${{ github.run_number }}-Windows-x64
+          if-no-files-found: error
+          path: |
+            outputs/vst3-test/Classic-Player-3.0.0-VST3-teste-Windows-x64.zip
+            outputs/vst3-test/Classic-Player-3.0.0-Standalone-VST3-teste-Windows-x64-Setup.exe
+
+      - name: Upload final installer
+        if: ${{ inputs.final_release == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Classic-Player-3.0.0-Windows-x64
+          if-no-files-found: error
+          path: outputs/vst3-test/Classic-Player-3.0.0-Windows-x64-Setup.exe
