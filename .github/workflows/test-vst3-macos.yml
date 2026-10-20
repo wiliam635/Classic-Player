@@ -13,6 +13,7 @@ on:
       - .github/workflows/test-vst3-macos.yml
       - installer/macos/components-vst3-test.plist
       - installer/macos/components-vst3-final.plist
+      - installer/macos/distribution-language.xml
       - scripts/package-macos-vst3-test.sh
       - scripts/build-macos-universal-compat.sh
       - Source/PluginEditor.cpp
