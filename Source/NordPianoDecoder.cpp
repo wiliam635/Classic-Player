@@ -9,6 +9,7 @@
 namespace
 {
 constexpr size_t cbinHeaderBytes = 44;
+constexpr size_t legacyCbinHeaderBytes = 24;
 constexpr size_t minimumBodyBytes = 0x732;
 constexpr size_t keyMapOffset = 0x8c;
 constexpr size_t fineTuneOffset = 0x18c;
@@ -248,7 +249,7 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
 
     if (!file.existsAsFile())
         return fail("Arquivo Nord não encontrado.");
-    if (file.getSize() < static_cast<juce::int64>(cbinHeaderBytes + minimumBodyBytes))
+    if (file.getSize() < static_cast<juce::int64>(legacyCbinHeaderBytes + minimumBodyBytes))
         return fail("O arquivo é pequeno demais para conter um piano Nord válido.");
     if (file.getSize() > static_cast<juce::int64>(512u * 1024u * 1024u))
         return fail("O arquivo Nord excede o limite de 512 MB para importação.");
@@ -259,17 +260,21 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
 
     const auto* bytes = static_cast<const std::uint8_t*>(fileData.getData());
     const auto fileBytes = static_cast<size_t>(fileData.getSize());
-    if (fileBytes < cbinHeaderBytes + minimumBodyBytes
+    if (fileBytes < legacyCbinHeaderBytes + minimumBodyBytes
         || std::memcmp(bytes, "CBIN", 4) != 0)
         return fail("O arquivo não possui um cabeçalho CBIN válido.");
-    if (readLittleEndian32(bytes + 4) != 1)
-        return fail("Esta versão do importador aceita arquivos Nord CBIN de geração 1.");
+    const auto generation = readLittleEndian32(bytes + 4);
+    if (generation > 1)
+        return fail("Esta versão do importador aceita arquivos Nord CBIN de gerações 0 e 1.");
     if (std::memcmp(bytes + 8, "npno", 4) != 0)
         return fail("O arquivo CBIN não é uma biblioteca de piano .npno.");
 
-    const auto* body = bytes + cbinHeaderBytes;
-    const auto bodyBytes = fileBytes - cbinHeaderBytes;
-    if (crc32IsoHdlc(body, bodyBytes) != readLittleEndian32(bytes + 24))
+    const auto headerBytes = generation == 0 ? legacyCbinHeaderBytes : cbinHeaderBytes;
+    if (fileBytes < headerBytes + minimumBodyBytes)
+        return fail("O fluxo CNSP do piano Nord está truncado.");
+    const auto* body = bytes + headerBytes;
+    const auto bodyBytes = fileBytes - headerBytes;
+    if (generation == 1 && crc32IsoHdlc(body, bodyBytes) != readLittleEndian32(bytes + 24))
         return fail("A verificação CRC do arquivo Nord falhou; o arquivo pode estar corrompido.");
     if (std::memcmp(body, "CNSP", 4) != 0)
         return fail("O corpo do arquivo não contém um fluxo CNSP reconhecido.");
