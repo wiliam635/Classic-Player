@@ -5767,7 +5767,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectsEditor()
     const juce::String names[] { "TREMOLO", "DELAY", "FLANGER", "CHORUS" };
     for (int effect = 1; effect <= 4; ++effect)
     {
-        auto* button = new juce::TextButton(names[effect - 1]);
+        auto* button = new juce::TextButton();
+        button->setButtonText(names[effect - 1]);
         flatButton(*button);
         button->setSize(360, 40);
         button->onClick = [safe, selector, effect]
