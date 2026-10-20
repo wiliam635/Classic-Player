@@ -4,6 +4,111 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <vector>
+#include <algorithm>
+
+struct NordEffectSettings
+{
+    float tremoloMix = 0.0f, tremoloRate = 4.0f;
+    float flangerMix = 0.0f, flangerRate = 0.35f;
+    float chorusMix = 0.0f, chorusRate = 0.8f;
+    float delayMix = 0.0f, delayBpm = 120.0f, delayFeedback = 30.0f;
+};
+
+// Audio-thread-safe, allocation-free processing. Buffers are allocated only
+// in prepare(), never while rendering notes or changing the panel controls.
+struct NordLayerEffects
+{
+    void prepare(double rate)
+    {
+        sampleRate = juce::jmax(1.0, rate);
+        const auto modulationLength = (size_t) juce::jmax(64, juce::roundToInt(sampleRate * 0.06));
+        const auto delayLength = (size_t) juce::jmax(64, juce::roundToInt(sampleRate * 1.6));
+        for (auto& channel : modulation) channel.assign(modulationLength, 0.0f);
+        for (auto& channel : delay) channel.assign(delayLength, 0.0f);
+        reset();
+    }
+
+    void reset() noexcept
+    {
+        for (auto& channel : modulation) std::fill(channel.begin(), channel.end(), 0.0f);
+        for (auto& channel : delay) std::fill(channel.begin(), channel.end(), 0.0f);
+        modulationPosition = delayPosition = 0;
+        tremoloPhase = flangerPhase = chorusPhase = 0.0;
+    }
+
+    void process(juce::AudioBuffer<float>& buffer, const NordEffectSettings& settings) noexcept
+    {
+        if (buffer.getNumChannels() < 1 || modulation[0].empty() || delay[0].empty()) return;
+        const auto tremolo = juce::jlimit(0.0f, 1.0f, settings.tremoloMix * 0.01f);
+        const auto flanger = juce::jlimit(0.0f, 1.0f, settings.flangerMix * 0.01f);
+        const auto chorus = juce::jlimit(0.0f, 1.0f, settings.chorusMix * 0.01f);
+        const auto delayMix = juce::jlimit(0.0f, 1.0f, settings.delayMix * 0.01f);
+        if (tremolo + flanger + chorus + delayMix <= 0.0f) return;
+        const auto feedback = juce::jlimit(0.0f, 0.8f, settings.delayFeedback * 0.01f);
+        const auto tempoSamples = juce::jlimit(1, (int) delay[0].size() - 2,
+            juce::roundToInt(sampleRate * 60.0 / juce::jlimit(40.0f, 240.0f, settings.delayBpm)));
+        const auto twopi = juce::MathConstants<double>::twoPi;
+        for (int frame = 0; frame < buffer.getNumSamples(); ++frame)
+        {
+            const auto tremoloLfo = tremolo > 0.0f ? (float) (0.5 + 0.5 * std::sin(tremoloPhase)) : 1.0f;
+            const auto flangerLfo = flanger > 0.0f ? (float) (0.5 + 0.5 * std::sin(flangerPhase)) : 0.0f;
+            const auto chorusLfo = chorus > 0.0f ? (float) (0.5 + 0.5 * std::sin(chorusPhase)) : 0.0f;
+            for (int channel = 0; channel < juce::jmin(2, buffer.getNumChannels()); ++channel)
+            {
+                auto value = buffer.getSample(channel, frame);
+                if (tremolo > 0.0f) value *= 1.0f - tremolo + tremolo * tremoloLfo;
+                auto& modLine = modulation[(size_t) channel];
+                if (flanger > 0.0f)
+                {
+                    const auto tap = read(modLine, modulationPosition, sampleRate * (0.001 + 0.005 * flangerLfo));
+                    value += flanger * 0.55f * tap;
+                }
+                if (chorus > 0.0f)
+                {
+                    const auto phase = channel == 0 ? chorusLfo : 1.0f - chorusLfo;
+                    const auto tap = read(modLine, modulationPosition, sampleRate * (0.016 + 0.008 * phase));
+                    value = value * (1.0f - 0.35f * chorus) + tap * (0.35f * chorus);
+                }
+                modLine[modulationPosition] = value;
+                auto& delayLine = delay[(size_t) channel];
+                const auto readPosition = (delayPosition + delayLine.size() - (size_t) tempoSamples) % delayLine.size();
+                const auto echo = delayLine[readPosition];
+                if (delayMix > 0.0f)
+                {
+                    delayLine[delayPosition] = value + echo * feedback;
+                    value += delayMix * echo;
+                }
+                buffer.setSample(channel, frame, value);
+            }
+            modulationPosition = (modulationPosition + 1) % modulation[0].size();
+            delayPosition = (delayPosition + 1) % delay[0].size();
+            if (tremolo > 0.0f)
+                tremoloPhase = wrap(tremoloPhase + twopi * juce::jlimit(0.2f, 12.0f, settings.tremoloRate) / sampleRate);
+            if (flanger > 0.0f)
+                flangerPhase = wrap(flangerPhase + twopi * juce::jlimit(0.05f, 5.0f, settings.flangerRate) / sampleRate);
+            if (chorus > 0.0f)
+                chorusPhase = wrap(chorusPhase + twopi * juce::jlimit(0.05f, 5.0f, settings.chorusRate) / sampleRate);
+        }
+    }
+
+private:
+    static double wrap(double phase) noexcept
+    {
+        return phase >= juce::MathConstants<double>::twoPi ? phase - juce::MathConstants<double>::twoPi : phase;
+    }
+    static float read(const std::vector<float>& line, size_t write, double distance) noexcept
+    {
+        const auto position = (double) write + (double) line.size() - juce::jlimit(1.0, (double) line.size() - 2.0, distance);
+        const auto whole = (size_t) position % line.size();
+        const auto next = (whole + 1) % line.size();
+        const auto fraction = (float) (position - std::floor(position));
+        return line[whole] + (line[next] - line[whole]) * fraction;
+    }
+    std::array<std::vector<float>, 2> modulation, delay;
+    size_t modulationPosition = 0, delayPosition = 0;
+    double sampleRate = 44100.0, tremoloPhase = 0.0, flangerPhase = 0.0, chorusPhase = 0.0;
+};
 
 // Small allocation-free three-band layer EQ.  It is deliberately shared by
 // all engines so a layer sounds the same when its source is changed.

@@ -172,6 +172,8 @@ private:
         void showCompressorEditor();
         void showEqEditor();
         void showChorusEditor();
+        void showNordEffectsEditor();
+        void showNordEffectEditor(int effect);
         void showDrumPadEditor();
         void showLayerEditor();
         void showAnalogSynthEditor();

@@ -6,6 +6,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "Sf2Engine.h"
 #include "SampleEngine.h"
+#include "NordSampleEngine.h"
 #include "Dx7Engine.h"
 #include "AnalogSynthEngine.h"
 #include "HammondEngine.h"
@@ -44,7 +45,7 @@ public:
     void panic();
     // A source is chosen only when a new layer is created. The initial four
     // layers are SF2 by design.
-    enum class LayerType { sf2 = 0, vst, dx7, analog, drumPads, hammond, continuousPads, nord };
+    enum class LayerType { sf2 = 0, vst, dx7, analog, drumPads, hammond, continuousPads, nord, nordSample };
     ContinuousPadBank& continuousPads(int layer) { return *continuousBanks[(size_t)layer]; }
     explicit ClassicPlayerAudioProcessor(juce::File programStorageOverride = {});
     ~ClassicPlayerAudioProcessor() override;
@@ -78,6 +79,8 @@ public:
                                const juce::String& category = {});
     juce::Result loadNordPiano(int layer, const juce::File& file,
                                const juce::String& category = {});
+    juce::Result loadNordSample(int layer, const juce::File& file);
+    void unloadNordSample(int layer);
     void unloadSoundFont(int layer);
 
     // Hosting is intentionally available only to the standalone application.
@@ -178,6 +181,9 @@ public:
                                  juce::File& importedFile) const;
     juce::Array<juce::File> libraryNordPianos(const juce::String& category) const;
     juce::Result deleteLibraryNordPiano(const juce::File&);
+    juce::Result importNordSample(const juce::File&, juce::File& importedFile) const;
+    juce::Array<juce::File> libraryNordSamples() const;
+    juce::Result deleteLibraryNordSample(const juce::File&);
 
     // Persistent Classic Player programs are standalone files, independent
     // from DAW session state, and work on both macOS and Windows.
@@ -285,6 +291,7 @@ private:
 
     Sf2Engine engine;
     SampleEngine sampleEngine;
+    NordSampleEngine nordSampleEngine;
     struct NordVelocityCapture
     {
         mutable juce::SpinLock lock;

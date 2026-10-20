@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       approved:
-        description: "Versão 2.0 aprovada (remove TESTE do nome do download)"
+        description: "Versão 3.0.1 aprovada (remove TESTE do nome do download)"
         required: true
         default: false
         type: boolean
@@ -22,9 +22,9 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ inputs.approved }}" == "true" ]]; then
-            echo "DOWNLOAD_VERSION=2.0.0" >> "$GITHUB_ENV"
+            echo "DOWNLOAD_VERSION=3.0.1" >> "$GITHUB_ENV"
           else
-            echo "DOWNLOAD_VERSION=2.0.5-teste-${{ github.run_number }}" >> "$GITHUB_ENV"
+            echo "DOWNLOAD_VERSION=3.0.1-teste-${{ github.run_number }}" >> "$GITHUB_ENV"
           fi
 
       - name: Preflight native source
@@ -66,18 +66,15 @@ jobs:
         run: |
           chmod +x scripts/package-macos-universal-compat.sh
           scripts/package-macos-universal-compat.sh
-          mv outputs/installers/Classic-Player-2.0-macOS-High-Sierra-a-Tahoe-Universal.pkg \
-             outputs/installers/Classic-Player-2.0.5-teste-macOS-High-Sierra-a-Tahoe-Universal.pkg
-          mv outputs/installers/Classic-Player-2.0-macOS-High-Sierra-a-Tahoe-Universal-App.zip \
-             outputs/installers/Classic-Player-2.0.5-teste-macOS-High-Sierra-a-Tahoe-Universal-App.zip
 
       - name: Verify package and approved native interface
         run: |
           grep -q "CLASSIC KEYS SF2 WORKSTATION" Source/PluginEditor.cpp
           grep -q "set(CLASSIC_PLAYER_FORMATS Standalone VST3)" CMakeLists.txt
           test -d "build/Classic Player 2.0 macOS Universal.app"
-          test -f "outputs/installers/Classic-Player-2.0.5-teste-macOS-High-Sierra-a-Tahoe-Universal.pkg"
-          test -f "outputs/installers/Classic-Player-2.0.5-teste-macOS-High-Sierra-a-Tahoe-Universal-App.zip"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' 'build/Classic Player 2.0 macOS Universal.app/Contents/Info.plist')" = "3.0.1"
+          test -f "outputs/installers/Classic-Player-${DOWNLOAD_VERSION}-macOS-High-Sierra-a-Tahoe-Universal.pkg"
+          test -f "outputs/installers/Classic-Player-${DOWNLOAD_VERSION}-macOS-High-Sierra-a-Tahoe-Universal-App.zip"
 
       - name: Upload macOS installer
         uses: actions/upload-artifact@v4
@@ -85,5 +82,5 @@ jobs:
           name: Classic-Player-${{ env.DOWNLOAD_VERSION }}-macOS-Universal
           if-no-files-found: error
           path: |
-            outputs/installers/Classic-Player-2.0.5-teste-macOS-High-Sierra-a-Tahoe-Universal.pkg
-            outputs/installers/Classic-Player-2.0.5-teste-macOS-High-Sierra-a-Tahoe-Universal-App.zip
+            outputs/installers/Classic-Player-${{ env.DOWNLOAD_VERSION }}-macOS-High-Sierra-a-Tahoe-Universal.pkg
+            outputs/installers/Classic-Player-${{ env.DOWNLOAD_VERSION }}-macOS-High-Sierra-a-Tahoe-Universal-App.zip

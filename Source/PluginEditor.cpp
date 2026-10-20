@@ -2009,15 +2009,16 @@ public:
     NordPianoImportPanel(ClassicPlayerAudioProcessor& p, int layer,
                          const juce::String& selectedCategory,
                          std::function<void(const juce::String&)> onCategoryChanged,
-                         std::function<void()> onInstrumentChanged)
+                         std::function<void()> onInstrumentChanged,
+                         bool sampleLayer = false)
         : processor(p), index(layer), categoryChanged(std::move(onCategoryChanged)),
-          instrumentChanged(std::move(onInstrumentChanged))
+          instrumentChanged(std::move(onInstrumentChanged)), isSampleLayer(sampleLayer)
     {
         categoryLabel.setText("CATEGORIA", juce::dontSendNotification);
         categoryLabel.setColour(juce::Label::textColourId, juce::Colour(text));
         categoryLabel.setFont(juce::FontOptions(10.0f, juce::Font::bold));
         addAndMakeVisible(categoryLabel);
-        libraryLabel.setText("BIBLIOTECA NPNO", juce::dontSendNotification);
+        libraryLabel.setText(isSampleLayer ? "BIBLIOTECA NSMP4" : "BIBLIOTECA NPNO", juce::dontSendNotification);
         libraryLabel.setColour(juce::Label::textColourId, juce::Colour(text));
         libraryLabel.setFont(juce::FontOptions(10.0f, juce::Font::bold));
         addAndMakeVisible(libraryLabel);
@@ -2046,11 +2047,12 @@ public:
         {
             const auto selected = libraryBox.getSelectedItemIndex();
             if (!juce::isPositiveAndBelow(selected, libraryFiles.size())) return;
-            const auto result = processor.loadNordPiano(
-                index, libraryFiles.getReference(selected), selectedCategoryId(categoryBox));
+            const auto result = isSampleLayer
+                ? processor.loadNordSample(index, libraryFiles.getReference(selected))
+                : processor.loadNordPiano(index, libraryFiles.getReference(selected), selectedCategoryId(categoryBox));
             if (result.failed())
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                    "Falha ao carregar piano Nord", result.getErrorMessage());
+                    isSampleLayer ? "Falha ao carregar NSMP4" : "Falha ao carregar piano Nord", result.getErrorMessage());
             else
             {
                 rebuildLibrary();
@@ -2060,12 +2062,13 @@ public:
         addAndMakeVisible(libraryBox);
 
         flatButton(importButton);
-        importButton.setButtonText("IMPORTAR NPNO");
-        importButton.setTooltip("Importar um piano Nord (.npno) nesta categoria");
+        importButton.setButtonText(isSampleLayer ? "IMPORTAR NSMP4" : "IMPORTAR NPNO");
+        importButton.setTooltip(isSampleLayer ? "Importar uma amostra Nord (.nsmp4)" : "Importar um piano Nord (.npno) nesta categoria");
         importButton.onClick = [this]
         {
             chooser = std::make_unique<juce::FileChooser>(
-                "Escolha um piano Nord (.npno)", juce::File{}, "*.npno;*.NPNO");
+                isSampleLayer ? "Escolha uma amostra Nord (.nsmp4)" : "Escolha um piano Nord (.npno)",
+                juce::File{}, isSampleLayer ? "*.nsmp4;*.NSMP4" : "*.npno;*.NPNO");
             chooser->launchAsync(juce::FileBrowserComponent::openMode
                                      | juce::FileBrowserComponent::canSelectFiles,
                 [this](const juce::FileChooser& fileChooser)
@@ -2073,13 +2076,15 @@ public:
                     const auto source = fileChooser.getResult();
                     if (!source.existsAsFile()) return;
                     juce::File imported;
-                    auto result = processor.importNordPiano(
-                        source, selectedCategoryId(categoryBox), imported);
+                    auto result = isSampleLayer
+                        ? processor.importNordSample(source, imported)
+                        : processor.importNordPiano(source, selectedCategoryId(categoryBox), imported);
                     if (result.wasOk())
-                        result = processor.loadNordPiano(index, imported, selectedCategoryId(categoryBox));
+                        result = isSampleLayer ? processor.loadNordSample(index, imported)
+                                               : processor.loadNordPiano(index, imported, selectedCategoryId(categoryBox));
                     if (result.failed())
                         juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                            "Falha ao importar piano Nord", result.getErrorMessage());
+                            isSampleLayer ? "Falha ao importar NSMP4" : "Falha ao importar piano Nord", result.getErrorMessage());
                     else
                     {
                         rebuildLibrary();
@@ -2090,7 +2095,7 @@ public:
         addAndMakeVisible(importButton);
 
         flatButton(deleteButton);
-        deleteButton.setButtonText("EXCLUIR NPNO");
+        deleteButton.setButtonText(isSampleLayer ? "EXCLUIR NSMP4" : "EXCLUIR NPNO");
         deleteButton.setTooltip("Excluir o piano Nord selecionado da biblioteca");
         deleteButton.onClick = [this]
         {
@@ -2099,15 +2104,17 @@ public:
             const auto file = libraryFiles.getReference(selected);
             const juce::Component::SafePointer<NordPianoImportPanel> safe(this);
             juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon,
-                "Excluir piano Nord", "Excluir '" + file.getFileName() + "' da biblioteca?",
+                isSampleLayer ? "Excluir NSMP4" : "Excluir piano Nord", "Excluir '" + file.getFileName() + "' da biblioteca?",
                 "Excluir", "Cancelar", this, juce::ModalCallbackFunction::create(
                     [safe, file](int answer)
                     {
                         if (safe == nullptr || answer == 0) return;
-                        const auto result = safe->processor.deleteLibraryNordPiano(file);
+                        const auto result = safe->isSampleLayer
+                            ? safe->processor.deleteLibraryNordSample(file)
+                            : safe->processor.deleteLibraryNordPiano(file);
                         if (result.failed())
                             juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                "Falha ao excluir piano Nord", result.getErrorMessage());
+                                safe->isSampleLayer ? "Falha ao excluir NSMP4" : "Falha ao excluir piano Nord", result.getErrorMessage());
                         safe->rebuildLibrary();
                         if (safe->instrumentChanged) safe->instrumentChanged();
                     }));
@@ -2121,8 +2128,8 @@ public:
     {
         auto area = getLocalBounds().reduced(2, 2);
         auto row = area.removeFromTop(27);
-        categoryLabel.setBounds(row.removeFromLeft(100));
-        categoryBox.setBounds(row.removeFromLeft(260).reduced(2, 1));
+        categoryLabel.setBounds(isSampleLayer ? juce::Rectangle<int>{} : row.removeFromLeft(100));
+        categoryBox.setBounds(isSampleLayer ? juce::Rectangle<int>{} : row.removeFromLeft(260).reduced(2, 1));
         importButton.setBounds(row.reduced(2, 1));
         row = area.removeFromTop(27);
         libraryLabel.setBounds(row.removeFromLeft(100));
@@ -2133,7 +2140,8 @@ public:
 private:
     void rebuildLibrary()
     {
-        libraryFiles = processor.libraryNordPianos(selectedCategoryId(categoryBox));
+        libraryFiles = isSampleLayer ? processor.libraryNordSamples()
+                                    : processor.libraryNordPianos(selectedCategoryId(categoryBox));
         libraryBox.clear(juce::dontSendNotification);
         const auto currentPath = processor.soundFontPath(index);
         int selectedId = 0;
@@ -2144,7 +2152,8 @@ private:
             if (file.getFullPathName() == currentPath) selectedId = i + 1;
         }
         libraryBox.setTextWhenNothingSelected(libraryFiles.isEmpty()
-            ? "CATEGORIA VAZIA" : "ESCOLHA O NPNO");
+            ? (isSampleLayer ? "BIBLIOTECA NSMP4 VAZIA" : "CATEGORIA VAZIA")
+            : (isSampleLayer ? "ESCOLHA O NSMP4" : "ESCOLHA O NPNO"));
         if (selectedId > 0)
             libraryBox.setSelectedId(selectedId, juce::dontSendNotification);
         deleteButton.setEnabled(selectedId > 0);
@@ -2154,6 +2163,7 @@ private:
     int index;
     std::function<void(const juce::String&)> categoryChanged;
     std::function<void()> instrumentChanged;
+    bool isSampleLayer = false;
     juce::Label categoryLabel, libraryLabel;
     juce::ComboBox categoryBox, libraryBox;
     juce::TextButton importButton, deleteButton;
@@ -2302,15 +2312,18 @@ public:
     LayerEffectButtons(std::function<void()> reverbCallback,
                        std::function<void()> compressorCallback,
                        std::function<void()> chorusCallback = {},
-                       std::function<void()> eqCallback = {})
+                       std::function<void()> eqCallback = {},
+                       std::function<void()> nordCallback = {})
         : onReverb(std::move(reverbCallback)), onCompressor(std::move(compressorCallback)),
-          onChorus(std::move(chorusCallback)), onEq(std::move(eqCallback))
+          onChorus(std::move(chorusCallback)), onEq(std::move(eqCallback)),
+          onNord(std::move(nordCallback))
     {
         reverb.setButtonText("EDITAR REVERB");
         compressor.setButtonText("EDITAR COMP");
         chorus.setButtonText("EDITAR CHORUS");
         eq.setButtonText("EDITAR EQ");
-        for (auto* button : { &reverb, &compressor, &chorus, &eq })
+        nord.setButtonText("EFEITOS NORD");
+        for (auto* button : { &reverb, &compressor, &chorus, &eq, &nord })
         {
             flatButton(*button);
             addAndMakeVisible(*button);
@@ -2319,8 +2332,10 @@ public:
         compressor.onClick = [this] { if (onCompressor) onCompressor(); };
         chorus.onClick = [this] { if (onChorus) onChorus(); };
         eq.onClick = [this] { if (onEq) onEq(); };
+        nord.onClick = [this] { if (onNord) onNord(); };
         chorus.setVisible((bool) onChorus);
         eq.setVisible((bool) onEq);
+        nord.setVisible((bool) onNord);
         setSize(460, 38);
     }
 
@@ -2329,13 +2344,15 @@ public:
         auto row = getLocalBounds();
         const bool hasChorus = static_cast<bool>(onChorus);
         const bool hasEq = static_cast<bool>(onEq);
-        const auto columns = (hasChorus ? 1 : 0) + (hasEq ? 1 : 0) + 2;
-        reverb.setBounds(row.removeFromLeft(row.getWidth() / columns).reduced(2, 1));
-        compressor.setBounds(row.removeFromLeft(row.getWidth() / (columns - 1)).reduced(2, 1));
+        auto columns = (hasChorus ? 1 : 0) + (hasEq ? 1 : 0) + (onNord ? 1 : 0) + 2;
+        reverb.setBounds(row.removeFromLeft(row.getWidth() / columns--).reduced(2, 1));
+        compressor.setBounds(row.removeFromLeft(row.getWidth() / columns--).reduced(2, 1));
         if (hasChorus)
-            chorus.setBounds(row.removeFromLeft(row.getWidth() / ((hasEq ? 1 : 0) + 1)).reduced(2, 1));
+            chorus.setBounds(row.removeFromLeft(row.getWidth() / columns--).reduced(2, 1));
         if (hasEq)
-            eq.setBounds(row.reduced(2, 1));
+            eq.setBounds(row.removeFromLeft(row.getWidth() / columns--).reduced(2, 1));
+        if (onNord)
+            nord.setBounds(row.reduced(2, 1));
     }
 
 private:
@@ -2343,7 +2360,8 @@ private:
     std::function<void()> onCompressor;
     std::function<void()> onChorus;
     std::function<void()> onEq;
-    juce::TextButton reverb, compressor, chorus, eq;
+    std::function<void()> onNord;
+    juce::TextButton reverb, compressor, chorus, eq, nord;
 };
 
 class CentredEditorPanel final : public juce::Component
@@ -4910,12 +4928,16 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
         deleteLibraryButton.setEnabled(juce::isPositiveAndBelow(selected, libraryFiles.size()));
         if (!juce::isPositiveAndBelow(selected, libraryFiles.size())) return;
         const auto isNord = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord;
-        const auto result = isNord
-            ? processor.loadNordPiano(index, libraryFiles.getReference(selected), selectedCategoryId(categoryBox))
-            : processor.loadSoundFont(index, libraryFiles.getReference(selected), selectedCategoryId(categoryBox));
+        const auto isNordSample = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordSample;
+        const auto result = isNordSample
+            ? processor.loadNordSample(index, libraryFiles.getReference(selected))
+            : isNord
+                ? processor.loadNordPiano(index, libraryFiles.getReference(selected), selectedCategoryId(categoryBox))
+                : processor.loadSoundFont(index, libraryFiles.getReference(selected), selectedCategoryId(categoryBox));
         if (result.failed())
             juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                isNord ? "Falha ao carregar piano Nord" : "Falha ao carregar SF2", result.getErrorMessage());
+                isNordSample ? "Falha ao carregar Nord NSMP4" : isNord ? "Falha ao carregar piano Nord" : "Falha ao carregar SF2",
+                result.getErrorMessage());
         refresh();
     };
     addAndMakeVisible(categoryBox);
@@ -5129,11 +5151,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         { "COMP", valueOf(prefix + "Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "EQ LOW dB", valueOf(prefix + "EqLow", 0.0f), -18.0f, 18.0f, 0.1f, 1 },
         { "EQ MID dB", valueOf(prefix + "EqMid", 0.0f), -18.0f, 18.0f, 0.1f, 1 },
-        { "EQ HIGH dB", valueOf(prefix + "EqHigh", 0.0f), -18.0f, 18.0f, 0.1f, 1 }
+        { "EQ HIGH dB", valueOf(prefix + "EqHigh", 0.0f), -18.0f, 18.0f, 0.1f, 1 },
+        { "GAIN MOTOR dB", valueOf(prefix + "PreGainDb", 0.0f), -18.0f, 18.0f, 0.1f, 1 }
     }, 5);
-    const std::array<const char*, 9> editorParameterSuffixes {
+    const std::array<const char*, 10> editorParameterSuffixes {
         "Gain", "Attack", "Release", "Cutoff", "Reverb", "Comp",
-        "EqLow", "EqMid", "EqHigh"
+        "EqLow", "EqMid", "EqHigh", "PreGainDb"
     };
     for (int control = 0; control < (int) editorParameterSuffixes.size(); ++control)
         knobs->bindParameter(control, processor.parameters,
@@ -5155,7 +5178,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::sf2
             ? std::function<void()>([safe] { if (safe != nullptr) safe->showChorusEditor(); })
             : std::function<void()>{},
-        [safe] { if (safe != nullptr) safe->showEqEditor(); });
+        [safe] { if (safe != nullptr) safe->showEqEditor(); },
+        processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord
+            || processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordSample
+            ? std::function<void()>([safe] { if (safe != nullptr) safe->showNordEffectsEditor(); })
+            : std::function<void()>{});
     auto* midiPanel = new LayerMidiLearnPanel(processor, index);
 
     class CenteredPanel final : public juce::Component
@@ -5204,6 +5231,15 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         dialog->addCustomComponent(new CenteredPanel(
             new NordPianoTimbrePanel(processor, index), 620, 42));
     }
+    if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordSample)
+    {
+        dialog->addCustomComponent(new CenteredPanel(
+            new NordPianoImportPanel(processor, index, {}, {},
+                [safe] { if (safe != nullptr) safe->refresh(); }, true), 620, 58));
+        auto* nsmpRouting = new LayerRoutingEditorPanel(processor, index);
+        nsmpRouting->setSize(620, 156);
+        dialog->addCustomComponent(new CenteredPanel(nsmpRouting, 620, 156));
+    }
 
     // On a 13-inch display the complete editor, including numeric values and
     // footer, must fit without an inner scroll area.
@@ -5230,6 +5266,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         set("Release", knobs->value(2)); set("Cutoff", knobs->value(3));
         set("Reverb", knobs->value(4)); set("Comp", knobs->value(5));
         set("EqLow", knobs->value(6)); set("EqMid", knobs->value(7)); set("EqHigh", knobs->value(8));
+        set("PreGainDb", knobs->value(9));
     });
     dialog->setSize(actionWidth + 52, juce::jmin(570, screenHeight - 12));
     dialog->fitWithinApp(this);
@@ -5252,6 +5289,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
             set("EqLow", knobs->value(6));
             set("EqMid", knobs->value(7));
             set("EqHigh", knobs->value(8));
+            set("PreGainDb", knobs->value(9));
             safe->refresh();
         }), true);
 }
@@ -5368,6 +5406,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::saveLayerPreset()
     {
         case ClassicPlayerAudioProcessor::LayerType::sf2: typeName = "SF2"; break;
         case ClassicPlayerAudioProcessor::LayerType::nord: typeName = "Nord"; break;
+        case ClassicPlayerAudioProcessor::LayerType::nordSample: typeName = "Nord NSMP4"; break;
         case ClassicPlayerAudioProcessor::LayerType::dx7: typeName = "DX7"; break;
         case ClassicPlayerAudioProcessor::LayerType::analog: typeName = "Moog"; break;
         case ClassicPlayerAudioProcessor::LayerType::hammond: typeName = "Hammond"; break;
@@ -5714,6 +5753,121 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showChorusEditor()
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
 
+void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectsEditor()
+{
+    const auto type = processor.layerType(index);
+    if (type != ClassicPlayerAudioProcessor::LayerType::nord
+        && type != ClassicPlayerAudioProcessor::LayerType::nordSample) return;
+    auto* dialog = new LayerEditorWindow(
+        "EFEITOS NORD", "Selecione o efeito para ajustar nesta layer.",
+        juce::MessageBoxIconType::NoIcon);
+    dialog->setLookAndFeel(&classicLookAndFeel);
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    const juce::Component::SafePointer<LayerEditorWindow> selector(dialog);
+    const juce::String names[] { "TREMOLO", "DELAY", "FLANGER", "CHORUS" };
+    for (int effect = 1; effect <= 4; ++effect)
+    {
+        auto* button = new juce::TextButton(names[effect - 1]);
+        flatButton(*button);
+        button->setSize(360, 40);
+        button->onClick = [safe, selector, effect]
+        {
+            if (selector != nullptr)
+                selector->exitModalState(0);
+            juce::MessageManager::callAsync([safe, effect]
+            {
+                if (safe != nullptr)
+                    safe->showNordEffectEditor(effect);
+            });
+        };
+        dialog->addCustomComponent(button);
+    }
+    dialog->setSize(480, 340);
+    dialog->fitWithinApp(this);
+    dialog->fitCustomComponentsVertically();
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create([](int) {}), true);
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int effect)
+{
+    const auto type = processor.layerType(index);
+    if ((type != ClassicPlayerAudioProcessor::LayerType::nord
+         && type != ClassicPlayerAudioProcessor::LayerType::nordSample)
+        || effect < 1 || effect > 4) return;
+    const auto fx = processor.layerConfig(index).nordFx;
+    const juce::String names[] { {}, "TREMOLO", "DELAY", "FLANGER", "CHORUS" };
+    auto* dialog = new LayerEditorWindow(
+        names[effect] + " NORD", effect == 2 ? "Tempo por TAP ou BPM manual." : "Ajuste o efeito desta layer.",
+        juce::MessageBoxIconType::NoIcon);
+    dialog->setLookAndFeel(&classicLookAndFeel);
+    KnobEditorPanel* knobs = nullptr;
+    switch (effect)
+    {
+        case 1: knobs = new KnobEditorPanel({
+            { "RATE Hz", fx.tremoloRate, 0.2f, 12, 0.1f, 1 },
+            { "DEPTH %", fx.tremoloMix, 0, 100, 1, 0 }
+        }, 2); break;
+        case 2: knobs = new KnobEditorPanel({
+            { "DELAY BPM", fx.delayBpm, 40, 240, 1, 0 },
+            { "FEEDBACK %", fx.delayFeedback, 0, 80, 1, 0 },
+            { "MIX %", fx.delayMix, 0, 100, 1, 0 }
+        }, 3); break;
+        case 3: knobs = new KnobEditorPanel({
+            { "RATE Hz", fx.flangerRate, 0.05f, 5, 0.05f, 2 },
+            { "MIX %", fx.flangerMix, 0, 100, 1, 0 }
+        }, 2); break;
+        default: knobs = new KnobEditorPanel({
+            { "RATE Hz", fx.chorusRate, 0.05f, 5, 0.05f, 2 },
+            { "MIX %", fx.chorusMix, 0, 100, 1, 0 }
+        }, 2); break;
+    }
+    knobs->useDenseGrid(true);
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    knobs->setOnValueChange([safe, knobs, effect]
+    {
+        if (safe == nullptr) return;
+        auto config = safe->processor.layerConfig(safe->index);
+        auto& settings = config.nordFx;
+        switch (effect)
+        {
+            case 1: settings.tremoloRate = knobs->value(0); settings.tremoloMix = knobs->value(1); break;
+            case 2: settings.delayBpm = knobs->value(0); settings.delayFeedback = knobs->value(1);
+                    settings.delayMix = knobs->value(2); break;
+            case 3: settings.flangerRate = knobs->value(0); settings.flangerMix = knobs->value(1); break;
+            case 4: settings.chorusRate = knobs->value(0); settings.chorusMix = knobs->value(1); break;
+        }
+        safe->processor.setLayerConfig(safe->index, config);
+    });
+    dialog->addCustomComponent(knobs);
+    if (effect == 2)
+    {
+        auto* tap = new juce::TextButton("TAP TEMPO");
+        flatButton(*tap);
+        tap->setSize(220, 34);
+        auto previousTap = std::make_shared<double>(0.0);
+        tap->onClick = [safe, knobs, tap, previousTap]
+        {
+            if (safe == nullptr) return;
+            const auto now = juce::Time::getMillisecondCounterHiRes();
+            const auto interval = now - *previousTap;
+            *previousTap = now;
+            if (interval < 250.0 || interval > 1500.0) return;
+            const auto bpm = (float) juce::jlimit(40, 240, juce::roundToInt(60000.0 / interval));
+            knobs->setValue(0, bpm);
+            auto config = safe->processor.layerConfig(safe->index);
+            config.nordFx.delayBpm = bpm;
+            safe->processor.setLayerConfig(safe->index, config);
+            tap->setButtonText("TAP TEMPO · " + juce::String((int) bpm) + " BPM");
+        };
+        dialog->addCustomComponent(tap);
+    }
+    dialog->setSize(560, effect == 2 ? 310 : 260);
+    dialog->fitWithinApp(this);
+    dialog->fitCustomComponentsVertically();
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create(
+        [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
+}
+
 void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDown(const juce::MouseEvent& event)
 {
     if (event.mods.isPopupMenu())
@@ -5845,7 +5999,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showQuickPresetMenu()
     if (quickPresetMenuOpen) return;
     const auto type = processor.layerType(index);
     const auto sourcePath = (type == ClassicPlayerAudioProcessor::LayerType::sf2
-        || type == ClassicPlayerAudioProcessor::LayerType::nord) ? processor.soundFontPath(index)
+        || type == ClassicPlayerAudioProcessor::LayerType::nord
+        || type == ClassicPlayerAudioProcessor::LayerType::nordSample) ? processor.soundFontPath(index)
         : type == ClassicPlayerAudioProcessor::LayerType::dx7 ? processor.dx7Path(index) : juce::String{};
     if (type == ClassicPlayerAudioProcessor::LayerType::vst)
     {
@@ -5874,6 +6029,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showQuickPresetMenu()
             menu.addItem(i + 1, banks.getReference(i).getFileNameWithoutExtension(), true,
                          banks.getReference(i).getFullPathName() == sourcePath);
     }
+    else if (type == ClassicPlayerAudioProcessor::LayerType::nordSample)
+    {
+        banks = processor.libraryNordSamples();
+        for (int i = 0; i < banks.size(); ++i)
+            menu.addItem(i + 1, banks.getReference(i).getFileNameWithoutExtension(), true,
+                         banks.getReference(i).getFullPathName() == sourcePath);
+    }
     else if (type == ClassicPlayerAudioProcessor::LayerType::dx7)
     {
         for (int i = 0; i < processor.dx7PatchCount(index); ++i)
@@ -5891,7 +6053,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showQuickPresetMenu()
         for (int i = 0; i < (int) AnalogBrowserPresets::bank.size(); ++i)
             menu.addItem(i + 1, AnalogBrowserPresets::bank[(size_t) i].name);
     }
-    if (!banks.isEmpty() && type != ClassicPlayerAudioProcessor::LayerType::nord)
+    if (!banks.isEmpty() && type != ClassicPlayerAudioProcessor::LayerType::nord
+        && type != ClassicPlayerAudioProcessor::LayerType::nordSample)
     {
         juce::PopupMenu bankMenu;
         for (int i = 0; i < banks.size(); ++i)
@@ -5927,6 +6090,18 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showQuickPresetMenu()
             if (result.failed())
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
                     "Falha ao carregar piano Nord", result.getErrorMessage());
+            return;
+        }
+        if (type == ClassicPlayerAudioProcessor::LayerType::nordSample)
+        {
+            const int sample = selected - 1;
+            if (p.soundFontPath(layer) != sourcePath
+                || !juce::isPositiveAndBelow(sample, banks.size())) return;
+            const auto result = p.loadNordSample(layer, banks.getReference(sample));
+            safe->refresh();
+            if (result.failed())
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                    "Falha ao carregar NSMP4", result.getErrorMessage());
             return;
         }
         if (selected >= 100000 && juce::isPositiveAndBelow(selected - 100000, banks.size()))
@@ -6051,6 +6226,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
     const auto type = processor.layerType(index);
     auto category = type == ClassicPlayerAudioProcessor::LayerType::sf2 ? selectedCategoryId(categoryBox)
                   : type == ClassicPlayerAudioProcessor::LayerType::nord ? "Nord"
+                  : type == ClassicPlayerAudioProcessor::LayerType::nordSample ? "Nord"
                   : type == ClassicPlayerAudioProcessor::LayerType::dx7 ? "DX7"
                   : type == ClassicPlayerAudioProcessor::LayerType::hammond ? "Hammond"
                   : type == ClassicPlayerAudioProcessor::LayerType::analog ? "Moog Analog"
@@ -6144,6 +6320,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
         fileLabel.setBounds(area.removeFromTop(27));
         area.removeFromTop(4);
         presetBox.setBounds(area.removeFromTop(28));
+    }
+    else if (type == ClassicPlayerAudioProcessor::LayerType::nordSample)
+    {
+        loadButton.setBounds(area.removeFromTop(28));
+        area.removeFromTop(4);
+        auto libraryRow = area.removeFromTop(28);
+        deleteLibraryButton.setBounds(libraryRow.removeFromRight(76).reduced(1, 0));
+        libraryBox.setBounds(libraryRow);
+        area.removeFromTop(4);
+        fileLabel.setBounds(area.removeFromTop(27));
     }
     else if (type == ClassicPlayerAudioProcessor::LayerType::nord)
     {
@@ -6255,13 +6441,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
 {
     const auto isNord = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord;
-    const auto title = isNord ? "Escolha um piano Nord (.npno)" : "Escolha um SoundFont (.sf2)";
-    const auto filter = isNord ? "*.npno;*.NPNO" : "*.sf2;*.SF2";
+    const auto isNordSample = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordSample;
+    const auto title = isNordSample ? "Escolha uma amostra Nord NSMP4 (.nsmp4)"
+                     : isNord ? "Escolha um piano Nord (.npno)" : "Escolha um SoundFont (.sf2)";
+    const auto filter = isNordSample ? "*.nsmp4;*.NSMP4"
+                      : isNord ? "*.npno;*.NPNO" : "*.sf2;*.SF2";
     fileChooser = std::make_unique<juce::FileChooser>(
         localizedUiText(title, activeUiLanguage.load()), juce::File{}, filter);
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode |
                              juce::FileBrowserComponent::canSelectFiles,
-        [this, isNord](const juce::FileChooser& chooser)
+        [this, isNord, isNordSample](const juce::FileChooser& chooser)
         {
             const auto file = chooser.getResult();
             if (file == juce::File{}) return;
@@ -6270,7 +6459,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
             fileLabel.setText(localizedUiText("Carregando...", activeUiLanguage.load()), juce::dontSendNotification);
             juce::File importedFile;
             auto result = juce::Result::ok();
-            if (isNord)
+            if (isNordSample)
+            {
+                result = processor.importNordSample(file, importedFile);
+                if (result.wasOk()) result = processor.loadNordSample(index, importedFile);
+            }
+            else if (isNord)
             {
                 result = processor.importNordPiano(file, selectedCategoryId(categoryBox), importedFile);
                 if (result.wasOk())
@@ -6285,7 +6479,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
             loadButton.setEnabled(true);
             if (result.failed())
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                    isNord ? "Falha ao importar piano Nord" : "Falha ao importar SF2",
+                    isNordSample ? "Falha ao importar Nord NSMP4" : isNord ? "Falha ao importar piano Nord" : "Falha ao importar SF2",
                     result.getErrorMessage());
             refresh();
         });
@@ -6373,6 +6567,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     const auto type = processor.layerType(index);
     const auto isSf2 = type == ClassicPlayerAudioProcessor::LayerType::sf2;
     const auto isNord = type == ClassicPlayerAudioProcessor::LayerType::nord;
+    const auto isNordSample = type == ClassicPlayerAudioProcessor::LayerType::nordSample;
     const auto isVst = type == ClassicPlayerAudioProcessor::LayerType::vst;
     const auto isDx7 = type == ClassicPlayerAudioProcessor::LayerType::dx7;
     const auto isAnalog = type == ClassicPlayerAudioProcessor::LayerType::analog;
@@ -6400,13 +6595,14 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     for (auto* control : sharedControls)
         control->setVisible(!isDrumPads);
 
-    loadButton.setButtonText(isNord ? "IMPORTAR NPNO" : "IMPORTAR SF2");
-    loadButton.setTooltip(isNord ? "Importar um piano Nord (.npno)" : "Importar um SoundFont (.sf2)");
-    loadButton.setVisible(isSf2 || isNord);
+    loadButton.setButtonText(isNordSample ? "IMPORTAR NSMP4" : isNord ? "IMPORTAR NPNO" : "IMPORTAR SF2");
+    loadButton.setTooltip(isNordSample ? "Importar uma amostra Nord NSMP4 (.nsmp4)"
+                       : isNord ? "Importar um piano Nord (.npno)" : "Importar um SoundFont (.sf2)");
+    loadButton.setVisible(isSf2 || isNord || isNordSample);
     categoryBox.setVisible(isSf2 || isNord);
-    libraryBox.setVisible(isSf2 || isNord);
-    deleteLibraryButton.setVisible(isSf2 || isNord);
-    deleteLibraryButton.setButtonText(isNord ? "EXCLUIR NPNO" : "EXCLUIR SF2");
+    libraryBox.setVisible(isSf2 || isNord || isNordSample);
+    deleteLibraryButton.setVisible(isSf2 || isNord || isNordSample);
+    deleteLibraryButton.setButtonText(isNordSample ? "EXCLUIR NSMP4" : isNord ? "EXCLUIR NPNO" : "EXCLUIR SF2");
     presetBox.setVisible(isSf2);
     externalInstrumentBox.setVisible(isVst && processor.supportsExternalInstruments());
     externalInstrumentButton.setVisible(isVst && processor.supportsExternalInstruments());
@@ -6425,7 +6621,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     chorusLabel.setVisible(isDx7 && expanded);
     sourceSummary.setText(fileLabel.getText().isNotEmpty()
                               ? fileLabel.getText()
-                              : (isSf2 ? "SF2" : isNord ? "NORD PIANO" : isDx7 ? "DX7" : isAnalog ? "CLASSIC KEYS ANALOG"
+                              : (isSf2 ? "SF2" : isNord ? "NORD PIANO" : isNordSample ? "NORD SAMPLE" : isDx7 ? "DX7" : isAnalog ? "CLASSIC KEYS ANALOG"
                                                    : isHammond ? "HAMMOND" : isVst ? "VST" : "DRUM PADS"),
                           juce::dontSendNotification);
     if (isDrumPads)
@@ -6519,22 +6715,24 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::deleteSelectedSoundFont()
     if (!juce::isPositiveAndBelow(selected, libraryFiles.size())) return;
     const auto file = libraryFiles.getReference(selected);
     const auto isNord = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord;
+    const auto isNordSample = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordSample;
     const juce::Component::SafePointer<LayerStrip> safe(this);
     juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon,
-                                       isNord ? "Excluir piano Nord" : "Excluir SF2",
+                                       isNordSample ? "Excluir amostra Nord" : isNord ? "Excluir piano Nord" : "Excluir SF2",
                                        "Excluir '" + file.getFileName() + "' da biblioteca?",
                                        "Excluir", "Cancelar", this,
                                        juce::ModalCallbackFunction::create(
-                                           [safe, file, isNord](int answer)
+                                           [safe, file, isNord, isNordSample](int answer)
                                            {
                                                if (safe == nullptr || answer == 0) return;
-                                               const auto result = isNord
-                                                   ? safe->processor.deleteLibraryNordPiano(file)
-                                                   : safe->processor.deleteLibrarySoundFont(file);
+                                               const auto result = isNordSample
+                                                   ? safe->processor.deleteLibraryNordSample(file)
+                                                   : isNord ? safe->processor.deleteLibraryNordPiano(file)
+                                                            : safe->processor.deleteLibrarySoundFont(file);
                                                if (result.failed())
                                                    juce::AlertWindow::showMessageBoxAsync(
                                                        juce::MessageBoxIconType::WarningIcon,
-                                                       isNord ? "Falha ao excluir piano Nord" : "Falha ao excluir SF2",
+                                                       isNordSample ? "Falha ao excluir amostra Nord" : isNord ? "Falha ao excluir piano Nord" : "Falha ao excluir SF2",
                                                        result.getErrorMessage());
                                                safe->refresh();
                                            }));
@@ -6561,7 +6759,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resetLayer()
     gain.setValue(80.0);
     mode.setSelectedId(1);
     sustain.setSelectedId(1);
-    midiChannel.setSelectedId(2);
+    midiChannel.setSelectedId(1);
     octave.setSelectedId(5);
     lowNote.setSelectedId(1);
     highNote.setSelectedId(128);
@@ -6613,7 +6811,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::rebuildLibrary()
 {
     const auto currentPath = processor.soundFontPath(index);
     const auto isNord = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord;
-    libraryFiles = isNord ? processor.libraryNordPianos(selectedCategoryId(categoryBox))
+    const auto isNordSample = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordSample;
+    libraryFiles = isNordSample ? processor.libraryNordSamples()
+                 : isNord ? processor.libraryNordPianos(selectedCategoryId(categoryBox))
                           : processor.librarySoundFonts(selectedCategoryId(categoryBox));
     libraryBox.clear(juce::dontSendNotification);
     auto selectedId = 0;
@@ -6624,7 +6824,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::rebuildLibrary()
         if (file.getFullPathName() == currentPath) selectedId = item + 1;
     }
     libraryBox.setTextWhenNothingSelected(libraryFiles.isEmpty()
-        ? "CATEGORIA VAZIA" : isNord ? "ESCOLHA O NPNO" : "ESCOLHA O SF2");
+        ? (isNordSample ? "BIBLIOTECA NSMP4 VAZIA" : "CATEGORIA VAZIA")
+        : isNordSample ? "ESCOLHA O NSMP4" : isNord ? "ESCOLHA O NPNO" : "ESCOLHA O SF2");
     if (selectedId > 0) libraryBox.setSelectedId(selectedId, juce::dontSendNotification);
     deleteLibraryButton.setEnabled(libraryBox.getSelectedItemIndex() >= 0);
 }
@@ -6749,9 +6950,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
     dx7Button.setButtonText(type == ClassicPlayerAudioProcessor::LayerType::analog
                                  ? "ABRIR CLASSIC KEYS ANALOG" : type == ClassicPlayerAudioProcessor::LayerType::hammond ? "ABRIR HAMMOND" : "IMPORTAR DX7");
     if (type == ClassicPlayerAudioProcessor::LayerType::sf2
-        || type == ClassicPlayerAudioProcessor::LayerType::nord)
+        || type == ClassicPlayerAudioProcessor::LayerType::nord
+        || type == ClassicPlayerAudioProcessor::LayerType::nordSample)
     {
-        selectCurrentCategory();
+        if (type != ClassicPlayerAudioProcessor::LayerType::nordSample)
+            selectCurrentCategory();
         rebuildLibrary();
         if (type == ClassicPlayerAudioProcessor::LayerType::sf2)
             rebuildPresets();
@@ -6765,7 +6968,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
     }
 
     const auto hasSource = (type == ClassicPlayerAudioProcessor::LayerType::sf2
-                            || type == ClassicPlayerAudioProcessor::LayerType::nord) ? path.isNotEmpty()
+                            || type == ClassicPlayerAudioProcessor::LayerType::nord
+                            || type == ClassicPlayerAudioProcessor::LayerType::nordSample) ? path.isNotEmpty()
         : type == ClassicPlayerAudioProcessor::LayerType::vst ? externalName.isNotEmpty()
         : type == ClassicPlayerAudioProcessor::LayerType::dx7 ? processor.hasDx7(index)
         : type == ClassicPlayerAudioProcessor::LayerType::hammond || processor.hasAnalogSynth(index);
@@ -6775,6 +6979,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
         : type == ClassicPlayerAudioProcessor::LayerType::nord
             ? (path.isNotEmpty() ? juce::File(path).getFileNameWithoutExtension()
                                  : localizedUiText("Sem piano Nord", activeUiLanguage.load()))
+        : type == ClassicPlayerAudioProcessor::LayerType::nordSample
+            ? (path.isNotEmpty() ? juce::File(path).getFileNameWithoutExtension()
+                                 : localizedUiText("Sem amostra Nord", activeUiLanguage.load()))
         : type == ClassicPlayerAudioProcessor::LayerType::vst
             ? (externalName.isNotEmpty() ? externalName
                                          : localizedUiText("Sem VST", activeUiLanguage.load()))
@@ -7076,6 +7283,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
         menu.addItem(5, localizedUiText("Layer Drum Pads (8)", uiLanguage));
         menu.addItem(6, localizedUiText("Hammond", uiLanguage));
         menu.addItem(7, localizedUiText("Pad Continuo (12)", uiLanguage));
+        menu.addItem(8, localizedUiText("Layer Nord NSMP4 (.nsmp4)", uiLanguage));
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addLayerButton),
             [safeThis = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this)](int choice)
             {
@@ -7086,6 +7294,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
                                 : choice == 4 ? ClassicPlayerAudioProcessor::LayerType::analog
                                 : choice == 6 ? ClassicPlayerAudioProcessor::LayerType::hammond
                                 : choice == 7 ? ClassicPlayerAudioProcessor::LayerType::continuousPads
+                                : choice == 8 ? ClassicPlayerAudioProcessor::LayerType::nordSample
                                               : ClassicPlayerAudioProcessor::LayerType::drumPads;
                 safeThis->addLayer(type);
             });
@@ -7515,10 +7724,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         { "CUTOFF", valueOf("Cutoff", 100.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "REVERB", valueOf("Reverb", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "COMP", valueOf("Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
-        { "CHORUS", valueOf("Dx7Chorus", 20.0f), 0.0f, 100.0f, 1.0f, 0 }
+        { "CHORUS", valueOf("Dx7Chorus", 20.0f), 0.0f, 100.0f, 1.0f, 0 },
+        { "GAIN MOTOR dB", valueOf("PreGainDb", 0.0f), -18.0f, 18.0f, 0.1f, 1 }
     }, 4);
-    const std::array<const char*, 7> commonParameterSuffixes {
-        "Gain", "Attack", "Release", "Cutoff", "Reverb", "Comp", "Dx7Chorus"
+    const std::array<const char*, 8> commonParameterSuffixes {
+        "Gain", "Attack", "Release", "Cutoff", "Reverb", "Comp", "Dx7Chorus", "PreGainDb"
     };
     for (int control = 0; control < (int) commonParameterSuffixes.size(); ++control)
         common->bindParameter(control, processor.parameters,
@@ -7577,6 +7787,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         set("Release", common->value(2)); set("Cutoff", common->value(3));
         set("Reverb", common->value(4)); set("Comp", common->value(5));
         set("Dx7Chorus", common->value(6));
+        set("PreGainDb", common->value(7));
     });
     dialog->addCustomComponent(new CenteredPanel(new ModulationTogglePanel(processor, index), 600, 28));
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
@@ -9074,9 +9285,10 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
     auto* common=new KnobEditorPanel({
         {"VOLUME",value("Gain"),0,100,1,0},{"ATTACK ms",value("Attack"),0,100,0.1f,1},
         {"RELEASE ms",value("Release"),0,100,1,0},{"CUTOFF",value("Cutoff"),0,100,1,0},
-        {"REVERB",value("Reverb"),0,100,1,0},{"COMP",value("Comp"),0,100,1,0}},6);
-    const std::array<const char*,6> commonParameterSuffixes {
-        "Gain","Attack","Release","Cutoff","Reverb","Comp"
+        {"REVERB",value("Reverb"),0,100,1,0},{"COMP",value("Comp"),0,100,1,0},
+        {"GAIN MOTOR dB",value("PreGainDb"),-18,18,0.1f,1}},7);
+    const std::array<const char*,7> commonParameterSuffixes {
+        "Gain","Attack","Release","Cutoff","Reverb","Comp","PreGainDb"
     };
     for(int control=0;control<(int)commonParameterSuffixes.size();++control)
         common->bindParameter(control,processor.parameters,
@@ -9085,8 +9297,8 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
     common->useCompactGrid(true);
     content->add(common,78);
     common->setOnValueChange([&processor,common,prefix]{
-        const std::array<const char*,6> names {"Gain","Attack","Release","Cutoff","Reverb","Comp"};
-        for(int i=0;i<6;++i)if(auto* p=processor.parameters.getParameter(prefix+names[(size_t)i]))
+        const std::array<const char*,7> names {"Gain","Attack","Release","Cutoff","Reverb","Comp","PreGainDb"};
+        for(int i=0;i<7;++i)if(auto* p=processor.parameters.getParameter(prefix+names[(size_t)i]))
             p->setValueNotifyingHost(p->convertTo0to1(common->value(i)));
     });
     content->add(new SideBySideEditorPanel(
@@ -9152,11 +9364,12 @@ std::unique_ptr<juce::Component> createAnalogCommonControls(ClassicPlayerAudioPr
         { "RELEASE ms", 50, 0, 100, 1, 0 },
         { "CUTOFF", 100, 0, 100, 0, 2 },
         { "REVERB", 0, 0, 100, 1, 0 },
-        { "COMP", 0, 0, 100, 1, 0 }
-    }, 6);
+        { "COMP", 0, 0, 100, 1, 0 },
+        { "GAIN MOTOR dB", 0, -18, 18, 0.1f, 1 }
+    }, 7);
     const auto prefix = "layer" + juce::String(layer + 1);
-    const std::array<const char*, 6> suffixes { "Gain", "Attack", "Release", "Cutoff", "Reverb", "Comp" };
-    for (int i = 0; i < 6; ++i)
+    const std::array<const char*, 7> suffixes { "Gain", "Attack", "Release", "Cutoff", "Reverb", "Comp", "PreGainDb" };
+    for (int i = 0; i < 7; ++i)
         controls->bindParameter(i, processor.parameters, prefix + suffixes[(size_t) i]);
     controls->useCompactGrid(false);
     return controls;
