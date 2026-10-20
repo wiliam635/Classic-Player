@@ -47,6 +47,7 @@ private:
         std::array<bool, 16> sustainDown {};
         std::array<float, 2> cutoffState {}, compressorEnvelope {};
         LayerEqState eq;
+        NordLayerEffects nordFx;
         juce::Reverb reverb;
         std::array<float, 4> lastReverbParameters { -1.0f, -1.0f, -1.0f, -1.0f };
         juce::SmoothedValue<float> gain;
