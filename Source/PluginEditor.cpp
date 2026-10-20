@@ -5713,58 +5713,94 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectsEditor()
     const auto type = processor.layerType(index);
     if (type != ClassicPlayerAudioProcessor::LayerType::nord
         && type != ClassicPlayerAudioProcessor::LayerType::nordSample) return;
+    juce::PopupMenu menu;
+    menu.addItem(1, "TREMOLO");
+    menu.addItem(2, "DELAY");
+    menu.addItem(3, "FLANGER");
+    menu.addItem(4, "CHORUS");
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
+                       [safe](int effect)
+    {
+        if (safe != nullptr && effect >= 1 && effect <= 4)
+            safe->showNordEffectEditor(effect);
+    });
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int effect)
+{
+    const auto type = processor.layerType(index);
+    if ((type != ClassicPlayerAudioProcessor::LayerType::nord
+         && type != ClassicPlayerAudioProcessor::LayerType::nordSample)
+        || effect < 1 || effect > 4) return;
     const auto fx = processor.layerConfig(index).nordFx;
+    const juce::String names[] { {}, "TREMOLO", "DELAY", "FLANGER", "CHORUS" };
     auto* dialog = new LayerEditorWindow(
-        "EFEITOS NORD", "Tremolo, flanger, chorus e delay. Tempo por TAP ou BPM manual.",
+        names[effect] + " NORD", effect == 2 ? "Tempo por TAP ou BPM manual." : "Ajuste o efeito desta layer.",
         juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
-    auto* knobs = new KnobEditorPanel({
-        { "TREMOLO MIX", fx.tremoloMix, 0, 100, 1, 0 },
-        { "TREMOLO Hz", fx.tremoloRate, 0.2f, 12, 0.1f, 1 },
-        { "FLANGER MIX", fx.flangerMix, 0, 100, 1, 0 },
-        { "FLANGER Hz", fx.flangerRate, 0.05f, 5, 0.05f, 2 },
-        { "CHORUS MIX", fx.chorusMix, 0, 100, 1, 0 },
-        { "CHORUS Hz", fx.chorusRate, 0.05f, 5, 0.05f, 2 },
-        { "DELAY MIX", fx.delayMix, 0, 100, 1, 0 },
-        { "DELAY BPM", fx.delayBpm, 40, 240, 1, 0 },
-        { "FEEDBACK", fx.delayFeedback, 0, 80, 1, 0 }
-    }, 3);
+    KnobEditorPanel* knobs = nullptr;
+    switch (effect)
+    {
+        case 1: knobs = new KnobEditorPanel({
+            { "RATE Hz", fx.tremoloRate, 0.2f, 12, 0.1f, 1 },
+            { "DEPTH %", fx.tremoloMix, 0, 100, 1, 0 }
+        }, 2); break;
+        case 2: knobs = new KnobEditorPanel({
+            { "DELAY BPM", fx.delayBpm, 40, 240, 1, 0 },
+            { "FEEDBACK %", fx.delayFeedback, 0, 80, 1, 0 },
+            { "MIX %", fx.delayMix, 0, 100, 1, 0 }
+        }, 3); break;
+        case 3: knobs = new KnobEditorPanel({
+            { "RATE Hz", fx.flangerRate, 0.05f, 5, 0.05f, 2 },
+            { "MIX %", fx.flangerMix, 0, 100, 1, 0 }
+        }, 2); break;
+        default: knobs = new KnobEditorPanel({
+            { "RATE Hz", fx.chorusRate, 0.05f, 5, 0.05f, 2 },
+            { "MIX %", fx.chorusMix, 0, 100, 1, 0 }
+        }, 2); break;
+    }
     knobs->useDenseGrid(true);
-    knobs->setSize(620, 260);
     const juce::Component::SafePointer<LayerStrip> safe(this);
-    knobs->setOnValueChange([safe, knobs]
+    knobs->setOnValueChange([safe, knobs, effect]
     {
         if (safe == nullptr) return;
         auto config = safe->processor.layerConfig(safe->index);
-        auto& effect = config.nordFx;
-        effect.tremoloMix = knobs->value(0); effect.tremoloRate = knobs->value(1);
-        effect.flangerMix = knobs->value(2); effect.flangerRate = knobs->value(3);
-        effect.chorusMix = knobs->value(4); effect.chorusRate = knobs->value(5);
-        effect.delayMix = knobs->value(6); effect.delayBpm = knobs->value(7);
-        effect.delayFeedback = knobs->value(8);
+        auto& settings = config.nordFx;
+        switch (effect)
+        {
+            case 1: settings.tremoloRate = knobs->value(0); settings.tremoloMix = knobs->value(1); break;
+            case 2: settings.delayBpm = knobs->value(0); settings.delayFeedback = knobs->value(1);
+                    settings.delayMix = knobs->value(2); break;
+            case 3: settings.flangerRate = knobs->value(0); settings.flangerMix = knobs->value(1); break;
+            case 4: settings.chorusRate = knobs->value(0); settings.chorusMix = knobs->value(1); break;
+        }
         safe->processor.setLayerConfig(safe->index, config);
     });
     dialog->addCustomComponent(knobs);
-    auto* tap = new juce::TextButton("TAP TEMPO");
-    flatButton(*tap);
-    tap->setSize(220, 34);
-    auto previousTap = std::make_shared<double>(0.0);
-    tap->onClick = [safe, knobs, tap, previousTap]
+    if (effect == 2)
     {
-        if (safe == nullptr) return;
-        const auto now = juce::Time::getMillisecondCounterHiRes();
-        const auto interval = now - *previousTap;
-        *previousTap = now;
-        if (interval < 250.0 || interval > 1500.0) return;
-        const auto bpm = (float) juce::jlimit(40, 240, juce::roundToInt(60000.0 / interval));
-        knobs->setValue(7, bpm);
-        auto config = safe->processor.layerConfig(safe->index);
-        config.nordFx.delayBpm = bpm;
-        safe->processor.setLayerConfig(safe->index, config);
-        tap->setButtonText("TAP TEMPO · " + juce::String((int) bpm) + " BPM");
-    };
-    dialog->addCustomComponent(tap);
-    dialog->setSize(700, 390);
+        auto* tap = new juce::TextButton("TAP TEMPO");
+        flatButton(*tap);
+        tap->setSize(220, 34);
+        auto previousTap = std::make_shared<double>(0.0);
+        tap->onClick = [safe, knobs, tap, previousTap]
+        {
+            if (safe == nullptr) return;
+            const auto now = juce::Time::getMillisecondCounterHiRes();
+            const auto interval = now - *previousTap;
+            *previousTap = now;
+            if (interval < 250.0 || interval > 1500.0) return;
+            const auto bpm = (float) juce::jlimit(40, 240, juce::roundToInt(60000.0 / interval));
+            knobs->setValue(0, bpm);
+            auto config = safe->processor.layerConfig(safe->index);
+            config.nordFx.delayBpm = bpm;
+            safe->processor.setLayerConfig(safe->index, config);
+            tap->setButtonText("TAP TEMPO · " + juce::String((int) bpm) + " BPM");
+        };
+        dialog->addCustomComponent(tap);
+    }
+    dialog->setSize(560, effect == 2 ? 310 : 260);
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
