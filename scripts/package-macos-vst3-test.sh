@@ -67,8 +67,8 @@ fi
 productbuild --distribution "$PACKAGES/Distribution.xml" --package-path "$PACKAGES" "$PACKAGE"
 SUBDOCUMENT="$PACKAGES/subdocument"
 mkdir -p "$SUBDOCUMENT"
-xar -x --extract-subdoc=Distribution -f "$PACKAGE" -C "$SUBDOCUMENT"
-mv "$SUBDOCUMENT/Distribution.xml" "$PACKAGES/Built-Distribution.xml"
+xar -xf "$PACKAGE" -C "$SUBDOCUMENT" Distribution
+cp "$SUBDOCUMENT/Distribution" "$PACKAGES/Built-Distribution.xml"
 grep -Fq '<title>Classic Player 3.0.0</title>' "$PACKAGES/Built-Distribution.xml"
 if grep -Fq '2.0.5' "$PACKAGES/Built-Distribution.xml"; then
   echo "O pacote gerado ainda contém referências à versão 2.0.5." >&2
