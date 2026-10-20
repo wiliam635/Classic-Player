@@ -40,7 +40,7 @@ static void layerDefaultsSplitAndMasterEqLearn()
     check(p->addLayer(Processor::LayerType::nord), "create independent NPNO layer");
     config = p->layerConfig(1);
     check(config.octave == 0 && config.lowNote == 0 && config.highNote == 127
-          && config.midiChannel == 1 && !config.mono && config.sustainEnabled,
+          && config.midiChannel == 0 && !config.mono && config.sustainEnabled,
           "new layer inherited previous layer routing");
     // Dirty an INACTIVE slot as older sessions/removals can do.
     const auto slot = p->activeLayerCount();
@@ -52,7 +52,7 @@ static void layerDefaultsSplitAndMasterEqLearn()
     cc(*p, 4, 74, 12);
     check(p->addLayer(), "reuse dirty inactive slot");
     config = p->layerConfig(slot);
-    check(config.octave == 0 && config.midiChannel == 1 && config.lowNote == 0 && config.highNote == 127,
+    check(config.octave == 0 && config.midiChannel == 0 && config.lowNote == 0 && config.highNote == 127,
           "reused slot retained stale routing");
     check(p->layerMidiDevice(slot).isEmpty() && p->midiLearnCC(slot, Processor::LearnTarget::cutoff) < 0,
           "reused slot retained device or CC mapping");
@@ -178,6 +178,14 @@ static void startupPrograms()
     setLayerParameter("layer1EqLow", -4.5f);
     setLayerParameter("layer1EqMid", 2.5f);
     setLayerParameter("layer1EqHigh", -1.5f);
+    setLayerParameter("layer1PreGainDb", 6.0f);
+    {
+        auto fxConfig = p->layerConfig(0);
+        fxConfig.nordFx.delayBpm = 92.0f;
+        fxConfig.nordFx.delayMix = 27.0f;
+        fxConfig.nordFx.chorusMix = 18.0f;
+        p->setLayerConfig(0, fxConfig);
+    }
     check(p->saveProgram("Last", last).wasOk(), "save last");
     check(p->loadProgram(first).wasOk(), "load older program");
     check(p->activeLayerCount() == 6, "older program layer count");
@@ -190,11 +198,12 @@ static void startupPrograms()
     check(p->parameters.getRawParameterValue("master")->load() == 75, "startup did not restore last SAVED program");
     check(p->currentSavedProgramName() == "Last", "restored program name");
     check(p->activeLayerCount() == 4, "startup expanded four layers to six");
-    for (const auto& [id, expected] : std::array<std::pair<const char*, float>, 8> {{
+    for (const auto& [id, expected] : std::array<std::pair<const char*, float>, 9> {{
              { "layer1Attack", 12.0f }, { "layer1Release", 42.0f },
              { "layer1Cutoff", 37.0f }, { "layer1Reverb", 33.0f },
              { "layer1Comp", 45.0f }, { "layer1EqLow", -4.5f },
-             { "layer1EqMid", 2.5f }, { "layer1EqHigh", -1.5f }
+             { "layer1EqMid", 2.5f }, { "layer1EqHigh", -1.5f },
+             { "layer1PreGainDb", 6.0f }
          }})
     {
         const auto* actual = p->parameters.getRawParameterValue(id);
@@ -203,6 +212,11 @@ static void startupPrograms()
     }
     for (int layer = 0; layer < 4; ++layer)
         check(p->layerConfig(layer).midiChannel == savedChannels[layer], "startup lost layer MIDI channel");
+    const auto restoredFx = p->layerConfig(0).nordFx;
+    check(std::abs(restoredFx.delayBpm - 92.0f) < 0.1f
+          && std::abs(restoredFx.delayMix - 27.0f) < 0.1f
+          && std::abs(restoredFx.chorusMix - 18.0f) < 0.1f,
+          "Nord effects did not survive save and reopen");
     p->parameters.getParameter("master")->setValueNotifyingHost(0.42f);
     p->prepareToPlay(44100, 128);
     check(p->parameters.getRawParameterValue("master")->load() == 42, "device restart reloaded program");
