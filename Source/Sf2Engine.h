@@ -24,7 +24,7 @@ public:
         bool mono = false; // Mono legato: one voice at a time, without a gap.
         bool portamento = false;
         bool sustainEnabled = true;
-        int midiChannel = 1; // New layers default to channel 1; 0 = omni, 1..16 = fixed
+        int midiChannel = 0; // New layers default to OMNI; Drum Pads override to channel 10.
         int muteCC = -1;
         int muteCCChannel = -1;
         int lowNote = 0;
@@ -36,6 +36,7 @@ public:
         int velocityMidInput = 64;
         int velocityHardInput = 108;
         int pianoTimbre = 1; // NPNO piano EQ: 0 soft, 1 mid, 2 bright
+        NordEffectSettings nordFx;
         float gain = 0.8f;
         float pan = 0.0f;
         float attack = 5.0f;
