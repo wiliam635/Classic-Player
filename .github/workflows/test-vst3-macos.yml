@@ -24,6 +24,7 @@ on:
       - Source/SampleEngine.cpp
       - Source/SampleEngine.h
       - Source/SampleEngineRegressionTest.cpp
+      - Source/NordPianoDecoder.cpp
       - Source/Sf2Engine.cpp
       - Source/Sf2Engine.h
       - CMakeLists.txt
