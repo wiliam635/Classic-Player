@@ -29,6 +29,8 @@ test ! -L "$STAGE/Applications/Classic Player.app/Classic Player 2.0 macOS Unive
 cp "$ROOT/THIRD_PARTY_NORD_SAMPLE_LICENSE.txt" \
   "$STAGE/Applications/Classic Player.app/Contents/Resources/THIRD_PARTY_NORD_SAMPLE_LICENSE.txt"
 /usr/bin/xattr -cr "$STAGE/Applications/Classic Player.app"
+codesign --force --deep --sign - "$STAGE/Applications/Classic Player.app"
+codesign --verify --deep --strict --verbose=2 "$STAGE/Applications/Classic Player.app"
 
 pkgbuild --root "$STAGE" \
   --identifier com.classickeys.classicplayer.standalone \
@@ -44,6 +46,9 @@ productbuild \
 
 ditto -c -k --sequesterRsrc --keepParent \
   "$STAGE/Applications/Classic Player.app" "$OUTPUT/$ZIP_NAME"
+mkdir -p "$WORK/zip-verify"
+ditto -xk "$OUTPUT/$ZIP_NAME" "$WORK/zip-verify"
+codesign --verify --deep --strict --verbose=2 "$WORK/zip-verify/Classic Player.app"
 pkgutil --check-signature "$OUTPUT/$PACKAGE_NAME" || true
 pkgutil --check-signature "$PACKAGES/ClassicPlayer-standalone.pkg" || true
 unzip -t "$OUTPUT/$ZIP_NAME"
