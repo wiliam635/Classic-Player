@@ -382,6 +382,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
             juce::ParameterID{"layer" + n + "Gain", 1}, "Layer " + n + " Volume",
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 80.0f));
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "PreGainDb", 1}, "Layer " + n + " Engine Gain dB",
+            juce::NormalisableRange<float>(-18.0f, 18.0f, 0.1f), 0.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"layer" + n + "Attack", 1}, "Layer " + n + " Attack",
             juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f), 5.0f));
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -662,6 +665,10 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             layerGain *= juce::Decibels::decibelsToGain(-18.0f);
         else if (type == LayerType::analog)
             layerGain *= juce::Decibels::decibelsToGain(-6.0f);
+        if (type == LayerType::sf2 || type == LayerType::nord || type == LayerType::nordSample || type == LayerType::analog
+            || type == LayerType::hammond || type == LayerType::dx7)
+            layerGain *= juce::Decibels::decibelsToGain(
+                parameters.getRawParameterValue(prefix + "PreGainDb")->load());
         config.gain = layerGain;
         config.muteCC = learnedCCs[(size_t) i][(size_t) LearnTarget::mute].load(std::memory_order_relaxed);
         config.muteCCChannel = learnedChannels[(size_t) i][(size_t) LearnTarget::mute].load(std::memory_order_relaxed);
@@ -1814,7 +1821,7 @@ bool ClassicPlayerAudioProcessor::addLayer(LayerType type)
             layerTypes[(size_t) count].store(static_cast<int>(LayerType::sf2));
             Sf2Engine::LayerConfig config;
             config.enabled = true;
-            config.midiChannel = type == LayerType::drumPads ? 10 : 1;
+            config.midiChannel = type == LayerType::drumPads ? 10 : 0;
             engine.setConfig(count, config);
             setLayerType(count, type);
             return true;
@@ -1881,8 +1888,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     }
     for (int position = visualPosition; position < Sf2Engine::layerCount; ++position)
         visualLayerOrder[(size_t) position].store(position, std::memory_order_relaxed);
-    static constexpr std::array<const char*, 27> parameterSuffixes {
-        "Gain", "Muted", "Attack", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh",
+    static constexpr std::array<const char*, 28> parameterSuffixes {
+        "Gain", "PreGainDb", "Muted", "Attack", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh",
         "EqLowFrequency", "EqMidFrequency", "EqHighFrequency", "EqLowQ", "EqMidQ", "EqHighQ",
         "Reverb", "ReverbSize", "ReverbDamping",
         "ReverbWidth", "ReverbPreset", "Comp", "CompThreshold", "CompRatio", "CompAttack",
@@ -3280,6 +3287,8 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
     const auto destinationZero = juce::String(destinationLayer);
     const juce::StringArray oneBased {
         "layerType", "dx7Layer", "dx7Patch", "sf2Layer", "sf2Bank", "sf2Program", "pianoTimbre",
+        "nordTremoloMix", "nordTremoloRate", "nordFlangerMix", "nordFlangerRate",
+        "nordChorusMix", "nordChorusRate", "nordDelayMix", "nordDelayBpm", "nordDelayFeedback",
         "externalInstrument", "externalInstrumentState", "analogOsc1Wave", "analogOsc2Wave",
         "analogOsc3Wave", "analogOsc1Level", "analogOsc2Level", "analogOsc3Level",
         "analogOsc1Semitones", "analogOsc2Semitones", "analogOsc3Semitones",
@@ -3406,6 +3415,16 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("velocityMidInput" + juce::String(i), config.velocityMidInput, nullptr);
         state.setProperty("velocityHardInput" + juce::String(i), config.velocityHardInput, nullptr);
         state.setProperty("pianoTimbre" + juce::String(i + 1), config.pianoTimbre, nullptr);
+        const auto fxKey = juce::String(i + 1);
+        state.setProperty("nordTremoloMix" + fxKey, config.nordFx.tremoloMix, nullptr);
+        state.setProperty("nordTremoloRate" + fxKey, config.nordFx.tremoloRate, nullptr);
+        state.setProperty("nordFlangerMix" + fxKey, config.nordFx.flangerMix, nullptr);
+        state.setProperty("nordFlangerRate" + fxKey, config.nordFx.flangerRate, nullptr);
+        state.setProperty("nordChorusMix" + fxKey, config.nordFx.chorusMix, nullptr);
+        state.setProperty("nordChorusRate" + fxKey, config.nordFx.chorusRate, nullptr);
+        state.setProperty("nordDelayMix" + fxKey, config.nordFx.delayMix, nullptr);
+        state.setProperty("nordDelayBpm" + fxKey, config.nordFx.delayBpm, nullptr);
+        state.setProperty("nordDelayFeedback" + fxKey, config.nordFx.delayFeedback, nullptr);
         // Mono Legato and Portamento are distinct layer modes and must remain
         // distinct when a performance is saved and restored.
         state.setProperty("mono" + juce::String(i), config.mono, nullptr);
@@ -3807,7 +3826,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 auto config = engine.getConfig(i);
                 config.midiChannel = juce::jlimit(0, 16, static_cast<int>(
                     state.getProperty("midiChannel" + juce::String(i),
-                        savedType == static_cast<int>(LayerType::drumPads) ? 10 : 1)));
+                        savedType == static_cast<int>(LayerType::drumPads) ? 10 : 0)));
                 config.lowNote = state.getProperty("low" + juce::String(i), 0);
                 config.highNote = state.getProperty("high" + juce::String(i), 127);
                 config.octave = state.getProperty("octave" + juce::String(i), 0);
@@ -3826,6 +3845,16 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     config.velocityCurve);
                 config.pianoTimbre = juce::jlimit(0, 2, static_cast<int>(state.getProperty(
                     "pianoTimbre" + juce::String(i + 1), config.pianoTimbre)));
+                const auto fxKey = juce::String(i + 1);
+                config.nordFx.tremoloMix = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordTremoloMix" + fxKey, 0.0f));
+                config.nordFx.tremoloRate = juce::jlimit(0.2f, 12.0f, (float) state.getProperty("nordTremoloRate" + fxKey, 4.0f));
+                config.nordFx.flangerMix = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordFlangerMix" + fxKey, 0.0f));
+                config.nordFx.flangerRate = juce::jlimit(0.05f, 5.0f, (float) state.getProperty("nordFlangerRate" + fxKey, 0.35f));
+                config.nordFx.chorusMix = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordChorusMix" + fxKey, 0.0f));
+                config.nordFx.chorusRate = juce::jlimit(0.05f, 5.0f, (float) state.getProperty("nordChorusRate" + fxKey, 0.8f));
+                config.nordFx.delayMix = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordDelayMix" + fxKey, 0.0f));
+                config.nordFx.delayBpm = juce::jlimit(40.0f, 240.0f, (float) state.getProperty("nordDelayBpm" + fxKey, 120.0f));
+                config.nordFx.delayFeedback = juce::jlimit(0.0f, 80.0f, (float) state.getProperty("nordDelayFeedback" + fxKey, 30.0f));
                 // State created before the separate Portamento mode used the
                 // legacy "mono" property. Preserve it as Mono Legato rather
                 // than silently changing the player's selected mode.
