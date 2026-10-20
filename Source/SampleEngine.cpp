@@ -72,6 +72,7 @@ void SampleEngine::prepare(double sampleRate, int maximumBlockSize)
             gain.setCurrentAndTargetValue(1.0f);
         }
         layer.eq.reset();
+        layer.nordFx.prepare(currentSampleRate);
         layer.gain.reset(currentSampleRate, 0.02);
         layer.gain.setCurrentAndTargetValue(0.8f);
     }
@@ -112,6 +113,7 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
         destination.modulationAmount = 0.0f;
         destination.modulationPhase = 0.0;
         destination.eq.reset();
+        destination.nordFx.reset();
         destination.reverb.reset();
         destination.lastReverbParameters.fill(-1.0f);
         for (auto& voice : destination.voices) voice = {};
@@ -146,6 +148,7 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
     destination.modulationAmount = 0.0f;
     destination.modulationPhase = 0.0;
     destination.eq.reset();
+    destination.nordFx.reset();
     destination.reverb.reset();
     destination.lastReverbParameters.fill(-1.0f);
     for (auto& voice : destination.voices) voice = {};
@@ -169,6 +172,7 @@ void SampleEngine::unload(int layer)
     destination.modulationAmount = 0.0f;
     destination.modulationPhase = 0.0;
     destination.eq.reset();
+    destination.nordFx.reset();
     destination.reverb.reset();
     destination.lastReverbParameters.fill(-1.0f);
     for (auto& voice : destination.voices) voice = {};
@@ -181,6 +185,7 @@ void SampleEngine::stopAllSounds()
     for (auto& layer : layers)
     {
         layer.sustainDown.fill(false);
+        layer.nordFx.reset();
         for (auto& voice : layer.voices) voice = {};
     }
 }
@@ -802,6 +807,9 @@ void SampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<float>& 
         for (int sample = 0; sample < samples; ++sample)
             values[sample] = layer.eq.process(values[sample], channel);
     }
+
+    if (layer.pianoLoaded)
+        layer.nordFx.process(scratch, routing.nordFx);
 
     const auto reverbMix = juce::jlimit(0.0f, 100.0f, routing.reverb) / 100.0f;
     const std::array<float, 4> reverbValues {
