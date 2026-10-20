@@ -19,6 +19,7 @@ void NordSampleEngine::prepare(double sampleRate, int blockSize)
         layer.reverb.setSampleRate(currentSampleRate);
         layer.reverb.reset();
         layer.eq.reset();
+        layer.nordFx.prepare(currentSampleRate);
         layer.gain.reset(currentSampleRate, 0.02);
         layer.gain.setCurrentAndTargetValue(0.8f);
     }
@@ -67,6 +68,7 @@ juce::Result NordSampleEngine::loadSample(int layerIndex, const juce::File& file
     layer.cutoffState.fill(0.0f);
     layer.compressorEnvelope.fill(0.0f);
     layer.eq.reset();
+    layer.nordFx.reset();
     layer.reverb.reset();
     layer.lastReverbParameters.fill(-1.0f);
     for (auto& voice : layer.voices) voice = {};
@@ -85,6 +87,7 @@ void NordSampleEngine::unload(int layerIndex)
     layer.sustainDown.fill(false);
     for (auto& voice : layer.voices) voice = {};
     layer.eq.reset();
+    layer.nordFx.reset();
     layer.reverb.reset();
     layer.peak.store(0.0f, std::memory_order_release);
 }
@@ -95,6 +98,7 @@ void NordSampleEngine::stopAllSounds()
     for (auto& layer : layers)
     {
         layer.sustainDown.fill(false);
+        layer.nordFx.reset();
         for (auto& voice : layer.voices) voice = {};
     }
 }
@@ -406,6 +410,7 @@ void NordSampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<floa
         auto* values = scratchBuffer.getWritePointer(channel);
         for (int i = 0; i < samples; ++i) values[i] = layer.eq.process(values[i], channel);
     }
+    layer.nordFx.process(scratchBuffer, routing.nordFx);
     const std::array<float, 4> reverbValues { routing.reverb, routing.reverbSize,
                                               routing.reverbDamping, routing.reverbWidth };
     if (reverbValues != layer.lastReverbParameters)
