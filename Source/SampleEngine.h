@@ -79,6 +79,7 @@ private:
         float modulationAmount = 0.0f;
         juce::SmoothedValue<float> gain;
         LayerEqState eq;
+        NordLayerEffects nordFx;
         juce::Reverb reverb;
         std::array<float, 4> lastReverbParameters { -1.0f, -1.0f, -1.0f, -1.0f };
         std::atomic<float> peak { 0.0f };
