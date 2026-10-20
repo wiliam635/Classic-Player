@@ -702,7 +702,7 @@ int main(int argc, char** argv)
         }
         auto engine=std::make_unique<HammondEngine>();engine->prepare(48000,128);
         auto c=configs();c[0].learning=0;
-        c[0].routing.midiChannel=0; // This test learns from channel 3; new layers default to channel 1.
+        c[0].routing.midiChannel=0; // This test learns from channel 3; new layers default to OMNI.
         juce::AudioBuffer<float> audio(2,128);juce::MidiBuffer midi;
         midi.addEvent(juce::MidiMessage::controllerEvent(3,64,127),0);
         audio.clear();engine->process(audio,midi,c);check(c[0].learning==0,"sustain consumed learn");
