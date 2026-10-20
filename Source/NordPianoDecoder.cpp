@@ -10,6 +10,7 @@ namespace
 {
 constexpr size_t cbinHeaderBytes = 44;
 constexpr size_t legacyCbinHeaderBytes = 24;
+constexpr size_t legacyCbinTrailerBytes = 2;
 constexpr size_t minimumBodyBytes = 0x732;
 constexpr size_t keyMapOffset = 0x8c;
 constexpr size_t fineTuneOffset = 0x18c;
@@ -249,7 +250,8 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
 
     if (!file.existsAsFile())
         return fail("Arquivo Nord não encontrado.");
-    if (file.getSize() < static_cast<juce::int64>(legacyCbinHeaderBytes + minimumBodyBytes))
+    if (file.getSize() < static_cast<juce::int64>(legacyCbinHeaderBytes + minimumBodyBytes
+                                               + legacyCbinTrailerBytes))
         return fail("O arquivo é pequeno demais para conter um piano Nord válido.");
     if (file.getSize() > static_cast<juce::int64>(512u * 1024u * 1024u))
         return fail("O arquivo Nord excede o limite de 512 MB para importação.");
@@ -260,7 +262,7 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
 
     const auto* bytes = static_cast<const std::uint8_t*>(fileData.getData());
     const auto fileBytes = static_cast<size_t>(fileData.getSize());
-    if (fileBytes < legacyCbinHeaderBytes + minimumBodyBytes
+    if (fileBytes < legacyCbinHeaderBytes + minimumBodyBytes + legacyCbinTrailerBytes
         || std::memcmp(bytes, "CBIN", 4) != 0)
         return fail("O arquivo não possui um cabeçalho CBIN válido.");
     const auto generation = readLittleEndian32(bytes + 4);
@@ -270,10 +272,11 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
         return fail("O arquivo CBIN não é uma biblioteca de piano .npno.");
 
     const auto headerBytes = generation == 0 ? legacyCbinHeaderBytes : cbinHeaderBytes;
-    if (fileBytes < headerBytes + minimumBodyBytes)
+    const auto trailerBytes = generation == 0 ? legacyCbinTrailerBytes : 0;
+    if (fileBytes < headerBytes + minimumBodyBytes + trailerBytes)
         return fail("O fluxo CNSP do piano Nord está truncado.");
     const auto* body = bytes + headerBytes;
-    const auto bodyBytes = fileBytes - headerBytes;
+    const auto bodyBytes = fileBytes - headerBytes - trailerBytes;
     if (generation == 1 && crc32IsoHdlc(body, bodyBytes) != readLittleEndian32(bytes + 24))
         return fail("A verificação CRC do arquivo Nord falhou; o arquivo pode estar corrompido.");
     if (std::memcmp(body, "CNSP", 4) != 0)
@@ -428,8 +431,8 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
     if (audioCursor != bodyBytes)
         return fail("O fluxo CNSP contém bytes extras após as gravações de áudio.");
 
-    // Some newer pianos use signed tenths of a dB and an extended velocity scale.
-    parsed.signedTenthsDbTrim = hasSignedTrim;
+    // CNSP 0x464 stores signed tenths of a dB even when all values are positive.
+    parsed.signedTenthsDbTrim = streamVersion == 0x464 || hasSignedTrim;
     if (highestAttackLayer > 30)
         parsed.velocityScale = std::max(31, (highestAttackLayer * 31 + 26) / 27);
 
