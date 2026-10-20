@@ -25,6 +25,8 @@ trap cleanup EXIT
 
 mkdir -p "$STAGE/Applications" "$PACKAGES" "$OUTPUT"
 ditto --noextattr --noqtn "$APP" "$STAGE/Applications/Classic Player.app"
+cp "$ROOT/THIRD_PARTY_NORD_SAMPLE_LICENSE.txt" \
+  "$STAGE/Applications/Classic Player.app/Contents/Resources/THIRD_PARTY_NORD_SAMPLE_LICENSE.txt"
 /usr/bin/xattr -cr "$STAGE/Applications/Classic Player.app"
 
 pkgbuild --root "$STAGE" \
@@ -39,7 +41,8 @@ productbuild \
   --package-path "$PACKAGES" \
   "$OUTPUT/$PACKAGE_NAME"
 
-ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUTPUT/$ZIP_NAME"
+ditto -c -k --sequesterRsrc --keepParent \
+  "$STAGE/Applications/Classic Player.app" "$OUTPUT/$ZIP_NAME"
 pkgutil --check-signature "$OUTPUT/$PACKAGE_NAME" || true
 pkgutil --check-signature "$PACKAGES/ClassicPlayer-standalone.pkg" || true
 unzip -t "$OUTPUT/$ZIP_NAME"

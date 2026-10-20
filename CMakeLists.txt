@@ -126,6 +126,10 @@ target_sources(ClassicPlayer PRIVATE
     Source/Sf2Engine.h
     Source/SampleEngine.cpp
     Source/SampleEngine.h
+    Source/NordSampleDecoder.cpp
+    Source/NordSampleDecoder.h
+    Source/NordSampleEngine.cpp
+    Source/NordSampleEngine.h
     Source/NordPianoDecoder.cpp
     Source/NordPianoDecoder.h
     Source/Dx7Engine.cpp
@@ -253,6 +257,13 @@ if(CLASSIC_PLAYER_BUILD_TESTS)
     target_link_libraries(ClassicPlayerSampleEngineTest PRIVATE
         ${CLASSIC_PLAYER_FLUID_TARGET} juce::juce_audio_formats)
     add_test(NAME npno-regression COMMAND ClassicPlayerSampleEngineTest)
+    juce_add_console_app(ClassicPlayerNordSampleTest PRODUCT_NAME "Classic Player NSMP4 Regression Test")
+    target_sources(ClassicPlayerNordSampleTest PRIVATE
+        Source/NordSampleRegressionTest.cpp Source/NordSampleEngine.cpp Source/NordSampleDecoder.cpp)
+    target_compile_definitions(ClassicPlayerNordSampleTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+    target_link_libraries(ClassicPlayerNordSampleTest PRIVATE
+        ${CLASSIC_PLAYER_FLUID_TARGET} juce::juce_audio_basics juce::juce_dsp)
+    add_test(NAME nsmp4-regression COMMAND ClassicPlayerNordSampleTest)
     if(WIN32)
         juce_add_console_app(ClassicPlayerVst3HostSmokeTest PRODUCT_NAME "Classic Player VST3 Host Smoke Test")
         target_sources(ClassicPlayerVst3HostSmokeTest PRIVATE tools/vst3_host_smoke_test.cpp)
