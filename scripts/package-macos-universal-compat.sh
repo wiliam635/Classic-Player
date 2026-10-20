@@ -11,11 +11,11 @@ if [ -z "$APP" ] || [ ! -d "$APP" ]; then
   find "$ROOT/build" -type d -name "*.app" -print 2>/dev/null || true
   exit 1
 fi
-# Compatibility path for workflow checks.
-ln -sfn "$APP" "$ROOT/build/Classic Player 2.0 macOS Universal.app"
 OUTPUT="${OUTPUT_DIR:-$ROOT/../../outputs/installers}"
-PACKAGE_NAME="Classic-Player-2.0-macOS-High-Sierra-a-Tahoe-Universal.pkg"
-ZIP_NAME="Classic-Player-2.0-macOS-High-Sierra-a-Tahoe-Universal-App.zip"
+PACKAGE_VERSION="3.0.1"
+DOWNLOAD_VERSION="${DOWNLOAD_VERSION:-$PACKAGE_VERSION}"
+PACKAGE_NAME="Classic-Player-${DOWNLOAD_VERSION}-macOS-High-Sierra-a-Tahoe-Universal.pkg"
+ZIP_NAME="Classic-Player-${DOWNLOAD_VERSION}-macOS-High-Sierra-a-Tahoe-Universal-App.zip"
 WORK="$(mktemp -d "$ROOT/build/package-macos-compat.XXXXXX")"
 STAGE="$WORK/root"
 PACKAGES="$WORK/packages"
@@ -25,13 +25,14 @@ trap cleanup EXIT
 
 mkdir -p "$STAGE/Applications" "$PACKAGES" "$OUTPUT"
 ditto --noextattr --noqtn "$APP" "$STAGE/Applications/Classic Player.app"
+test ! -L "$STAGE/Applications/Classic Player.app/Classic Player 2.0 macOS Universal.app"
 cp "$ROOT/THIRD_PARTY_NORD_SAMPLE_LICENSE.txt" \
   "$STAGE/Applications/Classic Player.app/Contents/Resources/THIRD_PARTY_NORD_SAMPLE_LICENSE.txt"
 /usr/bin/xattr -cr "$STAGE/Applications/Classic Player.app"
 
 pkgbuild --root "$STAGE" \
   --identifier com.classickeys.classicplayer.standalone \
-  --version 2.0.5 \
+  --version "$PACKAGE_VERSION" \
   --install-location / \
   --component-plist "$ROOT/installer/macos/components-standalone.plist" \
   "$PACKAGES/ClassicPlayer-standalone.pkg"
