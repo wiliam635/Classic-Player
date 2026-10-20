@@ -129,6 +129,38 @@ struct NordSampleRegressionTests
         require(rms > 0.0f, "Voice stealing silenced all active NSMP4 notes");
     }
 
+    static void nordEffects()
+    {
+        NordLayerEffects effects;
+        effects.prepare(48000.0);
+        juce::AudioBuffer<float> audio(2, 12100);
+        audio.clear();
+        audio.setSample(0, 0, 1.0f);
+        audio.setSample(1, 0, 1.0f);
+        NordEffectSettings settings;
+        effects.process(audio, settings);
+        require(audio.getSample(0, 0) == 1.0f && audio.getSample(0, 12000) == 0.0f,
+                "Nord effects changed a bypassed layer");
+        effects.reset();
+        audio.clear();
+        audio.setSample(0, 0, 1.0f);
+        audio.setSample(1, 0, 1.0f);
+        settings.delayMix = 100.0f;
+        settings.delayFeedback = 0.0f;
+        settings.delayBpm = 240.0f;
+        effects.process(audio, settings);
+        require(audio.getSample(0, 12000) > 0.9f && audio.getSample(1, 12000) > 0.9f,
+                "Nord delay did not follow the manually selected BPM");
+        effects.reset();
+        settings.delayMix = 0.0f;
+        settings.tremoloMix = 100.0f;
+        audio.clear();
+        audio.setSample(0, 0, 1.0f);
+        effects.process(audio, settings);
+        require(audio.getSample(0, 0) > 0.4f && audio.getSample(0, 0) < 0.6f,
+                "Nord tremolo was not applied");
+    }
+
     static void midiSampleOffsetsAndLargeBlocks()
     {
         auto engine = fixture();
@@ -175,6 +207,7 @@ struct NordSampleRegressionTests
     static void run(int argc, char** argv)
     {
         audioAndSustain();
+        nordEffects();
         voiceCeiling();
         midiSampleOffsetsAndLargeBlocks();
         realFiles(argc, argv);
