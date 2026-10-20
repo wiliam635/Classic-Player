@@ -2312,15 +2312,18 @@ public:
     LayerEffectButtons(std::function<void()> reverbCallback,
                        std::function<void()> compressorCallback,
                        std::function<void()> chorusCallback = {},
-                       std::function<void()> eqCallback = {})
+                       std::function<void()> eqCallback = {},
+                       std::function<void()> nordCallback = {})
         : onReverb(std::move(reverbCallback)), onCompressor(std::move(compressorCallback)),
-          onChorus(std::move(chorusCallback)), onEq(std::move(eqCallback))
+          onChorus(std::move(chorusCallback)), onEq(std::move(eqCallback)),
+          onNord(std::move(nordCallback))
     {
         reverb.setButtonText("EDITAR REVERB");
         compressor.setButtonText("EDITAR COMP");
         chorus.setButtonText("EDITAR CHORUS");
         eq.setButtonText("EDITAR EQ");
-        for (auto* button : { &reverb, &compressor, &chorus, &eq })
+        nord.setButtonText("EFEITOS NORD");
+        for (auto* button : { &reverb, &compressor, &chorus, &eq, &nord })
         {
             flatButton(*button);
             addAndMakeVisible(*button);
@@ -2329,8 +2332,10 @@ public:
         compressor.onClick = [this] { if (onCompressor) onCompressor(); };
         chorus.onClick = [this] { if (onChorus) onChorus(); };
         eq.onClick = [this] { if (onEq) onEq(); };
+        nord.onClick = [this] { if (onNord) onNord(); };
         chorus.setVisible((bool) onChorus);
         eq.setVisible((bool) onEq);
+        nord.setVisible((bool) onNord);
         setSize(460, 38);
     }
 
@@ -2339,13 +2344,15 @@ public:
         auto row = getLocalBounds();
         const bool hasChorus = static_cast<bool>(onChorus);
         const bool hasEq = static_cast<bool>(onEq);
-        const auto columns = (hasChorus ? 1 : 0) + (hasEq ? 1 : 0) + 2;
-        reverb.setBounds(row.removeFromLeft(row.getWidth() / columns).reduced(2, 1));
-        compressor.setBounds(row.removeFromLeft(row.getWidth() / (columns - 1)).reduced(2, 1));
+        auto columns = (hasChorus ? 1 : 0) + (hasEq ? 1 : 0) + (onNord ? 1 : 0) + 2;
+        reverb.setBounds(row.removeFromLeft(row.getWidth() / columns--).reduced(2, 1));
+        compressor.setBounds(row.removeFromLeft(row.getWidth() / columns--).reduced(2, 1));
         if (hasChorus)
-            chorus.setBounds(row.removeFromLeft(row.getWidth() / ((hasEq ? 1 : 0) + 1)).reduced(2, 1));
+            chorus.setBounds(row.removeFromLeft(row.getWidth() / columns--).reduced(2, 1));
         if (hasEq)
-            eq.setBounds(row.reduced(2, 1));
+            eq.setBounds(row.removeFromLeft(row.getWidth() / columns--).reduced(2, 1));
+        if (onNord)
+            nord.setBounds(row.reduced(2, 1));
     }
 
 private:
@@ -2353,7 +2360,8 @@ private:
     std::function<void()> onCompressor;
     std::function<void()> onChorus;
     std::function<void()> onEq;
-    juce::TextButton reverb, compressor, chorus, eq;
+    std::function<void()> onNord;
+    juce::TextButton reverb, compressor, chorus, eq, nord;
 };
 
 class CentredEditorPanel final : public juce::Component
@@ -5123,11 +5131,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         { "COMP", valueOf(prefix + "Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "EQ LOW dB", valueOf(prefix + "EqLow", 0.0f), -18.0f, 18.0f, 0.1f, 1 },
         { "EQ MID dB", valueOf(prefix + "EqMid", 0.0f), -18.0f, 18.0f, 0.1f, 1 },
-        { "EQ HIGH dB", valueOf(prefix + "EqHigh", 0.0f), -18.0f, 18.0f, 0.1f, 1 }
+        { "EQ HIGH dB", valueOf(prefix + "EqHigh", 0.0f), -18.0f, 18.0f, 0.1f, 1 },
+        { "GAIN MOTOR dB", valueOf(prefix + "PreGainDb", 0.0f), -18.0f, 18.0f, 0.1f, 1 }
     }, 5);
-    const std::array<const char*, 9> editorParameterSuffixes {
+    const std::array<const char*, 10> editorParameterSuffixes {
         "Gain", "Attack", "Release", "Cutoff", "Reverb", "Comp",
-        "EqLow", "EqMid", "EqHigh"
+        "EqLow", "EqMid", "EqHigh", "PreGainDb"
     };
     for (int control = 0; control < (int) editorParameterSuffixes.size(); ++control)
         knobs->bindParameter(control, processor.parameters,
@@ -5145,7 +5154,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     auto* effectButtons = new LayerEffectButtons(
         [safe] { if (safe != nullptr) safe->showReverbEditor(); },
         [safe] { if (safe != nullptr) safe->showCompressorEditor(); }, {},
-        [safe] { if (safe != nullptr) safe->showEqEditor(); });
+        [safe] { if (safe != nullptr) safe->showEqEditor(); },
+        processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord
+            || processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordSample
+            ? std::function<void()>([safe] { if (safe != nullptr) safe->showNordEffectsEditor(); })
+            : std::function<void()>{});
     auto* midiPanel = new LayerMidiLearnPanel(processor, index);
 
     class CenteredPanel final : public juce::Component
@@ -5229,6 +5242,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         set("Release", knobs->value(2)); set("Cutoff", knobs->value(3));
         set("Reverb", knobs->value(4)); set("Comp", knobs->value(5));
         set("EqLow", knobs->value(6)); set("EqMid", knobs->value(7)); set("EqHigh", knobs->value(8));
+        set("PreGainDb", knobs->value(9));
     });
     dialog->setSize(actionWidth + 52, juce::jmin(570, screenHeight - 12));
     dialog->fitWithinApp(this);
@@ -5251,6 +5265,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
             set("EqLow", knobs->value(6));
             set("EqMid", knobs->value(7));
             set("EqHigh", knobs->value(8));
+            set("PreGainDb", knobs->value(9));
             safe->refresh();
         }), true);
 }
@@ -5689,6 +5704,69 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showChorusEditor()
             parameter->setValueNotifyingHost(parameter->convertTo0to1(knobs->value(0)));
     });
     dialog->fitWithinApp(this);
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create(
+        [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectsEditor()
+{
+    const auto type = processor.layerType(index);
+    if (type != ClassicPlayerAudioProcessor::LayerType::nord
+        && type != ClassicPlayerAudioProcessor::LayerType::nordSample) return;
+    const auto fx = processor.layerConfig(index).nordFx;
+    auto* dialog = new LayerEditorWindow(
+        "EFEITOS NORD", "Tremolo, flanger, chorus e delay. Tempo por TAP ou BPM manual.",
+        juce::MessageBoxIconType::NoIcon);
+    dialog->setLookAndFeel(&classicLookAndFeel);
+    auto* knobs = new KnobEditorPanel({
+        { "TREMOLO MIX", fx.tremoloMix, 0, 100, 1, 0 },
+        { "TREMOLO Hz", fx.tremoloRate, 0.2f, 12, 0.1f, 1 },
+        { "FLANGER MIX", fx.flangerMix, 0, 100, 1, 0 },
+        { "FLANGER Hz", fx.flangerRate, 0.05f, 5, 0.05f, 2 },
+        { "CHORUS MIX", fx.chorusMix, 0, 100, 1, 0 },
+        { "CHORUS Hz", fx.chorusRate, 0.05f, 5, 0.05f, 2 },
+        { "DELAY MIX", fx.delayMix, 0, 100, 1, 0 },
+        { "DELAY BPM", fx.delayBpm, 40, 240, 1, 0 },
+        { "FEEDBACK", fx.delayFeedback, 0, 80, 1, 0 }
+    }, 3);
+    knobs->useDenseGrid(true);
+    knobs->setSize(620, 260);
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    knobs->setOnValueChange([safe, knobs]
+    {
+        if (safe == nullptr) return;
+        auto config = safe->processor.layerConfig(safe->index);
+        auto& effect = config.nordFx;
+        effect.tremoloMix = knobs->value(0); effect.tremoloRate = knobs->value(1);
+        effect.flangerMix = knobs->value(2); effect.flangerRate = knobs->value(3);
+        effect.chorusMix = knobs->value(4); effect.chorusRate = knobs->value(5);
+        effect.delayMix = knobs->value(6); effect.delayBpm = knobs->value(7);
+        effect.delayFeedback = knobs->value(8);
+        safe->processor.setLayerConfig(safe->index, config);
+    });
+    dialog->addCustomComponent(knobs);
+    auto* tap = new juce::TextButton("TAP TEMPO");
+    flatButton(*tap);
+    tap->setSize(220, 34);
+    auto previousTap = std::make_shared<double>(0.0);
+    tap->onClick = [safe, knobs, tap, previousTap]
+    {
+        if (safe == nullptr) return;
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+        const auto interval = now - *previousTap;
+        *previousTap = now;
+        if (interval < 250.0 || interval > 1500.0) return;
+        const auto bpm = (float) juce::jlimit(40, 240, juce::roundToInt(60000.0 / interval));
+        knobs->setValue(7, bpm);
+        auto config = safe->processor.layerConfig(safe->index);
+        config.nordFx.delayBpm = bpm;
+        safe->processor.setLayerConfig(safe->index, config);
+        tap->setButtonText("TAP TEMPO · " + juce::String((int) bpm) + " BPM");
+    };
+    dialog->addCustomComponent(tap);
+    dialog->setSize(700, 390);
+    dialog->fitWithinApp(this);
+    dialog->fitCustomComponentsVertically();
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
@@ -6580,7 +6658,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resetLayer()
     gain.setValue(80.0);
     mode.setSelectedId(1);
     sustain.setSelectedId(1);
-    midiChannel.setSelectedId(2);
+    midiChannel.setSelectedId(1);
     octave.setSelectedId(5);
     lowNote.setSelectedId(1);
     highNote.setSelectedId(128);
@@ -7545,10 +7623,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         { "CUTOFF", valueOf("Cutoff", 100.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "REVERB", valueOf("Reverb", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "COMP", valueOf("Comp", 0.0f), 0.0f, 100.0f, 1.0f, 0 },
-        { "CHORUS", valueOf("Dx7Chorus", 20.0f), 0.0f, 100.0f, 1.0f, 0 }
+        { "CHORUS", valueOf("Dx7Chorus", 20.0f), 0.0f, 100.0f, 1.0f, 0 },
+        { "GAIN MOTOR dB", valueOf("PreGainDb", 0.0f), -18.0f, 18.0f, 0.1f, 1 }
     }, 4);
-    const std::array<const char*, 7> commonParameterSuffixes {
-        "Gain", "Attack", "Release", "Cutoff", "Reverb", "Comp", "Dx7Chorus"
+    const std::array<const char*, 8> commonParameterSuffixes {
+        "Gain", "Attack", "Release", "Cutoff", "Reverb", "Comp", "Dx7Chorus", "PreGainDb"
     };
     for (int control = 0; control < (int) commonParameterSuffixes.size(); ++control)
         common->bindParameter(control, processor.parameters,
@@ -7607,6 +7686,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         set("Release", common->value(2)); set("Cutoff", common->value(3));
         set("Reverb", common->value(4)); set("Comp", common->value(5));
         set("Dx7Chorus", common->value(6));
+        set("PreGainDb", common->value(7));
     });
     dialog->addCustomComponent(new CenteredPanel(new ModulationTogglePanel(processor, index), 600, 28));
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
@@ -9104,9 +9184,10 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
     auto* common=new KnobEditorPanel({
         {"VOLUME",value("Gain"),0,100,1,0},{"ATTACK ms",value("Attack"),0,100,0.1f,1},
         {"RELEASE ms",value("Release"),0,100,1,0},{"CUTOFF",value("Cutoff"),0,100,1,0},
-        {"REVERB",value("Reverb"),0,100,1,0},{"COMP",value("Comp"),0,100,1,0}},6);
-    const std::array<const char*,6> commonParameterSuffixes {
-        "Gain","Attack","Release","Cutoff","Reverb","Comp"
+        {"REVERB",value("Reverb"),0,100,1,0},{"COMP",value("Comp"),0,100,1,0},
+        {"GAIN MOTOR dB",value("PreGainDb"),-18,18,0.1f,1}},7);
+    const std::array<const char*,7> commonParameterSuffixes {
+        "Gain","Attack","Release","Cutoff","Reverb","Comp","PreGainDb"
     };
     for(int control=0;control<(int)commonParameterSuffixes.size();++control)
         common->bindParameter(control,processor.parameters,
@@ -9115,8 +9196,8 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
     common->useCompactGrid(true);
     content->add(common,78);
     common->setOnValueChange([&processor,common,prefix]{
-        const std::array<const char*,6> names {"Gain","Attack","Release","Cutoff","Reverb","Comp"};
-        for(int i=0;i<6;++i)if(auto* p=processor.parameters.getParameter(prefix+names[(size_t)i]))
+        const std::array<const char*,7> names {"Gain","Attack","Release","Cutoff","Reverb","Comp","PreGainDb"};
+        for(int i=0;i<7;++i)if(auto* p=processor.parameters.getParameter(prefix+names[(size_t)i]))
             p->setValueNotifyingHost(p->convertTo0to1(common->value(i)));
     });
     content->add(new SideBySideEditorPanel(
@@ -9182,11 +9263,12 @@ std::unique_ptr<juce::Component> createAnalogCommonControls(ClassicPlayerAudioPr
         { "RELEASE ms", 50, 0, 100, 1, 0 },
         { "CUTOFF", 100, 0, 100, 0, 2 },
         { "REVERB", 0, 0, 100, 1, 0 },
-        { "COMP", 0, 0, 100, 1, 0 }
-    }, 6);
+        { "COMP", 0, 0, 100, 1, 0 },
+        { "GAIN MOTOR dB", 0, -18, 18, 0.1f, 1 }
+    }, 7);
     const auto prefix = "layer" + juce::String(layer + 1);
-    const std::array<const char*, 6> suffixes { "Gain", "Attack", "Release", "Cutoff", "Reverb", "Comp" };
-    for (int i = 0; i < 6; ++i)
+    const std::array<const char*, 7> suffixes { "Gain", "Attack", "Release", "Cutoff", "Reverb", "Comp", "PreGainDb" };
+    for (int i = 0; i < 7; ++i)
         controls->bindParameter(i, processor.parameters, prefix + suffixes[(size_t) i]);
     controls->useCompactGrid(false);
     return controls;
