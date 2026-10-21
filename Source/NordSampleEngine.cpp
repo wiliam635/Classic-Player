@@ -25,26 +25,20 @@ void NordSampleEngine::prepare(double sampleRate, int blockSize)
     }
 }
 
-juce::Result NordSampleEngine::loadSample(int layerIndex, const juce::File& file)
+void NordSampleEngine::prepareLoopCrossfades(NordSampleDecoder::Instrument& instrument) noexcept
 {
-    if (!juce::isPositiveAndBelow(layerIndex, layerCount) || !file.existsAsFile()
-        || !file.hasFileExtension(".nsmp4"))
-        return juce::Result::fail("Selecione um arquivo de amostra Nord NSMP4 (.nsmp4).");
+    constexpr double defaultFadeSeconds = 0.02;
+    constexpr double continuousPadFadeSeconds = 0.10;
+    const auto fadeSeconds = instrument.name.containsIgnoreCase("pad")
+        ? continuousPadFadeSeconds : defaultFadeSeconds;
+    const auto requestedFade = static_cast<size_t>(NordSampleDecoder::sampleRate * fadeSeconds);
 
-    NordSampleDecoder::Instrument decoded;
-    const auto result = NordSampleDecoder::decode(file, decoded);
-    if (result.failed()) return result;
-
-    // The NSMP marker gives us the loop start but leaves the loop end at the
-    // end of the stored stroke. Blend a short tail into the loop head offline
-    // so the callback can wrap without doing correlation or allocation work.
-    for (auto& zone : decoded.zones)
+    for (auto& zone : instrument.zones)
     {
         const auto start = zone.loopStart;
         const auto end = zone.loopEnd;
         if (end <= start + 32 || end > zone.frames()) continue;
-        const auto fade = juce::jmin((size_t) (NordSampleDecoder::sampleRate * 0.02),
-                                     (end - start) / 4);
+        const auto fade = juce::jmin(requestedFade, (end - start) / 4);
         if (fade < 8) continue;
         for (size_t i = 0; i < fade; ++i)
         {
@@ -58,6 +52,21 @@ juce::Result NordSampleEngine::loadSample(int layerIndex, const juce::File& file
         }
         zone.loopStart = start + fade;
     }
+}
+
+juce::Result NordSampleEngine::loadSample(int layerIndex, const juce::File& file)
+{
+    if (!juce::isPositiveAndBelow(layerIndex, layerCount) || !file.existsAsFile()
+        || !file.hasFileExtension(".nsmp4"))
+        return juce::Result::fail("Selecione um arquivo de amostra Nord NSMP4 (.nsmp4).");
+
+    NordSampleDecoder::Instrument decoded;
+    const auto result = NordSampleDecoder::decode(file, decoded);
+    if (result.failed()) return result;
+
+    // Fade loop joins offline. Sustained pad patches use a longer blend to
+    // make the loop less audible; other Nord sounds retain the original 20 ms.
+    prepareLoopCrossfades(decoded);
 
     const juce::ScopedLock stateLock(lock);
     auto& layer = layers[(size_t) layerIndex];
