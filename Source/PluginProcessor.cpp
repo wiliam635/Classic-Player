@@ -934,19 +934,19 @@ juce::Result ClassicPlayerAudioProcessor::startAudioRecording()
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
     if (activeRecordingWriter.load(std::memory_order_acquire) != nullptr)
-        return juce::Result::fail("A gravação já está em andamento.");
+        return juce::Result::fail(juce::String::fromUTF8("A gravação já está em andamento."));
 
     auto folder = juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
                       .getChildFile("Classic Player Recordings");
     if (!folder.createDirectory())
-        return juce::Result::fail("Não foi possível criar a pasta de gravações na Área de Trabalho.");
+        return juce::Result::fail(juce::String::fromUTF8("Não foi possível criar a pasta de gravações na Área de Trabalho."));
 
     const auto timestamp = juce::Time::getCurrentTime().formatted("%Y-%m-%d %H-%M-%S");
     recordingFile = folder.getNonexistentChildFile("Classic Player " + timestamp, ".wav", false);
     midiRecordingFile = recordingFile.withFileExtension(".mid");
     auto stream = recordingFile.createOutputStream();
     if (stream == nullptr)
-        return juce::Result::fail("Não foi possível criar o arquivo WAV.");
+        return juce::Result::fail(juce::String::fromUTF8("Não foi possível criar o arquivo WAV."));
 
     juce::WavAudioFormat wav;
     auto writer = std::unique_ptr<juce::AudioFormatWriter>(wav.createWriterFor(
@@ -955,7 +955,7 @@ juce::Result ClassicPlayerAudioProcessor::startAudioRecording()
     {
         recordingFile.deleteFile();
         recordingFile = juce::File{};
-        return juce::Result::fail("Não foi possível iniciar o codificador WAV.");
+        return juce::Result::fail(juce::String::fromUTF8("Não foi possível iniciar o codificador WAV."));
     }
 
     if (!recordingThread.isThreadRunning()) recordingThread.startThread();
@@ -1136,16 +1136,16 @@ bool ClassicPlayerAudioProcessor::isDrumPadMidiLearning(int pad) const
 juce::Result ClassicPlayerAudioProcessor::loadDrumPad(int pad, const juce::File& file)
 {
     if (!juce::isPositiveAndBelow(pad, drumPadCount) || !file.existsAsFile())
-        return juce::Result::fail("Arquivo de pad inválido.");
+        return juce::Result::fail(juce::String::fromUTF8("Arquivo de pad inválido."));
     std::unique_ptr<juce::AudioFormatReader> reader(drumPadFormats.createReaderFor(file));
     if (reader == nullptr)
-        return juce::Result::fail("Formato de áudio não suportado.");
+        return juce::Result::fail(juce::String::fromUTF8("Formato de áudio não suportado."));
 
     juce::AudioBuffer<float> decoded(juce::jmin(2, (int) reader->numChannels),
                                      (int) reader->lengthInSamples);
     if (decoded.getNumChannels() == 0 || decoded.getNumSamples() == 0
         || !reader->read(&decoded, 0, decoded.getNumSamples(), 0, true, true))
-        return juce::Result::fail("Não foi possível ler o áudio do pad.");
+        return juce::Result::fail(juce::String::fromUTF8("Não foi possível ler o áudio do pad."));
 
     const juce::ScopedLock lock(drumPadLock);
     auto& state = drumPads[(size_t) pad];
@@ -1229,7 +1229,7 @@ juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::F
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
-        return juce::Result::fail("Layer inválida.");
+        return juce::Result::fail(juce::String::fromUTF8("Layer inválida."));
     if (layerType(layer) != LayerType::sf2)
         return juce::Result::fail("Esta layer aceita arquivos SF2. Use uma layer Nord para importar .npno.");
     if (file.hasFileExtension(".npno"))
@@ -1258,13 +1258,13 @@ juce::Result ClassicPlayerAudioProcessor::loadNordPiano(int layer, const juce::F
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
-        return juce::Result::fail("Layer inválida.");
+        return juce::Result::fail(juce::String::fromUTF8("Layer inválida."));
     if (layerType(layer) != LayerType::nord)
         return juce::Result::fail("Adicione uma layer Nord para importar um piano .npno.");
     if (!file.hasFileExtension(".npno"))
         return juce::Result::fail("A layer Nord aceita somente arquivos .npno.");
     if (category.isNotEmpty() && !soundFontCategories().contains(category))
-        return juce::Result::fail("Categoria de piano Nord inválida.");
+        return juce::Result::fail(juce::String::fromUTF8("Categoria de piano Nord inválida."));
 
     const auto result = sampleEngine.loadSample(layer, file);
     if (result.failed()) return result;
@@ -1287,7 +1287,7 @@ juce::Result ClassicPlayerAudioProcessor::loadNordPiano(int layer, const juce::F
 juce::Result ClassicPlayerAudioProcessor::loadNordSample(int layer, const juce::File& file)
 {
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
-        return juce::Result::fail("Layer inválida.");
+        return juce::Result::fail(juce::String::fromUTF8("Layer inválida."));
     if (layerType(layer) != LayerType::nordSample)
         return juce::Result::fail("Adicione uma layer Nord NSMP4 antes de carregar o arquivo.");
 
@@ -1299,7 +1299,7 @@ juce::Result ClassicPlayerAudioProcessor::loadNordSample(int layer, const juce::
     if (layerType(layer) != LayerType::nordSample)
     {
         nordSampleEngine.unload(layer);
-        return juce::Result::fail("O tipo da layer mudou durante a importação.");
+        return juce::Result::fail(juce::String::fromUTF8("O tipo da layer mudou durante a importação."));
     }
     externalInstruments[(size_t) layer].unload();
     engine.unloadSoundFont(layer);
@@ -1342,9 +1342,9 @@ juce::Result ClassicPlayerAudioProcessor::loadExternalInstrument(int layer, cons
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
     if (!supportsExternalInstruments())
-        return juce::Result::fail("Instrumentos externos só podem ser carregados no Classic Player standalone.");
+        return juce::Result::fail(juce::String::fromUTF8("Instrumentos externos só podem ser carregados no Classic Player standalone."));
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
-        return juce::Result::fail("Layer inválida.");
+        return juce::Result::fail(juce::String::fromUTF8("Layer inválida."));
 
     const auto result = externalInstruments[(size_t) layer].loadInstrument(
         file, currentSampleRate, currentBlockSize);
@@ -1475,11 +1475,11 @@ juce::Result ClassicPlayerAudioProcessor::beginNordVelocityCalibration(int layer
 juce::Result ClassicPlayerAudioProcessor::advanceNordVelocityCalibration(int layer)
 {
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
-        return juce::Result::fail("Layer inválida.");
+        return juce::Result::fail(juce::String::fromUTF8("Layer inválida."));
     auto& capture = nordVelocityCaptures[(size_t) layer];
     const juce::SpinLock::ScopedLockType guard(capture.lock);
     if (capture.stage < 0 || capture.stage >= 2)
-        return juce::Result::fail("A calibração não está aguardando esta etapa.");
+        return juce::Result::fail(juce::String::fromUTF8("A calibração não está aguardando esta etapa."));
     if (capture.count < 5)
         return juce::Result::fail("Toque cinco notas para registrar esta etapa.");
     ++capture.stage;
@@ -1491,7 +1491,7 @@ juce::Result ClassicPlayerAudioProcessor::finishNordVelocityCalibration(int laye
 {
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)
         || layerType(layer) != LayerType::nord)
-        return juce::Result::fail("Esta calibração é exclusiva da layer NPNO.");
+        return juce::Result::fail(juce::String::fromUTF8("Esta calibração é exclusiva da layer NPNO."));
 
     std::array<int, 3> medians {};
     auto& capture = nordVelocityCaptures[(size_t) layer];
@@ -1506,7 +1506,7 @@ juce::Result ClassicPlayerAudioProcessor::finishNordVelocityCalibration(int laye
             medians[stage] = values[values.size() / 2];
         }
         if (medians[1] - medians[0] < 8 || medians[2] - medians[1] < 8)
-            return juce::Result::fail("As três intensidades ficaram muito próximas. Cancele e repita com toques mais distintos.");
+            return juce::Result::fail(juce::String::fromUTF8("As três intensidades ficaram muito próximas. Cancele e repita com toques mais distintos."));
         capture.stage = -1;
         capture.count = 0;
     }
@@ -1696,7 +1696,7 @@ juce::Result ClassicPlayerAudioProcessor::loadDx7(int layer, const juce::File& f
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
-        return juce::Result::fail("Layer inválida.");
+        return juce::Result::fail(juce::String::fromUTF8("Layer inválida."));
     externalInstruments[(size_t) layer].unload();
     engine.unloadSoundFont(layer);
     analogSynthEngine.unload(layer);
@@ -2712,7 +2712,7 @@ juce::Result ClassicPlayerAudioProcessor::importNordSample(const juce::File& sou
                                                             juce::File& importedFile) const
 {
     if (!source.existsAsFile() || !source.hasFileExtension(".nsmp4"))
-        return juce::Result::fail("Selecione um arquivo Nord NSMP4 (.nsmp4) válido.");
+        return juce::Result::fail(juce::String::fromUTF8("Selecione um arquivo Nord NSMP4 (.nsmp4) válido."));
     auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                     .getChildFile("Classic Player").getChildFile("Nord Samples");
     const auto directoryResult = folder.createDirectory();
@@ -2728,7 +2728,7 @@ juce::Result ClassicPlayerAudioProcessor::importNordSample(const juce::File& sou
         destination = folder.getNonexistentChildFile(source.getFileNameWithoutExtension(), ".nsmp4", true);
     }
     if (!source.copyFileTo(destination))
-        return juce::Result::fail("Não foi possível copiar o NSMP4 para a biblioteca.");
+        return juce::Result::fail(juce::String::fromUTF8("Não foi possível copiar o NSMP4 para a biblioteca."));
     importedFile = destination;
     return juce::Result::ok();
 }
@@ -2751,13 +2751,13 @@ juce::Result ClassicPlayerAudioProcessor::deleteLibraryNordSample(const juce::Fi
     const auto root = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                           .getChildFile("Classic Player").getChildFile("Nord Samples");
     if (!file.existsAsFile() || !file.hasFileExtension(".nsmp4") || !file.isAChildOf(root))
-        return juce::Result::fail("Só é possível excluir um NSMP4 da biblioteca Nord do Classic Player.");
+        return juce::Result::fail(juce::String::fromUTF8("Só é possível excluir um NSMP4 da biblioteca Nord do Classic Player."));
     for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
         if (layerType(layer) == LayerType::nordSample
             && nordSampleEngine.path(layer) == file.getFullPathName())
             unloadNordSample(layer);
     return file.deleteFile() ? juce::Result::ok()
-                             : juce::Result::fail("Não foi possível excluir o arquivo NSMP4.");
+                             : juce::Result::fail(juce::String::fromUTF8("Não foi possível excluir o arquivo NSMP4."));
 }
 
 void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* source,
@@ -2948,9 +2948,9 @@ juce::Result ClassicPlayerAudioProcessor::assignLiveSetSlot(int bank, int slot,
 {
     const auto index = liveSetIndex(bank, slot);
     if (index < 0)
-        return juce::Result::fail("Posição inválida no Live Set.");
+        return juce::Result::fail(juce::String::fromUTF8("Posição inválida no Live Set."));
     if (!programFile.existsAsFile() || programFile.getFileExtension().toLowerCase() != ".ckprogram")
-        return juce::Result::fail("Selecione uma programação salva válida.");
+        return juce::Result::fail(juce::String::fromUTF8("Selecione uma programação salva válida."));
 
     {
         const juce::ScopedLock lock(liveSetLock);
@@ -2997,7 +2997,7 @@ juce::Result ClassicPlayerAudioProcessor::saveProgram(const juce::String& reques
     auto name = requestedName.trim();
     name = name.retainCharacters("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_()");
     if (name.isEmpty())
-        return juce::Result::fail("Digite um nome para a programação.");
+        return juce::Result::fail(juce::String::fromUTF8("Digite um nome para a programação."));
 
     const auto folder = programStorageDirectory().getChildFile("Programs");
     if (const auto result = folder.createDirectory(); result.failed())
@@ -3038,11 +3038,11 @@ juce::Result ClassicPlayerAudioProcessor::importProgramFromFile(const juce::File
 
     juce::MemoryBlock data;
     if (!source.loadFileAsData(data) || data.getSize() == 0)
-        return juce::Result::fail("Não foi possível ler a performance para importar.");
+        return juce::Result::fail(juce::String::fromUTF8("Não foi possível ler a performance para importar."));
     const std::unique_ptr<juce::XmlElement> xml(
         getXmlFromBinary(data.getData(), static_cast<int>(data.getSize())));
     if (xml == nullptr || !xml->hasTagName(parameters.state.getType().toString()))
-        return juce::Result::fail("O arquivo está corrompido ou não é compatível com esta versão.");
+        return juce::Result::fail(juce::String::fromUTF8("O arquivo está corrompido ou não é compatível com esta versão."));
 
     const auto folder = programStorageDirectory().getChildFile("Programs");
     if (const auto result = folder.createDirectory(); result.failed()) return result;
@@ -3053,9 +3053,9 @@ juce::Result ClassicPlayerAudioProcessor::importProgramFromFile(const juce::File
         return juce::Result::ok();
     }
     if (destination.existsAsFile() && !replaceExisting)
-        return juce::Result::fail("Já existe uma performance com esse nome na biblioteca.");
+        return juce::Result::fail(juce::String::fromUTF8("Já existe uma performance com esse nome na biblioteca."));
     if (!destination.replaceWithData(data.getData(), data.getSize()))
-        return juce::Result::fail("Não foi possível copiar a performance para a biblioteca do app.");
+        return juce::Result::fail(juce::String::fromUTF8("Não foi possível copiar a performance para a biblioteca do app."));
 
     importedFile = destination;
     return juce::Result::ok();
@@ -3065,7 +3065,7 @@ juce::Result ClassicPlayerAudioProcessor::writeProgramFile(const juce::File& req
                                                             juce::File& savedFile)
 {
     if (requestedDestination == juce::File{})
-        return juce::Result::fail("Escolha um local para salvar a programação.");
+        return juce::Result::fail(juce::String::fromUTF8("Escolha um local para salvar a programação."));
 
     auto destination = requestedDestination;
     if (destination.getFileExtension().toLowerCase() != ".ckprogram")
@@ -3084,10 +3084,10 @@ juce::Result ClassicPlayerAudioProcessor::writeProgramFile(const juce::File& req
     juce::MemoryBlock data;
     getStateInformation(data);
     if (data.getSize() == 0)
-        return juce::Result::fail("Não foi possível preparar a programação.");
+        return juce::Result::fail(juce::String::fromUTF8("Não foi possível preparar a programação."));
 
     if (!destination.replaceWithData(data.getData(), data.getSize()))
-        return juce::Result::fail("Não foi possível salvar a programação.");
+        return juce::Result::fail(juce::String::fromUTF8("Não foi possível salvar a programação."));
 
     savedFile = destination;
     return juce::Result::ok();
@@ -3161,15 +3161,15 @@ void ClassicPlayerAudioProcessor::panic()
 juce::Result ClassicPlayerAudioProcessor::loadProgram(const juce::File& programFile)
 {
     if (!programFile.existsAsFile() || programFile.getFileExtension().toLowerCase() != ".ckprogram")
-        return juce::Result::fail("Selecione uma programação válida do Classic Player.");
+        return juce::Result::fail(juce::String::fromUTF8("Selecione uma programação válida do Classic Player."));
 
     juce::MemoryBlock data;
     if (!programFile.loadFileAsData(data) || data.getSize() == 0)
-        return juce::Result::fail("Não foi possível ler a programação.");
+        return juce::Result::fail(juce::String::fromUTF8("Não foi possível ler a programação."));
 
     if (auto xml = getXmlFromBinary(data.getData(), static_cast<int>(data.getSize()));
         xml == nullptr || !xml->hasTagName(parameters.state.getType().toString()))
-        return juce::Result::fail("A programação está corrompida ou é incompatível.");
+        return juce::Result::fail(juce::String::fromUTF8("A programação está corrompida ou é incompatível."));
 
     // A performance change is a hard stop: sustained notes from the previous
     // SF2 or external instrument must never remain audible in the next one.
@@ -3261,7 +3261,7 @@ juce::Result ClassicPlayerAudioProcessor::saveLayerPreset(int layer,
                                                             juce::File& savedFile)
 {
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
-        return juce::Result::fail("Layer inválida.");
+        return juce::Result::fail(juce::String::fromUTF8("Layer inválida."));
     if (requestedDestination == juce::File{})
         return juce::Result::fail("Escolha um local para salvar o preset da layer.");
 
@@ -3276,7 +3276,7 @@ juce::Result ClassicPlayerAudioProcessor::saveLayerPreset(int layer,
     getStateInformation(programData);
     auto xml = getXmlFromBinary(programData.getData(), static_cast<int>(programData.getSize()));
     if (xml == nullptr)
-        return juce::Result::fail("Não foi possível preparar o preset da layer.");
+        return juce::Result::fail(juce::String::fromUTF8("Não foi possível preparar o preset da layer."));
     auto state = juce::ValueTree::fromXml(*xml);
     state.setProperty("layerPresetFormat", 1, nullptr);
     state.setProperty("layerPresetSource", layer, nullptr);
@@ -3285,7 +3285,7 @@ juce::Result ClassicPlayerAudioProcessor::saveLayerPreset(int layer,
     if (auto presetXml = state.createXml()) copyXmlToBinary(*presetXml, presetData);
     if (presetData.getSize() == 0
         || !destination.replaceWithData(presetData.getData(), presetData.getSize()))
-        return juce::Result::fail("Não foi possível salvar o preset da layer.");
+        return juce::Result::fail(juce::String::fromUTF8("Não foi possível salvar o preset da layer."));
     savedFile = destination;
     return juce::Result::ok();
 }
@@ -3296,28 +3296,28 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
     if (!juce::isPositiveAndBelow(destinationLayer, Sf2Engine::layerCount)
         || !presetFile.existsAsFile()
         || presetFile.getFileExtension().toLowerCase() != ".cklayer")
-        return juce::Result::fail("Selecione um preset de layer válido.");
+        return juce::Result::fail(juce::String::fromUTF8("Selecione um preset de layer válido."));
 
     juce::MemoryBlock presetData;
     if (!presetFile.loadFileAsData(presetData) || presetData.getSize() == 0)
-        return juce::Result::fail("Não foi possível ler o preset da layer.");
+        return juce::Result::fail(juce::String::fromUTF8("Não foi possível ler o preset da layer."));
     auto presetXml = getXmlFromBinary(presetData.getData(), static_cast<int>(presetData.getSize()));
     if (presetXml == nullptr)
-        return juce::Result::fail("O preset da layer está corrompido ou é incompatível.");
+        return juce::Result::fail(juce::String::fromUTF8("O preset da layer está corrompido ou é incompatível."));
     auto sourceState = juce::ValueTree::fromXml(*presetXml);
     if ((int) sourceState.getProperty("layerPresetFormat", 0) != 1)
-        return juce::Result::fail("O arquivo não é um preset de layer do Classic Player.");
+        return juce::Result::fail(juce::String::fromUTF8("O arquivo não é um preset de layer do Classic Player."));
     const auto sourceLayer = (int) sourceState.getProperty("layerPresetSource", -1);
     const auto savedType = (int) sourceState.getProperty("layerPresetType", -1);
     if (!juce::isPositiveAndBelow(sourceLayer, Sf2Engine::layerCount))
-        return juce::Result::fail("O preset da layer está incompleto.");
+        return juce::Result::fail(juce::String::fromUTF8("O preset da layer está incompleto."));
     if (savedType != static_cast<int>(layerType(destinationLayer)))
         return juce::Result::fail("Este preset pertence a outro tipo de layer.");
 
     juce::MemoryBlock currentData;
     getStateInformation(currentData);
     auto currentXml = getXmlFromBinary(currentData.getData(), static_cast<int>(currentData.getSize()));
-    if (currentXml == nullptr) return juce::Result::fail("Não foi possível preparar a layer atual.");
+    if (currentXml == nullptr) return juce::Result::fail(juce::String::fromUTF8("Não foi possível preparar a layer atual."));
     auto destinationState = juce::ValueTree::fromXml(*currentXml);
 
     const auto copyProperty = [&sourceState, &destinationState](const juce::String& source,
@@ -3417,7 +3417,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
 
     juce::MemoryBlock mergedData;
     if (auto mergedXml = destinationState.createXml()) copyXmlToBinary(*mergedXml, mergedData);
-    if (mergedData.getSize() == 0) return juce::Result::fail("Não foi possível aplicar o preset.");
+    if (mergedData.getSize() == 0) return juce::Result::fail(juce::String::fromUTF8("Não foi possível aplicar o preset."));
     stopAllSoundsBeforeProgramChange();
     setStateInformation(mergedData.getData(), static_cast<int>(mergedData.getSize()));
     return juce::Result::ok();

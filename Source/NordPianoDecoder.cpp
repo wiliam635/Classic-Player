@@ -153,19 +153,19 @@ juce::Result decodeStroke(const std::uint8_t* audio,
                           std::vector<std::int16_t>& pcm)
 {
     if (blockCount == 0 || expectedFrames == 0)
-        return juce::Result::fail("O arquivo Nord declara uma gravação vazia.");
+        return juce::Result::fail(juce::String::fromUTF8("O arquivo Nord declara uma gravação vazia."));
 
     const auto blockBytes = wordsPerBlock * 2 * static_cast<size_t>(channels);
     if (blockCount > std::numeric_limits<size_t>::max() / blockBytes
         || audioBytes != static_cast<size_t>(blockCount) * blockBytes)
-        return juce::Result::fail("O tamanho de áudio declarado para uma nota Nord não confere.");
+        return juce::Result::fail(juce::String::fromUTF8("O tamanho de áudio declarado para uma nota Nord não confere."));
 
     const auto longestBlockFrames = (8 * (blockBytes - 2)) / channels;
     const auto maximumOwnedFrames = static_cast<std::uint64_t>(blockCount)
                                   * (longestBlockFrames - overlapFrames);
     if (expectedFrames > maximumOwnedFrames
         || expectedFrames > std::numeric_limits<size_t>::max() / channels)
-        return juce::Result::fail("A duração declarada para uma nota Nord é inválida.");
+        return juce::Result::fail(juce::String::fromUTF8("A duração declarada para uma nota Nord é inválida."));
 
     std::array<std::array<std::int64_t, 4>, 2> history {};
     for (size_t channel = 0; channel < channels; ++channel)
@@ -187,11 +187,11 @@ juce::Result decodeStroke(const std::uint8_t* audio,
         const auto width = static_cast<unsigned>(header & 0x1fu);
         const auto order = static_cast<unsigned>((header >> 5) & 0x07u);
         if (width < 1 || width > 16 || order > 4)
-            return juce::Result::fail("O arquivo Nord contém um bloco de áudio não suportado.");
+            return juce::Result::fail(juce::String::fromUTF8("O arquivo Nord contém um bloco de áudio não suportado."));
 
         const auto frames = (8 * (blockBytes - 2)) / (width * channels);
         if (frames < overlapFrames + 4)
-            return juce::Result::fail("Um bloco de áudio Nord é curto demais para a sobreposição.");
+            return juce::Result::fail(juce::String::fromUTF8("Um bloco de áudio Nord é curto demais para a sobreposição."));
 
         BitFields fields { raw + 2, blockBytes - 2 };
         std::vector<std::int64_t> decoded(frames * channels);
@@ -200,7 +200,7 @@ juce::Result decodeStroke(const std::uint8_t* audio,
             {
                 std::int32_t residual = 0;
                 if (!fields.take(width, residual))
-                    return juce::Result::fail("Os dados de áudio Nord terminaram antes do esperado.");
+                    return juce::Result::fail(juce::String::fromUTF8("Os dados de áudio Nord terminaram antes do esperado."));
                 decoded[frame * channels + channel] = predict(residual, history[channel], order);
             }
 
@@ -212,12 +212,12 @@ juce::Result decodeStroke(const std::uint8_t* audio,
                 {
                     const auto index = frame * channels + channel;
                     if (decoded[index] != previousTail[index])
-                        return juce::Result::fail("A sobreposição entre blocos do piano Nord não confere.");
+                        return juce::Result::fail(juce::String::fromUTF8("A sobreposição entre blocos do piano Nord não confere."));
                 }
         }
 
         if (ownedFrames > static_cast<size_t>(expectedFrames) - outputFrames)
-            return juce::Result::fail("Os blocos Nord excedem a duração declarada para a nota.");
+            return juce::Result::fail(juce::String::fromUTF8("Os blocos Nord excedem a duração declarada para a nota."));
 
         for (size_t frame = 0; frame < ownedFrames; ++frame)
             for (size_t channel = 0; channel < channels; ++channel)
@@ -233,7 +233,7 @@ juce::Result decodeStroke(const std::uint8_t* audio,
     }
 
     if (outputFrames != expectedFrames)
-        return juce::Result::fail("A duração decodificada não corresponde ao registro do piano Nord.");
+        return juce::Result::fail(juce::String::fromUTF8("A duração decodificada não corresponde ao registro do piano Nord."));
 
     return juce::Result::ok();
 }
@@ -241,6 +241,11 @@ juce::Result decodeStroke(const std::uint8_t* audio,
 juce::Result fail(juce::String message)
 {
     return juce::Result::fail(std::move(message));
+}
+
+juce::Result fail(const char* message)
+{
+    return fail(juce::String::fromUTF8(message));
 }
 }
 
@@ -366,8 +371,8 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
     {
         const auto requiredMiB = (totalDecodedBytes + bytesPerMiB - 1) / bytesPerMiB;
         const auto allowedMiB = safeDecodedBytes / bytesPerMiB;
-        return fail("Este piano Nord precisa de " + juce::String(static_cast<juce::int64>(requiredMiB))
-                    + " MiB de áudio decodificado; o limite seguro para este computador é "
+        return fail(juce::String::fromUTF8("Este piano Nord precisa de ") + juce::String(static_cast<juce::int64>(requiredMiB))
+                    + juce::String::fromUTF8(" MiB de áudio decodificado; o limite seguro para este computador é ")
                     + juce::String(static_cast<juce::int64>(allowedMiB)) + " MiB.");
     }
 

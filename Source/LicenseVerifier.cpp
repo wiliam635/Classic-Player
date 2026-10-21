@@ -101,7 +101,7 @@ juce::String sessionUserName()
     auto name = juce::JSON::parse(contents).getProperty("user_name", {}).toString().trim();
     // Older builds stored "name · email" in this field.  Keep those sessions
     // readable while the newer format stores the two values independently.
-    const auto separator = name.indexOf(" · ");
+    const auto separator = name.indexOf(juce::String::fromUTF8(" · "));
     return separator >= 0 ? name.substring(0, separator).trim() : name;
 }
 
@@ -116,7 +116,7 @@ juce::String sessionUserEmail()
     if (email.isEmpty())
     {
         const auto legacy = parsed.getProperty("user_name", {}).toString().trim();
-        const auto separator = legacy.indexOf(" · ");
+        const auto separator = legacy.indexOf(juce::String::fromUTF8(" · "));
         if (separator >= 0) email = legacy.substring(separator + 3).trim();
     }
     return email;
@@ -176,7 +176,7 @@ bool postJson(const juce::String& path, const juce::var& payload,
     auto stream = url.createInputStream(options);
     if (stream == nullptr)
     {
-        errorMessage = "Não foi possível conectar ao servidor de licença.";
+        errorMessage = juce::String::fromUTF8("Não foi possível conectar ao servidor de licença.");
         return false;
     }
     response = juce::JSON::parse(stream->readEntireStreamAsString());
@@ -184,7 +184,7 @@ bool postJson(const juce::String& path, const juce::var& payload,
     {
         auto serverError = response.getProperty("error", {}).toString();
         errorMessage = serverError.isNotEmpty() ? serverError
-                                                : "O servidor recusou a autenticação.";
+                                                : juce::String::fromUTF8("O servidor recusou a autenticação.");
         return false;
     }
     return true;
@@ -285,7 +285,7 @@ bool LicenseVerifier::loginOnline(const juce::String& email, const juce::String&
     int status = 0;
     if (!postJson("/v1/auth/login", juce::var(object), response, status, errorMessage)) return false;
     const auto token = response.getProperty("access_token", {}).toString().trim();
-    if (token.length() < 24) { errorMessage = "Resposta de licença inválida."; return false; }
+    if (token.length() < 24) { errorMessage = juce::String::fromUTF8("Resposta de licença inválida."); return false; }
     auto file = sessionFile();
     auto* session = new juce::DynamicObject();
     session->setProperty("access_token", token);
@@ -299,7 +299,7 @@ bool LicenseVerifier::loginOnline(const juce::String& email, const juce::String&
                          + offlineGraceSeconds);
     if (file.getParentDirectory().createDirectory().failed()
         || !file.replaceWithText(juce::JSON::toString(juce::var(session))))
-    { errorMessage = "Não foi possível salvar a licença neste computador."; return false; }
+    { errorMessage = juce::String::fromUTF8("Não foi possível salvar a licença neste computador."); return false; }
     onlineSessionValidated.store(true, std::memory_order_release);
     return true;
 }
@@ -307,7 +307,7 @@ bool LicenseVerifier::loginOnline(const juce::String& email, const juce::String&
 bool LicenseVerifier::validateOnlineSession(juce::String& errorMessage)
 {
     const auto token = sessionToken();
-    if (token.length() < 24) { errorMessage = "Sessão de licença ausente."; return false; }
+    if (token.length() < 24) { errorMessage = juce::String::fromUTF8("Sessão de licença ausente."); return false; }
     juce::var response; int status = 0;
     auto* object = new juce::DynamicObject();
     // Include the same device identity used during login.  The service can
@@ -323,7 +323,7 @@ bool LicenseVerifier::validateOnlineSession(juce::String& errorMessage)
         if (status == 401 || status == 403)
         {
             clearOnlineSession();
-            errorMessage = "Esta licença não está ativa neste computador.";
+            errorMessage = juce::String::fromUTF8("Esta licença não está ativa neste computador.");
         }
         // A transport failure is not a license failure.  Preserve the cached
         // session so the application remains usable without internet.

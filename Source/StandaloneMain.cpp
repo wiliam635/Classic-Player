@@ -42,7 +42,7 @@ std::optional<juce::WebBrowserComponent::Resource> provideWebResource(const juce
     const auto file = root.getChildFile(path);
     if (!file.existsAsFile() || !file.isAChildOf(root))
     {
-        juce::Logger::writeToLog("Recurso web não encontrado: " + path);
+        juce::Logger::writeToLog(juce::String::fromUTF8("Recurso web não encontrado: ") + path);
         return std::nullopt;
     }
 
@@ -93,7 +93,7 @@ public:
     juce::var selectDevice(const juce::String& uid) const
     {
         const auto device = findDevice(uid);
-        if (device == kAudioObjectUnknown) return result(false, "Interface de áudio não encontrada");
+        if (device == kAudioObjectUnknown) return result(false, juce::String::fromUTF8("Interface de áudio não encontrada"));
         AudioObjectPropertyAddress address { kAudioHardwarePropertyDefaultOutputDevice,
                                              kAudioObjectPropertyScopeGlobal,
                                              kAudioObjectPropertyElementMain };
@@ -101,19 +101,19 @@ public:
         const auto status = AudioObjectSetPropertyData(kAudioObjectSystemObject, &address,
                                                        0, nullptr, sizeof(value), &value);
         return result(status == noErr,
-                      status == noErr ? "Saída CoreAudio alterada" : "A interface recusou a seleção");
+                      juce::String::fromUTF8(status == noErr ? "Saída CoreAudio alterada" : "A interface recusou a seleção"));
     }
 
     juce::var setBufferSize(const juce::String& uid, int requested) const
     {
         const auto device = findDevice(uid);
-        if (device == kAudioObjectUnknown) return result(false, "Interface de áudio não encontrada");
+        if (device == kAudioObjectUnknown) return result(false, juce::String::fromUTF8("Interface de áudio não encontrada"));
         AudioObjectPropertyAddress address { kAudioDevicePropertyBufferFrameSize,
                                              kAudioObjectPropertyScopeGlobal,
                                              kAudioObjectPropertyElementMain };
         Boolean settable = false;
         if (AudioObjectIsPropertySettable(device, &address, &settable) != noErr || settable == 0)
-            return result(false, "O driver não permite alterar o buffer");
+            return result(false, juce::String::fromUTF8("O driver não permite alterar o buffer"));
         auto value = static_cast<UInt32>(juce::jmax(16, requested));
         const auto status = AudioObjectSetPropertyData(device, &address, 0, nullptr,
                                                        sizeof(value), &value);
@@ -124,13 +124,13 @@ public:
     juce::var setSampleRate(const juce::String& uid, double requested) const
     {
         const auto device = findDevice(uid);
-        if (device == kAudioObjectUnknown) return result(false, "Interface de áudio não encontrada");
+        if (device == kAudioObjectUnknown) return result(false, juce::String::fromUTF8("Interface de áudio não encontrada"));
         AudioObjectPropertyAddress address { kAudioDevicePropertyNominalSampleRate,
                                              kAudioObjectPropertyScopeGlobal,
                                              kAudioObjectPropertyElementMain };
         Boolean settable = false;
         if (AudioObjectIsPropertySettable(device, &address, &settable) != noErr || settable == 0)
-            return result(false, "O driver não permite alterar o sample rate");
+            return result(false, juce::String::fromUTF8("O driver não permite alterar o sample rate"));
         auto value = static_cast<Float64>(requested);
         const auto status = AudioObjectSetPropertyData(device, &address, 0, nullptr,
                                                        sizeof(value), &value);
@@ -327,11 +327,11 @@ public:
     juce::var selectDevice(const juce::String& uid) const
     {
         const auto separator = uid.indexOfChar(':');
-        if (separator <= 0) return result(false, "Dispositivo de áudio inválido");
+        if (separator <= 0) return result(false, juce::String::fromUTF8("Dispositivo de áudio inválido"));
         const auto typeName = uid.substring(0, separator);
         const auto deviceName = uid.substring(separator + 1);
         auto* type = findType(typeName);
-        if (type == nullptr) return result(false, "Tipo de driver não encontrado: " + typeName);
+        if (type == nullptr) return result(false, juce::String::fromUTF8("Tipo de driver não encontrado: ") + typeName);
         // JUCE 9 switches the driver type through a void-returning API.
         // The actual open result is reported by setAudioDeviceSetup below.
         deviceManager.setCurrentAudioDeviceType(typeName, true);
@@ -341,7 +341,7 @@ public:
         const auto openError = deviceManager.setAudioDeviceSetup(setup, true);
         if (openError.isNotEmpty()) return result(false, openError);
         juce::Logger::writeToLog("Saída de áudio selecionada: " + typeName + " / " + deviceName);
-        return result(true, "Saída de áudio alterada");
+        return result(true, juce::String::fromUTF8("Saída de áudio alterada"));
     }
 
     juce::var setBufferSize(const juce::String&, int requested) const

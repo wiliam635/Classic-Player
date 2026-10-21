@@ -55,7 +55,7 @@ juce::Result ExternalInstrumentHost::loadInstrument(const juce::File& pluginFile
                                                     int maximumBlockSize)
 {
     if (!pluginFile.exists())
-        return juce::Result::fail("Instrumento virtual não encontrado.");
+        return juce::Result::fail(juce::String::fromUTF8("Instrumento virtual não encontrado."));
 
     juce::OwnedArray<juce::PluginDescription> candidates;
     const auto identifier = pluginFile.getFullPathName();
@@ -66,15 +66,15 @@ juce::Result ExternalInstrumentHost::loadInstrument(const juce::File& pluginFile
 
     auto* selected = candidates.getFirst();
     if (selected == nullptr)
-        return juce::Result::fail("O arquivo não contém um VST3/AU compatível.");
+        return juce::Result::fail(juce::String::fromUTF8("O arquivo não contém um VST3/AU compatível."));
 
     if (!selected->isInstrument)
-        return juce::Result::fail("O plugin selecionado é um efeito. Escolha um instrumento virtual.");
+        return juce::Result::fail(juce::String::fromUTF8("O plugin selecionado é um efeito. Escolha um instrumento virtual."));
 
     juce::String error;
     auto next = formatManager.createPluginInstance(*selected, sampleRate, maximumBlockSize, error);
     if (next == nullptr)
-        return juce::Result::fail(error.isNotEmpty() ? error : "Não foi possível abrir o instrumento virtual.");
+        return juce::Result::fail(error.isNotEmpty() ? error : juce::String::fromUTF8("Não foi possível abrir o instrumento virtual."));
 
     unload();
     instance = std::move(next);

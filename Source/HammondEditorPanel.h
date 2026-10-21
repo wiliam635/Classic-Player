@@ -63,7 +63,7 @@ public:
                 button->setClickingTogglesState(true);
                 button->setRadioGroupId(button==&leslieButtons[i]?8301:8302);
                 button->setConnectedEdges((i>0?juce::Button::ConnectedOnLeft:0)|(i<2?juce::Button::ConnectedOnRight:0));
-                button->setTooltip(button==&leslieButtons[i]?"Mod wheel (CC1): valores baixos = lento; valores altos = rápido":"Ataque percussivo do órgão");
+                button->setTooltip(juce::String::fromUTF8(button==&leslieButtons[i]?"Mod wheel (CC1): valores baixos = lento; valores altos = rápido":"Ataque percussivo do órgão"));
                 addAndMakeVisible(*button);
             }
             leslieButtons[i].onClick=[this,i]{auto c=processor.hammondConfig(index);if(c.leslie!=(int)i){c.leslie=(int)i;processor.setHammondConfig(index,c);}refresh();};

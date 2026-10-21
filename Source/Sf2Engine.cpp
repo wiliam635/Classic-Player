@@ -145,9 +145,9 @@ void Sf2Engine::reset()
 juce::Result Sf2Engine::loadSoundFont(int index, const juce::File& file)
 {
     if (!juce::isPositiveAndBelow(index, layerCount))
-        return juce::Result::fail("Layer inválida");
+        return juce::Result::fail(juce::String::fromUTF8("Layer inválida"));
     if (!file.existsAsFile())
-        return juce::Result::fail("Arquivo SF2 não encontrado");
+        return juce::Result::fail(juce::String::fromUTF8("Arquivo SF2 não encontrado"));
 
     const juce::ScopedLock guard(lock);
     auto& layer = layers[(size_t) index];
@@ -173,7 +173,7 @@ juce::Result Sf2Engine::loadSoundFont(int index, const juce::File& file)
     {
         layer.soundFontId = -1;
         layer.soundFontPath.clear();
-        return juce::Result::fail("FluidSynth não conseguiu abrir este SF2");
+        return juce::Result::fail(juce::String::fromUTF8("FluidSynth não conseguiu abrir este SF2"));
     }
 
     layer.soundFontId = id;

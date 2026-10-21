@@ -26,11 +26,11 @@ public:
     }
     juce::Result load(int index,const juce::File& file)
     {
-        if(!juce::isPositiveAndBelow(index,count))return juce::Result::fail("Pad inválido");
+        if(!juce::isPositiveAndBelow(index,count))return juce::Result::fail(juce::String::fromUTF8("Pad inválido"));
         juce::AudioFormatManager formats;formats.registerBasicFormats();
         std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
         if(!reader || reader->lengthInSamples<4 || reader->sampleRate<=0)
-            return juce::Result::fail("Não foi possível ler este áudio");
+            return juce::Result::fail(juce::String::fromUTF8("Não foi possível ler este áudio"));
         // This is a time limit, not a byte limit: a 44.1 kHz source gets the
         // same ten minutes as a 48 kHz source. Audio is held as stereo float
         // internally. Keep a deliberately generous per-layer working budget:
@@ -39,10 +39,10 @@ public:
         constexpr double maxSeconds = 10.0 * 60.0;
         const auto maxFrames = static_cast<juce::int64>(std::floor(reader->sampleRate * maxSeconds));
         if(reader->lengthInSamples>maxFrames)
-            return juce::Result::fail("Áudio muito grande. Cada pad contínuo aceita até 10 minutos.");
+            return juce::Result::fail(juce::String::fromUTF8("Áudio muito grande. Cada pad contínuo aceita até 10 minutos."));
         juce::AudioBuffer<float> audio(2,(int)reader->lengthInSamples);
         if(!reader->read(&audio,0,audio.getNumSamples(),0,true,true))
-            return juce::Result::fail("Falha ao ler o áudio");
+            return juce::Result::fail(juce::String::fromUTF8("Falha ao ler o áudio"));
         if(reader->numChannels==1)audio.copyFrom(1,0,audio,0,0,audio.getNumSamples());
         const juce::ScopedLock guard(lock);
         juce::int64 totalFrames=audio.getNumSamples();
@@ -50,7 +50,7 @@ public:
         constexpr juce::int64 maximumBankBytes=4ll*1024ll*1024ll*1024ll; // 4 GiB decoded stereo PCM
         constexpr juce::int64 bytesPerStereoFrame=(juce::int64)sizeof(float)*2;
         if(totalFrames*bytesPerStereoFrame>maximumBankBytes)
-            return juce::Result::fail("Limite de memória dos pads contínuos atingido (4 GB). Remova um pad ou use arquivos menores.");
+            return juce::Result::fail(juce::String::fromUTF8("Limite de memória dos pads contínuos atingido (4 GB). Remova um pad ou use arquivos menores."));
         auto& p=pads[(size_t)index];std::swap(p.audio,audio);p.rate=reader->sampleRate;
         p.path=file.getFullPathName();p.position=0;p.level=0;
         if(active.load()==index){active=-1;command=-2;}

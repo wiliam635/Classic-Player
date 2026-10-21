@@ -4661,7 +4661,7 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::setControlsVisible(bool sh
 void ClassicPlayerAudioProcessorEditor::DrumPadPanel::chooseSample(int pad)
 {
     fileChooser = std::make_unique<juce::FileChooser>(
-        localizedUiText("Carregar áudio do pad", activeUiLanguage.load()), juce::File{}, "*.mp3;*.wav;*.aiff;*.flac");
+        localizedUiText(juce::String::fromUTF8("Carregar áudio do pad"), activeUiLanguage.load()), juce::File{}, "*.mp3;*.wav;*.aiff;*.flac");
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode
                              | juce::FileBrowserComponent::canSelectFiles,
         [this, pad](const juce::FileChooser& chooser)
@@ -5038,7 +5038,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     chorusEditButton.onClick = [this] { showChorusEditor(); };
     addAndMakeVisible(chorusEditButton);
     flatButton(resetMidiLearnButton);
-    resetMidiLearnButton.setTooltip("Apagar todos os endereçamentos MIDI Learn desta layer");
+    resetMidiLearnButton.setTooltip(juce::String::fromUTF8("Apagar todos os endereçamentos MIDI Learn desta layer"));
     resetMidiLearnButton.onClick = [this]
     {
         processor.resetMidiLearn(index);
@@ -5046,7 +5046,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     };
     addAndMakeVisible(resetMidiLearnButton);
     flatButton(muteLearn);
-    muteLearn.setTooltip("Aprender um CC de botão para alternar esta layer entre ativa e muda");
+    muteLearn.setTooltip(juce::String::fromUTF8("Aprender um CC de botão para alternar esta layer entre ativa e muda"));
     muteLearn.onClick = [this]
     {
         processor.beginMidiLearn(index, ClassicPlayerAudioProcessor::LearnTarget::mute);
@@ -5500,7 +5500,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::saveEffectPreset(const juce:
                 ok ? juce::MessageBoxIconType::InfoIcon : juce::MessageBoxIconType::WarningIcon,
                 localizedUiText(ok ? "Preset exportado" : "Falha ao exportar preset", activeUiLanguage.load()),
                 ok ? localizedUiText(juce::String::fromUTF8("Arquivo exportado para:\n") + destination.getFullPathName(), activeUiLanguage.load())
-                   : localizedUiText("Não foi possível exportar o preset.", activeUiLanguage.load()));
+                   : localizedUiText(juce::String::fromUTF8("Não foi possível exportar o preset."), activeUiLanguage.load()));
         });
 }
 
@@ -5521,8 +5521,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::loadEffectPreset(
             if (xml == nullptr)
             {
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                                       localizedUiText("Preset inválido", activeUiLanguage.load()),
-                                                       localizedUiText("O arquivo está corrompido.", activeUiLanguage.load()));
+                                                       localizedUiText(juce::String::fromUTF8("Preset inválido"), activeUiLanguage.load()),
+                                                       localizedUiText(juce::String::fromUTF8("O arquivo está corrompido."), activeUiLanguage.load()));
                 return;
             }
             const auto preset = juce::ValueTree::fromXml(*xml);
@@ -5530,7 +5530,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::loadEffectPreset(
                 || preset.getProperty("effect").toString() != effect)
             {
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                                       localizedUiText("Preset incompatível", activeUiLanguage.load()),
+                                                       localizedUiText(juce::String::fromUTF8("Preset incompatível"), activeUiLanguage.load()),
                                                        localizedUiText(juce::String::fromUTF8("Escolha um preset de ") + effect + ".", activeUiLanguage.load()));
                 return;
             }
@@ -5858,7 +5858,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int eff
             auto config = safe->processor.layerConfig(safe->index);
             config.nordFx.delayBpm = bpm;
             safe->processor.setLayerConfig(safe->index, config);
-            tap->setButtonText("TAP TEMPO · " + juce::String((int) bpm) + " BPM");
+            tap->setButtonText(juce::String::fromUTF8("TAP TEMPO · ") + juce::String((int) bpm) + " BPM");
         };
         dialog->addCustomComponent(tap);
     }
@@ -6510,7 +6510,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseExternalInstrument()
     {
         juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
                                                "Instrumento externo",
-                                               "O carregamento de VST/AU está disponível apenas no aplicativo standalone.");
+                                               juce::String::fromUTF8("O carregamento de VST/AU está disponível apenas no aplicativo standalone."));
         return;
     }
 
@@ -6706,8 +6706,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::openExternalInstrumentEditor
     }
 
     juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
-                                           "Editor indisponível",
-                                           "Este instrumento virtual não possui uma janela de edição.");
+                                           juce::String::fromUTF8("Editor indisponível"),
+                                           juce::String::fromUTF8("Este instrumento virtual não possui uma janela de edição."));
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::deleteSelectedSoundFont()
@@ -7319,7 +7319,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
         if (result.failed())
         {
             juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                                   "Não foi possível gravar", result.getErrorMessage());
+                                                   juce::String::fromUTF8("Não foi possível gravar"), result.getErrorMessage());
             return;
         }
         recordingStartedAtMs = juce::Time::currentTimeMillis();
@@ -8191,8 +8191,8 @@ void ClassicPlayerAudioProcessorEditor::refreshUpdateNotice()
     setButtonColourIfChanged(updateButton, juce::TextButton::textColourOffId,
                              juce::Colour(announce ? background : text));
     updateButton.setTooltip(latestUpdate.available ? "Classic Player " + latestUpdate.version
-        : localizedUiText("ATUALIZACOES", uiLanguage) + " — " JucePlugin_VersionString);
-    cpuMeter.setTooltip(localizedUiText("Carga do processamento de áudio do Classic Player. 100% indica que o tempo disponível para o buffer foi consumido.", uiLanguage));
+        : localizedUiText("ATUALIZACOES", uiLanguage) + juce::String::fromUTF8(" — ") + JucePlugin_VersionString);
+    cpuMeter.setTooltip(localizedUiText(juce::String::fromUTF8("Carga do processamento de áudio do Classic Player. 100% indica que o tempo disponível para o buffer foi consumido."), uiLanguage));
 }
 
 void ClassicPlayerAudioProcessorEditor::showUpdateDetails()
@@ -8249,8 +8249,8 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
         else if (manualUpdateCheck)
             juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
                 localizedUiText("ATUALIZACOES", uiLanguage),
-                localizedUiText(latestUpdate.succeeded ? "Sua versão está atualizada."
-                    : "Não foi possível verificar as atualizações. Tente novamente mais tarde.", uiLanguage));
+                localizedUiText(juce::String::fromUTF8(latestUpdate.succeeded ? "Sua versão está atualizada."
+                    : "Não foi possível verificar as atualizações. Tente novamente mais tarde."), uiLanguage));
         manualUpdateCheck = false;
     }
     if (juce::Time::getMillisecondCounterHiRes() >= nextUpdateCheckMs)
@@ -8497,7 +8497,7 @@ void ClassicPlayerAudioProcessorEditor::saveProgram()
             if (assigned.failed())
                 juce::AlertWindow::showMessageBoxAsync(
                     juce::MessageBoxIconType::WarningIcon,
-                    localizedUiText("Live Set não atualizado", activeUiLanguage.load()),
+                    localizedUiText(juce::String::fromUTF8("Live Set não atualizado"), activeUiLanguage.load()),
                     localizedUiText(juce::String::fromUTF8("A performance foi salva, mas não foi possível atualizar a posição ativa do Live Set: ")
                         + assigned.getErrorMessage(), activeUiLanguage.load()));
         }
@@ -8550,7 +8550,7 @@ void ClassicPlayerAudioProcessorEditor::exportProgram()
             else
                 juce::AlertWindow::showMessageBoxAsync(
                     juce::MessageBoxIconType::NoIcon,
-                    localizedUiText("Exportação concluída", activeUiLanguage.load()),
+                    localizedUiText(juce::String::fromUTF8("Exportação concluída"), activeUiLanguage.load()),
                     localizedUiText(juce::String::fromUTF8("Cópia portátil salva em:\n")
                         + exportedFile.getFullPathName(), activeUiLanguage.load()));
         });
@@ -8609,7 +8609,7 @@ void ClassicPlayerAudioProcessorEditor::importProgramFile()
             if (nameCollision && !alreadyInLibrary)
                 juce::AlertWindow::showOkCancelBox(
                     juce::MessageBoxIconType::QuestionIcon, "Substituir performance?",
-                    localizedUiText("Já existe uma performance com esse nome na biblioteca deste computador. Deseja substituí-la?",
+                    localizedUiText(juce::String::fromUTF8("Já existe uma performance com esse nome na biblioteca deste computador. Deseja substituí-la?"),
                                     activeUiLanguage.load()),
                     "SUBSTITUIR", "CANCELAR", this,
                     juce::ModalCallbackFunction::create([importAndOpen](int answer)
@@ -8792,8 +8792,8 @@ void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
     masterLabel.setVisible(true);
     master.setSliderStyle(show ? juce::Slider::LinearHorizontal : juce::Slider::RotaryHorizontalVerticalDrag);
     master.setTextBoxStyle(show ? juce::Slider::NoTextBox : juce::Slider::TextBoxBelow, false, 64, 18);
-    master.setTooltip(localizedUiText(show ? "Volume master — use CONFIGURACOES para MIDI Learn"
-                                           : "Volume master", activeUiLanguage.load()));
+    master.setTooltip(localizedUiText(juce::String::fromUTF8(show ? "Volume master — use CONFIGURACOES para MIDI Learn"
+                                           : "Volume master"), activeUiLanguage.load()));
     livePreviousButton.setVisible(show);
     liveNextButton.setVisible(show);
     liveSettingsButton.setVisible(show);
@@ -8849,8 +8849,8 @@ void ClassicPlayerAudioProcessorEditor::refreshLiveSet()
                          active ? juce::Colour(yellow) : juce::Colour(teal));
         button.setColour(juce::TextButton::textColourOffId,
                          active ? juce::Colour(background) : juce::Colour(text));
-        button.setTooltip(localizedUiText(editingLiveSet ? "Clique para atribuir uma programação salva"
-            : (name.isEmpty() ? "Posição vazia" : "Carregar " + name), activeUiLanguage.load()));
+        button.setTooltip(localizedUiText(editingLiveSet ? juce::String::fromUTF8("Clique para atribuir uma programação salva")
+            : (name.isEmpty() ? juce::String::fromUTF8("Posição vazia") : "Carregar " + name), activeUiLanguage.load()));
 
         auto& learnButton = liveSetSlotLearnButtons[(size_t) slot];
         learnButton.setVisible(showingLiveSet && editingLiveSet);
@@ -8927,7 +8927,7 @@ void ClassicPlayerAudioProcessorEditor::chooseLiveSetSlot(int slot)
 {
     refreshProgramLibrary();
     juce::PopupMenu menu;
-    menu.addItem(1, localizedUiText("Limpar posição", uiLanguage));
+    menu.addItem(1, localizedUiText(juce::String::fromUTF8("Limpar posição"), uiLanguage));
     menu.addSeparator();
     for (int item = 0; item < programFiles.size(); ++item)
         menu.addItem(item + 2, programFiles.getReference(item).getFileNameWithoutExtension());
@@ -8998,8 +8998,8 @@ void ClassicPlayerAudioProcessorEditor::loadSelectedProgram()
     if (!juce::isPositiveAndBelow(selected, programFiles.size()))
     {
         juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
-                                               "Carregar programação",
-                                               "Selecione uma programação salva na lista.");
+                                               juce::String::fromUTF8("Carregar programação"),
+                                               juce::String::fromUTF8("Selecione uma programação salva na lista."));
         return;
     }
 
@@ -9014,7 +9014,7 @@ void ClassicPlayerAudioProcessorEditor::loadSelectedProgram()
     if (result.failed())
     {
         juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                               "Falha ao carregar programação", result.getErrorMessage());
+                                               juce::String::fromUTF8("Falha ao carregar programação"), result.getErrorMessage());
         return;
     }
 
@@ -9170,7 +9170,7 @@ void ClassicPlayerAudioProcessorEditor::activate()
     { activationStatus.setText(localizedUiText("Informe e-mail e senha.", activeUiLanguage.load()), juce::dontSendNotification); return; }
     activationButton.setEnabled(false);
     activationStatus.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    activationStatus.setText(localizedUiText("Conectando ao servidor de licença...", activeUiLanguage.load()), juce::dontSendNotification);
+    activationStatus.setText(localizedUiText(juce::String::fromUTF8("Conectando ao servidor de licença..."), activeUiLanguage.load()), juce::dontSendNotification);
     const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
     juce::Thread::launch([safe, email, password]
     {
@@ -9192,7 +9192,7 @@ void ClassicPlayerAudioProcessorEditor::validateStoredOnlineSession()
 {
     activationButton.setEnabled(false);
     activationStatus.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    activationStatus.setText(localizedUiText("Validando a licença deste computador...", activeUiLanguage.load()), juce::dontSendNotification);
+    activationStatus.setText(localizedUiText(juce::String::fromUTF8("Validando a licença deste computador..."), activeUiLanguage.load()), juce::dontSendNotification);
     const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
     juce::Thread::launch([safe]
     {
