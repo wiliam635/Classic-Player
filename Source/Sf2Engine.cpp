@@ -336,6 +336,7 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
 
     if (message.isNoteOn())
     {
+        if (!layer.config.acceptsVelocity((int) message.getVelocity())) return;
         auto velocity = juce::jlimit(0.0f, 1.0f, message.getFloatVelocity());
         if (layer.config.velocityCurve == 1) velocity = std::sqrt(velocity);
         else if (layer.config.velocityCurve == 2) velocity *= velocity;

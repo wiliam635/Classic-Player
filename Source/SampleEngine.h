@@ -101,6 +101,9 @@ private:
     static float readInterpolated(const juce::AudioBuffer<float>&, int channel, double position);
     static float readPianoInterpolated(const NordPianoDecoder::Stroke&, int channels,
                                        int channel, double position, bool looped = false);
+    static void readPianoStereoInterpolated(const NordPianoDecoder::Stroke&, int channels,
+                                            double position, bool looped,
+                                            float& left, float& right);
 
     std::array<Layer, layerCount> layers;
     std::array<juce::MidiBuffer, layerCount> combinedMidi;

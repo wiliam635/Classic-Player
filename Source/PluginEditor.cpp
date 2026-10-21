@@ -130,6 +130,10 @@ void drawCategoryArtwork(juce::Graphics& g, juce::Rectangle<int> bounds,
     static std::array<std::unique_ptr<juce::Image>, resourceNames.size()> images;
     const auto categories = ClassicPlayerAudioProcessor::soundFontCategories();
     auto imageIndex = categories.indexOf(category);
+    // Upright shares the acoustic artwork; preserve existing artwork indices
+    // for every category following its insertion in the library menu.
+    if (category == "Upright Piano") imageIndex = 0;
+    else if (imageIndex > 1) --imageIndex;
     if (category == "DX7") imageIndex = 2;
     else if (category == "Nord") imageIndex = 13;
     else if (category == "Hammond") imageIndex = 7;
@@ -402,6 +406,7 @@ static constexpr UiTranslation uiTranslations[] {
     { "CONCLUIR EDICAO", "DONE EDITING", "FINALIZAR EDICIÓN" },
     { "BANCO", "BANK", "BANCO" },
     { "Piano Acustico", "Acoustic Piano", "Piano Acústico" },
+    { "Upright Piano", "Upright Piano", "Piano vertical" },
     { "Piano Eletrico", "Electric Piano", "Piano Eléctrico" },
     { "Piano DX", "DX Piano", "Piano DX" },
     { "Strings", "Strings", "Cuerdas" },
@@ -2237,13 +2242,14 @@ public:
         title.setJustificationType(juce::Justification::centredRight);
         addAndMakeVisible(title);
 
-        const std::array<const char*, 3> names {{ "SOFT", "MID", "BRIGHT" }};
-        const std::array<const char*, 3> hints {{
+        const std::array<const char*, 4> names {{ "OFF", "SOFT", "MID", "BRIGHT" }};
+        const std::array<const char*, 4> hints {{
+            "Som original, sem a equalizacao Soft/Mid/Bright.",
             "Som mais quente, com ataque e agudos suavizados; atua tambem com sustain.",
             "Destaca o corpo e os medios do piano Nord.",
             "Realca a clareza e os harmonicos agudos do piano Nord."
         }};
-        for (int mode = 0; mode < 3; ++mode)
+        for (int mode = 0; mode < 4; ++mode)
         {
             auto& button = modes[(size_t) mode];
             button.setButtonText(names[(size_t) mode]);
@@ -2251,7 +2257,7 @@ public:
             button.setClickingTogglesState(true);
             flatButton(button);
             addAndMakeVisible(button);
-            button.onClick = [this, mode] { selectMode(mode); };
+            button.onClick = [this, mode] { selectMode(mode - 1); };
         }
 
         selectMode(processor.layerConfig(index).pianoTimbre, false);
@@ -2266,10 +2272,10 @@ public:
         velocityLabel.setBounds(velocityArea.removeFromTop(15));
         velocityBox.setBounds(velocityArea.reduced(2, 1));
         title.setBounds(area.removeFromLeft(94).reduced(2, 0));
-        const auto buttonWidth = area.getWidth() / 3;
-        for (int mode = 0; mode < 3; ++mode)
+        const auto buttonWidth = area.getWidth() / 4;
+        for (int mode = 0; mode < 4; ++mode)
         {
-            auto buttonArea = mode == 2 ? area : area.removeFromLeft(buttonWidth);
+            auto buttonArea = mode == 3 ? area : area.removeFromLeft(buttonWidth);
             modes[(size_t) mode].setBounds(buttonArea.reduced(3, 4));
         }
     }
@@ -2285,9 +2291,9 @@ private:
 
     void selectMode(int mode, bool updateProcessor = true)
     {
-        mode = juce::jlimit(0, 2, mode);
-        for (int i = 0; i < 3; ++i)
-            modes[(size_t) i].setToggleState(i == mode, juce::dontSendNotification);
+        mode = juce::jlimit(-1, 2, mode);
+        for (int i = 0; i < 4; ++i)
+            modes[(size_t) i].setToggleState(i - 1 == mode, juce::dontSendNotification);
         if (updateProcessor)
         {
             auto config = processor.layerConfig(index);
@@ -2300,7 +2306,7 @@ private:
     int index;
     juce::Label title, velocityLabel;
     juce::ComboBox velocityBox;
-    std::array<juce::TextButton, 3> modes;
+    std::array<juce::TextButton, 4> modes;
 };
 
 class EffectPresetFilePanel final : public juce::Component
@@ -3629,7 +3635,7 @@ public:
             box->getProperties().set("uiDataItems", true);
         for (auto* label : { &categoryLabel, &libraryLabel, &presetLabel, &modeLabel,
                              &sustainLabel, &channelLabel, &deviceLabel, &octaveLabel,
-                             &velocityLabel })
+                             &velocityLabel, &velocityLowLabel, &velocityHighLabel })
         {
             label->setColour(juce::Label::textColourId, juce::Colour(text));
             label->setFont(juce::FontOptions(11.0f, juce::Font::bold));
@@ -3644,6 +3650,8 @@ public:
         deviceLabel.setText("ENTRADA MIDI", juce::dontSendNotification);
         octaveLabel.setText("OITAVA", juce::dontSendNotification);
         velocityLabel.setText("VELOCIDADE", juce::dontSendNotification);
+        velocityLowLabel.setText("VEL. MIN", juce::dontSendNotification);
+        velocityHighLabel.setText("VEL. MAX", juce::dontSendNotification);
 
         for (const auto& category : ClassicPlayerAudioProcessor::soundFontCategories())
             categoryBox.addItem(category, categoryBox.getNumItems() + 1);
@@ -3715,7 +3723,7 @@ public:
         };
         for (auto* box : { &categoryBox, &libraryBox, &presetBox, &modeBox, &sustainBox,
                            &channelBox, &deviceBox, &octaveBox, &lowNoteBox, &highNoteBox,
-                           &velocityBox })
+                           &velocityBox, &velocityLowBox, &velocityHighBox })
         {
             addAndMakeVisible(*box);
             box->setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
@@ -3735,7 +3743,13 @@ public:
         for (int value = -4; value <= 4; ++value) octaveBox.addItem((value > 0 ? "+" : "") + juce::String(value) + " OIT", value + 5);
         for (int note = 0; note < 128; ++note) { lowNoteBox.addItem(midiNoteName(note), note + 1); highNoteBox.addItem(midiNoteName(note), note + 1); }
         velocityBox.addItem("VEL LINEAR", 1); velocityBox.addItem("VEL SOFT", 2); velocityBox.addItem("VEL HARD", 3);
-        for (auto* box : { &modeBox, &sustainBox, &channelBox, &octaveBox, &lowNoteBox, &highNoteBox, &velocityBox })
+        for (int velocity = 1; velocity <= 127; ++velocity)
+        {
+            velocityLowBox.addItem(juce::String(velocity), velocity);
+            velocityHighBox.addItem(juce::String(velocity), velocity);
+        }
+        for (auto* box : { &modeBox, &sustainBox, &channelBox, &octaveBox, &lowNoteBox, &highNoteBox,
+                           &velocityBox, &velocityLowBox, &velocityHighBox })
             box->onChange = [this] { applyRouting(); };
         deviceBox.addItem("TODOS OS CONTROLADORES", 1);
         for (const auto& device : processor.availableMidiDevices())
@@ -3788,6 +3802,8 @@ public:
         }
         auto velocityRow = area.removeFromTop(compactLayout ? 38 : 44);
         place(velocityRow.removeFromLeft(cell), velocityLabel, velocityBox);
+        place(velocityRow.removeFromLeft(cell), velocityLowLabel, velocityLowBox);
+        place(velocityRow.removeFromLeft(cell), velocityHighLabel, velocityHighBox);
     }
 
 private:
@@ -3861,6 +3877,8 @@ private:
         lowNoteBox.setSelectedId(config.lowNote + 1, juce::dontSendNotification);
         highNoteBox.setSelectedId(config.highNote + 1, juce::dontSendNotification);
         velocityBox.setSelectedId(config.velocityCurve + 1, juce::dontSendNotification);
+        velocityLowBox.setSelectedId(config.lowVelocity, juce::dontSendNotification);
+        velocityHighBox.setSelectedId(config.highVelocity, juce::dontSendNotification);
         const auto selectedDevice = processor.layerMidiDevice(index);
         int selectedDeviceId = 1;
         const auto devices = processor.availableMidiDevices();
@@ -3880,12 +3898,18 @@ private:
         config.mono = modeBox.getSelectedId() == 2; config.portamento = modeBox.getSelectedId() == 3;
         config.sustainEnabled = sustainBox.getSelectedId() != 2; config.midiChannel = channelBox.getSelectedId() - 1;
         config.octave = octaveBox.getSelectedId() - 5; config.lowNote = lowNoteBox.getSelectedId() - 1; config.highNote = highNoteBox.getSelectedId() - 1;
-        config.velocityCurve = velocityBox.getSelectedId() - 1; processor.setLayerConfig(index, config);
+        config.velocityCurve = velocityBox.getSelectedId() - 1;
+        config.lowVelocity = juce::jlimit(1, 127, velocityLowBox.getSelectedId());
+        config.highVelocity = juce::jlimit(config.lowVelocity, 127, velocityHighBox.getSelectedId());
+        velocityHighBox.setSelectedId(config.highVelocity, juce::dontSendNotification);
+        processor.setLayerConfig(index, config);
     }
     ClassicPlayerAudioProcessor& processor; int index;
     bool compactLayout = false;
-    juce::Label categoryLabel, libraryLabel, presetLabel, modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel, velocityLabel;
-    juce::ComboBox categoryBox, libraryBox, presetBox, modeBox, sustainBox, channelBox, deviceBox, octaveBox, lowNoteBox, highNoteBox, velocityBox;
+    juce::Label categoryLabel, libraryLabel, presetLabel, modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel, velocityLabel,
+                velocityLowLabel, velocityHighLabel;
+    juce::ComboBox categoryBox, libraryBox, presetBox, modeBox, sustainBox, channelBox, deviceBox, octaveBox, lowNoteBox, highNoteBox,
+                   velocityBox, velocityLowBox, velocityHighBox;
     SplitLearnControls splitControls;
     std::function<void()> instrumentChanged;
     juce::TextButton importButton, deleteButton; juce::Array<juce::File> libraryFiles; std::vector<Sf2Engine::Preset> presets;
@@ -3903,11 +3927,12 @@ public:
         velocityDisabled = layerType == ClassicPlayerAudioProcessor::LayerType::hammond;
         addAndMakeVisible(splitControls);
         deviceBox.getProperties().set("uiDataItems", true);
-        const std::array<std::pair<juce::Label*, const char*>, 7> fields {{
+        const std::array<std::pair<juce::Label*, const char*>, 9> fields {{
             { &modeLabel, "MODO" }, { &sustainLabel, "SUSTAIN" },
             { &channelLabel, "CANAL MIDI" }, { &deviceLabel, "ENTRADA MIDI" },
             { &octaveLabel, "OITAVA" }, { &velocityLabel, "VELOCIDADE" },
-            { &polyphonyLabel, "POLIFONIA" }
+            { &polyphonyLabel, "POLIFONIA" },
+            { &velocityLowLabel, "VEL. MIN" }, { &velocityHighLabel, "VEL. MAX" }
         }};
         for (const auto& field : fields)
         {
@@ -3917,7 +3942,8 @@ public:
             addAndMakeVisible(*field.first);
         }
         for (auto* box : { &modeBox, &sustainBox, &channelBox, &deviceBox,
-                           &octaveBox, &lowNoteBox, &highNoteBox, &velocityBox, &polyphonyBox })
+                           &octaveBox, &lowNoteBox, &highNoteBox, &velocityBox, &polyphonyBox,
+                           &velocityLowBox, &velocityHighBox })
         {
             box->setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
             box->setColour(juce::ComboBox::textColourId, juce::Colour(text));
@@ -3949,8 +3975,14 @@ public:
         velocityBox.addItem("VEL CALIBRADA", 4);
         for (int voices = 64; voices <= Sf2Engine::maxPolyphonyPerLayer; voices += 32)
             polyphonyBox.addItem(juce::String(voices) + " VOZES", voices);
+        for (int velocity = 1; velocity <= 127; ++velocity)
+        {
+            velocityLowBox.addItem(juce::String(velocity), velocity);
+            velocityHighBox.addItem(juce::String(velocity), velocity);
+        }
         for (auto* box : { &modeBox, &sustainBox, &channelBox, &octaveBox,
-                           &lowNoteBox, &highNoteBox, &velocityBox, &polyphonyBox })
+                           &lowNoteBox, &highNoteBox, &velocityBox, &polyphonyBox,
+                           &velocityLowBox, &velocityHighBox })
             box->onChange = [this] { applyRouting(); };
         deviceBox.onChange = [this]
         {
@@ -4022,6 +4054,8 @@ public:
             velocityBox.setBounds({});
         }
         place(velocityRow.removeFromLeft(cellWidth), polyphonyLabel, polyphonyBox);
+        place(velocityRow.removeFromLeft(cellWidth), velocityLowLabel, velocityLowBox);
+        place(velocityRow, velocityHighLabel, velocityHighBox);
         if (calibrationRowHeight > 0)
         {
             calibrationButton.setBounds(calibrationRow.removeFromLeft(168).reduced(2, 1));
@@ -4101,6 +4135,8 @@ private:
                 && config.velocityCalibrationEnabled);
         velocityBox.setSelectedId(config.velocityCurve + 1, juce::dontSendNotification);
         polyphonyBox.setSelectedId(config.polyphony, juce::dontSendNotification);
+        velocityLowBox.setSelectedId(config.lowVelocity, juce::dontSendNotification);
+        velocityHighBox.setSelectedId(config.highVelocity, juce::dontSendNotification);
         refreshCalibrationControls();
         int selectedDeviceId = 1;
         const auto selectedDevice = processor.layerMidiDevice(index);
@@ -4126,6 +4162,9 @@ private:
         config.highNote = highNoteBox.getSelectedId() - 1;
         config.polyphony = juce::jlimit(64, Sf2Engine::maxPolyphonyPerLayer,
                                       polyphonyBox.getSelectedId());
+        config.lowVelocity = juce::jlimit(1, 127, velocityLowBox.getSelectedId());
+        config.highVelocity = juce::jlimit(config.lowVelocity, 127, velocityHighBox.getSelectedId());
+        velocityHighBox.setSelectedId(config.highVelocity, juce::dontSendNotification);
         if (!velocityHandledExternally && !velocityDisabled)
             config.velocityCurve = juce::jlimit(0, config.velocityCalibrationEnabled ? 3 : 2,
                                                 velocityBox.getSelectedId() - 1);
@@ -4137,9 +4176,10 @@ private:
     bool velocityHandledExternally = false;
     bool velocityDisabled = false;
     juce::Label modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel,
-                velocityLabel, polyphonyLabel;
+                velocityLabel, polyphonyLabel, velocityLowLabel, velocityHighLabel;
     juce::ComboBox modeBox, sustainBox, channelBox, deviceBox, octaveBox,
-                   lowNoteBox, highNoteBox, velocityBox, polyphonyBox;
+                   lowNoteBox, highNoteBox, velocityBox, polyphonyBox,
+                   velocityLowBox, velocityHighBox;
     SplitLearnControls splitControls;
     juce::TextButton calibrationButton { "CALIBRAR VELOCITY" }, calibrationCancelButton { "CANCELAR" };
     juce::Label calibrationStatus;

@@ -514,6 +514,7 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
     }
 
     const auto velocity = shapedVelocity(config, message.getFloatVelocity());
+    if (!config.acceptsVelocity((int) message.getVelocity())) return;
     layer.heldNotes[(size_t) note] = true;
     layer.heldVelocities[(size_t) note] = velocity;
     layer.noteOrder[(size_t) note] = ++layer.noteSequence;

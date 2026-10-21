@@ -30,6 +30,14 @@ public:
         int muteCCChannel = -1;
         int lowNote = 0;
         int highNote = 127;
+        int lowVelocity = 1;
+        int highVelocity = 127;
+        // Test the incoming MIDI velocity before any layer-specific curve.
+        // Note-off and sustain must never be gated by this range.
+        bool acceptsVelocity(int velocity) const noexcept
+        {
+            return velocity >= lowVelocity && velocity <= highVelocity;
+        }
         int octave = 0;
         int polyphony = polyphonyPerLayer;
         int velocityCurve = 0; // 0 linear, 1 soft, 2 hard, 3 calibrated (NPNO)
@@ -37,7 +45,7 @@ public:
         int velocitySoftInput = 20;
         int velocityMidInput = 64;
         int velocityHardInput = 108;
-        int pianoTimbre = 1; // NPNO piano EQ: 0 soft, 1 mid, 2 bright
+        int pianoTimbre = -1; // NPNO piano EQ: -1 neutral/off, 0 soft, 1 mid, 2 bright
         NordEffectSettings nordFx;
         float gain = 0.8f;
         float pan = 0.0f;

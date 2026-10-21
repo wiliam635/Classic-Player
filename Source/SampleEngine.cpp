@@ -603,6 +603,42 @@ float SampleEngine::readPianoInterpolated(const NordPianoDecoder::Stroke& stroke
                    + (-y0 + 3.0f * y1 - 3.0f * y2 + y3) * t3);
 }
 
+void SampleEngine::readPianoStereoInterpolated(const NordPianoDecoder::Stroke& stroke,
+                                               int channels, double position, bool looped,
+                                               float& left, float& right)
+{
+    const auto frames = stroke.frameCount(channels);
+    const auto first = static_cast<int>(position);
+    // The usual sustain path is wholly inside the sample/loop. Read both
+    // channels together so bounds and loop checks are not repeated eight
+    // times per output frame. The boundary path retains the original reader.
+    if (channels < 1 || first < 1 || first + 2 >= frames
+        || (looped && first + 2 >= static_cast<int>(stroke.loopEndFrame)))
+    {
+        left = readPianoInterpolated(stroke, channels, 0, position, looped);
+        right = readPianoInterpolated(stroke, channels, 1, position, looped);
+        return;
+    }
+
+    const auto* pcm = stroke.interleavedPcm.data() + (size_t) (first - 1) * (size_t) channels;
+    const auto fraction = static_cast<float>(position - static_cast<double>(first));
+    const auto t2 = fraction * fraction;
+    const auto t3 = t2 * fraction;
+    const auto interpolate = [&] (int channel)
+    {
+        const auto y0 = static_cast<float>(pcm[channel]);
+        const auto y1 = static_cast<float>(pcm[channels + channel]);
+        const auto y2 = static_cast<float>(pcm[2 * channels + channel]);
+        const auto y3 = static_cast<float>(pcm[3 * channels + channel]);
+        return (0.5f / 32768.0f) * ((2.0f * y1)
+            + (-y0 + y2) * fraction
+            + (2.0f * y0 - 5.0f * y1 + 4.0f * y2 - y3) * t2
+            + (-y0 + 3.0f * y1 - 3.0f * y2 + y3) * t3);
+    };
+    left = interpolate(0);
+    right = channels > 1 ? interpolate(1) : left;
+}
+
 void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                                const juce::MidiBuffer& midi,
                                const Sf2Engine::LayerConfig& routing)
@@ -659,6 +695,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
 
         if (message.isNoteOn())
         {
+            if (!routing.acceptsVelocity((int) message.getVelocity())) continue;
             const auto inputNote = message.getNoteNumber();
             if (inputNote < routing.lowNote || inputNote > routing.highNote) continue;
             const auto note = juce::jlimit(0, 127, inputNote + routing.octave * 12);
@@ -783,8 +820,10 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             if (isPianoVoice)
             {
                 const auto& stroke = layer.piano.strokes[(size_t) voice.sampleIndex];
-                left = readPianoInterpolated(stroke, layer.piano.channels, 0, voice.position, loopedPiano) * gain;
-                right = readPianoInterpolated(stroke, layer.piano.channels, 1, voice.position, loopedPiano) * gain;
+                readPianoStereoInterpolated(stroke, layer.piano.channels, voice.position,
+                                            loopedPiano, left, right);
+                left *= gain;
+                right *= gain;
             }
             else
             {
@@ -818,7 +857,7 @@ void SampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<float>& 
 
     if (layer.pianoLoaded)
     {
-        const auto timbre = juce::jlimit(0, 2, routing.pianoTimbre);
+        const auto timbre = juce::jlimit(-1, 2, routing.pianoTimbre);
         const auto lowCorner = juce::jmin(250.0, currentSampleRate * 0.2);
         const auto highCorner = juce::jmin(2000.0, currentSampleRate * 0.4);
         // Independent voicings, applied to the entire sustained signal. Soft
@@ -829,8 +868,8 @@ void SampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<float>& 
             {{ -1.0f, 0.0f, 6.0f }}  // Bright: clear upper harmonics
         }};
         for (size_t band = 0; band < 3; ++band)
-            layer.pianoTimbreGains[band].setTargetValue(
-                juce::Decibels::decibelsToGain(voicingDb[(size_t) timbre][band]));
+            layer.pianoTimbreGains[band].setTargetValue(timbre < 0 ? 1.0f
+                : juce::Decibels::decibelsToGain(voicingDb[(size_t) timbre][band]));
         const auto lowPole = static_cast<float>(std::exp(
             -juce::MathConstants<double>::twoPi * lowCorner / currentSampleRate));
         const auto highPole = static_cast<float>(std::exp(

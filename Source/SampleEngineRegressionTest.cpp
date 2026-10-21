@@ -364,6 +364,9 @@ struct SampleEngineRegressionTests
         const auto softHigh = response(*engine, 0, 6000.0f, rate);
         const auto midHigh = response(*engine, 1, 6000.0f, rate);
         const auto brightHigh = response(*engine, 2, 6000.0f, rate);
+        const auto neutralHigh = response(*engine, -1, 6000.0f, rate);
+        require(std::abs(neutralHigh - 0.05f / std::sqrt(2.0f)) < 0.003f,
+                "OFF must return the NPNO piano EQ to a neutral response");
         require(juce::Decibels::gainToDecibels(brightHigh / softHigh) > 8.0f,
                 "Soft/Bright contrast is too small under sustain");
         require(juce::Decibels::gainToDecibels(brightHigh / midHigh) > 4.0f,
@@ -378,6 +381,56 @@ struct SampleEngineRegressionTests
 
     static void run()
     {
+        {
+            auto lower = config();
+            lower.lowVelocity = 1;
+            lower.highVelocity = 100;
+            auto upper = config();
+            upper.lowVelocity = 101;
+            upper.highVelocity = 127;
+            require(lower.acceptsVelocity(1) && lower.acceptsVelocity(100)
+                    && !lower.acceptsVelocity(101) && !upper.acceptsVelocity(100)
+                    && upper.acceptsVelocity(101) && upper.acceptsVelocity(127),
+                    "Velocity split must switch layers exactly between 100 and 101");
+            auto engine = instrument(48000.0);
+            juce::AudioBuffer<float> output(2, 64);
+            juce::MidiBuffer notes;
+            notes.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 101), 0);
+            engine->renderLayer(engine->layers[0], output, notes, lower);
+            require(active(*engine) == 0, "NPNO played a note above its velocity range");
+            notes.clear();
+            notes.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 100), 0);
+            engine->renderLayer(engine->layers[0], output, notes, lower);
+            require(active(*engine) == 1, "NPNO missed the upper velocity boundary");
+            notes.clear();
+            notes.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+            engine->renderLayer(engine->layers[0], output, notes, upper);
+            require(engine->layers[0].voices[0].released,
+                    "Note-off must release a sounding voice even after the velocity range changes");
+        }
+        for (const int channels : { 1, 2 })
+        {
+            NordPianoDecoder::Stroke stroke;
+            stroke.loopStartFrame = 6;
+            stroke.loopEndFrame = 12;
+            stroke.interleavedPcm.resize((size_t) 16 * (size_t) channels);
+            for (size_t i = 0; i < stroke.interleavedPcm.size(); ++i)
+                stroke.interleavedPcm[i] = static_cast<std::int16_t>((int) i * 173 - 1500);
+            for (const bool looped : { false, true })
+                for (double position = 0.0; position < 15.5; position += 0.25)
+                {
+                    float left = 0.0f, right = 0.0f;
+                    SampleEngine::readPianoStereoInterpolated(stroke, channels, position,
+                                                               looped, left, right);
+                    const auto originalLeft = SampleEngine::readPianoInterpolated(
+                        stroke, channels, 0, position, looped);
+                    const auto originalRight = SampleEngine::readPianoInterpolated(
+                        stroke, channels, 1, position, looped);
+                    require(std::abs(left - originalLeft) < 0.00001f
+                            && std::abs(right - originalRight) < 0.00001f,
+                            "Stereo piano interpolation changed at a sample or loop boundary");
+                }
+        }
         stealing();
         positiveOnlyTenthsDbTrim();
         crossfades();

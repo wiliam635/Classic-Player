@@ -245,6 +245,7 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
     }
     if (message.isNoteOn())
     {
+        if (!routing.acceptsVelocity((int) message.getVelocity())) return;
         const auto inputNote = message.getNoteNumber();
         if (inputNote < routing.lowNote || inputNote > routing.highNote) return;
         const auto note = juce::jlimit(0, 127, inputNote + routing.octave * 12);

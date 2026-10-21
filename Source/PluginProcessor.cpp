@@ -11,7 +11,7 @@ namespace
 {
 bool categoryReleaseDefault(const juce::String& category, float& release)
 {
-    if (category == "Piano Acustico")
+    if (category == "Piano Acustico" || category == "Upright Piano")
     {
         release = 30.0f;
         return true;
@@ -2574,7 +2574,7 @@ juce::String ClassicPlayerAudioProcessor::layerMidiDevice(int layer) const
 
 juce::StringArray ClassicPlayerAudioProcessor::soundFontCategories()
 {
-    return { "Piano Acustico", "Piano Eletrico", "Piano DX", "Strings", "Pad", "Synth",
+    return { "Piano Acustico", "Upright Piano", "Piano Eletrico", "Piano DX", "Strings", "Pad", "Synth",
              "Brass", "Organ", "Guitar", "Bass", "Bells", "Efeitos", "Outros" };
 }
 
@@ -3349,7 +3349,8 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
     for (const auto& prefix : oneBased)
         copyProperty(prefix + sourceOne, prefix + destinationOne);
     const juce::StringArray zeroBased {
-        "midiChannel", "low", "high", "octave", "polyphony", "velocityCurve", "velocityCalibrated",
+        "midiChannel", "low", "high", "velocityLow", "velocityHigh", "octave", "polyphony",
+        "velocityCurve", "velocityCalibrated",
         "velocitySoftInput", "velocityMidInput", "velocityHardInput", "mono", "portamento",
         "sustain", "highPassHz", "lowPassHz", "midiDevice"
     };
@@ -3473,6 +3474,8 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("midiChannel" + juce::String(i), config.midiChannel, nullptr);
         state.setProperty("low" + juce::String(i), config.lowNote, nullptr);
         state.setProperty("high" + juce::String(i), config.highNote, nullptr);
+        state.setProperty("velocityLow" + juce::String(i), config.lowVelocity, nullptr);
+        state.setProperty("velocityHigh" + juce::String(i), config.highVelocity, nullptr);
         state.setProperty("octave" + juce::String(i), config.octave, nullptr);
         state.setProperty("polyphony" + juce::String(i), config.polyphony, nullptr);
         state.setProperty("velocityCurve" + juce::String(i), config.velocityCurve, nullptr);
@@ -3895,6 +3898,10 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                         savedType == static_cast<int>(LayerType::drumPads) ? 10 : 0)));
                 config.lowNote = state.getProperty("low" + juce::String(i), 0);
                 config.highNote = state.getProperty("high" + juce::String(i), 127);
+                config.lowVelocity = juce::jlimit(1, 127, (int) state.getProperty(
+                    "velocityLow" + juce::String(i), 1));
+                config.highVelocity = juce::jlimit(config.lowVelocity, 127, (int) state.getProperty(
+                    "velocityHigh" + juce::String(i), 127));
                 config.octave = state.getProperty("octave" + juce::String(i), 0);
                 config.polyphony = juce::jlimit(64, Sf2Engine::maxPolyphonyPerLayer,
                     static_cast<int>(state.getProperty("polyphony" + juce::String(i),
@@ -3912,7 +3919,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     savedType == static_cast<int>(LayerType::nord)
                         && config.velocityCalibrationEnabled ? 3 : 2,
                     config.velocityCurve);
-                config.pianoTimbre = juce::jlimit(0, 2, static_cast<int>(state.getProperty(
+                config.pianoTimbre = juce::jlimit(-1, 2, static_cast<int>(state.getProperty(
                     "pianoTimbre" + juce::String(i + 1), config.pianoTimbre)));
                 const auto fxKey = juce::String(i + 1);
                 config.nordFx.tremoloMix = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordTremoloMix" + fxKey, 0.0f));
