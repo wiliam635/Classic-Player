@@ -71,6 +71,37 @@ struct NordSampleRegressionTests
              + audio.getRMSLevel(1, 0, audio.getNumSamples())) * 0.5f;
     }
 
+    static void padLoopCrossfade()
+    {
+        const auto makeZone = [] {
+            NordSampleDecoder::Zone zone;
+            zone.channels = 1;
+            zone.loopStart = 1000;
+            zone.loopEnd = 21000;
+            zone.pcm.assign(zone.loopEnd, 0.75f);
+            std::fill(zone.pcm.begin() + 16000, zone.pcm.end(), -0.75f);
+            return zone;
+        };
+
+        NordSampleDecoder::Instrument pad;
+        pad.name = "Sweet Saw Pad 1";
+        pad.zones.push_back(makeZone());
+        NordSampleEngine::prepareLoopCrossfades(pad);
+        const auto expectedPadFade = static_cast<size_t>(NordSampleDecoder::sampleRate * 0.10);
+        require(pad.zones[0].loopStart == 1000 + expectedPadFade,
+                "Continuous NSMP4 pad did not receive the longer loop crossfade");
+        require(pad.zones[0].loopEnd == 21000 && pad.zones[0].pcm.back() > 0.70f,
+                "Continuous NSMP4 pad loop seam was not blended");
+
+        NordSampleDecoder::Instrument piano;
+        piano.name = "Royal Grand 3D";
+        piano.zones.push_back(makeZone());
+        NordSampleEngine::prepareLoopCrossfades(piano);
+        const auto expectedDefaultFade = static_cast<size_t>(NordSampleDecoder::sampleRate * 0.02);
+        require(piano.zones[0].loopStart == 1000 + expectedDefaultFade,
+                "Non-pad NSMP4 sound no longer uses the default loop crossfade");
+    }
+
     static void audioAndSustain()
     {
         auto engine = fixture();
@@ -214,6 +245,7 @@ struct NordSampleRegressionTests
 
     static void run(int argc, char** argv)
     {
+        padLoopCrossfade();
         audioAndSustain();
         nordEffects();
         voiceCeiling();
