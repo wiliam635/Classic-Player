@@ -148,6 +148,9 @@ void HammondEngine::message(int index,const juce::MidiMessage& m,Config& c)
     if(!m.isNoteOn()||m.getNoteNumber()<c.routing.lowNote||m.getNoteNumber()>c.routing.highNote)return;
     if(!c.routing.acceptsVelocity((int)m.getVelocity()))return;
     for(auto& v:l.voices)if(v.active&&v.note==m.getNoteNumber()&&v.channel==ch)release(v);
+    bool first = true;
+    for (const auto& voice : l.voices)
+        if (voice.active && voice.down) { first = false; break; }
     const auto limit=juce::jlimit(64,(int)l.voices.size(),c.routing.polyphony);
     auto* chosen=&l.voices[0];
     for(int i=0;i<limit;++i)if(!l.voices[(size_t)i].active){chosen=&l.voices[(size_t)i];break;}
