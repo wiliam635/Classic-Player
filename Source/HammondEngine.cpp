@@ -147,12 +147,10 @@ void HammondEngine::message(int index,const juce::MidiMessage& m,Config& c)
     }
     if(!m.isNoteOn()||m.getNoteNumber()<c.routing.lowNote||m.getNoteNumber()>c.routing.highNote)return;
     for(auto& v:l.voices)if(v.active&&v.note==m.getNoteNumber()&&v.channel==ch)release(v);
-    bool first=true;int held=0;
-    for(const auto& v:l.voices)if(v.active&&v.down){first=false;++held;}
-    if(held>=64)for(auto& v:l.voices)if(v.active&&v.down){release(v);break;}
+    const auto limit=juce::jlimit(64,(int)l.voices.size(),c.routing.polyphony);
     auto* chosen=&l.voices[0];
-    for(auto& v:l.voices)if(!v.active){chosen=&v;break;}
-    if(chosen->active)for(auto& v:l.voices)if(v.envelope<chosen->envelope)chosen=&v;
+    for(int i=0;i<limit;++i)if(!l.voices[(size_t)i].active){chosen=&l.voices[(size_t)i];break;}
+    if(chosen->active)for(int i=0;i<limit;++i){auto& v=l.voices[(size_t)i];if(v.envelope<chosen->envelope)chosen=&v;}
     auto transition=chosen->transition;
     if(chosen->active)transition.retarget(sampleRate);else transition={};
     *chosen=Voice{};auto& v=*chosen;v.transition=transition;

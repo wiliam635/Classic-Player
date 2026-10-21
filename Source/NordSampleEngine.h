@@ -12,7 +12,7 @@ class NordSampleEngine
 {
 public:
     static constexpr int layerCount = Sf2Engine::layerCount;
-    static constexpr int voicesPerLayer = 192;
+    static constexpr int voicesPerLayer = Sf2Engine::maxPolyphonyPerLayer;
 
     void prepare(double sampleRate, int maximumBlockSize);
     juce::Result loadSample(int layer, const juce::File& file);
@@ -54,7 +54,7 @@ private:
         std::atomic<float> peak { 0.0f };
     };
 
-    static Voice& allocateVoice(Layer&) noexcept;
+    static Voice& allocateVoice(Layer&, int polyphony) noexcept;
     static int findZone(const NordSampleDecoder::Instrument&, int note, int velocity) noexcept;
     static float readSample(const NordSampleDecoder::Zone&, int channel, double position) noexcept;
     static float releaseCoefficientFor(float control, double sampleRate) noexcept;

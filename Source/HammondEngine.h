@@ -45,7 +45,7 @@ private:
     };
     struct Layer
     {
-        std::array<Voice,80> voices {};
+        std::array<Voice,Sf2Engine::maxPolyphonyPerLayer> voices {};
         std::array<bool,16> sustain {};
         std::array<float,16> volume {}, expression {};
         std::array<juce::SmoothedValue<float>,16> channelGain;

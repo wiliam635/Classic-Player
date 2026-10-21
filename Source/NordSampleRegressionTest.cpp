@@ -124,9 +124,17 @@ struct NordSampleRegressionTests
             midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.5f), 0);
         float rms = 0.0f;
         render(*engine, midi, config, rms);
-        require(activeVoices(*engine) == NordSampleEngine::voicesPerLayer,
-                "NSMP4 exceeded the 192-voice per-layer ceiling");
+        require(activeVoices(*engine) == config.polyphony,
+                "NSMP4 exceeded the selected per-layer voice ceiling");
         require(rms > 0.0f, "Voice stealing silenced all active NSMP4 notes");
+        engine = fixture();
+        config.polyphony = 64;
+        render(*engine, midi, config, rms);
+        require(activeVoices(*engine) == 64, "NSMP4 ignored the 64-voice setting");
+        engine = fixture();
+        config.polyphony = 256;
+        render(*engine, midi, config, rms);
+        require(activeVoices(*engine) == 256, "NSMP4 ignored the 256-voice setting");
     }
 
     static void nordEffects()

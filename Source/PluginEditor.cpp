@@ -3885,10 +3885,11 @@ public:
         velocityDisabled = layerType == ClassicPlayerAudioProcessor::LayerType::hammond;
         addAndMakeVisible(splitControls);
         deviceBox.getProperties().set("uiDataItems", true);
-        const std::array<std::pair<juce::Label*, const char*>, 6> fields {{
+        const std::array<std::pair<juce::Label*, const char*>, 7> fields {{
             { &modeLabel, "MODO" }, { &sustainLabel, "SUSTAIN" },
             { &channelLabel, "CANAL MIDI" }, { &deviceLabel, "ENTRADA MIDI" },
-            { &octaveLabel, "OITAVA" }, { &velocityLabel, "VELOCIDADE" }
+            { &octaveLabel, "OITAVA" }, { &velocityLabel, "VELOCIDADE" },
+            { &polyphonyLabel, "POLIFONIA" }
         }};
         for (const auto& field : fields)
         {
@@ -3898,7 +3899,7 @@ public:
             addAndMakeVisible(*field.first);
         }
         for (auto* box : { &modeBox, &sustainBox, &channelBox, &deviceBox,
-                           &octaveBox, &lowNoteBox, &highNoteBox, &velocityBox })
+                           &octaveBox, &lowNoteBox, &highNoteBox, &velocityBox, &polyphonyBox })
         {
             box->setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
             box->setColour(juce::ComboBox::textColourId, juce::Colour(text));
@@ -3928,8 +3929,10 @@ public:
         }
         velocityBox.addItem("VEL LINEAR", 1); velocityBox.addItem("VEL SOFT", 2); velocityBox.addItem("VEL HARD", 3);
         velocityBox.addItem("VEL CALIBRADA", 4);
+        for (int voices = 64; voices <= Sf2Engine::maxPolyphonyPerLayer; voices += 32)
+            polyphonyBox.addItem(juce::String(voices) + " VOZES", voices);
         for (auto* box : { &modeBox, &sustainBox, &channelBox, &octaveBox,
-                           &lowNoteBox, &highNoteBox, &velocityBox })
+                           &lowNoteBox, &highNoteBox, &velocityBox, &polyphonyBox })
             box->onChange = [this] { applyRouting(); };
         deviceBox.onChange = [this]
         {
@@ -4000,6 +4003,7 @@ public:
             velocityLabel.setBounds({});
             velocityBox.setBounds({});
         }
+        place(velocityRow.removeFromLeft(cellWidth), polyphonyLabel, polyphonyBox);
         if (calibrationRowHeight > 0)
         {
             calibrationButton.setBounds(calibrationRow.removeFromLeft(168).reduced(2, 1));
@@ -4078,6 +4082,7 @@ private:
             processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord
                 && config.velocityCalibrationEnabled);
         velocityBox.setSelectedId(config.velocityCurve + 1, juce::dontSendNotification);
+        polyphonyBox.setSelectedId(config.polyphony, juce::dontSendNotification);
         refreshCalibrationControls();
         int selectedDeviceId = 1;
         const auto selectedDevice = processor.layerMidiDevice(index);
@@ -4101,6 +4106,8 @@ private:
         config.octave = octaveBox.getSelectedId() - 5;
         config.lowNote = lowNoteBox.getSelectedId() - 1;
         config.highNote = highNoteBox.getSelectedId() - 1;
+        config.polyphony = juce::jlimit(64, Sf2Engine::maxPolyphonyPerLayer,
+                                      polyphonyBox.getSelectedId());
         if (!velocityHandledExternally && !velocityDisabled)
             config.velocityCurve = juce::jlimit(0, config.velocityCalibrationEnabled ? 3 : 2,
                                                 velocityBox.getSelectedId() - 1);
@@ -4112,9 +4119,9 @@ private:
     bool velocityHandledExternally = false;
     bool velocityDisabled = false;
     juce::Label modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel,
-                velocityLabel;
+                velocityLabel, polyphonyLabel;
     juce::ComboBox modeBox, sustainBox, channelBox, deviceBox, octaveBox,
-                   lowNoteBox, highNoteBox, velocityBox;
+                   lowNoteBox, highNoteBox, velocityBox, polyphonyBox;
     SplitLearnControls splitControls;
     juce::TextButton calibrationButton { "CALIBRAR VELOCITY" }, calibrationCancelButton { "CANCELAR" };
     juce::Label calibrationStatus;

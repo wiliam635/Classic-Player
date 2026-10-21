@@ -253,12 +253,15 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
     }
     else
     {
-        for (auto& candidate : layer.voices)
+        for (int i = 0; i < juce::jlimit(64, voicesPerLayer, config.routing.polyphony); ++i)
+        {
+            auto& candidate = layer.voices[(size_t) i];
             if (!candidate.active)
             {
                 voice = &candidate;
                 break;
             }
+        }
 
         if (voice == nullptr)
             voice = &layer.voices.front();

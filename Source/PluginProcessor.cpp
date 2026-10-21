@@ -3349,7 +3349,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
     for (const auto& prefix : oneBased)
         copyProperty(prefix + sourceOne, prefix + destinationOne);
     const juce::StringArray zeroBased {
-        "midiChannel", "low", "high", "octave", "velocityCurve", "velocityCalibrated",
+        "midiChannel", "low", "high", "octave", "polyphony", "velocityCurve", "velocityCalibrated",
         "velocitySoftInput", "velocityMidInput", "velocityHardInput", "mono", "portamento",
         "sustain", "highPassHz", "lowPassHz", "midiDevice"
     };
@@ -3474,6 +3474,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("low" + juce::String(i), config.lowNote, nullptr);
         state.setProperty("high" + juce::String(i), config.highNote, nullptr);
         state.setProperty("octave" + juce::String(i), config.octave, nullptr);
+        state.setProperty("polyphony" + juce::String(i), config.polyphony, nullptr);
         state.setProperty("velocityCurve" + juce::String(i), config.velocityCurve, nullptr);
         state.setProperty("velocityCalibrated" + juce::String(i), config.velocityCalibrationEnabled, nullptr);
         state.setProperty("velocitySoftInput" + juce::String(i), config.velocitySoftInput, nullptr);
@@ -3895,6 +3896,9 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.lowNote = state.getProperty("low" + juce::String(i), 0);
                 config.highNote = state.getProperty("high" + juce::String(i), 127);
                 config.octave = state.getProperty("octave" + juce::String(i), 0);
+                config.polyphony = juce::jlimit(64, Sf2Engine::maxPolyphonyPerLayer,
+                    static_cast<int>(state.getProperty("polyphony" + juce::String(i),
+                                                       Sf2Engine::polyphonyPerLayer)));
                 config.velocityCurve = state.getProperty("velocityCurve" + juce::String(i), 0);
                 config.velocityCalibrationEnabled = state.getProperty(
                     "velocityCalibrated" + juce::String(i), false);

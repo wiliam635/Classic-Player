@@ -27,7 +27,8 @@ void Sf2Engine::createSynth(Layer& layer)
     fluid_settings_setint(layer.settings.get(), "synth.threadsafe-api", 1);
     // A finite ceiling protects the real-time thread from runaway voice counts.
     // FluidSynth performs voice stealing when this ceiling is reached.
-    fluid_settings_setint(layer.settings.get(), "synth.polyphony", polyphonyPerLayer);
+    fluid_settings_setint(layer.settings.get(), "synth.polyphony",
+                          juce::jlimit(64, maxPolyphonyPerLayer, layer.config.polyphony));
     // FluidSynth's default headroom made SF2 layers noticeably quieter than
     // the native DX7 and Analog engines.  Raise only the synth's internal
     // calibration; the shared output limiter still prevents clipping.
@@ -488,7 +489,7 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         const auto releaseTimecents = 1200.0f * std::log2(releaseSeconds);
         const auto applyRelease = [&]
         {
-            std::array<fluid_voice_t*, polyphonyPerLayer> voices {};
+            std::array<fluid_voice_t*, maxPolyphonyPerLayer> voices {};
             fluid_synth_get_voicelist(layer.synth.get(), voices.data(), (int) voices.size(), -1);
             for (auto* voice : voices)
                 if (voice != nullptr && fluid_voice_gen_get(voice, GEN_VOLENVRELEASE) != releaseTimecents)
@@ -739,7 +740,11 @@ void Sf2Engine::setConfig(int index, const LayerConfig& config)
             fluid_synth_cc(layer.synth.get(), channel, 1, 0);
     if (!config.modulationEnabled)
         layer.modulationAmount = 0.0f;
+    const auto newPolyphony = juce::jlimit(64, maxPolyphonyPerLayer, config.polyphony);
+    if (layer.synth != nullptr && layer.config.polyphony != newPolyphony)
+        fluid_synth_set_polyphony(layer.synth.get(), newPolyphony);
     layer.config = config;
+    layer.config.polyphony = newPolyphony;
 }
 
 juce::String Sf2Engine::getSoundFontPath(int index) const

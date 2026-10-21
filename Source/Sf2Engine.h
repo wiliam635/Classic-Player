@@ -17,6 +17,7 @@ public:
     static constexpr int defaultLayerCount = 6;
     static constexpr int layerCount = 16;
     static constexpr int polyphonyPerLayer = 192;
+    static constexpr int maxPolyphonyPerLayer = 256;
 
     struct LayerConfig
     {
@@ -30,6 +31,7 @@ public:
         int lowNote = 0;
         int highNote = 127;
         int octave = 0;
+        int polyphony = polyphonyPerLayer;
         int velocityCurve = 0; // 0 linear, 1 soft, 2 hard, 3 calibrated (NPNO)
         bool velocityCalibrationEnabled = false;
         int velocitySoftInput = 20;

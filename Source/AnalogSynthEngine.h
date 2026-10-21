@@ -14,7 +14,7 @@ class AnalogSynthEngine
 {
 public:
     static constexpr int layerCount = Sf2Engine::layerCount;
-    static constexpr int voicesPerLayer = 8;
+    static constexpr int voicesPerLayer = Sf2Engine::maxPolyphonyPerLayer;
 
     enum class Waveform { triangle = 0, saw, square, pulse, sine };
 

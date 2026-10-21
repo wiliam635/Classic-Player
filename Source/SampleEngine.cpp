@@ -232,15 +232,17 @@ void SampleEngine::setConfig(int layer, const LayerConfig& config)
     destination.config.endSeconds = juce::jmax(0.0, config.endSeconds);
 }
 
-SampleEngine::Voice& SampleEngine::allocateVoice(Layer& layer)
+SampleEngine::Voice& SampleEngine::allocateVoice(Layer& layer, int polyphony)
 {
     auto* candidate = &layer.voices[0];
+    const auto limit = juce::jlimit(64, (int) layer.voices.size(), polyphony);
     const auto priority = [] (const Voice& voice)
     {
         return voice.released ? 0 : voice.waitingForSustain ? 1 : 2;
     };
-    for (auto& voice : layer.voices)
+    for (int i = 0; i < limit; ++i)
     {
+        auto& voice = layer.voices[(size_t) i];
         if (!voice.active) return voice;
         const auto rank = priority(voice);
         const auto candidateRank = priority(*candidate);
@@ -267,7 +269,7 @@ SampleEngine::Voice& SampleEngine::allocateVoice(Layer& layer)
 void SampleEngine::startVoice(Layer& layer, int note, int channel, float velocity,
                               const Sf2Engine::LayerConfig& routing)
 {
-    auto* candidate = &allocateVoice(layer);
+    auto* candidate = &allocateVoice(layer, routing.polyphony);
 
     const auto endSample = layer.config.endSeconds > 0.0
         ? juce::jmin(layer.audio.getNumSamples(),
@@ -502,7 +504,7 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     if (!juce::isPositiveAndBelow(sampleIndex, static_cast<int>(layer.piano.strokes.size())))
         return;
 
-    auto* candidate = &allocateVoice(layer);
+    auto* candidate = &allocateVoice(layer, routing.polyphony);
 
     const auto& stroke = layer.piano.strokes[(size_t) sampleIndex];
     const auto frames = stroke.frameCount(layer.piano.channels);

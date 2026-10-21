@@ -130,15 +130,17 @@ float NordSampleEngine::getLayerPeak(int layerIndex) const
     return layers[(size_t) layerIndex].peak.load(std::memory_order_relaxed);
 }
 
-NordSampleEngine::Voice& NordSampleEngine::allocateVoice(Layer& layer) noexcept
+NordSampleEngine::Voice& NordSampleEngine::allocateVoice(Layer& layer, int polyphony) noexcept
 {
     Voice* candidate = &layer.voices.front();
+    const auto limit = juce::jlimit(64, (int) layer.voices.size(), polyphony);
     const auto rank = [](const Voice& voice)
     {
         return voice.released ? 0 : voice.waitingForSustain ? 1 : 2;
     };
-    for (auto& voice : layer.voices)
+    for (int i = 0; i < limit; ++i)
     {
+        auto& voice = layer.voices[(size_t) i];
         if (!voice.active) return voice;
         const auto voiceRank = rank(voice);
         const auto candidateRank = rank(*candidate);
@@ -262,7 +264,7 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
                     voice.releaseCoefficient = releaseCoefficientFor(routing.release, currentSampleRate);
                 }
         const auto& zone = layer.instrument.zones[(size_t) zoneIndex];
-        auto& voice = allocateVoice(layer);
+        auto& voice = allocateVoice(layer, routing.polyphony);
         const auto cents = layer.instrument.detune[(size_t) note];
         voice = {};
         voice.active = zone.frames() > 0;

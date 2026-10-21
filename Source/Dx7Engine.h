@@ -112,7 +112,7 @@ private:
         std::array<float, 2> compressorEnvelope {};
         std::array<float, 2> filterState {};
         LayerEqState eq;
-        std::array<Voice, 32> voices {};
+        std::array<Voice, Sf2Engine::maxPolyphonyPerLayer> voices {};
     };
 
     static bool accepts(const Sf2Engine::LayerConfig&, const juce::MidiMessage&);

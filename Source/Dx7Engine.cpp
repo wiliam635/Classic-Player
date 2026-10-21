@@ -527,11 +527,18 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
     }
 
     Voice* target = nullptr;
-    for (auto& voice : layer.voices)
+    const auto limit = juce::jlimit(64, (int) layer.voices.size(), config.polyphony);
+    for (int i = 0; i < limit; ++i)
+    {
+        auto& voice = layer.voices[(size_t) i];
         if (!voice.active) { target = &voice; break; }
+    }
     if (target == nullptr)
-        for (auto& voice : layer.voices)
+        for (int i = 0; i < limit; ++i)
+        {
+            auto& voice = layer.voices[(size_t) i];
             if (voice.releasing) { target = &voice; break; }
+        }
     if (target == nullptr) target = &layer.voices.front();
 
     target->active = true;

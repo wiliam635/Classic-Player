@@ -68,7 +68,7 @@ private:
         juce::String sourcePath;
         double sourceSampleRate = 44100.0;
         LayerConfig config;
-        std::array<Voice, Sf2Engine::polyphonyPerLayer> voices;
+        std::array<Voice, Sf2Engine::maxPolyphonyPerLayer> voices;
         std::array<bool, 16> sustainDown {};
         std::array<float, 2> cutoffState {};
         std::array<float, 2> compressorEnvelope {};
@@ -89,7 +89,7 @@ private:
                     const Sf2Engine::LayerConfig& routing);
     void startPianoVoice(Layer&, int sampleIndex, int note, int channel, float velocity,
                          const Sf2Engine::LayerConfig& routing);
-    Voice& allocateVoice(Layer&);
+    Voice& allocateVoice(Layer&, int polyphony);
     static void preparePianoLoops(NordPianoDecoder::Instrument&);
     int findPianoStroke(const Layer&, int note, float velocity, int bank) const;
     void releasePianoVoice(Voice&, float releaseControl);
