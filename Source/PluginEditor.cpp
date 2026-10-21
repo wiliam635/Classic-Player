@@ -1051,6 +1051,24 @@ void writeUiSkinPreference(int skin)
     settings.saveIfNeeded();
 }
 
+#if JucePlugin_Build_Standalone
+juce::Point<int> readStandaloneWindowSize()
+{
+    juce::PropertiesFile settings(uiLanguageFileOptions());
+    return { settings.getIntValue("standaloneWindowWidth", 0),
+             settings.getIntValue("standaloneWindowHeight", 0) };
+}
+
+void writeStandaloneWindowSize(int width, int height)
+{
+    if (width < 900 || height < 600) return;
+    juce::PropertiesFile settings(uiLanguageFileOptions());
+    settings.setValue("standaloneWindowWidth", width);
+    settings.setValue("standaloneWindowHeight", height);
+    settings.saveIfNeeded();
+}
+#endif
+
 juce::Colour readLayerOutlinePreference(int layer, bool& customColour)
 {
     juce::PropertiesFile settings(uiLanguageFileOptions());
@@ -7618,14 +7636,28 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
                                                : juce::Rectangle<int>(0, 0, 1366, 768);
     const auto initialWidth = juce::roundToInt(static_cast<float>(available.getWidth()) * 0.96f);
     const auto initialHeight = juce::roundToInt(static_cast<float>(available.getHeight()) * 0.88f);
-    setSize(juce::jmin(1600, juce::jmax(900, initialWidth)),
-            juce::jmin(900, juce::jmax(600, initialHeight)));
+    auto width = juce::jmin(1600, juce::jmax(900, initialWidth));
+    auto height = juce::jmin(900, juce::jmax(600, initialHeight));
+#if JucePlugin_Build_Standalone
+    const auto savedSize = readStandaloneWindowSize();
+    if (savedSize.x > 0 && savedSize.y > 0)
+    {
+        // The title bar sits outside the editor. Keep a restored window usable
+        // when switching to a smaller monitor or changing display scaling.
+        width = juce::jlimit(900, juce::jmax(900, juce::jmin(1920, available.getWidth())), savedSize.x);
+        height = juce::jlimit(600, juce::jmax(600, juce::jmin(1080, available.getHeight() - 48)), savedSize.y);
+    }
+#endif
+    setSize(width, height);
     applyUiLanguage();
     startTimerHz(20);
 }
 
 ClassicPlayerAudioProcessorEditor::~ClassicPlayerAudioProcessorEditor()
 {
+#if JucePlugin_Build_Standalone
+    writeStandaloneWindowSize(getWidth(), getHeight());
+#endif
     stopTimer();
     cancelPendingUpdate();
     classicProcessor.keyboardState.removeListener(this);
