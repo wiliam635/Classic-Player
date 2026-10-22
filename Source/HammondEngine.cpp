@@ -232,11 +232,16 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
         const auto compressorMix = juce::jlimit(0.0f, 1.0f, c.routing.compressor / 100.0f);
         const auto compressorEnabled = compressorMix > 0.0f;
         const auto compressorAttack = compressorEnabled
-            ? (float) std::exp(-1.0 / (sampleRate * 0.003)) : 0.0f;
+            ? (float) std::exp(-1.0 / (sampleRate * 0.001
+                * juce::jmax(0.1f, c.routing.compressorAttack))) : 0.0f;
         const auto compressorRelease = compressorEnabled
-            ? (float) std::exp(-1.0 / (sampleRate * 0.1)) : 0.0f;
-        const auto compressorThreshold = juce::Decibels::decibelsToGain(c.routing.compressorThreshold);
-        const auto compressorRatio = std::max(1.0f, c.routing.compressorRatio);
+            ? (float) std::exp(-1.0 / (sampleRate * 0.001
+                * juce::jmax(1.0f, c.routing.compressorRelease))) : 0.0f;
+        const auto compressorThreshold = juce::Decibels::decibelsToGain(
+            juce::jlimit(-60.0f, 0.0f, c.routing.compressorThreshold));
+        const auto compressorRatio = juce::jlimit(1.0f, 20.0f, c.routing.compressorRatio);
+        const auto compressorMakeup = juce::Decibels::decibelsToGain(
+            juce::jlimit(0.0f, 24.0f, c.routing.compressorMakeup));
         if (!compressorEnabled)
             l.compressor = {};
         l.eq.setParameters(c.routing.eqLow, c.routing.eqMid, c.routing.eqHigh,
@@ -284,13 +289,14 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
                 l.lowpass[(size_t)ch]+=lowpass*(value-l.lowpass[(size_t)ch]);value=l.lowpass[(size_t)ch];
                 if (compressorEnabled)
                 {
+                    const auto dry = value;
                     const auto coefficient = std::abs(value) > env
                         ? compressorAttack : compressorRelease;
                     env = coefficient * env + (1.0f - coefficient) * std::abs(value);
-                    if (env > compressorThreshold)
-                        value *= 1.0f - compressorMix + compressorMix
-                               * std::pow(compressorThreshold / env,
-                                          1.0f - 1.0f / compressorRatio);
+                    const auto reduction = env > compressorThreshold
+                        ? std::pow(compressorThreshold / env,
+                                   1.0f - 1.0f / compressorRatio) : 1.0f;
+                    value = dry + (dry * reduction * compressorMakeup - dry) * compressorMix;
                 }
                 value = l.eq.process(value, ch);
                 value*=gain*(ch==0?std::sqrt(1-pan):std::sqrt(1+pan));

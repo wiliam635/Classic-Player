@@ -34,11 +34,15 @@ static void performanceEffectsRegression()
     auto processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
     juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
 
-    const std::array<std::pair<const char*, std::array<float, 2>>, 10> values {{
+    const std::array<std::pair<const char*, std::array<float, 2>>, 14> values {{
         { "layer1EqLow", { 5.0f, -7.0f } },
         { "layer1EqMidFrequency", { 1800.0f, 420.0f } },
         { "layer1Comp", { 42.0f, 11.0f } },
         { "layer1CompThreshold", { -24.0f, -9.0f } },
+        { "layer1CompRatio", { 5.0f, 2.0f } },
+        { "layer1CompAttack", { 7.0f, 35.0f } },
+        { "layer1CompRelease", { 180.0f, 440.0f } },
+        { "layer1CompMakeup", { 3.0f, 9.0f } },
         { "layer1Reverb", { 65.0f, 18.0f } },
         { "layer1ReverbSize", { 83.0f, 32.0f } },
         { "layer1ReverbDamping", { 27.0f, 76.0f } },
@@ -454,6 +458,52 @@ static std::vector<float> render(int block,double rate,bool routed,bool allBars=
     }
     return result;
 }
+static float hammondCompressorRms(float mix, float attack, float makeup,
+                                  int firstSample, int lastSample)
+{
+    auto engine = std::make_unique<HammondEngine>();
+    engine->prepare(48000.0, 128);
+    auto c = configs();
+    c[0].bars.fill(8);
+    c[0].routing.compressor = mix;
+    c[0].routing.compressorThreshold = -45.0f;
+    c[0].routing.compressorRatio = 8.0f;
+    c[0].routing.compressorAttack = attack;
+    c[0].routing.compressorRelease = 180.0f;
+    c[0].routing.compressorMakeup = makeup;
+    double power = 0.0;
+    int count = 0;
+    for (int start = 0; start < 16000; start += 128)
+    {
+        juce::AudioBuffer<float> audio(2, 128);
+        audio.clear();
+        juce::MidiBuffer midi;
+        if (start == 0) midi.addEvent(juce::MidiMessage::noteOn(1, 60, 1.0f), 0);
+        engine->process(audio, midi, c);
+        for (int sample = 0; sample < 128; ++sample)
+            if (start + sample >= firstSample && start + sample < lastSample)
+            {
+                const auto value = audio.getSample(0, sample);
+                power += (double) value * value;
+                ++count;
+            }
+    }
+    return (float) std::sqrt(power / (double) std::max(1, count));
+}
+static void hammondCompressorRegression()
+{
+    const auto dry = hammondCompressorRms(0.0f, 0.1f, 0.0f, 8000, 12000);
+    const auto wet = hammondCompressorRms(100.0f, 0.1f, 0.0f, 8000, 12000);
+    const auto makeup = hammondCompressorRms(100.0f, 0.1f, 12.0f, 8000, 12000);
+    check(dry > 0.001f && wet < dry * 0.8f,
+          "Hammond COMP did not reduce a sustained signal above threshold");
+    check(makeup > wet * 1.5f,
+          "Hammond compressor ignored the layer makeup control");
+    const auto fast = hammondCompressorRms(100.0f, 0.1f, 0.0f, 1000, 3000);
+    const auto slow = hammondCompressorRms(100.0f, 100.0f, 0.0f, 1000, 3000);
+    check(slow > fast * 1.05f,
+          "Hammond compressor ignored the layer attack control");
+}
 static void nativeWindowStyle()
 {
     auto processor = std::make_unique<ClassicPlayerAudioProcessor>();
@@ -680,6 +730,7 @@ int main(int argc, char** argv)
         DrumPadRegressionAccess::run();
         continuousPadRegression();
         hammondPresetAndWheel();
+        hammondCompressorRegression();
         analogEditorLifecycle();
         nativeWindowStyle();
         LiveSetLayoutRegressionAccess::run(argc>2 ? argv[2] : nullptr);

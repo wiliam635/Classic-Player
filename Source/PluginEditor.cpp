@@ -2788,9 +2788,14 @@ public:
         const auto mix = juce::jlimit(0.0f, 1.0f, parameter("Comp", 0.0f) / 100.0f);
         const auto outputDb = juce::jlimit(-60.0f, 6.0f,
             juce::Decibels::gainToDecibels(juce::jmax(1.0e-6f, processor.layerPeak(layer))));
-        const auto reduction = outputDb > threshold
-            ? (outputDb - threshold) * (1.0f - 1.0f / ratio) * mix : 0.0f;
-        const auto inputDb = juce::jlimit(-60.0f, 6.0f, outputDb + reduction - makeup * mix);
+        // Only the post-layer peak is metered. The input and GR indicators are
+        // estimates, not measurements of the compressor's detector envelope.
+        auto inputDb = outputDb;
+        for (int iteration = 0; iteration < 6; ++iteration)
+            inputDb = juce::jlimit(-60.0f, 6.0f,
+                inputDb + outputDb - transferDb(inputDb, threshold, ratio, makeup, mix));
+        const auto reduction = juce::jmax(0.0f,
+            inputDb - transferDb(inputDb, threshold, ratio, 0.0f, mix));
 
         const auto toX = [graph](float db)
         {
@@ -2820,8 +2825,7 @@ public:
         for (int i = 0; i <= 120; ++i)
         {
             const auto input = -60.0f + 66.0f * (float) i / 120.0f;
-            const auto compressed = input <= threshold
-                ? input : threshold + (input - threshold) / ratio + makeup;
+            const auto compressed = transferDb(input, threshold, ratio, makeup, mix);
             const auto point = juce::Point<float>(toX(input), toY(compressed));
             if (i == 0) curve.startNewSubPath(point); else curve.lineTo(point);
         }
@@ -2835,9 +2839,10 @@ public:
         g.strokePath(curve, juce::PathStrokeType(2.0f));
         g.setColour(juce::Colour(yellow));
         g.drawLine(toX(threshold), graph.getY(), toX(threshold), graph.getBottom(), 1.5f);
-        const auto thresholdPoint = juce::Point<float>(toX(threshold), toY(threshold + makeup));
+        const auto thresholdPoint = juce::Point<float>(toX(threshold),
+            toY(transferDb(threshold, threshold, ratio, makeup, mix)));
         const auto ratioPoint = juce::Point<float>(toX(6.0f),
-            toY(threshold + (6.0f - threshold) / ratio + makeup));
+            toY(transferDb(6.0f, threshold, ratio, makeup, mix)));
         for (const auto& point : { thresholdPoint, ratioPoint })
         {
             g.setColour(juce::Colour(yellow));
@@ -2848,7 +2853,7 @@ public:
         g.fillEllipse(toX(inputDb) - 4.5f, toY(outputDb) - 4.5f, 9.0f, 9.0f);
 
         drawMeter(g, area.getX() + 18.0f, area.getY() + 25.0f, area.getHeight() - 58.0f,
-                  inputDb, -60.0f, 0.0f, "INPUT", juce::Colour(0xff4ac0aa));
+                  inputDb, -60.0f, 0.0f, "INPUT EST.", juce::Colour(0xff4ac0aa));
         drawMeter(g, area.getRight() - 45.0f, area.getY() + 25.0f, area.getHeight() - 58.0f,
                   outputDb, -60.0f, 0.0f, "OUTPUT", juce::Colour(0xff4ac0aa));
         drawReductionMeter(g, area.getX() + 48.0f, area.getY() + 25.0f,
@@ -2864,7 +2869,7 @@ public:
                    juce::roundToInt(graph.getWidth()), 14,
                    juce::Justification::centred);
         g.setColour(juce::Colour(yellow));
-        g.drawText(juce::String(reduction, 1) + " dB GR", juce::roundToInt(graph.getX()),
+        g.drawText(juce::String(reduction, 1) + " dB GR EST.", juce::roundToInt(graph.getX()),
                    juce::roundToInt(area.getY() + 5.0f), juce::roundToInt(graph.getWidth()), 14,
                    juce::Justification::centred);
     }
@@ -2875,9 +2880,11 @@ public:
         const auto threshold = parameter("CompThreshold", -18.0f);
         const auto ratio = juce::jmax(1.0f, parameter("CompRatio", 4.0f));
         const auto makeup = parameter("CompMakeup", 0.0f);
-        const auto thresholdPoint = juce::Point<float>(toX(graph, threshold), toY(graph, threshold + makeup));
+        const auto mix = juce::jlimit(0.0f, 1.0f, parameter("Comp", 0.0f) / 100.0f);
+        const auto thresholdPoint = juce::Point<float>(toX(graph, threshold),
+            toY(graph, transferDb(threshold, threshold, ratio, makeup, mix)));
         const auto ratioPoint = juce::Point<float>(toX(graph, 6.0f),
-            toY(graph, threshold + (6.0f - threshold) / ratio + makeup));
+            toY(graph, transferDb(6.0f, threshold, ratio, makeup, mix)));
         selectedHandle = event.position.getDistanceFrom(thresholdPoint)
                        <= event.position.getDistanceFrom(ratioPoint) ? 0 : 1;
     }
@@ -2904,6 +2911,16 @@ public:
     std::function<void(int, float)> onCurveChanged;
 
 private:
+    static float transferDb(float input, float threshold, float ratio,
+                            float makeup, float mix) noexcept
+    {
+        const auto over = juce::jmax(0.0f, input - threshold);
+        const auto reduction = over * (1.0f - 1.0f / ratio);
+        const auto gain = (1.0f - mix) + mix
+            * juce::Decibels::decibelsToGain(makeup - reduction);
+        return input + juce::Decibels::gainToDecibels(juce::jmax(1.0e-6f, gain));
+    }
+
     juce::Rectangle<float> graphBounds() const
     {
         auto area = getLocalBounds().toFloat().reduced(18.0f, 24.0f);
