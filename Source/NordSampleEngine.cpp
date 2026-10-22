@@ -28,9 +28,12 @@ void NordSampleEngine::prepare(double sampleRate, int blockSize)
 void NordSampleEngine::prepareLoopCrossfades(NordSampleDecoder::Instrument& instrument) noexcept
 {
     constexpr double defaultFadeSeconds = 0.02;
-    constexpr double continuousPadFadeSeconds = 0.10;
-    const auto fadeSeconds = instrument.name.containsIgnoreCase("pad")
-        ? continuousPadFadeSeconds : defaultFadeSeconds;
+    constexpr double sustainedFadeSeconds = 0.10;
+    const auto sustainedLoop = instrument.name.containsIgnoreCase("pad")
+        || instrument.name.containsIgnoreCase("string")
+        || instrument.name.containsIgnoreCase("orchestra")
+        || instrument.name.containsIgnoreCase("sustain");
+    const auto fadeSeconds = sustainedLoop ? sustainedFadeSeconds : defaultFadeSeconds;
     const auto requestedFade = static_cast<size_t>(NordSampleDecoder::sampleRate * fadeSeconds);
 
     for (auto& zone : instrument.zones)
@@ -64,8 +67,8 @@ juce::Result NordSampleEngine::loadSample(int layerIndex, const juce::File& file
     const auto result = NordSampleDecoder::decode(file, decoded);
     if (result.failed()) return result;
 
-    // Fade loop joins offline. Sustained pad patches use a longer blend to
-    // make the loop less audible; other Nord sounds retain the original 20 ms.
+    // Fade loop joins offline. Pads, strings and orchestral patches use a longer blend to make the
+    // repeated loop less audible; other Nord sounds retain the original 20 ms.
     prepareLoopCrossfades(decoded);
 
     const juce::ScopedLock stateLock(lock);
