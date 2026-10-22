@@ -27,13 +27,7 @@ void NordSampleEngine::prepare(double sampleRate, int blockSize)
 
 void NordSampleEngine::prepareLoopCrossfades(NordSampleDecoder::Instrument& instrument) noexcept
 {
-    constexpr double defaultFadeSeconds = 0.02;
-    constexpr double sustainedFadeSeconds = 0.10;
-    const auto sustainedLoop = instrument.name.containsIgnoreCase("pad")
-        || instrument.name.containsIgnoreCase("string")
-        || instrument.name.containsIgnoreCase("orchestra")
-        || instrument.name.containsIgnoreCase("sustain");
-    const auto fadeSeconds = sustainedLoop ? sustainedFadeSeconds : defaultFadeSeconds;
+    constexpr double fadeSeconds = 0.25;
     const auto requestedFade = static_cast<size_t>(NordSampleDecoder::sampleRate * fadeSeconds);
 
     for (auto& zone : instrument.zones)
@@ -67,8 +61,8 @@ juce::Result NordSampleEngine::loadSample(int layerIndex, const juce::File& file
     const auto result = NordSampleDecoder::decode(file, decoded);
     if (result.failed()) return result;
 
-    // Fade loop joins offline. Pads, strings and orchestral patches use a longer blend to make the
-    // repeated loop less audible; other Nord sounds retain the original 20 ms.
+    // Use the native NSMP4 loop points for every sound; a consistent, capped overlap
+    // softens the seam without relying on instrument-name heuristics.
     prepareLoopCrossfades(decoded);
 
     const juce::ScopedLock stateLock(lock);
@@ -77,6 +71,12 @@ juce::Result NordSampleEngine::loadSample(int layerIndex, const juce::File& file
     layer.sourcePath = file.getFullPathName();
     layer.loaded = true;
     layer.sustainDown.fill(false);
+    layer.heldNotes.fill(false);
+    layer.heldVelocities.fill(0.0f);
+    layer.heldChannels.fill(0);
+    layer.monoNote = -1;
+    layer.monoChannel = 1;
+    layer.lastMonoMode = false;
     layer.cutoffState.fill(0.0f);
     layer.compressorEnvelope.fill(0.0f);
     layer.eq.reset();
@@ -97,6 +97,12 @@ void NordSampleEngine::unload(int layerIndex)
     layer.sourcePath.clear();
     layer.loaded = false;
     layer.sustainDown.fill(false);
+    layer.heldNotes.fill(false);
+    layer.heldVelocities.fill(0.0f);
+    layer.heldChannels.fill(0);
+    layer.monoNote = -1;
+    layer.monoChannel = 1;
+    layer.lastMonoMode = false;
     for (auto& voice : layer.voices) voice = {};
     layer.eq.reset();
     layer.nordFx.reset();
@@ -110,6 +116,11 @@ void NordSampleEngine::stopAllSounds()
     for (auto& layer : layers)
     {
         layer.sustainDown.fill(false);
+        layer.heldNotes.fill(false);
+        layer.heldVelocities.fill(0.0f);
+        layer.heldChannels.fill(0);
+        layer.monoNote = -1;
+        layer.monoChannel = 1;
         layer.nordFx.reset();
         for (auto& voice : layer.voices) voice = {};
     }
@@ -223,11 +234,68 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
 {
     if (routing.midiChannel > 0 && message.getChannel() != routing.midiChannel) return;
     const auto channel = juce::jlimit(1, 16, message.getChannel());
+    const auto highestHeld = [&layer]()
+    {
+        for (int note = 127; note >= 0; --note)
+            if (layer.heldNotes[(size_t) note]) return note;
+        return -1;
+    };
+    const auto startVoice = [&](int note, int midiChannel, float shapedVelocity, bool legato) -> bool
+    {
+        const auto velocity = juce::jlimit(1, 127, juce::roundToInt(shapedVelocity * 127.0f));
+        const auto zoneIndex = findZone(layer.instrument, note, velocity);
+        if (!juce::isPositiveAndBelow(zoneIndex, (int) layer.instrument.zones.size())) return false;
+
+        const auto& zone = layer.instrument.zones[(size_t) zoneIndex];
+        if (routing.mono)
+            for (auto& prior : layer.voices)
+                if (prior.active && (prior.keyDown || prior.waitingForSustain))
+                {
+                    prior.keyDown = false;
+                    prior.waitingForSustain = false;
+                    prior.released = true;
+                    prior.releaseCoefficient = releaseCoefficientFor(routing.release, currentSampleRate);
+                }
+
+        auto& voice = allocateVoice(layer, routing.polyphony);
+        const auto cents = layer.instrument.detune[(size_t) note];
+        voice = {};
+        voice.active = zone.frames() > 0;
+        voice.note = note;
+        voice.channel = juce::jlimit(1, 16, midiChannel);
+        voice.zone = zoneIndex;
+        voice.keyDown = true;
+        voice.position = legato && zone.secondStart > 0 && zone.secondStart < zone.frames()
+            ? static_cast<double>(zone.secondStart) : 0.0;
+        voice.increment = std::pow(2.0, (note - zone.root + cents / 100.0) / 12.0)
+                        * NordSampleDecoder::sampleRate / currentSampleRate;
+        const auto noteGain = layer.instrument.gain[(size_t) note];
+        voice.amplitude = shapedVelocity * zone.gain * juce::jmax(0.0f, noteGain);
+        voice.attack = routing.attack <= 0.0f ? 1.0f : 0.0f;
+        voice.attackStep = routing.attack <= 0.0f ? 1.0f
+            : (float) (1.0 / juce::jmax(1.0, routing.attack * 0.001 * currentSampleRate));
+        voice.releaseGain = 1.0f;
+        if (routing.mono)
+        {
+            layer.monoNote = note;
+            layer.monoChannel = voice.channel;
+        }
+        return true;
+    };
+
     if (message.isAllSoundOff() || message.isAllNotesOff())
     {
         layer.sustainDown[(size_t) channel - 1] = false;
+        if (routing.mono)
+        {
+            layer.sustainDown.fill(false);
+            layer.heldNotes.fill(false);
+            layer.heldVelocities.fill(0.0f);
+            layer.heldChannels.fill(0);
+            layer.monoNote = -1;
+        }
         for (auto& voice : layer.voices)
-            if (voice.active && voice.channel == channel)
+            if (voice.active && (routing.mono || voice.channel == channel))
             {
                 if (message.isAllSoundOff()) voice = {};
                 else
@@ -245,6 +313,25 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
         const auto wasDown = layer.sustainDown[(size_t) channel - 1];
         const auto isDown = routing.sustainEnabled && message.getControllerValue() >= 64;
         layer.sustainDown[(size_t) channel - 1] = isDown;
+        if (wasDown && !isDown && routing.mono && layer.monoNote >= 0)
+        {
+            const auto fallback = highestHeld();
+            if (fallback >= 0 && fallback != layer.monoNote)
+                startVoice(fallback, layer.heldChannels[(size_t) fallback],
+                           layer.heldVelocities[(size_t) fallback], true);
+            else if (fallback < 0)
+            {
+                for (auto& voice : layer.voices)
+                    if (voice.active && voice.waitingForSustain)
+                    {
+                        voice.waitingForSustain = false;
+                        voice.released = true;
+                        voice.releaseCoefficient = releaseCoefficientFor(routing.release, currentSampleRate);
+                    }
+                layer.monoNote = -1;
+            }
+            return;
+        }
         if (wasDown && !isDown)
             for (auto& voice : layer.voices)
                 if (voice.active && voice.waitingForSustain && voice.channel == channel)
@@ -262,38 +349,20 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
         if (inputNote < routing.lowNote || inputNote > routing.highNote) return;
         const auto note = juce::jlimit(0, 127, inputNote + routing.octave * 12);
         auto velocity = juce::jlimit(1, 127, (int) message.getVelocity());
-        if (routing.velocityCurve == 1) velocity = juce::jlimit(1, 127, juce::roundToInt(std::sqrt(velocity / 127.0f) * 127.0f));
-        else if (routing.velocityCurve == 2) velocity = juce::jlimit(1, 127, juce::roundToInt((velocity / 127.0f) * (velocity / 127.0f) * 127.0f));
+        if (routing.velocityCurve == 1)
+            velocity = juce::jlimit(1, 127, juce::roundToInt(std::sqrt(velocity / 127.0f) * 127.0f));
+        else if (routing.velocityCurve == 2)
+            velocity = juce::jlimit(1, 127, juce::roundToInt((velocity / 127.0f) * (velocity / 127.0f) * 127.0f));
         const auto shapedVelocity = velocity / 127.0f;
-        const auto zoneIndex = findZone(layer.instrument, note, velocity);
-        if (!juce::isPositiveAndBelow(zoneIndex, (int) layer.instrument.zones.size())) return;
+        const auto previousNote = highestHeld();
+        const auto legato = routing.mono && previousNote >= 0 && previousNote != note;
+        if (!startVoice(note, channel, shapedVelocity, legato)) return;
         if (routing.mono)
-            for (auto& voice : layer.voices)
-                if (voice.active && voice.channel == channel)
-                {
-                    voice.keyDown = false;
-                    voice.released = true;
-                    voice.waitingForSustain = false;
-                    voice.releaseCoefficient = releaseCoefficientFor(routing.release, currentSampleRate);
-                }
-        const auto& zone = layer.instrument.zones[(size_t) zoneIndex];
-        auto& voice = allocateVoice(layer, routing.polyphony);
-        const auto cents = layer.instrument.detune[(size_t) note];
-        voice = {};
-        voice.active = zone.frames() > 0;
-        voice.note = note;
-        voice.channel = channel;
-        voice.zone = zoneIndex;
-        voice.keyDown = true;
-        voice.position = 0.0;
-        voice.increment = std::pow(2.0, (note - zone.root + cents / 100.0) / 12.0)
-                        * NordSampleDecoder::sampleRate / currentSampleRate;
-        const auto noteGain = layer.instrument.gain[(size_t) note];
-        voice.amplitude = shapedVelocity * zone.gain * juce::jmax(0.0f, noteGain);
-        voice.attack = routing.attack <= 0.0f ? 1.0f : 0.0f;
-        voice.attackStep = routing.attack <= 0.0f ? 1.0f
-            : (float) (1.0 / juce::jmax(1.0, routing.attack * 0.001 * currentSampleRate));
-        voice.releaseGain = 1.0f;
+        {
+            layer.heldNotes[(size_t) note] = true;
+            layer.heldVelocities[(size_t) note] = shapedVelocity;
+            layer.heldChannels[(size_t) note] = channel;
+        }
         return;
     }
     if (message.isNoteOff())
@@ -301,6 +370,38 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
         const auto inputNote = message.getNoteNumber();
         if (inputNote < routing.lowNote || inputNote > routing.highNote) return;
         const auto note = juce::jlimit(0, 127, inputNote + routing.octave * 12);
+        if (routing.mono)
+        {
+            layer.heldNotes[(size_t) note] = false;
+            if (note != layer.monoNote) return;
+            if (layer.sustainDown[(size_t) channel - 1])
+            {
+                for (auto& voice : layer.voices)
+                    if (voice.active && voice.note == note && voice.channel == layer.monoChannel)
+                    {
+                        voice.keyDown = false;
+                        voice.waitingForSustain = true;
+                    }
+                return;
+            }
+            const auto fallback = highestHeld();
+            if (fallback >= 0)
+            {
+                startVoice(fallback, layer.heldChannels[(size_t) fallback],
+                           layer.heldVelocities[(size_t) fallback], true);
+                return;
+            }
+            for (auto& voice : layer.voices)
+                if (voice.active && voice.keyDown && voice.note == note && voice.channel == layer.monoChannel)
+                {
+                    voice.keyDown = false;
+                    voice.released = true;
+                    voice.releaseCoefficient = releaseCoefficientFor(routing.release, currentSampleRate);
+                }
+            layer.monoNote = -1;
+            return;
+        }
+
         for (auto& voice : layer.voices)
             if (voice.active && voice.keyDown && voice.note == note && voice.channel == channel)
             {
@@ -366,6 +467,24 @@ void NordSampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& outpu
                                    const Sf2Engine::LayerConfig& routing, int midiStartSample)
 {
     if (!layer.loaded || !routing.enabled) return;
+    if (layer.lastMonoMode != routing.mono)
+    {
+        layer.lastMonoMode = routing.mono;
+        layer.heldNotes.fill(false);
+        layer.heldVelocities.fill(0.0f);
+        layer.heldChannels.fill(0);
+        layer.sustainDown.fill(false);
+        layer.monoNote = -1;
+        layer.monoChannel = 1;
+        for (auto& voice : layer.voices)
+            if (voice.active && (voice.keyDown || voice.waitingForSustain))
+            {
+                voice.keyDown = false;
+                voice.waitingForSustain = false;
+                voice.released = true;
+                voice.releaseCoefficient = releaseCoefficientFor(routing.release, currentSampleRate);
+            }
+    }
     if (!routing.sustainEnabled)
     {
         layer.sustainDown.fill(false);

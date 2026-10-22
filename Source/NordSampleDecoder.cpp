@@ -65,9 +65,14 @@ void decodeStroke(const Section& section, NordSampleDecoder::Zone& zone)
         return (size_t(u16(section.data + offset)) + 65536 - base) % 65536;
     };
     const auto first = pointer(20);
+    auto alternate = pointer(29);
+    auto marked = pointer(38);
     auto last = pointer(47);
+    while (alternate < first) alternate += 65536;
+    while (marked < alternate) marked += 65536;
+    while (last < marked) last += 65536;
     while (last + 65536 < words) last += 65536;
-    require(first < words && last < words
+    require(first < words && alternate < words && marked <= last && last < words
                 && (be(stream + last * 4) == 0x800020u || be(stream + last * 4) == 0x800040u),
             "Diretorio NSMP4 invalido.");
     zone.channels = be(stream + last * 4) == 0x800040u ? 2 : 1;
@@ -88,7 +93,6 @@ void decodeStroke(const Section& section, NordSampleDecoder::Zone& zone)
         { 0, 0, 0, 0 }, { -1, 0, 0, 0 }, { -2, 1, 0, 0 },
         { -3, 3, -1, 0 }, { -4, 6, -4, 1 }
     };
-    const auto marked = pointer(38);
     auto word = first;
     bool hasLoop = false;
     size_t clipped = 0;
@@ -110,7 +114,10 @@ void decodeStroke(const Section& section, NordSampleDecoder::Zone& zone)
             : 1 + (count * static_cast<size_t>(width) + 31) / 32;
         require(span <= last - word && zone.pcm.size() + count <= 35002u * 120u * 2u,
                 "Registro NSMP4 fora dos limites.");
-        if (word == marked || (raw & 0x40000u) != 0)
+        if (word == alternate) zone.secondStart = zone.frames();
+        // NSMP4 loop-begin is the explicit pointer in the stroke header.
+        // Bit 18 marks loop-decay metadata, not a new audio loop position.
+        if (word == marked)
         {
             zone.loopStart = zone.frames();
             hasLoop = true;
@@ -138,15 +145,25 @@ void decodeStroke(const Section& section, NordSampleDecoder::Zone& zone)
                 for (int index = 3; index > 0; --index) history[channel][index] = history[channel][index - 1];
                 history[channel][0] = value;
                 const auto scaled = std::floor(std::ldexp(static_cast<double>(value), shift));
-                if (scaled < -32768.0 || scaled > 32767.0) ++clipped;
+                require(std::isfinite(scaled) && std::abs(scaled) <= 64.0 * 32768.0,
+                        "Escala NSMP4 fora dos limites.");
+                const auto normalized = static_cast<float>(scaled / 32768.0);
+                const auto magnitude = std::abs(normalized);
+                if (magnitude > 1.0f) ++clipped;
+                // Keep valid hot transients instead of flattening them at int16 full scale.
+                // The smooth knee only acts above -0.45 dBFS and asymptotically approaches 0 dBFS.
+                constexpr float knee = 0.95f;
+                const auto limitedMagnitude = magnitude <= knee ? magnitude
+                    : knee + (1.0f - knee) * (1.0f - std::exp(-(magnitude - knee) / (1.0f - knee)));
                 zone.pcm[before + sample * channels + static_cast<size_t>(channel)]
-                    = static_cast<float>(std::clamp(scaled, -32768.0, 32767.0) / 32768.0);
+                    = std::copysign(limitedMagnitude, normalized);
             }
         word += span;
         while (word < last && be(stream + word * 4) == 0) ++word;
     }
     require(word == last && ! zone.pcm.empty(), "Fim do stroke NSMP4 invalido.");
-    require(clipped * 20 <= zone.pcm.size(), "NSMP4 com saturacao excessiva; reproducao recusada.");
+    // "clippedSamples" counts values that exceeded nominal int16 full scale. They
+    // were soft-limited above, so a valid, slightly hot stroke is still playable.
     zone.clippedSamples = clipped;
     if (hasLoop && zone.loopStart + 8 < zone.frames()) zone.loopEnd = zone.frames();
 }

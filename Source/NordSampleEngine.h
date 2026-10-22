@@ -45,6 +45,11 @@ private:
         bool loaded = false;
         std::array<Voice, voicesPerLayer> voices {};
         std::array<bool, 16> sustainDown {};
+        std::array<bool, 128> heldNotes {};
+        std::array<float, 128> heldVelocities {};
+        std::array<int, 128> heldChannels {};
+        int monoNote = -1, monoChannel = 1;
+        bool lastMonoMode = false;
         std::array<float, 2> cutoffState {}, compressorEnvelope {};
         LayerEqState eq;
         NordLayerEffects nordFx;

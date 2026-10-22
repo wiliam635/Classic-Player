@@ -12,7 +12,7 @@ struct Zone
 {
     int root = 60, low = 0, high = 127, velocityLow = 0, velocityHigh = 127, channels = 1;
     float gain = 1.0f;
-    size_t loopStart = 0, loopEnd = 0, clippedSamples = 0;
+    size_t secondStart = 0, loopStart = 0, loopEnd = 0, clippedSamples = 0;
     std::vector<float> pcm;
     size_t frames() const noexcept { return pcm.size() / static_cast<size_t>(channels); }
 };

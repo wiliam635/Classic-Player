@@ -1,11 +1,152 @@
 #include "NordSampleEngine.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
+#include <vector>
 
 struct NordSampleRegressionTests
 {
+    static void putBe16(std::vector<std::uint8_t>& bytes, size_t offset, std::uint16_t value)
+    {
+        bytes[offset] = (std::uint8_t) (value >> 8);
+        bytes[offset + 1] = (std::uint8_t) value;
+    }
+
+    static void putBe24(std::vector<std::uint8_t>& bytes, size_t offset, std::uint32_t value)
+    {
+        bytes[offset] = (std::uint8_t) (value >> 16);
+        bytes[offset + 1] = (std::uint8_t) (value >> 8);
+        bytes[offset + 2] = (std::uint8_t) value;
+    }
+
+    static void putBe32(std::vector<std::uint8_t>& bytes, size_t offset, std::uint32_t value)
+    {
+        bytes[offset] = (std::uint8_t) (value >> 24);
+        bytes[offset + 1] = (std::uint8_t) (value >> 16);
+        bytes[offset + 2] = (std::uint8_t) (value >> 8);
+        bytes[offset + 3] = (std::uint8_t) value;
+    }
+
+    static void putLe32(std::vector<std::uint8_t>& bytes, size_t offset, std::uint32_t value)
+    {
+        bytes[offset] = (std::uint8_t) value;
+        bytes[offset + 1] = (std::uint8_t) (value >> 8);
+        bytes[offset + 2] = (std::uint8_t) (value >> 16);
+        bytes[offset + 3] = (std::uint8_t) (value >> 24);
+    }
+
+    static void appendBe32(std::vector<std::uint8_t>& bytes, std::uint32_t value)
+    {
+        const auto offset = bytes.size();
+        bytes.resize(offset + 4);
+        putBe32(bytes, offset, value);
+    }
+
+    static void appendSection(std::vector<std::uint8_t>& body, const char* tag, std::uint32_t version,
+                              const std::vector<std::uint8_t>& payload)
+    {
+        body.insert(body.end(), tag, tag + 4);
+        appendBe32(body, version);
+        appendBe32(body, (std::uint32_t) payload.size());
+        body.insert(body.end(), payload.begin(), payload.end());
+    }
+
+    static std::uint32_t crc32(const std::uint8_t* bytes, size_t length)
+    {
+        std::uint32_t value = 0xffffffffu;
+        for (size_t i = 0; i < length; ++i)
+        {
+            value ^= bytes[i];
+            for (int bit = 0; bit < 8; ++bit)
+                value = (value >> 1) ^ ((value & 1u) ? 0xedb88320u : 0u);
+        }
+        return value ^ 0xffffffffu;
+    }
+
+    static void decoderUsesExplicitRegionPointers()
+    {
+        std::vector<std::uint8_t> body;
+        appendSection(body, "NSMP", 21, {});
+
+        std::vector<std::uint8_t> map(1334, 0);
+        putBe24(map, 0, 0x100000u);
+        for (int note = 0; note < 128; ++note)
+            putBe24(map, 6 + (size_t) note * 10, 0x100000u);
+        map[1317] = 1;
+        map[1318] = 60;
+        map[1319] = 127;
+        map[1320] = 0;
+        putBe32(map, 1326, 0x12345678u);
+        map[1332] = 0;
+        map[1333] = 127;
+        appendSection(body, "\0map", 21, map);
+
+        std::vector<std::uint8_t> header(76, 0);
+        std::memcpy(header.data() + 10, "NSMP4 region test", 17);
+        appendSection(body, "\0hdr", 1, header);
+
+        std::vector<std::uint8_t> stroke(68, 0);
+        putBe32(stroke, 0, 0x12345678u);
+        stroke[5] = 60;
+        stroke[12] = 23; // shift by one so eight samples exceed nominal int16 full scale.
+        const auto block = (1u << 23) | (15u << 19) | 32u;
+        const auto appendBlock = [&stroke](std::uint32_t value)
+        {
+            appendBe32(stroke, value);
+            for (int word = 0; word < 16; ++word) appendBe32(stroke, 0);
+        };
+        appendBlock(block);
+        // Bit 18 is loop-decay metadata, even when it appears away from LoopBegin.
+        appendBlock(block | 0x40000u);
+        appendBlock(block); // explicit LoopBegin
+        appendBlock(block | 0x40000u); // decay marker after LoopBegin must not move it.
+        appendBe32(stroke, 0x800020u); // mono stop block
+
+        const auto sectionDataOffset = body.size() + 12;
+        const auto pointerBase = ((sectionDataOffset + 68) / 4) % 65536;
+        putBe16(stroke, 20, (std::uint16_t) (pointerBase + 0));
+        putBe16(stroke, 29, (std::uint16_t) (pointerBase + 17));
+        putBe16(stroke, 38, (std::uint16_t) (pointerBase + 34));
+        putBe16(stroke, 47, (std::uint16_t) (pointerBase + 68));
+        // Eight hot samples exercise the former >5% saturation rejection path.
+        for (int word = 0; word < 4; ++word)
+            putBe32(stroke, 68 + 4 + (size_t) word * 4, 0x7fff7fffu);
+        appendSection(body, "\0stk", 1, stroke);
+
+        std::vector<std::uint8_t> fileBytes(44, 0);
+        std::memcpy(fileBytes.data(), "CBIN", 4);
+        putLe32(fileBytes, 4, 1);
+        std::memcpy(fileBytes.data() + 8, "nsmp", 4);
+        putLe32(fileBytes, 20, 410);
+        fileBytes.insert(fileBytes.end(), body.begin(), body.end());
+        putLe32(fileBytes, 24, crc32(fileBytes.data() + 44, fileBytes.size() - 44));
+
+        auto file = juce::File::getSpecialLocation(juce::File::tempDirectory)
+            .getNonexistentChildFile("classic-nsmp4-region-test", ".nsmp4", false);
+        struct FileCleanup
+        {
+            juce::File file;
+            ~FileCleanup() { file.deleteFile(); }
+        } cleanup { file };
+        require(file.replaceWithData(fileBytes.data(), fileBytes.size()),
+                "Could not create the synthetic NSMP4 regression file");
+
+        NordSampleDecoder::Instrument instrument;
+        const auto result = NordSampleDecoder::decode(file, instrument);
+        require(result.wasOk(), result.getErrorMessage().toRawUTF8());
+        require(instrument.zones.size() == 1, "Synthetic NSMP4 did not produce one zone");
+        const auto& zone = instrument.zones.front();
+        require(zone.frames() == 128 && zone.secondStart == 32,
+                "NSMP4 did not map its alternate-start pointer to sample frames");
+        require(zone.loopStart == 64 && zone.loopEnd == 128,
+                "Loop-decay flag incorrectly replaced the explicit NSMP4 LoopBegin pointer");
+        require(zone.clippedSamples == 8 && zone.pcm[0] > 0.99f && zone.pcm[0] <= 1.0f,
+                "NSMP4 hot samples were rejected or hard-clipped instead of soft-limited");
+    }
+
     static void require(bool condition, const char* message)
     {
         if (!condition) throw std::runtime_error(message);
@@ -78,39 +219,27 @@ struct NordSampleRegressionTests
             zone.channels = 1;
             zone.loopStart = 1000;
             zone.loopEnd = 21000;
+            zone.secondStart = 500;
             zone.pcm.assign(zone.loopEnd, 0.75f);
             std::fill(zone.pcm.begin() + 16000, zone.pcm.end(), -0.75f);
             return zone;
         };
 
-        NordSampleDecoder::Instrument pad;
-        pad.name = "Sweet Saw Pad 1";
-        pad.zones.push_back(makeZone());
-        NordSampleEngine::prepareLoopCrossfades(pad);
-        const auto expectedSustainedFade = static_cast<size_t>(NordSampleDecoder::sampleRate * 0.10);
-        require(pad.zones[0].loopStart == 1000 + expectedSustainedFade,
-                "Continuous NSMP4 pad did not receive the longer loop crossfade");
-        require(pad.zones[0].loopEnd == 21000 && pad.zones[0].pcm.back() > 0.70f,
-                "Continuous NSMP4 pad loop seam was not blended");
-
-        const auto checkSustainedPatch = [&](const char* name) {
-            NordSampleDecoder::Instrument sustained;
-            sustained.name = name;
-            sustained.zones.push_back(makeZone());
-            NordSampleEngine::prepareLoopCrossfades(sustained);
-            require(sustained.zones[0].loopStart == 1000 + expectedSustainedFade,
-                    "Sustained NSMP4 strings/orchestra did not receive the longer crossfade");
-        };
-        checkSustainedPatch("Cinematic Strings Leg");
-        checkSustainedPatch("Full Orchestra 1");
-
-        NordSampleDecoder::Instrument piano;
-        piano.name = "Royal Grand 3D";
-        piano.zones.push_back(makeZone());
-        NordSampleEngine::prepareLoopCrossfades(piano);
-        const auto expectedDefaultFade = static_cast<size_t>(NordSampleDecoder::sampleRate * 0.02);
-        require(piano.zones[0].loopStart == 1000 + expectedDefaultFade,
-                "Non-pad NSMP4 sound no longer uses the default loop crossfade");
+        const auto expectedFade = std::min(static_cast<size_t>(NordSampleDecoder::sampleRate * 0.25),
+                                           static_cast<size_t>((21000 - 1000) / 4));
+        for (const auto* name : { "Sweet Saw Pad 1", "Cinematic Strings Leg", "Full Orchestra 1",
+                                  "Saxophone", "Pulse Bass", "Royal Grand 3D" })
+        {
+            NordSampleDecoder::Instrument instrument;
+            instrument.name = name;
+            instrument.zones.push_back(makeZone());
+            NordSampleEngine::prepareLoopCrossfades(instrument);
+            const auto& zone = instrument.zones[0];
+            require(zone.loopStart == 1000 + expectedFade,
+                    "NSMP4 sample loop did not receive a consistent, length-capped crossfade");
+            require(zone.loopEnd == 21000 && zone.secondStart == 500 && zone.pcm.back() > 0.70f,
+                    "NSMP4 loop processing changed its end, alternate start, or seam");
+        }
     }
 
     static void audioAndSustain()
@@ -155,6 +284,86 @@ struct NordSampleRegressionTests
                              [](const auto& candidate) { return candidate.active && candidate.keyDown; });
         require(voice != engine->layers[0].voices.end() && !voice->released && rms > 0.02f,
                 "Pedal-up changed a note whose key is still held");
+    }
+
+    static void monoLegatoAndNoteReturn()
+    {
+        auto engine = fixture();
+        engine->layers[0].instrument.zones[0].secondStart = 512;
+        auto config = routing();
+        config.mono = true;
+        float rms = 0.0f;
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.8f), 0);
+        render(*engine, midi, config, rms);
+        require(engine->layers[0].monoNote == 60 && engine->layers[0].heldNotes[60],
+                "NSMP4 mono mode did not track its first held note");
+
+        // Repeating the same key is a retrigger, not a legato skip of the attack.
+        midi.clear();
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.8f), 0);
+        render(*engine, midi, config, rms);
+        auto current = std::find_if(engine->layers[0].voices.begin(), engine->layers[0].voices.end(),
+                                    [](const auto& voice) { return voice.active && voice.keyDown; });
+        require(current != engine->layers[0].voices.end() && current->position < 128.0,
+                "NSMP4 same-note retrigger incorrectly skipped to SecondStart");
+
+        midi.clear();
+        midi.addEvent(juce::MidiMessage::noteOn(2, 67, 0.8f), 0);
+        render(*engine, midi, config, rms);
+        require(engine->layers[0].monoNote == 67 && engine->layers[0].heldNotes[60]
+                    && engine->layers[0].heldNotes[67],
+                "NSMP4 mono mode allowed an Omni-channel chord instead of a legato note");
+        current = std::find_if(engine->layers[0].voices.begin(), engine->layers[0].voices.end(),
+                                [](const auto& voice) { return voice.active && voice.keyDown; });
+        require(current != engine->layers[0].voices.end() && current->note == 67
+                    && current->channel == 2 && current->position > 512.0,
+                "NSMP4 legato note did not start at the sample's alternate start point");
+
+        midi.clear();
+        midi.addEvent(juce::MidiMessage::noteOff(2, 67), 0);
+        render(*engine, midi, config, rms);
+        require(engine->layers[0].monoNote == 60,
+                "NSMP4 mono note stack did not return to a still-held lower note");
+        current = std::find_if(engine->layers[0].voices.begin(), engine->layers[0].voices.end(),
+                               [](const auto& voice) { return voice.active && voice.keyDown; });
+        require(current != engine->layers[0].voices.end() && current->note == 60
+                    && current->channel == 1 && current->position > 512.0,
+                "NSMP4 fallback note did not use the alternate sample start");
+
+        midi.clear();
+        midi.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+        render(*engine, midi, config, rms);
+        require(engine->layers[0].monoNote == -1
+                    && std::none_of(engine->layers[0].voices.begin(), engine->layers[0].voices.end(),
+                                    [](const auto& voice) { return voice.active && voice.keyDown; }),
+                "NSMP4 mono note-off left a key-down voice active");
+    }
+
+    static void monoModeChangeReleasesPriorVoices()
+    {
+        auto engine = fixture();
+        auto config = routing();
+        float rms = 0.0f;
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.8f), 0);
+        render(*engine, midi, config, rms);
+
+        config.mono = true;
+        midi.clear();
+        midi.addEvent(juce::MidiMessage::noteOn(2, 67, 0.8f), 0);
+        render(*engine, midi, config, rms);
+        require(engine->layers[0].monoNote == 67
+                    && std::count_if(engine->layers[0].voices.begin(), engine->layers[0].voices.end(),
+                                     [](const auto& voice) { return voice.active && voice.keyDown; }) == 1,
+                "Enabling NSMP4 mono mode left earlier polyphonic notes held");
+
+        midi.clear();
+        midi.addEvent(juce::MidiMessage::noteOff(2, 67), 0);
+        render(*engine, midi, config, rms);
+        require(std::none_of(engine->layers[0].voices.begin(), engine->layers[0].voices.end(),
+                             [](const auto& voice) { return voice.active && voice.keyDown; }),
+                "NSMP4 mono note-off left a key held after switching from poly mode");
     }
 
     static void voiceCeiling()
@@ -256,8 +465,11 @@ struct NordSampleRegressionTests
 
     static void run(int argc, char** argv)
     {
+        decoderUsesExplicitRegionPointers();
         padLoopCrossfade();
         audioAndSustain();
+        monoLegatoAndNoteReturn();
+        monoModeChangeReleasesPriorVoices();
         nordEffects();
         voiceCeiling();
         midiSampleOffsetsAndLargeBlocks();
@@ -270,7 +482,7 @@ int main(int argc, char** argv)
     try
     {
         NordSampleRegressionTests::run(argc, argv);
-        std::cout << "NSMP4 decode, playback, sustain and 192-voice ceiling: OK\n";
+        std::cout << "NSMP4 region mapping, decode, playback, sustain and polyphony: OK\n";
         return 0;
     }
     catch (const std::exception& error)
