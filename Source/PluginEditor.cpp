@@ -7342,14 +7342,14 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     addLayerButton.onClick = [this]
     {
         juce::PopupMenu menu;
-        menu.addItem(1, localizedUiText("Layer SF2 (.sf2)", uiLanguage));
         menu.addItem(2, localizedUiText("Layer Nord Piano (.npno)", uiLanguage));
-        menu.addItem(3, localizedUiText("Layer DX7 (.syx)", uiLanguage));
-        menu.addItem(4, localizedUiText("Classic Keys Analog", uiLanguage));
-        menu.addItem(5, localizedUiText("Layer Drum Pads (8)", uiLanguage));
-        menu.addItem(6, localizedUiText("Hammond", uiLanguage));
-        menu.addItem(7, localizedUiText("Pad Continuo (12)", uiLanguage));
         menu.addItem(8, localizedUiText("Layer Nord NSMP4 (.nsmp4)", uiLanguage));
+        menu.addItem(1, localizedUiText("Layer SF2 (.sf2)", uiLanguage));
+        menu.addItem(3, localizedUiText("Layer DX7 (.syx)", uiLanguage));
+        menu.addItem(6, localizedUiText("Hammond", uiLanguage));
+        menu.addItem(4, localizedUiText("Moog", uiLanguage));
+        menu.addItem(5, localizedUiText("Layer Drum Pads (8)", uiLanguage));
+        menu.addItem(7, localizedUiText("Pad Continuo (12)", uiLanguage));
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addLayerButton),
             [safeThis = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this)](int choice)
             {
