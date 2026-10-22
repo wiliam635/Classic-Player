@@ -493,6 +493,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
             juce::ParameterID{"layer" + n + "Sf2ChorusDepth", 1}, "Layer " + n + " SF2 Chorus Depth",
             juce::NormalisableRange<float>(0.0f, 20.0f, 0.1f), 8.0f));
     }
+    // Append to preserve parameter indices in existing DAW projects.
+    result.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"limiterEnabled", 1}, "Master Limiter Enabled", true));
     return { result.begin(), result.end() };
 }
 
@@ -788,7 +791,8 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                      config.eqLowQ,config.eqMidQ,config.eqHighQ});
     }
     // The master control is calibrated with +6 dB of nominal output gain.
-    // The limiter immediately after it keeps the boosted output clip-safe.
+    // With the limiter enabled, its final ceiling keeps this boost clip-safe.
+    // With it bypassed, the user accepts peaks above 0 dBFS.
     const auto masterLinear = parameters.getRawParameterValue("master")->load() / 100.0f;
     masterGain.setTargetValue(masterLinear);
     for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
@@ -817,15 +821,21 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> context(block);
-    const auto inputGain = juce::Decibels::decibelsToGain(parameters.getRawParameterValue("limiterInput")->load());
-    buffer.applyGain(inputGain);
+    const auto limiterEnabled = parameters.getRawParameterValue("limiterEnabled")->load() >= 0.5f;
+    if (limiterEnabled)
+        buffer.applyGain(juce::Decibels::decibelsToGain(parameters.getRawParameterValue("limiterInput")->load()));
+    else
+        sanitizeOutput(buffer);
     float inputPeak = 0.0f;
     for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
         inputPeak = juce::jmax(inputPeak, buffer.getMagnitude(channel, 0, buffer.getNumSamples()));
-    outputLimiter.setThreshold(parameters.getRawParameterValue("limiterCeiling")->load());
-    outputLimiter.setRelease(parameters.getRawParameterValue("limiterRelease")->load());
-    outputLimiter.process(context);
-    applyOutputSafety(buffer, parameters.getRawParameterValue("limiterCeiling")->load());
+    if (limiterEnabled)
+    {
+        outputLimiter.setThreshold(parameters.getRawParameterValue("limiterCeiling")->load());
+        outputLimiter.setRelease(parameters.getRawParameterValue("limiterRelease")->load());
+        outputLimiter.process(context);
+        applyOutputSafety(buffer, parameters.getRawParameterValue("limiterCeiling")->load());
+    }
     float outputPeak = 0.0f;
     for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
         outputPeak = juce::jmax(outputPeak, buffer.getMagnitude(channel, 0, buffer.getNumSamples()));
@@ -837,7 +847,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const auto makeupDb = 7.5f - parameters.getRawParameterValue("limiterCeiling")->load();
     const auto inputDb = juce::Decibels::gainToDecibels(inputPeak, -60.0f);
     const auto outputBeforeMakeupDb = juce::Decibels::gainToDecibels(outputPeak, -60.0f) - makeupDb;
-    limiterReduction.store(inputPeak > 0.00001f
+    limiterReduction.store(limiterEnabled && inputPeak > 0.00001f
         ? juce::jlimit(0.0f, 60.0f, inputDb - outputBeforeMakeupDb) : 0.0f,
         std::memory_order_relaxed);
 
@@ -3712,6 +3722,15 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 }
             }
             state.setProperty("stateVersion", 171, nullptr);
+            // Older performances must restore the previously implicit ON
+            // state, even after a newer performance disabled the limiter.
+            if (!findParameterState("limiterEnabled").isValid())
+            {
+                juce::ValueTree enabledState("PARAM");
+                enabledState.setProperty("id", "limiterEnabled", nullptr);
+                enabledState.setProperty("value", 1.0f, nullptr);
+                state.addChild(enabledState, -1, nullptr);
+            }
             parameters.replaceState(state);
             for(int layer=0;layer<Sf2Engine::layerCount;++layer)
             {

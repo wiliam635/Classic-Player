@@ -34,7 +34,8 @@ static void performanceEffectsRegression()
     auto processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
     juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
 
-    const std::array<std::pair<const char*, std::array<float, 2>>, 14> values {{
+    const std::array<std::pair<const char*, std::array<float, 2>>, 15> values {{
+        { "limiterEnabled", { 0.0f, 1.0f } },
         { "layer1EqLow", { 5.0f, -7.0f } },
         { "layer1EqMidFrequency", { 1800.0f, 420.0f } },
         { "layer1Comp", { 42.0f, 11.0f } },

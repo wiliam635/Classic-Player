@@ -32,6 +32,12 @@ static void outputCeilingRegression()
             require(std::isfinite(audio.getSample(channel, sample))
                         && std::abs(audio.getSample(channel, sample)) <= ceiling,
                     "Output ceiling allowed clipping or non-finite audio");
+
+    audio.setSample(0, 0, 1.5f);
+    audio.setSample(0, 1, std::numeric_limits<float>::infinity());
+    sanitizeOutput(audio);
+    require(audio.getSample(0, 0) == 1.5f && audio.getSample(0, 1) == 0.0f,
+            "Limiter bypass clipped finite audio or passed a non-finite sample");
 }
 
 static juce::MidiBuffer events(int start, int count, bool transitions)

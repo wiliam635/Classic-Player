@@ -1960,6 +1960,48 @@ static constexpr std::array<std::array<float, 3>, 5> factoryLimiterPresets {{
     {{ 5.0f, 80.0f, -0.5f }}
 }};
 
+class MasterLimiterToggle final : public juce::Component, private juce::Timer
+{
+public:
+    explicit MasterLimiterToggle(ClassicPlayerAudioProcessor& processor) : owner(processor)
+    {
+        flatButton(button);
+        button.setClickingTogglesState(true);
+        button.setTooltip("Desligar o limiter e o teto de seguranca da saida master");
+        addAndMakeVisible(button);
+        warning.setText("OFF: picos podem ultrapassar 0 dBFS e distorcer na saida.",
+                        juce::dontSendNotification);
+        warning.setJustificationType(juce::Justification::centred);
+        warning.setColour(juce::Label::textColourId, juce::Colours::orange);
+        addAndMakeVisible(warning);
+        attachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+            owner.parameters, "limiterEnabled", button);
+        refresh();
+        startTimerHz(10);
+        setSize(620, 58);
+    }
+
+    void resized() override
+    {
+        button.setBounds(getLocalBounds().removeFromTop(30).withSizeKeepingCentre(260, 30));
+        warning.setBounds(0, 32, getWidth(), 22);
+    }
+
+private:
+    void timerCallback() override { refresh(); }
+    void refresh()
+    {
+        const bool enabled = owner.parameters.getRawParameterValue("limiterEnabled")->load() >= 0.5f;
+        button.setButtonText(enabled ? "LIMITER MASTER: ON" : "LIMITER MASTER: OFF");
+        warning.setVisible(!enabled);
+    }
+
+    ClassicPlayerAudioProcessor& owner;
+    juce::TextButton button;
+    juce::Label warning;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> attachment;
+};
+
 class MasterLimiterMeters final : public juce::Component, private juce::Timer
 {
 public:
@@ -8047,9 +8089,10 @@ void ClassicPlayerAudioProcessorEditor::showMasterLimiterEditor()
                 parameter->setValueNotifyingHost(parameter->convertTo0to1(factoryLimiterPresets[(size_t) index][(size_t) i]));
     };
     dialog->addCustomComponent(new CentredEditorPanel(meters, 650));
+    dialog->addCustomComponent(new CentredEditorPanel(new MasterLimiterToggle(classicProcessor), 650));
     dialog->addCustomComponent(new CentredEditorPanel(knobs, 650));
     dialog->addCustomComponent(new CentredEditorPanel(presets, 650));
-    dialog->setSize(720, 490);
+    dialog->setSize(720, 550);
     dialog->fitWithinApp(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create([](int) {}), true);
 }
