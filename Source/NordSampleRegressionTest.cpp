@@ -225,8 +225,6 @@ struct NordSampleRegressionTests
             return zone;
         };
 
-        const auto expectedFade = std::min(static_cast<size_t>(NordSampleDecoder::sampleRate * 0.25),
-                                           static_cast<size_t>((21000 - 1000) / 4));
         for (const auto* name : { "Sweet Saw Pad 1", "Cinematic Strings Leg", "Full Orchestra 1",
                                   "Saxophone", "Pulse Bass", "Royal Grand 3D" })
         {
@@ -235,11 +233,23 @@ struct NordSampleRegressionTests
             instrument.zones.push_back(makeZone());
             NordSampleEngine::prepareLoopCrossfades(instrument);
             const auto& zone = instrument.zones[0];
-            require(zone.loopStart == 1000 + expectedFade,
-                    "NSMP4 sample loop did not receive a consistent, length-capped crossfade");
-            require(zone.loopEnd == 21000 && zone.secondStart == 500 && zone.pcm.back() > 0.70f,
-                    "NSMP4 loop processing changed its end, alternate start, or seam");
+            require(zone.loopStart == 1000 && zone.loopEnd == 21000 && zone.secondStart == 500,
+                    "NSMP4 loop processing changed its pitch or alternate start");
+            require(std::abs(zone.pcm.back() - zone.pcm[1000]) < 0.0001f,
+                    "NSMP4 loop seam still has a sample discontinuity");
         }
+
+        NordSampleDecoder::Instrument pitched;
+        auto cycle = makeZone();
+        cycle.loopStart = 1000;
+        cycle.loopEnd = 1268; // 268 frames at 35,002 Hz: the recorded saxophone case.
+        cycle.pcm.resize(cycle.loopEnd);
+        for (size_t i = 0; i < cycle.pcm.size(); ++i)
+            cycle.pcm[i] = std::sin(juce::MathConstants<float>::twoPi * (float) i / 268.0f);
+        pitched.zones.push_back(std::move(cycle));
+        NordSampleEngine::prepareLoopCrossfades(pitched);
+        require(pitched.zones[0].loopEnd - pitched.zones[0].loopStart == 268,
+                "Short NSMP4 loop was shortened, raising its held-note pitch");
     }
 
     static void audioAndSustain()
@@ -319,6 +329,14 @@ struct NordSampleRegressionTests
         require(current != engine->layers[0].voices.end() && current->note == 67
                     && current->channel == 2 && current->position > 512.0,
                 "NSMP4 legato note did not start at the sample's alternate start point");
+        for (int block = 0; block < 4; ++block)
+        {
+            midi.clear();
+            render(*engine, midi, config, rms);
+        }
+        require(std::none_of(engine->layers[0].voices.begin(), engine->layers[0].voices.end(),
+                             [](const auto& voice) { return voice.active && voice.note == 60; }),
+                "NSMP4 mono mode kept the previous note sounding for the user release time");
 
         midi.clear();
         midi.addEvent(juce::MidiMessage::noteOff(2, 67), 0);
@@ -457,6 +475,20 @@ struct NordSampleRegressionTests
                 require(std::all_of(zone.pcm.begin(), zone.pcm.end(),
                                     [](float sample) { return std::isfinite(sample); }),
                         "NSMP4 real-file decode produced NaN or infinity");
+            }
+            std::vector<std::pair<size_t, size_t>> loopPoints;
+            for (const auto& zone : instrument.zones)
+                loopPoints.emplace_back(zone.loopStart, zone.loopEnd);
+            NordSampleEngine::prepareLoopCrossfades(instrument);
+            for (size_t zoneIndex = 0; zoneIndex < instrument.zones.size(); ++zoneIndex)
+            {
+                const auto& zone = instrument.zones[zoneIndex];
+                require(zone.loopStart == loopPoints[zoneIndex].first
+                            && zone.loopEnd == loopPoints[zoneIndex].second,
+                        "NSMP4 real-file loop pitch changed during seam smoothing");
+                require(std::all_of(zone.pcm.begin(), zone.pcm.end(),
+                                    [](float sample) { return std::isfinite(sample) && std::abs(sample) < 4.0f; }),
+                        "NSMP4 real-file loop smoothing produced unstable PCM");
             }
             std::cout << file.getFileName() << ": " << instrument.zones.size()
                       << " zones, " << samples << " decoded samples\n";

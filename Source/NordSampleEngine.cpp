@@ -27,27 +27,33 @@ void NordSampleEngine::prepare(double sampleRate, int blockSize)
 
 void NordSampleEngine::prepareLoopCrossfades(NordSampleDecoder::Instrument& instrument) noexcept
 {
-    constexpr double fadeSeconds = 0.25;
-    const auto requestedFade = static_cast<size_t>(NordSampleDecoder::sampleRate * fadeSeconds);
-
     for (auto& zone : instrument.zones)
     {
         const auto start = zone.loopStart;
         const auto end = zone.loopEnd;
         if (end <= start + 32 || end > zone.frames()) continue;
-        const auto fade = juce::jmin(requestedFade, (end - start) / 4);
+        // Splice the end onto the beginning without discarding any frames. The
+        // former overlap shortened short (single-cycle) loops by 25%, changing
+        // their pitch as soon as a held note reached the loop.
+        const auto fade = juce::jmin(static_cast<size_t>(256), (end - start) / 4);
         if (fade < 8) continue;
-        for (size_t i = 0; i < fade; ++i)
+        for (int channel = 0; channel < zone.channels; ++channel)
         {
-            const auto amount = (float) (i + 1) / (float) (fade + 1);
-            for (int channel = 0; channel < zone.channels; ++channel)
+            const auto index = [&](size_t frame) { return frame * (size_t) zone.channels + (size_t) channel; };
+            const auto first = zone.pcm[index(start)];
+            const auto second = zone.pcm[index(start + 1)];
+            const auto last = zone.pcm[index(end - 1)];
+            // Meet the first sample with its incoming slope. A bounded
+            // raised-cosine correction avoids the overshoot a Hermite slope
+            // fit can create on hot brass and saxophone samples.
+            const auto valueDelta = (2.0f * first - second) - last;
+            for (size_t i = 0; i < fade; ++i)
             {
-                const auto tail = (end - fade + i) * (size_t) zone.channels + (size_t) channel;
-                const auto head = (start + i) * (size_t) zone.channels + (size_t) channel;
-                zone.pcm[tail] += (zone.pcm[head] - zone.pcm[tail]) * amount;
+                const auto t = (float) i / (float) (fade - 1);
+                const auto blend = t * t * (3.0f - 2.0f * t);
+                zone.pcm[index(end - fade + i)] += valueDelta * blend;
             }
         }
-        zone.loopStart = start + fade;
     }
 }
 
@@ -205,6 +211,9 @@ float NordSampleEngine::readSample(const NordSampleDecoder::Zone& zone, int chan
     const auto sourceChannel = juce::jmin(channel, zone.channels - 1);
     const auto read = [&](int frame)
     {
+        if (zone.loopEnd > zone.loopStart && frame < (int) zone.loopStart
+            && position >= (double) zone.loopStart)
+            frame = (int) zone.loopEnd - ((int) zone.loopStart - frame);
         if (zone.loopEnd > zone.loopStart && frame >= (int) zone.loopEnd)
             frame = (int) zone.loopStart + (frame - (int) zone.loopEnd)
                   % (int) (zone.loopEnd - zone.loopStart);
@@ -254,7 +263,7 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
                     prior.keyDown = false;
                     prior.waitingForSustain = false;
                     prior.released = true;
-                    prior.releaseCoefficient = releaseCoefficientFor(routing.release, currentSampleRate);
+                    prior.releaseCoefficient = releaseCoefficientFor(0.5f, currentSampleRate);
                 }
 
         auto& voice = allocateVoice(layer, routing.polyphony);
