@@ -532,9 +532,6 @@ static constexpr UiTranslation uiTranslations[] {
     { "Carregando instrumento...", "Loading instrument...", "Cargando instrumento..." },
     { "Importando DX7...", "Importing DX7...", "Importando DX7..." },
     { "COMPLETO", "DONE", "COMPLETADO" },
-    { "Copyright 2026 Willam Silva & Classic Keys. Todos os direitos reservados.",
-      "Copyright 2026 Willam Silva & Classic Keys. All rights reserved.",
-      "Copyright 2026 Willam Silva & Classic Keys. Todos los derechos reservados." },
     { "Gravar simultaneamente a saída em WAV e a performance em MIDI",
       "Record the audio output to WAV and the performance to MIDI at the same time",
       "Graba simultáneamente la salida de audio en WAV y la performance en MIDI" },
@@ -8078,11 +8075,6 @@ void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
     g.setColour(juce::Colour(paletteLine));
     g.drawHorizontalLine(141, 18.0f, (float) getWidth() - 18.0f);
     g.drawHorizontalLine(getHeight() - 66, 18.0f, (float) getWidth() - 18.0f);
-    g.setColour(juce::Colour(mutedText));
-    g.setFont(10.5f);
-        g.drawText(localizedUiText("Copyright 2026 Willam Silva & Classic Keys. Todos os direitos reservados.",
-                                   activeUiLanguage.load()),
-               305, getHeight() - 49, getWidth() - 610, 28, juce::Justification::centred);
 }
 
 void ClassicPlayerAudioProcessorEditor::resized()
