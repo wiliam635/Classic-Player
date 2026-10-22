@@ -87,11 +87,22 @@ struct NordSampleRegressionTests
         pad.name = "Sweet Saw Pad 1";
         pad.zones.push_back(makeZone());
         NordSampleEngine::prepareLoopCrossfades(pad);
-        const auto expectedPadFade = static_cast<size_t>(NordSampleDecoder::sampleRate * 0.10);
-        require(pad.zones[0].loopStart == 1000 + expectedPadFade,
+        const auto expectedSustainedFade = static_cast<size_t>(NordSampleDecoder::sampleRate * 0.10);
+        require(pad.zones[0].loopStart == 1000 + expectedSustainedFade,
                 "Continuous NSMP4 pad did not receive the longer loop crossfade");
         require(pad.zones[0].loopEnd == 21000 && pad.zones[0].pcm.back() > 0.70f,
                 "Continuous NSMP4 pad loop seam was not blended");
+
+        const auto checkSustainedPatch = [&](const char* name) {
+            NordSampleDecoder::Instrument sustained;
+            sustained.name = name;
+            sustained.zones.push_back(makeZone());
+            NordSampleEngine::prepareLoopCrossfades(sustained);
+            require(sustained.zones[0].loopStart == 1000 + expectedSustainedFade,
+                    "Sustained NSMP4 strings/orchestra did not receive the longer crossfade");
+        };
+        checkSustainedPatch("Cinematic Strings Leg");
+        checkSustainedPatch("Full Orchestra 1");
 
         NordSampleDecoder::Instrument piano;
         piano.name = "Royal Grand 3D";
