@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       approved:
-        description: "Versão 2.0 aprovada (remove TESTE do nome do download)"
+        description: "Versão 3.0.1 aprovada (remove TESTE do nome do download)"
         required: true
         default: false
         type: boolean
@@ -22,9 +22,9 @@ jobs:
         shell: pwsh
         run: |
           if ("${{ inputs.approved }}" -eq "true") {
-            "DOWNLOAD_VERSION=2.0.0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "DOWNLOAD_VERSION=3.0.1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           } else {
-            "DOWNLOAD_VERSION=2.0.5-teste-${{ github.run_number }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "DOWNLOAD_VERSION=3.0.1-teste-${{ github.run_number }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           }
 
       - name: Preflight native source
@@ -122,12 +122,12 @@ jobs:
         shell: pwsh
         run: |
           scripts\package-windows.ps1
-          Move-Item "outputs\installers\Classic-Player-2.0-Windows-x64-Setup.exe" "outputs\installers\Classic-Player-2.0.5-teste-Windows-x64-Setup.exe"
+          Rename-Item "outputs\installers\Classic-Player-3.0.1-Windows-x64-Setup.exe" "Classic-Player-${env:DOWNLOAD_VERSION}-Windows-x64-Setup.exe"
 
       - name: Verify installer payload
         shell: pwsh
         run: |
-          $installer = "outputs\installers\Classic-Player-2.0.5-teste-Windows-x64-Setup.exe"
+          $installer = "outputs\installers\Classic-Player-${env:DOWNLOAD_VERSION}-Windows-x64-Setup.exe"
           if (-not (Test-Path $installer)) { throw "Instalador não foi criado." }
           Get-FileHash -Algorithm SHA256 $installer
 
@@ -136,4 +136,4 @@ jobs:
         with:
           name: Classic-Player-${{ env.DOWNLOAD_VERSION }}-Windows-x64
           if-no-files-found: error
-          path: outputs/installers/Classic-Player-2.0.5-teste-Windows-x64-Setup.exe
+          path: outputs/installers/Classic-Player-${{ env.DOWNLOAD_VERSION }}-Windows-x64-Setup.exe
