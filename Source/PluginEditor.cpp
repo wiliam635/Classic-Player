@@ -2299,6 +2299,30 @@ public:
             button.onClick = [this, mode] { selectMode(mode - 1); };
         }
 
+        decayLabel.setText("CAUDA NPNO", juce::dontSendNotification);
+        decayLabel.setColour(juce::Label::textColourId, juce::Colour(text));
+        decayLabel.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+        addAndMakeVisible(decayLabel);
+        decayBox.getProperties().set("uiDataItems", true);
+        decayBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
+        decayBox.setColour(juce::ComboBox::textColourId, juce::Colour(text));
+        decayBox.addItem("CURTA 4s", 4);
+        decayBox.addItem("MEDIA 8s", 8);
+        decayBox.addItem("LONGA 12s", 12);
+        decayBox.addItem("ORIGINAL 15s", 15);
+        decayBox.setTooltip("Encurta o decaimento das notas NPNO, inclusive com o pedal pressionado. Afeta notas novas; Release continua independente.");
+        decayBox.setSelectedId(juce::roundToInt(processor.layerConfig(index).pianoDecaySeconds),
+                               juce::dontSendNotification);
+        decayBox.onChange = [this]
+        {
+            const auto selected = decayBox.getSelectedId();
+            if (selected == 0) return;
+            auto config = processor.layerConfig(index);
+            config.pianoDecaySeconds = static_cast<float>(selected);
+            processor.setLayerConfig(index, config);
+        };
+        addAndMakeVisible(decayBox);
+
         selectMode(processor.layerConfig(index).pianoTimbre, false);
         setSize(620, 42);
         startTimerHz(5);
@@ -2307,10 +2331,13 @@ public:
     void resized() override
     {
         auto area = getLocalBounds();
-        auto velocityArea = area.removeFromLeft(158);
+        auto velocityArea = area.removeFromLeft(145);
         velocityLabel.setBounds(velocityArea.removeFromTop(15));
         velocityBox.setBounds(velocityArea.reduced(2, 1));
-        title.setBounds(area.removeFromLeft(94).reduced(2, 0));
+        auto decayArea = area.removeFromRight(122);
+        decayLabel.setBounds(decayArea.removeFromTop(15));
+        decayBox.setBounds(decayArea.reduced(2, 1));
+        title.setBounds(area.removeFromLeft(76).reduced(2, 0));
         const auto buttonWidth = area.getWidth() / 4;
         for (int mode = 0; mode < 4; ++mode)
         {
@@ -2326,6 +2353,8 @@ private:
         const auto calibrating = processor.nordVelocityCalibrationStage(index) >= 0;
         velocityBox.setSelectedId(calibrating ? 4 : config.velocityCurve + 1,
                                   juce::dontSendNotification);
+        decayBox.setSelectedId(juce::roundToInt(config.pianoDecaySeconds),
+                               juce::dontSendNotification);
     }
 
     void selectMode(int mode, bool updateProcessor = true)
@@ -2343,8 +2372,8 @@ private:
 
     ClassicPlayerAudioProcessor& processor;
     int index;
-    juce::Label title, velocityLabel;
-    juce::ComboBox velocityBox;
+    juce::Label title, velocityLabel, decayLabel;
+    juce::ComboBox velocityBox, decayBox;
     std::array<juce::TextButton, 4> modes;
 };
 

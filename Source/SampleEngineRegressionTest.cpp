@@ -221,6 +221,39 @@ struct SampleEngineRegressionTests
                 "Piano lifetime incorrectly truncated an organ");
     }
 
+    static void shortenedDecay(double rate)
+    {
+        auto engine = instrument(rate);
+        auto routing = config();
+        routing.pianoDecaySeconds = 4.0f;
+        auto& layer = engine->layers[0];
+        engine->startPianoVoice(layer, 0, 60, 1, 1.0f, routing);
+        auto& voice = layer.voices[0];
+        require(voice.pianoDecaySeconds == 4.0f,
+                "NPNO voice did not capture its selected tail length");
+
+        // Editing the layer while a note rings must not abruptly change that note.
+        routing.pianoDecaySeconds = 15.0f;
+        voice.age = static_cast<std::uint64_t>(2.0 * rate);
+        juce::AudioBuffer<float> audio(2, 64);
+        juce::MidiBuffer midi;
+        audio.clear();
+        engine->renderLayer(layer, audio, midi, routing);
+        require(voice.active && audio.getSample(0, 0) > 0.0f,
+                "Shortened sustain stopped before its chosen lifetime");
+        require(std::abs(audio.getSample(0, 0) - 0.25f * 4096.0f / 32768.0f) < 0.001f,
+                "Shortened NPNO tail did not follow its own decay envelope");
+        voice.age = static_cast<std::uint64_t>(4.0 * rate);
+        audio.clear();
+        engine->renderLayer(layer, audio, midi, routing);
+        require(!voice.active && audio.getMagnitude(0, 64) == 0.0f,
+                "Shortened NPNO tail kept its loop alive too long");
+
+        engine->startPianoVoice(layer, 0, 60, 1, 1.0f, routing);
+        require(layer.voices[0].pianoDecaySeconds == 15.0f,
+                "New NPNO note did not adopt the changed tail length");
+    }
+
     static void crossfades()
     {
         NordPianoDecoder::Instrument piano;
@@ -439,6 +472,7 @@ struct SampleEngineRegressionTests
         {
             sustainAndPolyphony(rate);
             lifetime(rate);
+            shortenedDecay(rate);
             loopDuringRelease(rate);
             require(partitionedDecay(rate, 127) == partitionedDecay(rate, 512),
                     "Piano decay/crossfade changed with audio block size");

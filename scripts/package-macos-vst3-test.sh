@@ -6,12 +6,12 @@ APP="${APP_PATH:-$ROOT/build/Classic Player 2.0 macOS Universal.app}"
 VST3="${VST3_PATH:-$ROOT/outputs/vst3-test/Classic Player.vst3}"
 AU="${AU_PATH:-$ROOT/outputs/vst3-test/Classic Player.component}"
 OUTPUT="${OUTPUT_DIR:-$ROOT/outputs/vst3-test}"
-PACKAGE="$OUTPUT/Classic-Player-3.0.0-Standalone-VST3-AU-teste-macOS-Universal.pkg"
+PACKAGE="$OUTPUT/Classic-Player-3.0.1-Standalone-VST3-AU-teste-macOS-Universal.pkg"
 APP_NAME="Classic Player Teste.app"
 COMPONENTS="$ROOT/installer/macos/components-vst3-test.plist"
 PACKAGE_ID="com.classickeys.classicplayer.vst3-au-test-201"
 if [[ "${FINAL_RELEASE:-0}" == "1" ]]; then
-  PACKAGE="$OUTPUT/Classic-Player-3.0.0-macOS-Universal.pkg"
+  PACKAGE="$OUTPUT/Classic-Player-3.0.1-macOS-Universal.pkg"
   APP_NAME="Classic Player.app"
   COMPONENTS="$ROOT/installer/macos/components-vst3-final.plist"
   PACKAGE_ID="com.classickeys.classicplayer.standalone"
@@ -46,20 +46,20 @@ lipo "$STAGE/Library/Audio/Plug-Ins/Components/Classic Player.component/Contents
 
 pkgbuild --root "$STAGE" \
   --identifier "$PACKAGE_ID" \
-  --version 3.0.0 \
+  --version 3.0.1 \
   --install-location / \
   --component-plist "$COMPONENTS" \
   "$PACKAGES/ClassicPlayer-components.pkg"
 
 for language in br us es; do
   pkgbuild --root "$ROOT/installer/macos/languages/$language" \
-    --identifier "com.classickeys.classicplayer.language.$language" --version 3.0.0 \
+    --identifier "com.classickeys.classicplayer.language.$language" --version 3.0.1 \
     --install-location "/Library/Application Support/Classic Keys/Classic Player" \
     "$PACKAGES/Language-$language.pkg"
 done
 sed "s/COMPONENT_PACKAGE_ID/$PACKAGE_ID/g" "$ROOT/installer/macos/distribution-language.xml" \
   > "$PACKAGES/Distribution.xml"
-grep -Fq '<title>Classic Player 3.0.0</title>' "$PACKAGES/Distribution.xml"
+grep -Fq '<title>Classic Player 3.0.1</title>' "$PACKAGES/Distribution.xml"
 if grep -Fq '2.0.5' "$PACKAGES/Distribution.xml"; then
   echo "A identificação do instalador ainda contém referências à versão 2.0.5." >&2
   exit 1
@@ -69,7 +69,7 @@ SUBDOCUMENT="$PACKAGES/subdocument"
 mkdir -p "$SUBDOCUMENT"
 xar -xf "$PACKAGE" -C "$SUBDOCUMENT" Distribution
 cp "$SUBDOCUMENT/Distribution" "$PACKAGES/Built-Distribution.xml"
-grep -Fq '<title>Classic Player 3.0.0</title>' "$PACKAGES/Built-Distribution.xml"
+grep -Fq '<title>Classic Player 3.0.1</title>' "$PACKAGES/Built-Distribution.xml"
 if grep -Fq '2.0.5' "$PACKAGES/Built-Distribution.xml"; then
   echo "O pacote gerado ainda contém referências à versão 2.0.5." >&2
   exit 1

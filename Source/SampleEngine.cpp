@@ -4,7 +4,6 @@
 
 namespace
 {
-constexpr double pianoDecaySeconds = 15.0;
 constexpr double pianoCrossfadeSeconds = 0.55;
 
 float releaseCoefficientFor(float releaseControl, double sampleRate)
@@ -253,7 +252,7 @@ SampleEngine::Voice& SampleEngine::allocateVoice(Layer& layer, int polyphony)
         {
             const auto seconds = static_cast<double>(v.age) / currentSampleRate;
             const auto decay = v.sampleIndex >= 0
-                ? juce::jmax(0.0, 1.0 - seconds / pianoDecaySeconds) : 1.0;
+                ? juce::jmax(0.0, 1.0 - seconds / v.pianoDecaySeconds) : 1.0;
             return v.level * v.releaseGain * v.attackGain * static_cast<float>(decay * decay);
         };
         if (rank < candidateRank
@@ -536,6 +535,7 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     candidate->releaseGain = 1.0f;
     candidate->releaseCoefficient = 0.0f;
     candidate->pianoRelease = stroke.bank == 2;
+    candidate->pianoDecaySeconds = juce::jlimit(3.0f, 15.0f, routing.pianoDecaySeconds);
     candidate->waitingForSustain = false;
 }
 
@@ -755,7 +755,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
     const auto normalLoopEnd = static_cast<double>(juce::jmax(normalStartSample + 1, normalEndSample));
     float peak = 0.0f;
     // Piano loops must not occupy the pool indefinitely under a held pedal.
-    // Organs retain continuous sustain; piano notes decay throughout 15 s.
+    // Organs retain continuous sustain; piano notes use the per-voice tail length.
     const auto finitePiano = layer.pianoLoaded
         && juce::File(layer.sourcePath).getParentDirectory().getFileName() != "Organ";
 
@@ -785,7 +785,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
         for (int sample = 0; sample < output.getNumSamples(); ++sample)
         {
             const auto seconds = static_cast<double>(voice.age) / currentSampleRate;
-            if (isPianoVoice && finitePiano && seconds >= pianoDecaySeconds)
+            if (isPianoVoice && finitePiano && seconds >= voice.pianoDecaySeconds)
             {
                 voice.active = false;
                 break;
@@ -811,7 +811,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 }
             }
 
-            const auto remaining = juce::jlimit(0.0, 1.0, 1.0 - seconds / pianoDecaySeconds);
+            const auto remaining = juce::jlimit(0.0, 1.0, 1.0 - seconds / voice.pianoDecaySeconds);
             const auto lifetimeGain = isPianoVoice && finitePiano
                 ? static_cast<float>(remaining * remaining) : 1.0f;
             const auto gain = voice.level * voice.releaseGain * voice.attackGain * lifetimeGain;

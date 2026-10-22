@@ -3341,7 +3341,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
     const auto sourceZero = juce::String(sourceLayer);
     const auto destinationZero = juce::String(destinationLayer);
     const juce::StringArray oneBased {
-        "layerType", "dx7Layer", "dx7Patch", "sf2Layer", "sf2Bank", "sf2Program", "pianoTimbre",
+        "layerType", "dx7Layer", "dx7Patch", "sf2Layer", "sf2Bank", "sf2Program", "pianoTimbre", "pianoDecaySeconds",
         "nordTremoloMix", "nordTremoloRate", "nordFlangerMix", "nordFlangerRate",
         "nordChorusMix", "nordChorusRate", "nordDelayMix", "nordDelayBpm", "nordDelayFeedback",
         "externalInstrument", "externalInstrumentState", "analogOsc1Wave", "analogOsc2Wave",
@@ -3494,6 +3494,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("velocityMidInput" + juce::String(i), config.velocityMidInput, nullptr);
         state.setProperty("velocityHardInput" + juce::String(i), config.velocityHardInput, nullptr);
         state.setProperty("pianoTimbre" + juce::String(i + 1), config.pianoTimbre, nullptr);
+        state.setProperty("pianoDecaySeconds" + juce::String(i + 1), config.pianoDecaySeconds, nullptr);
         const auto fxKey = juce::String(i + 1);
         state.setProperty("nordTremoloMix" + fxKey, config.nordFx.tremoloMix, nullptr);
         state.setProperty("nordTremoloRate" + fxKey, config.nordFx.tremoloRate, nullptr);
@@ -3940,6 +3941,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     config.velocityCurve);
                 config.pianoTimbre = juce::jlimit(-1, 2, static_cast<int>(state.getProperty(
                     "pianoTimbre" + juce::String(i + 1), config.pianoTimbre)));
+                config.pianoDecaySeconds = juce::jlimit(3.0f, 15.0f, static_cast<float>(
+                    state.getProperty("pianoDecaySeconds" + juce::String(i + 1), 15.0f)));
                 const auto fxKey = juce::String(i + 1);
                 config.nordFx.tremoloMix = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordTremoloMix" + fxKey, 0.0f));
                 config.nordFx.tremoloRate = juce::jlimit(0.2f, 12.0f, (float) state.getProperty("nordTremoloRate" + fxKey, 4.0f));
