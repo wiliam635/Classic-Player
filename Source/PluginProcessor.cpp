@@ -101,24 +101,11 @@ void ClassicPlayerAudioProcessor::saveStartupSettings()
 void ClassicPlayerAudioProcessor::restoreStartupSettings()
 {
     restoringStartupSettings = true;
-    bool selectedStartupState = false;
     if (auto settings = juce::XmlDocument::parse(startupSettingsFile());
         settings != nullptr && settings->hasTagName("ClassicPlayerStartup"))
     {
-        selectedStartupState = true;
-        bool missingStartupProgram = false;
-        lastSavedProgram = settings->getStringAttribute("lastSavedProgram");
-        if (lastSavedProgram.isNotEmpty())
-        {
-            const auto result = loadProgram(juce::File(lastSavedProgram));
-            if (result.failed())
-            {
-                juce::Logger::writeToLog("Última programação: " + result.getErrorMessage());
-                missingStartupProgram = true;
-                lastSavedProgram.clear();
-            }
-        }
-        // Hardware mapping survives even if another/older program is restored.
+        // Restore controller setup, but leave performances for the user to
+        // select explicitly after launch.
         masterCC.store(juce::jlimit(-1, 119, settings->getIntAttribute("masterCC", -1)));
         masterCCChannel.store(juce::jlimit(-1, 16, settings->getIntAttribute("masterChannel", -1)));
         for (int band = 0; band < 3; ++band)
@@ -128,32 +115,10 @@ void ClassicPlayerAudioProcessor::restoreStartupSettings()
         }
         panicCC.store(juce::jlimit(-1, 119, settings->getIntAttribute("panicCC", -1)));
         panicCCChannel.store(juce::jlimit(-1, 16, settings->getIntAttribute("panicChannel", -1)));
-        if (lastSavedProgram.isEmpty())
-            resetToNewProgram();
-        if (missingStartupProgram)
-            saveStartupSettings();
     }
-    else if (!startupSettingsFile().existsAsFile())
-    {
-        // One-time migration for programs saved before Startup.xml existed.
-        juce::File latest;
-        for (const auto& file : savedPrograms())
-            if (!latest.existsAsFile() || file.getLastModificationTime() > latest.getLastModificationTime())
-                latest = file;
-        if (latest.existsAsFile() && loadProgram(latest).wasOk())
-        {
-            selectedStartupState = true;
-            lastSavedProgram = latest.getFullPathName();
-            saveStartupSettings();
-        }
-    }
-    // JUCE supplies filterState before prepareToPlay. Resolve the preferred
-    // startup performance first, instead of decoding both states in sequence.
-    // Keep JUCE's state as the fallback when no startup selection exists.
-    if (!selectedStartupState && pendingStandaloneState.getSize() > 0)
-        setStateInformation(pendingStandaloneState.getData(),
-                            static_cast<int>(pendingStandaloneState.getSize()));
-    pendingStandaloneState.reset();
+    // Start every standalone launch with zero layers and no loaded performance.
+    // Saved programs remain in the library and can be selected from the UI.
+    resetToNewProgram();
     restoringStartupSettings = false;
 }
 
@@ -3600,11 +3565,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
     const juce::ScopedLock callbackLock(getCallbackLock());
     if (wrapperType == wrapperType_Standalone && !startupRestored
         && !restoringStartupSettings && !applyingProgramState)
-    {
-        if (size > 0)
-            pendingStandaloneState.replaceAll(data, static_cast<size_t>(size));
         return;
-    }
     if (auto xml = getXmlFromBinary(data, size))
     {
         auto state = juce::ValueTree::fromXml(*xml);

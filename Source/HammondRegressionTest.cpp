@@ -101,7 +101,8 @@ static void performanceEffectsRegression()
     processor->setStateInformation(savedState.getData(), static_cast<int>(savedState.getSize()));
     verify(0);
     // Match JUCE standalone startup: filterState arrives before prepareToPlay.
-    // The selected saved performance must win without applying filterState first.
+    // Standalone must ignore it and start empty, while keeping saved programs
+    // available for explicit selection by the user.
     processor.reset();
     juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
     processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
@@ -110,19 +111,32 @@ static void performanceEffectsRegression()
     check(processor->layerType(0) == ClassicPlayerAudioProcessor::LayerType::sf2,
           "standalone eagerly restored filterState");
     processor->prepareToPlay(48000.0, 256);
+    check(processor->activeLayerCount() == 0, "standalone did not start with zero layers");
+    bool firstStillAvailable = false;
+    for (const auto& file : processor->savedPrograms())
+        firstStillAvailable = firstStillAvailable || file == first;
+    check(firstStillAvailable, "startup removed the saved performance");
+    check(processor->loadProgram(first).wasOk(), "manually select saved performance after launch");
     verify(0);
     processor->releaseResources();
     processor.reset();
-    // Without a startup selection/migration, retain JUCE's unsaved state.
-    check(first.deleteFile() && second.deleteFile(), "remove startup fixtures");
+    // Even without Startup.xml, never auto-select a saved program. The saved
+    // library remains available and can be loaded manually.
     root.getChildFile("Startup.xml").deleteFile();
     juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
     processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
     juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
     processor->setStateInformation(savedState.getData(), static_cast<int>(savedState.getSize()));
     processor->prepareToPlay(44100.0, 512);
+    check(processor->activeLayerCount() == 0, "legacy startup auto-loaded layers");
+    firstStillAvailable = false;
+    for (const auto& file : processor->savedPrograms())
+        firstStillAvailable = firstStillAvailable || file == first;
+    check(firstStillAvailable, "legacy startup removed the saved performance");
+    check(processor->loadProgram(first).wasOk(), "manually select legacy saved performance");
     verify(0);
     processor->releaseResources();
+    check(first.deleteFile() && second.deleteFile(), "remove startup fixtures");
     std::cout << "Performance EQ, compressor, reverb and chorus restore passed\n";
 }
 
