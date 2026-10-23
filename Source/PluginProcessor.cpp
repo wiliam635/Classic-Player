@@ -101,9 +101,11 @@ void ClassicPlayerAudioProcessor::saveStartupSettings()
 void ClassicPlayerAudioProcessor::restoreStartupSettings()
 {
     restoringStartupSettings = true;
+    bool selectedStartupState = false;
     if (auto settings = juce::XmlDocument::parse(startupSettingsFile());
         settings != nullptr && settings->hasTagName("ClassicPlayerStartup"))
     {
+        selectedStartupState = true;
         bool missingStartupProgram = false;
         lastSavedProgram = settings->getStringAttribute("lastSavedProgram");
         if (lastSavedProgram.isNotEmpty())
@@ -140,10 +142,18 @@ void ClassicPlayerAudioProcessor::restoreStartupSettings()
                 latest = file;
         if (latest.existsAsFile() && loadProgram(latest).wasOk())
         {
+            selectedStartupState = true;
             lastSavedProgram = latest.getFullPathName();
             saveStartupSettings();
         }
     }
+    // JUCE supplies filterState before prepareToPlay. Resolve the preferred
+    // startup performance first, instead of decoding both states in sequence.
+    // Keep JUCE's state as the fallback when no startup selection exists.
+    if (!selectedStartupState && pendingStandaloneState.getSize() > 0)
+        setStateInformation(pendingStandaloneState.getData(),
+                            static_cast<int>(pendingStandaloneState.getSize()));
+    pendingStandaloneState.reset();
     restoringStartupSettings = false;
 }
 
@@ -3184,7 +3194,10 @@ juce::Result ClassicPlayerAudioProcessor::loadProgram(const juce::File& programF
     // A performance change is a hard stop: sustained notes from the previous
     // SF2 or external instrument must never remain audible in the next one.
     stopAllSoundsBeforeProgramChange();
-    setStateInformation(data.getData(), static_cast<int>(data.getSize()));
+    {
+        const juce::ScopedValueSetter<bool> applying(applyingProgramState, true);
+        setStateInformation(data.getData(), static_cast<int>(data.getSize()));
+    }
     currentSavedProgram = programFile.getFileNameWithoutExtension();
     if (wrapperType == wrapperType_Standalone && !restoringStartupSettings)
     {
@@ -3585,6 +3598,13 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
 void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size)
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
+    if (wrapperType == wrapperType_Standalone && !startupRestored
+        && !restoringStartupSettings && !applyingProgramState)
+    {
+        if (size > 0)
+            pendingStandaloneState.replaceAll(data, static_cast<size_t>(size));
+        return;
+    }
     if (auto xml = getXmlFromBinary(data, size))
     {
         auto state = juce::ValueTree::fromXml(*xml);

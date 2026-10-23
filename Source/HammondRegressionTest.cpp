@@ -100,6 +100,29 @@ static void performanceEffectsRegression()
     processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
     processor->setStateInformation(savedState.getData(), static_cast<int>(savedState.getSize()));
     verify(0);
+    // Match JUCE standalone startup: filterState arrives before prepareToPlay.
+    // The selected saved performance must win without applying filterState first.
+    processor.reset();
+    juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
+    processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
+    juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
+    processor->setStateInformation(savedState.getData(), static_cast<int>(savedState.getSize()));
+    check(processor->layerType(0) == ClassicPlayerAudioProcessor::LayerType::sf2,
+          "standalone eagerly restored filterState");
+    processor->prepareToPlay(48000.0, 256);
+    verify(0);
+    processor->releaseResources();
+    processor.reset();
+    // Without a startup selection/migration, retain JUCE's unsaved state.
+    check(first.deleteFile() && second.deleteFile(), "remove startup fixtures");
+    root.getChildFile("Startup.xml").deleteFile();
+    juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
+    processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
+    juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
+    processor->setStateInformation(savedState.getData(), static_cast<int>(savedState.getSize()));
+    processor->prepareToPlay(44100.0, 512);
+    verify(0);
+    processor->releaseResources();
     std::cout << "Performance EQ, compressor, reverb and chorus restore passed\n";
 }
 

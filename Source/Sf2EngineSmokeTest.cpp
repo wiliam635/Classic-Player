@@ -103,6 +103,22 @@ static int releaseRegression(const juce::File& file)
 
 int main(int argc, char** argv)
 {
+    if (argc == 2 && juce::String::fromUTF8(argv[1]) == "--startup")
+    {
+        const auto start = std::chrono::steady_clock::now();
+        Sf2Engine engine;
+        engine.prepare(44100.0, 256);
+        engine.reset();
+        juce::AudioBuffer<float> audio(2, 256);
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 100), 0);
+        engine.process(audio, midi);
+        engine.prepare(48000.0, 512);
+        std::cout << "Empty SF2 startup ms="
+                  << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count()
+                  << '\n';
+        return audio.getMagnitude(0, 256) == 0.0f ? 0 : 11;
+    }
     if (argc != 2 && argc != 3)
     {
         std::cerr << "Uso: ClassicPlayerEngineSmokeTest arquivo.sf2 [--benchmark|--release]\n";

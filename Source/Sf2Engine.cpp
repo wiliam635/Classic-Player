@@ -14,7 +14,9 @@ extern "C" void fluid_synth_set_sample_rate_immediately(fluid_synth_t*, float);
 Sf2Engine::Sf2Engine()
 {
     for (auto& layer : layers)
-        createSynth(layer);
+        // Settings enumerate Core Audio devices: construct them before the
+        // device callback starts, but allocate synths only for loaded layers.
+        layer.settings.reset(new_fluid_settings());
 }
 
 Sf2Engine::~Sf2Engine() = default;
@@ -22,7 +24,8 @@ Sf2Engine::~Sf2Engine() = default;
 void Sf2Engine::createSynth(Layer& layer)
 {
     layer.synth.reset();
-    layer.settings.reset(new_fluid_settings());
+    if (!layer.settings)
+        layer.settings.reset(new_fluid_settings());
     fluid_settings_setnum(layer.settings.get(), "synth.sample-rate", currentSampleRate);
     fluid_settings_setint(layer.settings.get(), "synth.threadsafe-api", 1);
     // A finite ceiling protects the real-time thread from runaway voice counts.
@@ -79,6 +82,8 @@ void Sf2Engine::prepare(double sampleRate, int maximumBlockSize)
         layer.gain.reset(currentSampleRate, 0.02);
         layer.gain.setCurrentAndTargetValue(layer.config.gain);
 #if JUCE_WINDOWS
+        if (!layer.synth)
+            continue;
         // The internal immediate-rate helper is not exported by the Windows
         // FluidSynth library. Rebuild the synth at the requested device rate
         // and restore its SoundFont/preset instead of linking a private symbol.

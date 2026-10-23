@@ -77,6 +77,8 @@ jobs:
           $test = Get-ChildItem "build\windows-x64" -Recurse -Filter "ClassicPlayerEngineSmokeTest.exe" -File |
             Select-Object -First 1 -ExpandProperty FullName
           if (-not $test) { throw "Teste SF2 ausente" }
+          & $test --startup
+          if ($LASTEXITCODE -ne 0) { throw "Falha ao iniciar SF2 sem layers carregadas" }
           & $test $fixture
           if ($LASTEXITCODE -ne 0) { throw "SF2 falhou ao retornar para 44.1 kHz" }
 

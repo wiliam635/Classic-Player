@@ -306,6 +306,7 @@ if(CLASSIC_PLAYER_BUILD_TESTS)
     target_link_libraries(ClassicPlayerAudioRegressionTest PRIVATE ${CLASSIC_PLAYER_FLUID_TARGET} juce::juce_audio_basics juce::juce_core)
     add_test(NAME audio-regression COMMAND ClassicPlayerAudioRegressionTest)
     juce_add_console_app(ClassicPlayerEngineSmokeTest PRODUCT_NAME "Classic Player Engine Smoke Test")
+    add_test(NAME sf2-empty-startup COMMAND ClassicPlayerEngineSmokeTest --startup)
     target_sources(ClassicPlayerEngineSmokeTest PRIVATE
         Source/Sf2EngineSmokeTest.cpp
         Source/Sf2Engine.cpp
