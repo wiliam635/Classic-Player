@@ -278,6 +278,71 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
       programStorageRoot(std::move(programStorageOverride))
 {
     drumPadFormats.registerBasicFormats();
+    // APVTS parameter objects survive replaceState. Resolve their atomic values
+    // once so the audio callback never builds names or searches the parameter map.
+    for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
+    {
+        const auto prefix = "layer" + juce::String(layer + 1);
+        auto& cached = realtimeLayerParameters[(size_t) layer];
+        cached.Gain = parameters.getRawParameterValue(prefix + "Gain");
+        jassert(cached.Gain != nullptr);
+        cached.PreGainDb = parameters.getRawParameterValue(prefix + "PreGainDb");
+        jassert(cached.PreGainDb != nullptr);
+        cached.Attack = parameters.getRawParameterValue(prefix + "Attack");
+        jassert(cached.Attack != nullptr);
+        cached.Release = parameters.getRawParameterValue(prefix + "Release");
+        jassert(cached.Release != nullptr);
+        cached.Cutoff = parameters.getRawParameterValue(prefix + "Cutoff");
+        jassert(cached.Cutoff != nullptr);
+        cached.EqLow = parameters.getRawParameterValue(prefix + "EqLow");
+        jassert(cached.EqLow != nullptr);
+        cached.EqMid = parameters.getRawParameterValue(prefix + "EqMid");
+        jassert(cached.EqMid != nullptr);
+        cached.EqHigh = parameters.getRawParameterValue(prefix + "EqHigh");
+        jassert(cached.EqHigh != nullptr);
+        cached.EqLowFrequency = parameters.getRawParameterValue(prefix + "EqLowFrequency");
+        jassert(cached.EqLowFrequency != nullptr);
+        cached.EqMidFrequency = parameters.getRawParameterValue(prefix + "EqMidFrequency");
+        jassert(cached.EqMidFrequency != nullptr);
+        cached.EqHighFrequency = parameters.getRawParameterValue(prefix + "EqHighFrequency");
+        jassert(cached.EqHighFrequency != nullptr);
+        cached.EqLowQ = parameters.getRawParameterValue(prefix + "EqLowQ");
+        jassert(cached.EqLowQ != nullptr);
+        cached.EqMidQ = parameters.getRawParameterValue(prefix + "EqMidQ");
+        jassert(cached.EqMidQ != nullptr);
+        cached.EqHighQ = parameters.getRawParameterValue(prefix + "EqHighQ");
+        jassert(cached.EqHighQ != nullptr);
+        cached.Reverb = parameters.getRawParameterValue(prefix + "Reverb");
+        jassert(cached.Reverb != nullptr);
+        cached.ReverbSize = parameters.getRawParameterValue(prefix + "ReverbSize");
+        jassert(cached.ReverbSize != nullptr);
+        cached.ReverbDamping = parameters.getRawParameterValue(prefix + "ReverbDamping");
+        jassert(cached.ReverbDamping != nullptr);
+        cached.ReverbWidth = parameters.getRawParameterValue(prefix + "ReverbWidth");
+        jassert(cached.ReverbWidth != nullptr);
+        cached.Comp = parameters.getRawParameterValue(prefix + "Comp");
+        jassert(cached.Comp != nullptr);
+        cached.CompThreshold = parameters.getRawParameterValue(prefix + "CompThreshold");
+        jassert(cached.CompThreshold != nullptr);
+        cached.CompRatio = parameters.getRawParameterValue(prefix + "CompRatio");
+        jassert(cached.CompRatio != nullptr);
+        cached.CompAttack = parameters.getRawParameterValue(prefix + "CompAttack");
+        jassert(cached.CompAttack != nullptr);
+        cached.CompRelease = parameters.getRawParameterValue(prefix + "CompRelease");
+        jassert(cached.CompRelease != nullptr);
+        cached.CompMakeup = parameters.getRawParameterValue(prefix + "CompMakeup");
+        jassert(cached.CompMakeup != nullptr);
+        cached.Dx7Chorus = parameters.getRawParameterValue(prefix + "Dx7Chorus");
+        jassert(cached.Dx7Chorus != nullptr);
+        cached.Sf2Chorus = parameters.getRawParameterValue(prefix + "Sf2Chorus");
+        jassert(cached.Sf2Chorus != nullptr);
+        cached.Sf2ChorusRate = parameters.getRawParameterValue(prefix + "Sf2ChorusRate");
+        jassert(cached.Sf2ChorusRate != nullptr);
+        cached.Sf2ChorusDepth = parameters.getRawParameterValue(prefix + "Sf2ChorusDepth");
+        jassert(cached.Sf2ChorusDepth != nullptr);
+        cached.ModulationEnabled = parameters.getRawParameterValue(prefix + "ModulationEnabled");
+        jassert(cached.ModulationEnabled != nullptr);
+    }
     for(auto& bank:continuousBanks)bank=std::make_unique<ContinuousPadBank>();
     juce::Logger::writeToLog("ClassicPlayer processor criado (instrumento MIDI, saída estéreo)");
     for (auto& layer : learnedCCs)
@@ -661,16 +726,20 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         auto config = engine.getConfig(i);
         if (i >= activeLayers)
         {
-            config.enabled = false;
-            engine.setConfig(i, config);
+            if (config.enabled)
+            {
+                config.enabled = false;
+                engine.setConfig(i, config);
+            }
             nordRouting[(size_t) i] = config;
+            nordSampleRouting[(size_t) i] = config;
             dx7LayerConfigs[(size_t) i].enabled = false;
             analogLayerConfigs[(size_t) i].routing.enabled = false;
             hammondLayerConfigs[(size_t) i].routing.enabled = false;
             continue;
         }
-        const auto prefix = "layer" + juce::String(i + 1);
-        auto layerGain = parameters.getRawParameterValue(prefix + "Gain")->load() / 100.0f;
+        const auto& realtime = realtimeLayerParameters[(size_t) i];
+        auto layerGain = realtime.Gain->load(std::memory_order_relaxed) / 100.0f;
         if (isLayerMuted(i)) layerGain = 0.0f;
         // Keep the DX7 6 dB lower than the previous approved trim.
         // Keep Analog and all other sources at their approved levels.
@@ -682,37 +751,37 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         if (type == LayerType::sf2 || type == LayerType::nord || type == LayerType::nordSample || type == LayerType::analog
             || type == LayerType::hammond || type == LayerType::dx7)
             layerGain *= juce::Decibels::decibelsToGain(
-                parameters.getRawParameterValue(prefix + "PreGainDb")->load());
+                realtime.PreGainDb->load(std::memory_order_relaxed));
         config.gain = layerGain;
         config.muteCC = learnedCCs[(size_t) i][(size_t) LearnTarget::mute].load(std::memory_order_relaxed);
         config.muteCCChannel = learnedChannels[(size_t) i][(size_t) LearnTarget::mute].load(std::memory_order_relaxed);
-        config.attack = parameters.getRawParameterValue(prefix + "Attack")->load();
-        config.release = parameters.getRawParameterValue(prefix + "Release")->load();
-        config.cutoff = parameters.getRawParameterValue(prefix + "Cutoff")->load();
-        config.eqLow = parameters.getRawParameterValue(prefix + "EqLow")->load();
-        config.eqMid = parameters.getRawParameterValue(prefix + "EqMid")->load();
-        config.eqHigh = parameters.getRawParameterValue(prefix + "EqHigh")->load();
-        config.eqLowFrequency = parameters.getRawParameterValue(prefix + "EqLowFrequency")->load();
-        config.eqMidFrequency = parameters.getRawParameterValue(prefix + "EqMidFrequency")->load();
-        config.eqHighFrequency = parameters.getRawParameterValue(prefix + "EqHighFrequency")->load();
-        config.eqLowQ = parameters.getRawParameterValue(prefix + "EqLowQ")->load();
-        config.eqMidQ = parameters.getRawParameterValue(prefix + "EqMidQ")->load();
-        config.eqHighQ = parameters.getRawParameterValue(prefix + "EqHighQ")->load();
-        config.reverb = parameters.getRawParameterValue(prefix + "Reverb")->load();
-        config.reverbSize = parameters.getRawParameterValue(prefix + "ReverbSize")->load();
-        config.reverbDamping = parameters.getRawParameterValue(prefix + "ReverbDamping")->load();
-        config.reverbWidth = parameters.getRawParameterValue(prefix + "ReverbWidth")->load();
-        config.compressor = parameters.getRawParameterValue(prefix + "Comp")->load();
-        config.compressorThreshold = parameters.getRawParameterValue(prefix + "CompThreshold")->load();
-        config.compressorRatio = parameters.getRawParameterValue(prefix + "CompRatio")->load();
-        config.compressorAttack = parameters.getRawParameterValue(prefix + "CompAttack")->load();
-        config.compressorRelease = parameters.getRawParameterValue(prefix + "CompRelease")->load();
-        config.compressorMakeup = parameters.getRawParameterValue(prefix + "CompMakeup")->load();
-        config.dx7Chorus = parameters.getRawParameterValue(prefix + "Dx7Chorus")->load();
-        config.sf2Chorus = parameters.getRawParameterValue(prefix + "Sf2Chorus")->load();
-        config.sf2ChorusRate = parameters.getRawParameterValue(prefix + "Sf2ChorusRate")->load();
-        config.sf2ChorusDepth = parameters.getRawParameterValue(prefix + "Sf2ChorusDepth")->load();
-        config.modulationEnabled = parameters.getRawParameterValue(prefix + "ModulationEnabled")->load() >= 0.5f;
+        config.attack = realtime.Attack->load(std::memory_order_relaxed);
+        config.release = realtime.Release->load(std::memory_order_relaxed);
+        config.cutoff = realtime.Cutoff->load(std::memory_order_relaxed);
+        config.eqLow = realtime.EqLow->load(std::memory_order_relaxed);
+        config.eqMid = realtime.EqMid->load(std::memory_order_relaxed);
+        config.eqHigh = realtime.EqHigh->load(std::memory_order_relaxed);
+        config.eqLowFrequency = realtime.EqLowFrequency->load(std::memory_order_relaxed);
+        config.eqMidFrequency = realtime.EqMidFrequency->load(std::memory_order_relaxed);
+        config.eqHighFrequency = realtime.EqHighFrequency->load(std::memory_order_relaxed);
+        config.eqLowQ = realtime.EqLowQ->load(std::memory_order_relaxed);
+        config.eqMidQ = realtime.EqMidQ->load(std::memory_order_relaxed);
+        config.eqHighQ = realtime.EqHighQ->load(std::memory_order_relaxed);
+        config.reverb = realtime.Reverb->load(std::memory_order_relaxed);
+        config.reverbSize = realtime.ReverbSize->load(std::memory_order_relaxed);
+        config.reverbDamping = realtime.ReverbDamping->load(std::memory_order_relaxed);
+        config.reverbWidth = realtime.ReverbWidth->load(std::memory_order_relaxed);
+        config.compressor = realtime.Comp->load(std::memory_order_relaxed);
+        config.compressorThreshold = realtime.CompThreshold->load(std::memory_order_relaxed);
+        config.compressorRatio = realtime.CompRatio->load(std::memory_order_relaxed);
+        config.compressorAttack = realtime.CompAttack->load(std::memory_order_relaxed);
+        config.compressorRelease = realtime.CompRelease->load(std::memory_order_relaxed);
+        config.compressorMakeup = realtime.CompMakeup->load(std::memory_order_relaxed);
+        config.dx7Chorus = realtime.Dx7Chorus->load(std::memory_order_relaxed);
+        config.sf2Chorus = realtime.Sf2Chorus->load(std::memory_order_relaxed);
+        config.sf2ChorusRate = realtime.Sf2ChorusRate->load(std::memory_order_relaxed);
+        config.sf2ChorusDepth = realtime.Sf2ChorusDepth->load(std::memory_order_relaxed);
+        config.modulationEnabled = realtime.ModulationEnabled->load(std::memory_order_relaxed) >= 0.5f;
         engine.setConfig(i, config);
         nordRouting[(size_t) i] = config;
         nordRouting[(size_t) i].enabled = config.enabled
@@ -2505,7 +2574,13 @@ void ClassicPlayerAudioProcessor::attachStandaloneMidiRouting(
 void ClassicPlayerAudioProcessor::refreshStandaloneMidiInputs()
 {
     if (standaloneDeviceManager == nullptr) return;
-    const auto devices = juce::MidiInput::getAvailableDevices();
+    refreshStandaloneMidiInputs(juce::MidiInput::getAvailableDevices());
+}
+
+void ClassicPlayerAudioProcessor::refreshStandaloneMidiInputs(
+    const juce::Array<juce::MidiDeviceInfo>& devices)
+{
+    if (standaloneDeviceManager == nullptr) return;
     juce::String fingerprint;
     for (const auto& device : devices) fingerprint << device.identifier << ";";
     if (fingerprint == registeredMidiFingerprint) return;

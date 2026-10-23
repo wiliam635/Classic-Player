@@ -66,6 +66,7 @@ private:
         juce::AudioBuffer<float> audio;
         NordPianoDecoder::Instrument piano;
         bool pianoLoaded = false;
+        bool finitePiano = false;
         juce::String sourcePath;
         double sourceSampleRate = 44100.0;
         LayerConfig config;

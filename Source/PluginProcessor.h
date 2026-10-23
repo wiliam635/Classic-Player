@@ -169,6 +169,7 @@ public:
     void consumeMidiControlUpdates();
     void attachStandaloneMidiRouting(juce::AudioDeviceManager&, juce::MidiInputCallback& defaultCallback);
     void refreshStandaloneMidiInputs();
+    void refreshStandaloneMidiInputs(const juce::Array<juce::MidiDeviceInfo>& devices);
     juce::Array<juce::MidiDeviceInfo> availableMidiDevices() const;
     void setLayerMidiDevice(int layer, const juce::String& identifier);
     juce::String layerMidiDevice(int layer) const;
@@ -242,6 +243,39 @@ public:
     juce::MidiKeyboardState keyboardState;
 
 private:
+    struct RealtimeLayerParameters
+    {
+        std::atomic<float>* Gain = nullptr;
+        std::atomic<float>* PreGainDb = nullptr;
+        std::atomic<float>* Attack = nullptr;
+        std::atomic<float>* Release = nullptr;
+        std::atomic<float>* Cutoff = nullptr;
+        std::atomic<float>* EqLow = nullptr;
+        std::atomic<float>* EqMid = nullptr;
+        std::atomic<float>* EqHigh = nullptr;
+        std::atomic<float>* EqLowFrequency = nullptr;
+        std::atomic<float>* EqMidFrequency = nullptr;
+        std::atomic<float>* EqHighFrequency = nullptr;
+        std::atomic<float>* EqLowQ = nullptr;
+        std::atomic<float>* EqMidQ = nullptr;
+        std::atomic<float>* EqHighQ = nullptr;
+        std::atomic<float>* Reverb = nullptr;
+        std::atomic<float>* ReverbSize = nullptr;
+        std::atomic<float>* ReverbDamping = nullptr;
+        std::atomic<float>* ReverbWidth = nullptr;
+        std::atomic<float>* Comp = nullptr;
+        std::atomic<float>* CompThreshold = nullptr;
+        std::atomic<float>* CompRatio = nullptr;
+        std::atomic<float>* CompAttack = nullptr;
+        std::atomic<float>* CompRelease = nullptr;
+        std::atomic<float>* CompMakeup = nullptr;
+        std::atomic<float>* Dx7Chorus = nullptr;
+        std::atomic<float>* Sf2Chorus = nullptr;
+        std::atomic<float>* Sf2ChorusRate = nullptr;
+        std::atomic<float>* Sf2ChorusDepth = nullptr;
+        std::atomic<float>* ModulationEnabled = nullptr;
+    };
+    std::array<RealtimeLayerParameters, Sf2Engine::layerCount> realtimeLayerParameters;
     friend struct MidiRecordingRegressionAccess;
     friend struct ContinuousPadRegressionAccess;
     void timerCallback() override;

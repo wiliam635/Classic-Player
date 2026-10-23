@@ -90,7 +90,8 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
 
         // Prepare fresh decoded PCM outside the audio lock/callback. The
         // source NPNO stays untouched and voices need no extra fade buffers.
-        if (file.getParentDirectory().getFileName() != "Organ")
+        const auto finitePiano = file.getParentDirectory().getFileName() != "Organ";
+        if (finitePiano)
             preparePianoLoops(decodedPiano);
 
         const juce::ScopedLock stateLock(lock);
@@ -98,6 +99,7 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
         destination.audio.setSize(0, 0);
         destination.piano = std::move(decodedPiano);
         destination.pianoLoaded = true;
+        destination.finitePiano = finitePiano;
         destination.sourcePath = file.getFullPathName();
         destination.sourceSampleRate = NordPianoDecoder::sampleRate;
         destination.config.startSeconds = 0.0;
@@ -756,8 +758,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
     float peak = 0.0f;
     // Piano loops must not occupy the pool indefinitely under a held pedal.
     // Organs retain continuous sustain; piano notes use the per-voice tail length.
-    const auto finitePiano = layer.pianoLoaded
-        && juce::File(layer.sourcePath).getParentDirectory().getFileName() != "Organ";
+    const auto finitePiano = layer.pianoLoaded && layer.finitePiano;
 
     for (auto& voice : layer.voices)
     {
@@ -782,16 +783,17 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             continue;
         }
 
+        const auto loopedPiano = pianoStroke != nullptr && !voice.pianoRelease
+            && pianoStroke->loopEndFrame > pianoStroke->loopStartFrame;
+        const auto inverseDecaySamples = 1.0 / (currentSampleRate * voice.pianoDecaySeconds);
         for (int sample = 0; sample < output.getNumSamples(); ++sample)
         {
-            const auto seconds = static_cast<double>(voice.age) / currentSampleRate;
-            if (isPianoVoice && finitePiano && seconds >= voice.pianoDecaySeconds)
+            const auto elapsedDecay = static_cast<double>(voice.age) * inverseDecaySamples;
+            if (isPianoVoice && finitePiano && elapsedDecay >= 1.0)
             {
                 voice.active = false;
                 break;
             }
-            const auto loopedPiano = pianoStroke != nullptr && !voice.pianoRelease
-                && pianoStroke->loopEndFrame > pianoStroke->loopStartFrame;
             // Keep cycling during Release so the layer knob, rather than the
             // PCM end, determines the tail after a key/pedal is released.
             if (loopedPiano
@@ -811,7 +813,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 }
             }
 
-            const auto remaining = juce::jlimit(0.0, 1.0, 1.0 - seconds / voice.pianoDecaySeconds);
+            const auto remaining = juce::jlimit(0.0, 1.0, 1.0 - elapsedDecay);
             const auto lifetimeGain = isPianoVoice && finitePiano
                 ? static_cast<float>(remaining * remaining) : 1.0f;
             const auto gain = voice.level * voice.releaseGain * voice.attackGain * lifetimeGain;

@@ -8472,16 +8472,16 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
         }
         const auto modalWindowOpen = juce::ModalComponentManager::getInstance()
                                          ->getNumModalComponents() > 0;
+        const auto devices = classicProcessor.availableMidiDevices();
         if (audioMidiSettingsOpen && !modalWindowOpen)
         {
             audioMidiSettingsOpen = false;
-            classicProcessor.refreshStandaloneMidiInputs();
+            classicProcessor.refreshStandaloneMidiInputs(devices);
         }
         else if (!audioMidiSettingsOpen)
         {
-            classicProcessor.refreshStandaloneMidiInputs();
+            classicProcessor.refreshStandaloneMidiInputs(devices);
         }
-        const auto devices = classicProcessor.availableMidiDevices();
         for (auto& strip : strips)
             if (strip != nullptr) strip->refreshMidiDevices(devices);
     }

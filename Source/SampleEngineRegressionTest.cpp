@@ -19,6 +19,7 @@ struct SampleEngineRegressionTests
         engine->prepare(rate, 4096);
         auto& layer = engine->layers[0];
         layer.pianoLoaded = true;
+        layer.finitePiano = true;
         layer.sourcePath = juce::File::getSpecialLocation(juce::File::tempDirectory)
             .getChildFile("Piano Acustico/synthetic.npno").getFullPathName();
         layer.piano.channels = 1;
@@ -247,6 +248,7 @@ struct SampleEngineRegressionTests
                 "Piano loop survived past 15 seconds");
         layer.sourcePath = juce::File::getSpecialLocation(juce::File::tempDirectory)
             .getChildFile("Organ/synthetic.npno").getFullPathName();
+        layer.finitePiano = false;
         engine->startPianoVoice(layer, 0, 60, 1, 1.0f, routing);
         voice.age = static_cast<std::uint64_t>(18.0 * rate);
         audio.clear();
