@@ -1,4 +1,5 @@
 #include "SampleEngine.h"
+#include "NordSampleDecoder.h"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -233,6 +234,34 @@ struct SampleEngineRegressionTests
                 "The PCM end truncated a long Release tail");
     }
 
+    static void importedNordSample(const juce::File& file)
+    {
+        SampleEngine engine;
+        engine.prepare(48000.0, 512);
+        const auto result = engine.loadSample(0, file);
+        require(result.wasOk(), result.getErrorMessage().toStdString().c_str());
+
+        auto& layer = engine.layers[0];
+        require(layer.pianoLoaded && layer.piano.usesZones && !layer.piano.strokes.empty(),
+                "Nord Sample decoder did not produce an instrument with zones");
+        const auto& stroke = layer.piano.strokes.front();
+        require(stroke.rootNote >= stroke.zoneLowNote && stroke.rootNote <= stroke.zoneHighNote,
+                "Nord Sample zone does not include its recorded root note");
+
+        engine.startPianoVoice(layer, 0, stroke.rootNote, 1, 1.0f, config());
+        juce::AudioBuffer<float> audio(2, 512);
+        juce::MidiBuffer midi;
+        audio.clear();
+        engine.renderLayer(layer, audio, midi, config());
+        require(audio.getMagnitude(0, audio.getNumSamples()) > 0.0001f,
+                "Nord Sample decoded but produced no audio in the sample engine");
+        const auto stereoZones = std::count_if(layer.piano.strokes.begin(), layer.piano.strokes.end(),
+            [](const auto& zone) { return zone.sampleChannels == 2; });
+        std::cout << file.getFileName().toStdString() << ": "
+                  << layer.piano.strokes.size() << " zones (" << stereoZones
+                  << " stereo), audio output OK\n";
+    }
+
     static std::vector<float> partitionedDecay(double rate, int block)
     {
         auto engine = instrument(rate);
@@ -313,11 +342,13 @@ struct SampleEngineRegressionTests
     }
 };
 
-int main()
+int main(int argc, char* argv[])
 {
     try
     {
         SampleEngineRegressionTests::run();
+        for (int i = 1; i < argc; ++i)
+            SampleEngineRegressionTests::importedNordSample(juce::File(argv[i]));
         std::cout << "NPNO polyphony, sustain, lifetime and EQ: OK\n";
         return 0;
     }

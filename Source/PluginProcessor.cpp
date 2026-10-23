@@ -9,6 +9,12 @@
 
 namespace
 {
+bool isNordSampleFile(const juce::File& file)
+{
+    return file.hasFileExtension(".npno") || file.hasFileExtension(".nsmp")
+        || file.hasFileExtension(".nsmp3");
+}
+
 bool categoryReleaseDefault(const juce::String& category, float& release)
 {
     if (category == "Piano Acustico")
@@ -1175,9 +1181,9 @@ juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::F
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
         return juce::Result::fail("Layer inválida.");
     if (layerType(layer) != LayerType::sf2)
-        return juce::Result::fail("Esta layer aceita arquivos SF2. Use uma layer Nord para importar .npno.");
-    if (file.hasFileExtension(".npno"))
-        return juce::Result::fail("Arquivos .npno devem ser carregados em uma layer Nord.");
+        return juce::Result::fail("Esta layer aceita arquivos SF2. Use uma layer Nord para importar .npno, .nsmp ou .nsmp3.");
+    if (isNordSampleFile(file))
+        return juce::Result::fail("Arquivos Nord Sample devem ser carregados em uma layer Nord.");
     if (category.isNotEmpty() && !soundFontCategories().contains(category))
         return juce::Result::fail("Categoria de SoundFont invalida.");
     externalInstruments[(size_t) layer].unload();
@@ -1203,9 +1209,9 @@ juce::Result ClassicPlayerAudioProcessor::loadNordPiano(int layer, const juce::F
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
         return juce::Result::fail("Layer inválida.");
     if (layerType(layer) != LayerType::nord)
-        return juce::Result::fail("Adicione uma layer Nord para importar um piano .npno.");
-    if (!file.hasFileExtension(".npno"))
-        return juce::Result::fail("A layer Nord aceita somente arquivos .npno.");
+        return juce::Result::fail("Adicione uma layer Nord para importar um instrumento Nord.");
+    if (!isNordSampleFile(file))
+        return juce::Result::fail("A layer Nord aceita .npno, .nsmp e .nsmp3.");
     if (category.isNotEmpty() && !soundFontCategories().contains(category))
         return juce::Result::fail("Categoria de piano Nord inválida.");
 
@@ -2424,8 +2430,8 @@ juce::Result ClassicPlayerAudioProcessor::importNordPiano(const juce::File& sour
                                                            const juce::String& category,
                                                            juce::File& importedFile) const
 {
-    if (!source.existsAsFile() || !source.hasFileExtension(".npno"))
-        return juce::Result::fail("Selecione um arquivo de piano Nord .npno valido");
+    if (!source.existsAsFile() || !isNordSampleFile(source))
+        return juce::Result::fail("Selecione um arquivo Nord válido (.npno, .nsmp ou .nsmp3)");
     if (!soundFontCategories().contains(category))
         return juce::Result::fail("Categoria de piano Nord invalida");
 
@@ -2442,7 +2448,8 @@ juce::Result ClassicPlayerAudioProcessor::importNordPiano(const juce::File& sour
             importedFile = destination;
             return juce::Result::ok();
         }
-        destination = folder.getNonexistentChildFile(source.getFileNameWithoutExtension(), ".npno", true);
+        destination = folder.getNonexistentChildFile(source.getFileNameWithoutExtension(),
+                                                     source.getFileExtension(), true);
     }
     if (!source.copyFileTo(destination))
         return juce::Result::fail("Nao foi possivel copiar o piano Nord para a biblioteca do aplicativo");
@@ -2457,7 +2464,8 @@ juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordPianos(
     if (!soundFontCategories().contains(category)) return result;
     const auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                             .getChildFile("Classic Player").getChildFile("NordPianos").getChildFile(category);
-    folder.findChildFiles(result, juce::File::findFiles, false, "*.npno;*.NPNO");
+    folder.findChildFiles(result, juce::File::findFiles, false,
+                          "*.npno;*.NPNO;*.nsmp;*.NSMP;*.nsmp3;*.NSMP3");
     std::sort(result.begin(), result.end(), [](const auto& a, const auto& b)
     {
         return a.getFileName().compareNatural(b.getFileName()) < 0;
@@ -2467,8 +2475,8 @@ juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordPianos(
 
 juce::Result ClassicPlayerAudioProcessor::deleteLibraryNordPiano(const juce::File& file)
 {
-    if (!file.existsAsFile() || !file.hasFileExtension(".npno"))
-        return juce::Result::fail("Selecione um piano Nord .npno valido da biblioteca");
+    if (!file.existsAsFile() || !isNordSampleFile(file))
+        return juce::Result::fail("Selecione um instrumento Nord válido da biblioteca");
 
     const auto libraryRoot = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                                  .getChildFile("Classic Player").getChildFile("NordPianos");
@@ -3440,7 +3448,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 // Older test builds stored Nord files under the SF2 layer type.
                 // Promote those paths to the dedicated type when reopening them.
                 if (savedType == static_cast<int>(LayerType::sf2)
-                    && juce::File(savedSourcePath).hasFileExtension(".npno"))
+                    && isNordSampleFile(juce::File(savedSourcePath)))
                     savedType = static_cast<int>(LayerType::nord);
                 layerTypes[(size_t) i].store(savedType, std::memory_order_relaxed);
                 savedPaths[(size_t) i] = (savedType == static_cast<int>(LayerType::sf2)
@@ -3646,7 +3654,7 @@ void ClassicPlayerAudioProcessor::restoreLayerPaths()
         if ((layerType(i) == LayerType::sf2 || layerType(i) == LayerType::nord)
             && savedPaths[(size_t) i].isNotEmpty())
         {
-            if (juce::File(savedPaths[(size_t) i]).hasFileExtension(".npno"))
+            if (isNordSampleFile(juce::File(savedPaths[(size_t) i])))
             {
                 if (sampleEngine.loadSample(i, juce::File(savedPaths[(size_t) i])).wasOk())
                 {

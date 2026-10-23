@@ -1,4 +1,5 @@
 #include "SampleEngine.h"
+#include "NordSampleDecoder.h"
 #include <algorithm>
 #include <cmath>
 
@@ -55,15 +56,19 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
     if (!juce::isPositiveAndBelow(layer, layerCount) || !file.existsAsFile())
         return juce::Result::fail("Arquivo de sample invalido.");
 
-    if (file.getFileExtension().equalsIgnoreCase(".npno"))
+    if (file.getFileExtension().equalsIgnoreCase(".npno")
+        || file.getFileExtension().equalsIgnoreCase(".nsmp")
+        || file.getFileExtension().equalsIgnoreCase(".nsmp3"))
     {
         NordPianoDecoder::Instrument decodedPiano;
-        const auto result = NordPianoDecoder::decodeFile(file, decodedPiano);
+        const auto result = file.getFileExtension().equalsIgnoreCase(".npno")
+            ? NordPianoDecoder::decodeFile(file, decodedPiano)
+            : NordSampleDecoder::decodeFile(file, decodedPiano);
         if (result.failed()) return result;
 
         // Prepare fresh decoded PCM outside the audio lock/callback. The
         // source NPNO stays untouched and voices need no extra fade buffers.
-        if (file.getParentDirectory().getFileName() != "Organ")
+        if (!decodedPiano.usesZones && file.getParentDirectory().getFileName() != "Organ")
             preparePianoLoops(decodedPiano);
 
         const juce::ScopedLock stateLock(lock);
@@ -259,10 +264,22 @@ void SampleEngine::startVoice(Layer& layer, int note, int channel, float velocit
 int SampleEngine::findPianoStroke(const Layer& layer, int note, float velocity, int bank) const
 {
     if (!layer.pianoLoaded || !juce::isPositiveAndBelow(note, 128)) return -1;
+    const auto midiVelocity = juce::jlimit(1, 127, juce::roundToInt(velocity * 127.0f));
+    if (layer.piano.usesZones)
+    {
+        for (size_t i = 0; i < layer.piano.strokes.size(); ++i)
+        {
+            const auto& stroke = layer.piano.strokes[i];
+            if (note >= stroke.zoneLowNote && note <= stroke.zoneHighNote
+                && midiVelocity >= stroke.velocityLow && midiVelocity <= stroke.velocityHigh)
+                return static_cast<int>(i);
+        }
+        return -1;
+    }
+
     const auto root = layer.piano.keyMap[(size_t) note];
     if (root == 0xff) return -1;
 
-    const auto midiVelocity = juce::jlimit(1, 127, juce::roundToInt(velocity * 127.0f));
     const auto layerLimit = ((127 - midiVelocity) * layer.piano.velocityScale) / 127;
     int bestIndex = -1;
     int bestLayer = -1;
@@ -280,10 +297,10 @@ int SampleEngine::findPianoStroke(const Layer& layer, int note, float velocity, 
 
 void SampleEngine::preparePianoLoops(NordPianoDecoder::Instrument& piano)
 {
-    const auto channels = piano.channels;
-    if (channels < 1 || channels > 2) return;
     for (auto& stroke : piano.strokes)
     {
+        const auto channels = stroke.sampleChannels > 0 ? stroke.sampleChannels : piano.channels;
+        if (channels < 1 || channels > 2) continue;
         const auto start = static_cast<int>(stroke.loopStartFrame);
         const auto end = static_cast<int>(stroke.loopEndFrame); // exclusive
         const auto length = end - start;
@@ -366,16 +383,22 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     auto* candidate = &allocateVoice(layer);
 
     const auto& stroke = layer.piano.strokes[(size_t) sampleIndex];
-    const auto frames = stroke.frameCount(layer.piano.channels);
+    const auto channels = stroke.sampleChannels > 0 ? stroke.sampleChannels : layer.piano.channels;
+    const auto frames = stroke.frameCount(channels);
     const auto cents = static_cast<double>(layer.piano.fineTune[(size_t) note]) * 0.7;
-    const auto semitones = static_cast<double>(note - stroke.rootNote) + cents / 100.0;
+    const auto tuning = layer.piano.usesZones
+        ? static_cast<double>(layer.piano.keyTuneSemitones[(size_t) note])
+        : cents / 100.0;
+    const auto semitones = static_cast<double>(note - stroke.rootNote) + tuning;
     const auto globalGainDb = static_cast<double>(layer.piano.gainTenthsDb) / 10.0;
     const auto trim = static_cast<int>(stroke.trimDb);
     const auto signedTrim = trim >= 0x8000 ? trim - 0x10000 : trim;
     const auto strokeGainDb = layer.piano.signedTenthsDbTrim
                             ? -static_cast<double>(signedTrim) / 10.0
                             : -static_cast<double>(trim);
-    const auto strokeGain = static_cast<float>(std::pow(10.0, (globalGainDb + strokeGainDb) / 20.0));
+    const auto strokeGain = static_cast<float>(std::pow(10.0, (globalGainDb + strokeGainDb) / 20.0))
+                          * stroke.zoneGain * layer.piano.instrumentGain
+                          * layer.piano.keyGain[(size_t) note];
 
     candidate->active = frames > 0;
     candidate->released = false;
@@ -576,7 +599,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
     float peak = 0.0f;
     // Piano loops must not occupy the pool indefinitely under a held pedal.
     // Organs retain continuous sustain; piano notes decay throughout 15 s.
-    const auto finitePiano = layer.pianoLoaded
+    const auto finitePiano = layer.pianoLoaded && !layer.piano.usesZones
         && juce::File(layer.sourcePath).getParentDirectory().getFileName() != "Organ";
 
     for (auto& voice : layer.voices)
@@ -594,7 +617,8 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
         const auto* pianoStroke = isPianoVoice
             ? &layer.piano.strokes[(size_t) voice.sampleIndex] : nullptr;
         const auto pianoFrames = pianoStroke != nullptr
-            ? pianoStroke->frameCount(layer.piano.channels) : 0;
+            ? pianoStroke->frameCount(pianoStroke->sampleChannels > 0
+                                          ? pianoStroke->sampleChannels : layer.piano.channels) : 0;
         const auto loopEnd = isPianoVoice ? static_cast<double>(pianoFrames) : normalLoopEnd;
         if (pianoFrames <= 0 && isPianoVoice)
         {
@@ -611,6 +635,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 break;
             }
             const auto loopedPiano = pianoStroke != nullptr && !voice.pianoRelease
+                && (!pianoStroke->loopOnRelease || !voice.released)
                 && pianoStroke->loopEndFrame > pianoStroke->loopStartFrame;
             // Keep cycling during Release so the layer knob, rather than the
             // PCM end, determines the tail after a key/pedal is released.
@@ -640,8 +665,10 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             if (isPianoVoice)
             {
                 const auto& stroke = layer.piano.strokes[(size_t) voice.sampleIndex];
-                left = readPianoInterpolated(stroke, layer.piano.channels, 0, voice.position, loopedPiano) * gain;
-                right = readPianoInterpolated(stroke, layer.piano.channels, 1, voice.position, loopedPiano) * gain;
+                const auto channels = stroke.sampleChannels > 0
+                    ? stroke.sampleChannels : layer.piano.channels;
+                left = readPianoInterpolated(stroke, channels, 0, voice.position, loopedPiano) * gain;
+                right = readPianoInterpolated(stroke, channels, 1, voice.position, loopedPiano) * gain;
             }
             else
             {

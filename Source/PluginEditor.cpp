@@ -416,7 +416,7 @@ static constexpr UiTranslation uiTranslations[] {
     { "LAYER SF2", "SF2 LAYER", "CAPA SF2" },
     { "Layer SF2", "SF2 Layer", "Capa SF2" },
     { "Layer SF2 (.sf2)", "SF2 Layer (.sf2)", "Capa SF2 (.sf2)" },
-    { "Layer Nord Piano (.npno)", "Nord Piano Layer (.npno)", "Capa Nord Piano (.npno)" },
+    { "Layer Nord Sample (.npno/.nsmp/.nsmp3)", "Nord Sample Layer (.npno/.nsmp/.nsmp3)", "Capa Nord Sample (.npno/.nsmp/.nsmp3)" },
     { "Layer DX7 (.syx)", "DX7 Layer (.syx)", "Capa DX7 (.syx)" },
     { "Classic Keys Analog", "Classic Keys Analog", "Classic Keys Analog" },
     { "Layer Drum Pads (8)", "Drum Pads Layer (8)", "Capa Drum Pads (8)" },
@@ -2005,7 +2005,7 @@ public:
         categoryLabel.setColour(juce::Label::textColourId, juce::Colour(text));
         categoryLabel.setFont(juce::FontOptions(10.0f, juce::Font::bold));
         addAndMakeVisible(categoryLabel);
-        libraryLabel.setText("BIBLIOTECA NPNO", juce::dontSendNotification);
+        libraryLabel.setText("BIBLIOTECA NORD", juce::dontSendNotification);
         libraryLabel.setColour(juce::Label::textColourId, juce::Colour(text));
         libraryLabel.setFont(juce::FontOptions(10.0f, juce::Font::bold));
         addAndMakeVisible(libraryLabel);
@@ -2048,12 +2048,13 @@ public:
         addAndMakeVisible(libraryBox);
 
         flatButton(importButton);
-        importButton.setButtonText("IMPORTAR NPNO");
-        importButton.setTooltip("Importar um piano Nord (.npno) nesta categoria");
+        importButton.setButtonText("IMPORTAR NORD");
+        importButton.setTooltip("Importar um instrumento Nord (.npno, .nsmp ou .nsmp3) nesta categoria");
         importButton.onClick = [this]
         {
             chooser = std::make_unique<juce::FileChooser>(
-                "Escolha um piano Nord (.npno)", juce::File{}, "*.npno;*.NPNO");
+                "Escolha uma amostra Nord (.npno, .nsmp ou .nsmp3)", juce::File{},
+                "*.npno;*.NPNO;*.nsmp;*.NSMP;*.nsmp3;*.NSMP3");
             chooser->launchAsync(juce::FileBrowserComponent::openMode
                                      | juce::FileBrowserComponent::canSelectFiles,
                 [this](const juce::FileChooser& fileChooser)
@@ -2078,7 +2079,7 @@ public:
         addAndMakeVisible(importButton);
 
         flatButton(deleteButton);
-        deleteButton.setButtonText("EXCLUIR NPNO");
+        deleteButton.setButtonText("EXCLUIR NORD");
         deleteButton.setTooltip("Excluir o piano Nord selecionado da biblioteca");
         deleteButton.onClick = [this]
         {
@@ -2132,7 +2133,7 @@ private:
             if (file.getFullPathName() == currentPath) selectedId = i + 1;
         }
         libraryBox.setTextWhenNothingSelected(libraryFiles.isEmpty()
-            ? "CATEGORIA VAZIA" : "ESCOLHA O NPNO");
+            ? "CATEGORIA VAZIA" : "ESCOLHA O NORD SAMPLE");
         if (selectedId > 0)
             libraryBox.setSelectedId(selectedId, juce::dontSendNotification);
         deleteButton.setEnabled(selectedId > 0);
@@ -5998,8 +5999,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
 {
     const auto isNord = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord;
-    const auto title = isNord ? "Escolha um piano Nord (.npno)" : "Escolha um SoundFont (.sf2)";
-    const auto filter = isNord ? "*.npno;*.NPNO" : "*.sf2;*.SF2";
+    const auto title = isNord ? "Escolha uma amostra Nord (.npno, .nsmp ou .nsmp3)" : "Escolha um SoundFont (.sf2)";
+    const auto filter = isNord ? "*.npno;*.NPNO;*.nsmp;*.NSMP;*.nsmp3;*.NSMP3" : "*.sf2;*.SF2";
     fileChooser = std::make_unique<juce::FileChooser>(
         localizedUiText(title, activeUiLanguage.load()), juce::File{}, filter);
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode |
@@ -6141,13 +6142,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     for (auto* control : sharedControls)
         control->setVisible(!isDrumPads);
 
-    loadButton.setButtonText(isNord ? "IMPORTAR NPNO" : "IMPORTAR SF2");
-    loadButton.setTooltip(isNord ? "Importar um piano Nord (.npno)" : "Importar um SoundFont (.sf2)");
+    loadButton.setButtonText(isNord ? "IMPORTAR NORD" : "IMPORTAR SF2");
+    loadButton.setTooltip(isNord ? "Importar Nord Sample (.npno, .nsmp ou .nsmp3)" : "Importar um SoundFont (.sf2)");
     loadButton.setVisible(isSf2 || isNord);
     categoryBox.setVisible(isSf2 || isNord);
     libraryBox.setVisible(isSf2 || isNord);
     deleteLibraryButton.setVisible(isSf2 || isNord);
-    deleteLibraryButton.setButtonText(isNord ? "EXCLUIR NPNO" : "EXCLUIR SF2");
+    deleteLibraryButton.setButtonText(isNord ? "EXCLUIR NORD" : "EXCLUIR SF2");
     presetBox.setVisible(isSf2);
     externalInstrumentBox.setVisible(isVst && processor.supportsExternalInstruments());
     externalInstrumentButton.setVisible(isVst && processor.supportsExternalInstruments());
@@ -6359,7 +6360,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::rebuildLibrary()
         if (file.getFullPathName() == currentPath) selectedId = item + 1;
     }
     libraryBox.setTextWhenNothingSelected(libraryFiles.isEmpty()
-        ? "CATEGORIA VAZIA" : isNord ? "ESCOLHA O NPNO" : "ESCOLHA O SF2");
+        ? "CATEGORIA VAZIA" : isNord ? "ESCOLHA O NORD SAMPLE" : "ESCOLHA O SF2");
     if (selectedId > 0) libraryBox.setSelectedId(selectedId, juce::dontSendNotification);
     deleteLibraryButton.setEnabled(libraryBox.getSelectedItemIndex() >= 0);
 }
@@ -6801,7 +6802,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     {
         juce::PopupMenu menu;
         menu.addItem(1, localizedUiText("Layer SF2 (.sf2)", uiLanguage));
-        menu.addItem(2, localizedUiText("Layer Nord Piano (.npno)", uiLanguage));
+        menu.addItem(2, localizedUiText("Layer Nord Sample (.npno/.nsmp/.nsmp3)", uiLanguage));
         menu.addItem(3, localizedUiText("Layer DX7 (.syx)", uiLanguage));
         menu.addItem(4, localizedUiText("Classic Keys Analog", uiLanguage));
         menu.addItem(5, localizedUiText("Layer Drum Pads (8)", uiLanguage));

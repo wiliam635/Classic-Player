@@ -128,6 +128,8 @@ target_sources(ClassicPlayer PRIVATE
     Source/SampleEngine.h
     Source/NordPianoDecoder.cpp
     Source/NordPianoDecoder.h
+    Source/NordSampleDecoder.cpp
+    Source/NordSampleDecoder.h
     Source/Dx7Engine.cpp
     Source/Dx7Engine.h
     Source/AnalogSynthEngine.cpp
@@ -248,7 +250,8 @@ if(CLASSIC_PLAYER_BUILD_TESTS)
     enable_testing()
     juce_add_console_app(ClassicPlayerSampleEngineTest PRODUCT_NAME "Classic Player NPNO Regression Test")
     target_sources(ClassicPlayerSampleEngineTest PRIVATE
-        Source/SampleEngineRegressionTest.cpp Source/SampleEngine.cpp Source/NordPianoDecoder.cpp)
+        Source/SampleEngineRegressionTest.cpp Source/SampleEngine.cpp Source/NordPianoDecoder.cpp
+        Source/NordSampleDecoder.cpp)
     target_compile_definitions(ClassicPlayerSampleEngineTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
     target_link_libraries(ClassicPlayerSampleEngineTest PRIVATE
         ${CLASSIC_PLAYER_FLUID_TARGET} juce::juce_audio_formats)
