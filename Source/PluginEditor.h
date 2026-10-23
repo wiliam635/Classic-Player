@@ -366,6 +366,8 @@ private:
     ClassicChordDetector::AccidentalStyle accidentalStyle { ClassicChordDetector::AccidentalStyle::mixed };
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterAttachment;
     juce::Viewport layerViewport;
+    juce::Component interfaceCanvas;
+    float interfaceScale = 1.0f;
     juce::Component layerContent;
     std::array<std::unique_ptr<LayerStrip>, Sf2Engine::layerCount> strips;
     NamedKeyboard keyboard;

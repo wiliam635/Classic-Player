@@ -237,6 +237,59 @@ static void continuousPadRegression()
 }
 struct LiveSetLayoutRegressionAccess
 {
+    static void responsiveUi(const char* screenshot)
+    {
+        juce::TemporaryFile storage;
+        const auto root = storage.getFile();
+        check(root.createDirectory().wasOk(), "responsive UI storage");
+        struct Cleanup { juce::File root; ~Cleanup() { root.deleteRecursively(); } } cleanup { root };
+        juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
+        auto processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
+        juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
+        processor->setLayerType(5, ClassicPlayerAudioProcessor::LayerType::drumPads);
+        auto editor = std::make_unique<ClassicPlayerAudioProcessorEditor>(*processor, false);
+        editor->setVisible(true);
+        editor->activationPanel.setVisible(false);
+        for (auto& strip : editor->strips) if (strip) strip->refresh();
+        for (const auto size : { juce::Point<int>(1600, 900), juce::Point<int>(1280, 740),
+                                 juce::Point<int>(1024, 560), juce::Point<int>(800, 480) })
+        {
+            editor->setSize(size.x, size.y);
+            check(editor->interfaceCanvas.getWidth() >= 1440
+                  && editor->interfaceCanvas.getHeight() >= 900, "interface squeezed instead of scaled");
+            for (auto* component : std::array<juce::Component*, 6> {
+                     &editor->skinSelector, &editor->audioMidiSettingsButton,
+                     &editor->keyboardVisibilityButton, &editor->recordingButton,
+                     &editor->cpuMeter, &editor->panicButton })
+            {
+                const auto bounds = editor->getLocalArea(component, component->getLocalBounds());
+                check(editor->getLocalBounds().expanded(1).contains(bounds), "scaled control outside window");
+            }
+            const auto buttonCentre = editor->getLocalPoint(&editor->recordingButton,
+                editor->recordingButton.getLocalBounds().getCentre());
+            const auto* hit = editor->getComponentAt(buttonCentre);
+            check(hit == &editor->recordingButton || editor->recordingButton.isParentOf(hit),
+                  "scaled button hit testing incorrect");
+            check(!editor->layerViewport.getVerticalScrollBar().isVisible(),
+                  "responsive UI added vertical scrolling");
+            check(!editor->layerViewport.getHorizontalScrollBar().isVisible(),
+                  "six-layer fixture requires horizontal scrolling");
+            for (int layer = 0; layer < 6; ++layer)
+                check(editor->strips[(size_t) layer]->getHeight() >= 500,
+                      "responsive UI flattened a layer");
+            if (screenshot != nullptr)
+            {
+                const auto file = juce::File(juce::String(screenshot) + "-"
+                    + juce::String(size.x) + "x" + juce::String(size.y) + ".png");
+                juce::FileOutputStream stream(file);
+                juce::PNGImageFormat png;
+                check(stream.openedOk() && png.writeImageToStream(
+                    editor->createComponentSnapshot(editor->getLocalBounds()), stream),
+                    "responsive screenshot");
+            }
+        }
+        std::cout << "Proportional UI scaling, visible controls and hit testing passed\n";
+    }
     static void layerColours(const char* screenshot)
     {
         juce::TemporaryFile storage;
@@ -348,7 +401,7 @@ struct LiveSetLayoutRegressionAccess
                     }
                     check(selected == 1 && editor->languageSelector.getSelectedId() == language, "Flag selection is not exclusive");
                 }
-                check(editor->getLocalBounds().contains(editor->cpuMeter.getBounds()), "CPU meter clipped");
+                check(editor->interfaceCanvas.getLocalBounds().contains(editor->cpuMeter.getBounds()), "CPU meter clipped");
             }
             editor->languageSelector.setSelectedId(editor->uiLanguage + 1, juce::dontSendNotification);
             if (screenshot != nullptr)
@@ -380,7 +433,7 @@ struct LiveSetLayoutRegressionAccess
         check(processor->saveProgram("Test instruments",program).wasOk(),"Live Set fixture program");
         check(processor->assignLiveSetSlot(0,0,program).wasOk(),"Live Set fixture assignment");
         check(processor->liveSetSlotLayerSummary(0,0)=="2 CAMADAS","built-in instruments missing from layer count");
-        auto editor = std::make_unique<ClassicPlayerAudioProcessorEditor>(*processor);
+        auto editor = std::make_unique<ClassicPlayerAudioProcessorEditor>(*processor, false);
         editor->showLiveSet(true);
         editor->activationPanel.setVisible(false);
         for (auto size : { juce::Point<int>(1280,700), juce::Point<int>(1000,600) })
@@ -390,7 +443,7 @@ struct LiveSetLayoutRegressionAccess
             check(editor->audioMidiSettingsButton.isVisible(),"standalone audio settings button hidden");
             check(editor->audioMidiSettingsButton.getWidth()>=120
                 &&editor->audioMidiSettingsButton.getHeight()>=24,"audio settings button collapsed");
-            check(editor->getLocalBounds().contains(editor->audioMidiSettingsButton.getBounds()),"audio settings button clipped");
+            check(editor->interfaceCanvas.getLocalBounds().contains(editor->audioMidiSettingsButton.getBounds()),"audio settings button clipped");
             check(!editor->audioMidiSettingsButton.getBounds().intersects(editor->keyboardVisibilityButton.getBounds()),
                   "audio settings overlaps keyboard toggle");
             editor->showLiveSet(true);
@@ -399,7 +452,7 @@ struct LiveSetLayoutRegressionAccess
             for (size_t i=0;i<editor->liveSetSlotButtons.size();++i)
             {
                 const auto bounds=editor->liveSetSlotButtons[i].getBounds();
-                check(editor->getLocalBounds().contains(bounds),"Live Set card clipped");
+                check(editor->interfaceCanvas.getLocalBounds().contains(bounds),"Live Set card clipped");
                 check(bounds.getWidth()>200 && bounds.getHeight()>150,"Live Set card too small");
                 check(!editor->liveSetSlotLearnButtons[i].isVisible(),"Learn visible outside edit mode");
                 for (size_t j=i+1;j<editor->liveSetSlotButtons.size();++j)
@@ -738,6 +791,16 @@ int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
     try{
+        if (argc > 1 && juce::String(argv[1]) == "--responsive-ui")
+        {
+            LiveSetLayoutRegressionAccess::responsiveUi(argc > 2 ? argv[2] : nullptr);
+            return 0;
+        }
+        if (argc > 1 && juce::String(argv[1]) == "--live-layout")
+        {
+            LiveSetLayoutRegressionAccess::run(argc > 2 ? argv[2] : nullptr);
+            return 0;
+        }
         if (argc > 1 && juce::String(argv[1]) == "--layer-colours")
         {
             LiveSetLayoutRegressionAccess::layerColours(argc > 2 ? argv[2] : nullptr);

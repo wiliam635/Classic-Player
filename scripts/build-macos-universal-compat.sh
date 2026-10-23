@@ -60,7 +60,7 @@ configure_and_build() {
     fi
   done
   local ui_test="$build/ClassicPlayerHammondTest_artefacts/Release/ClassicPlayerHammondTest"
-  for skin_option in --performance-effects --silver-ui --dark-steel-ui; do
+  for skin_option in --performance-effects --silver-ui --dark-steel-ui --responsive-ui --live-layout; do
     if [[ "$arch" == "x86_64" ]]; then
       arch -x86_64 "$ui_test" "$skin_option"
     else

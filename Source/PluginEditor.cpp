@@ -7757,28 +7757,37 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
         if (shouldValidateOnlineSession)
             validateStoredOnlineSession();
 
+    // Scale one complete interface, including text and hit testing, rather
+    // than squeezing individual faders when the usable desktop is smaller.
+    const auto interfaceChildren = getChildren();
+    for (auto* child : interfaceChildren)
+        interfaceCanvas.addChildComponent(child);
+    addAndMakeVisible(interfaceCanvas);
+
     // setSize() invokes resized() immediately. All layer strips must exist
     // before that callback can lay them out.
     setResizable(true, true);
     // Fit inside the usable desktop area (menu bar and Dock excluded).  The
     // standalone window adds its own title bar around this component, so keep
     // a small vertical allowance as well.
-    setResizeLimits(900, 600, 1920, 1080);
+    setResizeLimits(800, 480, 1920, 1080);
     const auto display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay();
     const auto available = display != nullptr ? display->userBounds.toNearestInt()
                                                : juce::Rectangle<int>(0, 0, 1366, 768);
     const auto initialWidth = juce::roundToInt(static_cast<float>(available.getWidth()) * 0.96f);
     const auto initialHeight = juce::roundToInt(static_cast<float>(available.getHeight()) * 0.88f);
-    auto width = juce::jmin(1600, juce::jmax(900, initialWidth));
-    auto height = juce::jmin(900, juce::jmax(600, initialHeight));
+    const auto maximumWidth = juce::jmax(800, juce::jmin(1920, available.getWidth() - 12));
+    const auto maximumHeight = juce::jmax(480, juce::jmin(1080, available.getHeight() - 48));
+    auto width = juce::jlimit(800, maximumWidth, juce::jmin(1600, initialWidth));
+    auto height = juce::jlimit(480, maximumHeight, juce::jmin(900, initialHeight));
 #if JucePlugin_Build_Standalone
     const auto savedSize = readStandaloneWindowSize();
     if (savedSize.x > 0 && savedSize.y > 0)
     {
         // The title bar sits outside the editor. Keep a restored window usable
         // when switching to a smaller monitor or changing display scaling.
-        width = juce::jlimit(900, juce::jmax(900, juce::jmin(1920, available.getWidth())), savedSize.x);
-        height = juce::jlimit(600, juce::jmax(600, juce::jmin(1080, available.getHeight() - 48)), savedSize.y);
+        width = juce::jlimit(800, maximumWidth, savedSize.x);
+        height = juce::jlimit(480, maximumHeight, savedSize.y);
     }
 #endif
     setSize(width, height);
@@ -8127,12 +8136,13 @@ void ClassicPlayerAudioProcessorEditor::showMasterLimiterEditor()
 }
 void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
 {
+    g.addTransform(juce::AffineTransform::scale(interfaceScale));
     if (activeUiPalette == 5 || activeUiPalette == 6)
-        paintBrushedSteel(g, getLocalBounds().toFloat());
+        paintBrushedSteel(g, interfaceCanvas.getLocalBounds().toFloat());
     else if (activeUiPalette == 2)
     {
         juce::ColourGradient nordGradient(juce::Colour(0xff7a1127), 0.0f, 0.0f,
-                                          juce::Colour(background), (float) getWidth(), (float) getHeight(), false);
+                                          juce::Colour(background), (float) interfaceCanvas.getWidth(), (float) interfaceCanvas.getHeight(), false);
         nordGradient.addColour(0.46, juce::Colour(0xff3d0914));
         g.setGradientFill(nordGradient);
         g.fillAll();
@@ -8140,7 +8150,7 @@ void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
     else if (activeUiPalette == 3)
     {
         juce::ColourGradient violetGradient(juce::Colour(0xff351083), 0.0f, 0.0f,
-                                            juce::Colour(background), (float) getWidth(), (float) getHeight(), false);
+                                            juce::Colour(background), (float) interfaceCanvas.getWidth(), (float) interfaceCanvas.getHeight(), false);
         violetGradient.addColour(0.52, juce::Colour(0xff1c1757));
         g.setGradientFill(violetGradient);
         g.fillAll();
@@ -8150,38 +8160,43 @@ void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
     if (showingLiveSet)
     {
         g.setColour(juce::Colour(paletteLine));
-        g.drawHorizontalLine(81, 14.0f, (float)getWidth()-14.0f);
-        g.drawRoundedRectangle(juce::Rectangle<float>(14, (float)getHeight()-76, (float)getWidth()-28, 62), 5, 1);
+        g.drawHorizontalLine(81, 14.0f, (float)interfaceCanvas.getWidth()-14.0f);
+        g.drawRoundedRectangle(juce::Rectangle<float>(14, (float)interfaceCanvas.getHeight()-76, (float)interfaceCanvas.getWidth()-28, 62), 5, 1);
         g.setColour(juce::Colour(text));
         g.setFont(juce::FontOptions(34.0f, juce::Font::bold));
-        g.drawText(localizedUiText("LIVE SET", activeUiLanguage.load()), getWidth()/2-130, 12, 260, 56, juce::Justification::centred);
-        const int start = getWidth()/2-100;
+        g.drawText(localizedUiText("LIVE SET", activeUiLanguage.load()), interfaceCanvas.getWidth()/2-130, 12, 260, 56, juce::Justification::centred);
+        const int start = interfaceCanvas.getWidth()/2-100;
         for (int i=0; i<ClassicPlayerAudioProcessor::liveSetBankCount; ++i)
         {
             g.setColour(juce::Colour(i == activeLiveSetBank ? teal : paletteLine));
-            g.fillEllipse((float)(start+i*26), (float)getHeight()-49, 8, 8);
+            g.fillEllipse((float)(start+i*26), (float)interfaceCanvas.getHeight()-49, 8, 8);
         }
         return;
     }
     g.setGradientFill(juce::ColourGradient(juce::Colour(panelLight), 0.0f, 0.0f,
-                                           juce::Colour(background), (float) getWidth(), 220.0f, false));
+                                           juce::Colour(background), (float) interfaceCanvas.getWidth(), 220.0f, false));
     if (activeUiPalette == 5 || activeUiPalette == 6)
-        paintBrushedSteel(g, juce::Rectangle<float>(0, 0, (float) getWidth(), 142));
+        paintBrushedSteel(g, juce::Rectangle<float>(0, 0, (float) interfaceCanvas.getWidth(), 142));
     else
-        g.fillRect(0, 0, getWidth(), 142);
+        g.fillRect(0, 0, interfaceCanvas.getWidth(), 142);
     g.setColour(juce::Colour(paletteLine));
-    g.drawHorizontalLine(141, 18.0f, (float) getWidth() - 18.0f);
-    g.drawHorizontalLine(getHeight() - 66, 18.0f, (float) getWidth() - 18.0f);
+    g.drawHorizontalLine(141, 18.0f, (float) interfaceCanvas.getWidth() - 18.0f);
+    g.drawHorizontalLine(interfaceCanvas.getHeight() - 66, 18.0f, (float) interfaceCanvas.getWidth() - 18.0f);
 }
 
 void ClassicPlayerAudioProcessorEditor::resized()
 {
-    auto area = getLocalBounds().reduced(14);
+    interfaceScale = juce::jmax(0.1f, juce::jmin(1.0f,
+        juce::jmin((float) getWidth() / 1440.0f, (float) getHeight() / 900.0f)));
+    interfaceCanvas.setBounds(0, 0, juce::roundToInt(getWidth() / interfaceScale),
+                             juce::roundToInt(getHeight() / interfaceScale));
+    interfaceCanvas.setTransform(juce::AffineTransform::scale(interfaceScale));
+    auto area = interfaceCanvas.getLocalBounds().reduced(14);
     auto header = area.removeFromTop(120);
-    const bool compactHeader = getWidth() < 1100;
+    const bool compactHeader = interfaceCanvas.getWidth() < 1100;
     appIcon.setBounds(header.removeFromLeft(compactHeader ? 58 : 70).reduced(4));
     header.removeFromLeft(5);
-    const auto brandWidth = compactHeader ? 164 : juce::jlimit(205, 255, getWidth() / 6);
+    const auto brandWidth = compactHeader ? 164 : juce::jlimit(205, 255, interfaceCanvas.getWidth() / 6);
     auto brand = header.removeFromLeft(brandWidth);
     brand.removeFromTop(16);
     title.setFont(juce::FontOptions(compactHeader ? 18.0f : 25.0f, juce::Font::bold));
@@ -8203,7 +8218,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
     header.removeFromRight(5);
     const auto rightActionsWidth = compactHeader ? 95
         : juce::jlimit(95, 190, juce::roundToInt(95.0f
-            + static_cast<float>(getWidth() - 1100) * 0.23f));
+            + static_cast<float>(interfaceCanvas.getWidth() - 1100) * 0.23f));
     auto rightActions = header.removeFromRight(rightActionsWidth);
     const auto rightActionHeight = 28;
     liveSetButton.setBounds(rightActions.removeFromTop(rightActionHeight).reduced(1));
@@ -8214,7 +8229,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
 
     const auto programActionsWidth = compactHeader ? 124
         : juce::jlimit(124, 260, juce::roundToInt(124.0f
-            + static_cast<float>(getWidth() - 1100) * 0.43f));
+            + static_cast<float>(interfaceCanvas.getWidth() - 1100) * 0.43f));
     auto programActions = header.removeFromRight(programActionsWidth);
     const auto actionWidth = programActions.getWidth() / 2;
     auto actionRow = programActions.removeFromTop(27);
@@ -8259,7 +8274,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
     if (showingLiveSet)
     {
         languageSelector.setVisible(false);
-        auto liveArea = getLocalBounds().reduced(14);
+        auto liveArea = interfaceCanvas.getLocalBounds().reduced(14);
         auto liveHeader = liveArea.removeFromTop(84);
         cpuMeter.setBounds(350, 20, 140, 22);
         updateButton.setBounds(350, 48, 140, 22);
@@ -8316,7 +8331,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
         layoutLayerStrips();
     }
 
-    activationPanel.setBounds(getLocalBounds());
+    activationPanel.setBounds(interfaceCanvas.getLocalBounds());
     activationBackdrop.setBounds(activationPanel.getLocalBounds());
     if (activationPanel.isVisible())
     {
@@ -8324,7 +8339,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
         languageSelector.toFront(false);
     }
     auto activation = activationPanel.getLocalBounds().withSizeKeepingCentre(
-        juce::jmin(650, getWidth() - 60), 360);
+        juce::jmin(650, interfaceCanvas.getWidth() - 60), 360);
     activationTitle.setBounds(activation.removeFromTop(58));
     activationHelp.setBounds(activation.removeFromTop(38));
     activation.removeFromTop(12);

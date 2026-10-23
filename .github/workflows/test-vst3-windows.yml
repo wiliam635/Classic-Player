@@ -112,6 +112,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Falha no visor de acordes/espectro" }
           & $test --layer-colours
           if ($LASTEXITCODE -ne 0) { throw "Falha nas cores independentes dos canais" }
+          & $test --responsive-ui
+          if ($LASTEXITCODE -ne 0) { throw "Falha na escala da interface em telas pequenas" }
+          & $test --live-layout
+          if ($LASTEXITCODE -ne 0) { throw "Falha no layout do Live Set e dos pads" }
 
       - name: Verify extended chords and saved MIDI mute modes
         shell: pwsh
