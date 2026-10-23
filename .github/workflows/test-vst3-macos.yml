@@ -23,6 +23,8 @@ on:
       - Source/SampleEngine.cpp
       - Source/SampleEngine.h
       - Source/SampleEngineRegressionTest.cpp
+      - Source/NordSampleDecoder.cpp
+      - Source/NordSampleDecoder.h
       - Source/Sf2Engine.cpp
       - Source/Sf2Engine.h
       - CMakeLists.txt
