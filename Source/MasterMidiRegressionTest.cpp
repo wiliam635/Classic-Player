@@ -138,6 +138,9 @@ static void startupPrograms()
     };
     auto p = open(true);
     p->prepareToPlay(48000, 128);
+    check(p->activeLayerCount() == 0, "standalone did not start blank");
+    for (int layer = 0; layer < 6; ++layer)
+        check(p->addLayer(), "create startup preset fixture layer");
     p->parameters.getParameter("master")->setValueNotifyingHost(0.25f);
     juce::File first, last;
     check(p->saveProgram("First", first).wasOk(), "save first");
@@ -199,9 +202,13 @@ static void startupPrograms()
     p = open(true);
     p->setStateInformation(unsaved.getData(), static_cast<int>(unsaved.getSize()));
     p->prepareToPlay(48000, 128);
-    check(p->parameters.getRawParameterValue("master")->load() == 25, "startup did not restore last OPENED program");
-    check(p->currentSavedProgramName() == "First", "restored program name");
-    check(p->activeLayerCount() == 6, "startup lost opened program layer count");
+    check(p->parameters.getRawParameterValue("master")->load() == 80, "startup restored performance gain");
+    check(p->currentSavedProgramName().isEmpty(), "startup selected a saved program");
+    check(p->activeLayerCount() == 0, "startup restored saved layers");
+    check(p->loadProgram(first).wasOk(), "manually select older saved program");
+    check(p->activeLayerCount() == 6
+          && p->parameters.getRawParameterValue("master")->load() == 25,
+          "manual selection lost saved layers or gain");
     check(p->loadProgram(last).wasOk(), "load newer program after reopening");
     for (const auto& [id, expected] : std::array<std::pair<const char*, float>, 13> {{
              { "layer1Attack", 12.0f }, { "layer1Release", 42.0f },
@@ -239,7 +246,7 @@ static void startupPrograms()
     p->prepareToPlay(48000, 128);
     check(p->parameters.getRawParameterValue("master")->load() == 80, "missing program fallback unsafe");
     p.reset();
-    std::cout << "Last-opened restore, program name, device restart, plugin isolation and missing file passed\n";
+    std::cout << "Blank startup, manual program selection, device restart and plugin isolation passed\n";
 }
 
 static void programLibraryExportImport()

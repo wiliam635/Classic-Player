@@ -19,6 +19,7 @@ on:
       - Source/PluginProcessor.cpp
       - Source/PluginProcessor.h
       - Source/HammondRegressionTest.cpp
+      - Source/MasterMidiRegressionTest.cpp
       - Source/SampleEngine.cpp
       - Source/SampleEngine.h
       - Source/SampleEngineRegressionTest.cpp
