@@ -707,10 +707,10 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             if (layer.pianoLoaded)
             {
                 const auto channel = juce::jlimit(1, 16, message.getChannel());
-                const auto bank = layer.sustainDown[(size_t) channel - 1] ? 1 : 0;
-                auto stroke = findPianoStroke(layer, note, velocity, bank);
-                if (stroke < 0 && bank == 1)
-                    stroke = findPianoStroke(layer, note, velocity, 0);
+                // Pedal sustain holds the currently played note. Do not
+                // switch to the NPNO pedal-down sample bank: its extra
+                // resonance can sound like a lingering reverb on some pianos.
+                const auto stroke = findPianoStroke(layer, note, velocity, 0);
                 if (stroke >= 0)
                     startPianoVoice(layer, stroke, note, channel, velocity, routing);
             }

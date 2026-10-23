@@ -151,6 +151,40 @@ struct SampleEngineRegressionTests
         require(!layer.sustainDown[0], "Panic left the pedal latched");
     }
 
+    static void sustainDoesNotSelectPedalSample()
+    {
+        auto engine = instrument(48000.0);
+        auto& layer = engine->layers[0];
+        auto pedalSample = layer.piano.strokes[0];
+        pedalSample.bank = 1;
+        std::fill(pedalSample.interleavedPcm.begin(), pedalSample.interleavedPcm.end(), 8192);
+        layer.piano.strokes.push_back(std::move(pedalSample));
+
+        auto routing = config();
+        routing.enabled = true;
+        juce::AudioBuffer<float> audio(2, 64);
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::controllerEvent(1, 64, 127), 0);
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.8f), 0);
+        engine->renderLayer(layer, audio, midi, routing);
+        auto voice = std::find_if(layer.voices.begin(), layer.voices.end(),
+            [](const auto& candidate) { return candidate.active; });
+        require(voice != layer.voices.end() && voice->sampleIndex == 0,
+                "Pedal-down selected the separate NPNO pedal sample");
+
+        midi.clear();
+        midi.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+        engine->renderLayer(layer, audio, midi, routing);
+        require(voice->active && voice->waitingForSustain && !voice->released,
+                "Sustain pedal did not continue holding the original sample");
+
+        midi.clear();
+        midi.addEvent(juce::MidiMessage::controllerEvent(1, 64, 0), 0);
+        engine->renderLayer(layer, audio, midi, routing);
+        require(voice->released && !voice->waitingForSustain,
+                "Pedal-up did not release the original sustained sample");
+    }
+
     static void stealing()
     {
         auto engine = instrument(48000.0);
@@ -466,6 +500,7 @@ struct SampleEngineRegressionTests
         }
         stealing();
         positiveOnlyTenthsDbTrim();
+        sustainDoesNotSelectPedalSample();
         crossfades();
         adaptiveVelocity();
         for (const auto rate : { 44100.0, 48000.0 })
