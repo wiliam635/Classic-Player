@@ -58,6 +58,9 @@ static void performanceEffectsRegression()
             processor->setLayerType(layer, ClassicPlayerAudioProcessor::LayerType::nord);
             auto routing = processor->layerConfig(layer);
             routing.pianoTimbre = (performance + layer) % 3;
+            routing.pianoSoftRelease = (performance + layer) % 2 != 0;
+            routing.pianoDynamicCompression = (performance + layer) % 4;
+            routing.pianoPedalResonance = (performance + layer) % 2 == 0;
             processor->setLayerConfig(layer, routing);
         }
         for (const auto& [id, pair] : values)
@@ -70,8 +73,14 @@ static void performanceEffectsRegression()
     const auto verify = [&](int performance)
     {
         for (int layer = 0; layer < 3; ++layer)
+        {
             check(processor->layerConfig(layer).pianoTimbre == (performance + layer) % 3,
                   "NPNO voicing did not restore with the performance");
+            check(processor->layerConfig(layer).pianoSoftRelease == ((performance + layer) % 2 != 0)
+                    && processor->layerConfig(layer).pianoDynamicCompression == (performance + layer) % 4
+                    && processor->layerConfig(layer).pianoPedalResonance == ((performance + layer) % 2 == 0),
+                  "NPNO piano controls did not restore with the performance");
+        }
         for (const auto& [id, pair] : values)
             check(std::abs(processor->parameters.getRawParameterValue(id)->load()
                            - pair[(size_t) performance]) < 0.11f,

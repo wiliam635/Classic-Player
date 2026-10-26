@@ -94,7 +94,7 @@ private:
     Voice& allocateVoice(Layer&, int polyphony);
     static void preparePianoLoops(NordPianoDecoder::Instrument&);
     int findPianoStroke(const Layer&, int note, float velocity, int bank) const;
-    void releasePianoVoice(Voice&, float releaseControl);
+    void releasePianoVoice(Voice&, float releaseControl, bool softRelease);
     void releaseVoice(Layer&, int note, int channel, float releaseControl);
     void renderLayer(Layer&, juce::AudioBuffer<float>&,
                      const juce::MidiBuffer&, const Sf2Engine::LayerConfig&);

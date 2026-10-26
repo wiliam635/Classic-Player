@@ -2313,7 +2313,7 @@ public:
         };
         addAndMakeVisible(velocityBox);
 
-        title.setText("EQUALIZER", juce::dontSendNotification);
+        title.setText("EQ", juce::dontSendNotification);
         title.setColour(juce::Label::textColourId, juce::Colour(text));
         title.setFont(juce::FontOptions(11.0f, juce::Font::bold));
         title.setJustificationType(juce::Justification::centredRight);
@@ -2361,7 +2361,61 @@ public:
         };
         addAndMakeVisible(decayBox);
 
+        dynamicLabel.setText("DYN COMP", juce::dontSendNotification);
+        dynamicLabel.setColour(juce::Label::textColourId, juce::Colour(text));
+        dynamicLabel.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+        addAndMakeVisible(dynamicLabel);
+        dynamicBox.getProperties().set("uiDataItems", true);
+        dynamicBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
+        dynamicBox.setColour(juce::ComboBox::textColourId, juce::Colour(text));
+        dynamicBox.addItem("OFF", 1);
+        dynamicBox.addItem("1", 2);
+        dynamicBox.addItem("2", 3);
+        dynamicBox.addItem("3", 4);
+        dynamicBox.setTooltip("Eleva o volume das notas suaves sem mudar a amostra escolhida pela velocidade. Niveis 1 a 3.");
+        dynamicBox.setSelectedId(processor.layerConfig(index).pianoDynamicCompression + 1,
+                                 juce::dontSendNotification);
+        dynamicBox.onChange = [this]
+        {
+            auto config = processor.layerConfig(index);
+            config.pianoDynamicCompression = juce::jlimit(0, 3, dynamicBox.getSelectedId() - 1);
+            processor.setLayerConfig(index, config);
+        };
+        addAndMakeVisible(dynamicBox);
+
+        const auto setupToggle = [this] (juce::Label& label, juce::TextButton& button,
+                                         const juce::String& name, const juce::String& hint)
+        {
+            label.setText(name, juce::dontSendNotification);
+            label.setColour(juce::Label::textColourId, juce::Colour(text));
+            label.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+            addAndMakeVisible(label);
+            button.setClickingTogglesState(true);
+            button.setTooltip(hint);
+            flatButton(button);
+            addAndMakeVisible(button);
+        };
+        setupToggle(softReleaseLabel, softReleaseButton, "SOFT REL",
+                    "Soltura mais suave da nota NPNO. Nao altera o tempo maximo da CAUDA NPNO.");
+        softReleaseButton.onClick = [this]
+        {
+            auto config = processor.layerConfig(index);
+            config.pianoSoftRelease = softReleaseButton.getToggleState();
+            processor.setLayerConfig(index, config);
+            refreshToggleLabels(config);
+        };
+        setupToggle(pedalResonanceLabel, pedalResonanceButton, "REFLEXOES",
+                    "Usa as amostras pedal-down presentes no NPNO para notas iniciadas com sustain pressionado. Desligado por padrao.");
+        pedalResonanceButton.onClick = [this]
+        {
+            auto config = processor.layerConfig(index);
+            config.pianoPedalResonance = pedalResonanceButton.getToggleState();
+            processor.setLayerConfig(index, config);
+            refreshToggleLabels(config);
+        };
+
         selectMode(processor.layerConfig(index).pianoTimbre, false);
+        refreshToggleLabels(processor.layerConfig(index));
         setSize(620, 42);
         startTimerHz(5);
     }
@@ -2369,18 +2423,27 @@ public:
     void resized() override
     {
         auto area = getLocalBounds();
-        auto velocityArea = area.removeFromLeft(145);
+        auto velocityArea = area.removeFromLeft(108);
         velocityLabel.setBounds(velocityArea.removeFromTop(15));
         velocityBox.setBounds(velocityArea.reduced(2, 1));
-        auto decayArea = area.removeFromRight(122);
+        auto decayArea = area.removeFromRight(90);
         decayLabel.setBounds(decayArea.removeFromTop(15));
         decayBox.setBounds(decayArea.reduced(2, 1));
-        title.setBounds(area.removeFromLeft(76).reduced(2, 0));
+        auto pedalArea = area.removeFromRight(92);
+        pedalResonanceLabel.setBounds(pedalArea.removeFromTop(15));
+        pedalResonanceButton.setBounds(pedalArea.reduced(2, 1));
+        auto softArea = area.removeFromRight(70);
+        softReleaseLabel.setBounds(softArea.removeFromTop(15));
+        softReleaseButton.setBounds(softArea.reduced(2, 1));
+        auto dynamicArea = area.removeFromRight(78);
+        dynamicLabel.setBounds(dynamicArea.removeFromTop(15));
+        dynamicBox.setBounds(dynamicArea.reduced(2, 1));
+        title.setBounds(area.removeFromLeft(20));
         const auto buttonWidth = area.getWidth() / 4;
         for (int mode = 0; mode < 4; ++mode)
         {
             auto buttonArea = mode == 3 ? area : area.removeFromLeft(buttonWidth);
-            modes[(size_t) mode].setBounds(buttonArea.reduced(3, 4));
+            modes[(size_t) mode].setBounds(buttonArea.reduced(1, 4));
         }
     }
 
@@ -2393,6 +2456,16 @@ private:
                                   juce::dontSendNotification);
         decayBox.setSelectedId(juce::roundToInt(config.pianoDecaySeconds),
                                juce::dontSendNotification);
+        dynamicBox.setSelectedId(config.pianoDynamicCompression + 1, juce::dontSendNotification);
+        refreshToggleLabels(config);
+    }
+
+    void refreshToggleLabels(const Sf2Engine::LayerConfig& config)
+    {
+        softReleaseButton.setToggleState(config.pianoSoftRelease, juce::dontSendNotification);
+        softReleaseButton.setButtonText(config.pianoSoftRelease ? "SIM" : "NAO");
+        pedalResonanceButton.setToggleState(config.pianoPedalResonance, juce::dontSendNotification);
+        pedalResonanceButton.setButtonText(config.pianoPedalResonance ? "SIM" : "NAO");
     }
 
     void selectMode(int mode, bool updateProcessor = true)
@@ -2410,8 +2483,9 @@ private:
 
     ClassicPlayerAudioProcessor& processor;
     int index;
-    juce::Label title, velocityLabel, decayLabel;
-    juce::ComboBox velocityBox, decayBox;
+    juce::Label title, velocityLabel, decayLabel, dynamicLabel, softReleaseLabel, pedalResonanceLabel;
+    juce::ComboBox velocityBox, decayBox, dynamicBox;
+    juce::TextButton softReleaseButton, pedalResonanceButton;
     std::array<juce::TextButton, 4> modes;
 };
 

@@ -5,7 +5,7 @@ website, application, or AGPL-licensed source code.
 
 | File/function | Classic Player status |
 | --- | --- |
-| `.npno` piano library | Dedicated NPNO layer, unchanged |
+| `.npno` piano library | Dedicated NPNO layer; velocity/EQ/decay plus optional soft release, dynamic compression and pedal-down sample reflections |
 | `.nsmp` (Sample Library 2) | Nord Sample layer: keyboard/velocity zones, tuning, gain, PCM and loops |
 | `.nsmp3` (Sample Library 3) | Same layer and controls; needs validation with a real `.nsmp3` file |
 | `.nsmp4` (Sample Library 4) | Existing layer support, crossfaded loop seams |
@@ -17,6 +17,14 @@ website, application, or AGPL-licensed source code.
 The sample decoder rejects corrupt checksums, invalid zones and oversized decoded
 audio. The NPNO and Nord Sample layers remain separate, and a performance stores
 the imported sample path so it can be restored later.
+
+NPNO pedal reflections default to **off**, including when an old performance is
+opened. When enabled, notes begun with the sustain pedal down use the file's
+pedal-down sample bank if one is present; the normal bank is used otherwise.
+This is not a synthetic reverb or a copy of Nord's full sympathetic-string
+model. Soft release and dynamic compression also default to off, preserving
+the sound of existing performances. NPNO MIDI events are rendered at their
+sample offsets within each audio block instead of being applied prematurely.
 
 OpenNord's Stage 4 parameter browser is useful as a behavioral reference, but its
 AGPL-3.0-or-later source cannot be copied into this application under its current

@@ -48,6 +48,58 @@ struct SampleEngineRegressionTests
             engine.layers[0].voices.end(), [](const auto& voice) { return voice.active; }));
     }
 
+    static void midiTiming(double rate)
+    {
+        auto routing = config();
+        routing.release = 0.0f;
+        auto whole = instrument(rate);
+        juce::AudioBuffer<float> wholeAudio(2, 64);
+        wholeAudio.clear();
+        juce::MidiBuffer events;
+        events.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 100), 16);
+        events.addEvent(juce::MidiMessage::controllerEvent(1, 64, 127), 32);
+        events.addEvent(juce::MidiMessage::noteOff(1, 60), 40);
+        events.addEvent(juce::MidiMessage::controllerEvent(1, 64, 0), 56);
+        whole->renderLayer(whole->layers[0], wholeAudio, events, routing);
+
+        for (int sample = 0; sample < 16; ++sample)
+            require(wholeAudio.getSample(0, sample) == 0.0f,
+                    "NPNO note started before its MIDI timestamp");
+        require(wholeAudio.getSample(0, 16) > 0.0f,
+                "NPNO note missed its MIDI timestamp");
+        require(wholeAudio.getSample(0, 48) > 0.0f,
+                "Pedal did not hold the note after key-up");
+
+        auto split = instrument(rate);
+        juce::AudioBuffer<float> splitAudio(2, 64);
+        splitAudio.clear();
+        for (int start = 0; start < 64; start += 8)
+        {
+            juce::AudioBuffer<float> segment(splitAudio.getArrayOfWritePointers(), 2, start, 8);
+            juce::MidiBuffer segmentEvents;
+            for (const auto metadata : events)
+                if (metadata.samplePosition >= start && metadata.samplePosition < start + 8)
+                    segmentEvents.addEvent(metadata.getMessage(), metadata.samplePosition - start);
+            split->renderLayer(split->layers[0], segment, segmentEvents, routing);
+        }
+        for (int sample = 0; sample < 64; ++sample)
+            require(std::abs(wholeAudio.getSample(0, sample)
+                             - splitAudio.getSample(0, sample)) < 0.00001f,
+                    "NPNO playback changed with MIDI block boundaries");
+
+        auto earlyKeyUp = instrument(rate);
+        juce::AudioBuffer<float> earlyAudio(2, 64);
+        earlyAudio.clear();
+        juce::MidiBuffer earlyEvents;
+        earlyEvents.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 100), 0);
+        earlyEvents.addEvent(juce::MidiMessage::noteOff(1, 60), 16);
+        earlyEvents.addEvent(juce::MidiMessage::controllerEvent(1, 64, 127), 32);
+        earlyKeyUp->renderLayer(earlyKeyUp->layers[0], earlyAudio, earlyEvents, routing);
+        require(earlyKeyUp->layers[0].voices[0].released
+                    && !earlyKeyUp->layers[0].voices[0].waitingForSustain,
+                "A later pedal press incorrectly sustained an earlier note-off");
+    }
+
     static float renderedNoteVelocity(int inputVelocity, Sf2Engine::LayerConfig routing)
     {
         auto engine = instrument(48000.0);
@@ -152,7 +204,7 @@ struct SampleEngineRegressionTests
         require(!layer.sustainDown[0], "Panic left the pedal latched");
     }
 
-    static void sustainDoesNotSelectPedalSample()
+    static void pedalResonanceIsOptional()
     {
         auto engine = instrument(48000.0);
         auto& layer = engine->layers[0];
@@ -184,6 +236,68 @@ struct SampleEngineRegressionTests
         engine->renderLayer(layer, audio, midi, routing);
         require(voice->released && !voice->waitingForSustain,
                 "Pedal-up did not release the original sustained sample");
+
+        engine->stopAllSounds();
+        routing.pianoPedalResonance = true;
+        midi.clear();
+        midi.addEvent(juce::MidiMessage::controllerEvent(1, 64, 127), 0);
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.8f), 0);
+        audio.clear();
+        engine->renderLayer(layer, audio, midi, routing);
+        voice = std::find_if(layer.voices.begin(), layer.voices.end(),
+            [](const auto& candidate) { return candidate.active; });
+        require(voice != layer.voices.end() && voice->sampleIndex == 1,
+                "Enabled pedal reflections did not select the NPNO pedal-down sample");
+        midi.clear();
+        midi.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+        midi.addEvent(juce::MidiMessage::controllerEvent(1, 64, 0), 32);
+        audio.clear();
+        engine->renderLayer(layer, audio, midi, routing);
+        require(voice->released && !voice->waitingForSustain,
+                "Pedal reflections stayed latched after sustain was released");
+
+        auto noPedalBank = instrument(48000.0);
+        noPedalBank->layers[0].sustainDown[0] = true;
+        midi.clear();
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.8f), 0);
+        audio.clear();
+        noPedalBank->renderLayer(noPedalBank->layers[0], audio, midi, routing);
+        require(noPedalBank->layers[0].voices[0].sampleIndex == 0,
+                "Missing pedal-down bank did not fall back to the original piano sample");
+    }
+
+    static void stageFourPianoControls()
+    {
+        auto routing = config();
+        routing.enabled = true;
+        routing.release = 50.0f;
+        juce::AudioBuffer<float> audio(2, 64);
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.2f), 0);
+
+        auto natural = instrument(48000.0);
+        natural->renderLayer(natural->layers[0], audio, midi, routing);
+        const auto naturalLevel = natural->layers[0].voices[0].level;
+        const auto naturalVelocity = natural->layers[0].voices[0].velocity;
+
+        routing.pianoDynamicCompression = 3;
+        auto compressed = instrument(48000.0);
+        audio.clear();
+        compressed->renderLayer(compressed->layers[0], audio, midi, routing);
+        require(compressed->layers[0].voices[0].level > naturalLevel
+                    && compressed->layers[0].voices[0].velocity == naturalVelocity,
+                "Dynamic compression changed the selected sample instead of lifting quiet level");
+
+        midi.clear();
+        midi.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+        audio.clear();
+        natural->renderLayer(natural->layers[0], audio, midi, routing);
+        const auto normalRelease = natural->layers[0].voices[0].releaseCoefficient;
+        routing.pianoSoftRelease = true;
+        audio.clear();
+        compressed->renderLayer(compressed->layers[0], audio, midi, routing);
+        require(compressed->layers[0].voices[0].releaseCoefficient > normalRelease,
+                "Soft release did not extend the NPNO key-up envelope");
     }
 
     static void stealing()
@@ -502,11 +616,13 @@ struct SampleEngineRegressionTests
         }
         stealing();
         positiveOnlyTenthsDbTrim();
-        sustainDoesNotSelectPedalSample();
+        pedalResonanceIsOptional();
+        stageFourPianoControls();
         crossfades();
         adaptiveVelocity();
         for (const auto rate : { 44100.0, 48000.0 })
         {
+            midiTiming(rate);
             sustainAndPolyphony(rate);
             lifetime(rate);
             shortenedDecay(rate);
@@ -518,11 +634,25 @@ struct SampleEngineRegressionTests
     }
 };
 
-int main()
+int main(int argc, char** argv)
 {
     try
     {
         SampleEngineRegressionTests::run();
+        for (int argument = 1; argument < argc; ++argument)
+        {
+            NordPianoDecoder::Instrument piano;
+            const auto result = NordPianoDecoder::decodeFile(
+                juce::File(juce::String::fromUTF8(argv[argument])), piano);
+            if (result.failed())
+                throw std::runtime_error(result.getErrorMessage().toStdString());
+            SampleEngineRegressionTests::require(!piano.strokes.empty() && piano.channels >= 1,
+                                                 "Real NPNO decoded without playable strokes");
+            const auto pedalStrokes = std::count_if(piano.strokes.begin(), piano.strokes.end(),
+                [](const auto& stroke) { return stroke.bank == 1; });
+            std::cout << "Real NPNO: " << argv[argument] << ", " << piano.strokes.size()
+                      << " strokes, " << pedalStrokes << " pedal-down strokes\n";
+        }
         std::cout << "NPNO velocity calibration, polyphony, sustain, lifetime and EQ: OK\n";
         return 0;
     }

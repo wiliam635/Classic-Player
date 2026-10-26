@@ -6,14 +6,16 @@ namespace
 {
 constexpr double pianoCrossfadeSeconds = 0.55;
 
-float releaseCoefficientFor(float releaseControl, double sampleRate)
+float releaseCoefficientFor(float releaseControl, double sampleRate, bool softRelease = false)
 {
     // Match the shared layer Release control: 50 is 0.5 s and 100 is 10 s.
     // Values are mapped to the time it takes the envelope to become inaudible.
     const auto value = juce::jlimit(0.0f, 100.0f, releaseControl);
-    const auto releaseSeconds = value <= 50.0f
+    auto releaseSeconds = value <= 50.0f
         ? juce::jmax(0.005f, value * 0.01f)
         : 0.5f * std::pow(20.0f, (value - 50.0f) / 50.0f);
+    if (softRelease)
+        releaseSeconds = juce::jmin(15.0f, juce::jmax(0.18f, releaseSeconds * 1.5f));
     constexpr auto silenceThreshold = 0.0001f;
     const auto releaseSamples = juce::jmax(1.0, static_cast<double>(releaseSeconds) * sampleRate);
     return static_cast<float>(std::exp(std::log(silenceThreshold) / releaseSamples));
@@ -528,7 +530,10 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     candidate->position = 0.0;
     candidate->increment = std::pow(2.0, semitones / 12.0)
                          * static_cast<double>(NordPianoDecoder::sampleRate) / currentSampleRate;
-    candidate->level = velocity * strokeGain;
+    // Dynamic compression lifts the quietest keystrokes but preserves the
+    // original velocity used above to select the sample/timbre layer.
+    const auto dynamicLift = 0.10f * juce::jlimit(0, 3, routing.pianoDynamicCompression);
+    candidate->level = (velocity + (1.0f - velocity) * dynamicLift) * strokeGain;
     candidate->velocity = velocity;
     const auto attackSamples = juce::jmax(1.0, routing.attack * 0.001 * currentSampleRate);
     candidate->attackGain = routing.attack <= 0.0f ? 1.0f : 0.0f;
@@ -541,12 +546,12 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     candidate->waitingForSustain = false;
 }
 
-void SampleEngine::releasePianoVoice(Voice& voice, float releaseControl)
+void SampleEngine::releasePianoVoice(Voice& voice, float releaseControl, bool softRelease)
 {
     if (!voice.active || voice.pianoRelease || voice.released) return;
     voice.waitingForSustain = false;
     voice.released = true;
-    voice.releaseCoefficient = releaseCoefficientFor(releaseControl, currentSampleRate);
+    voice.releaseCoefficient = releaseCoefficientFor(releaseControl, currentSampleRate, softRelease);
 }
 
 void SampleEngine::releaseVoice(Layer& layer, int note, int channel, float releaseControl)
@@ -652,14 +657,13 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
         layer.sustainDown.fill(false);
         for (auto& voice : layer.voices)
             if (voice.active && voice.waitingForSustain)
-                releasePianoVoice(voice, routing.release);
+                releasePianoVoice(voice, routing.release, routing.pianoSoftRelease);
     }
 
-    for (const auto metadata : midi)
+    const auto processEvent = [&] (const juce::MidiMessage& message)
     {
-        const auto message = metadata.getMessage();
         if (routing.midiChannel > 0 && message.getChannel() != routing.midiChannel)
-            continue;
+            return;
 
         if (message.isAllSoundOff() || message.isAllNotesOff())
         {
@@ -669,17 +673,17 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 if (voice.active && voice.channel == channel)
                 {
                     if (message.isAllSoundOff()) voice = {};
-                    else if (layer.pianoLoaded) releasePianoVoice(voice, routing.release);
+                    else if (layer.pianoLoaded) releasePianoVoice(voice, routing.release, routing.pianoSoftRelease);
                     else releaseVoice(layer, voice.note, channel, routing.release);
                 }
-            continue;
+            return;
         }
 
         if (message.isController() && message.getControllerNumber() == 1)
         {
             layer.modulationAmount = routing.modulationEnabled
                 ? message.getControllerValue() / 127.0f : 0.0f;
-            continue;
+            return;
         }
 
         if (layer.pianoLoaded && message.isController() && message.getControllerNumber() == 64)
@@ -691,15 +695,15 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             if (wasDown && !isDown)
                 for (auto& voice : layer.voices)
                     if (voice.active && voice.waitingForSustain && voice.channel == channel)
-                        releasePianoVoice(voice, routing.release);
-            continue;
+                        releasePianoVoice(voice, routing.release, routing.pianoSoftRelease);
+            return;
         }
 
         if (message.isNoteOn())
         {
-            if (!routing.acceptsVelocity((int) message.getVelocity())) continue;
+            if (!routing.acceptsVelocity((int) message.getVelocity())) return;
             const auto inputNote = message.getNoteNumber();
-            if (inputNote < routing.lowNote || inputNote > routing.highNote) continue;
+            if (inputNote < routing.lowNote || inputNote > routing.highNote) return;
             const auto note = juce::jlimit(0, 127, inputNote + routing.octave * 12);
             auto velocity = juce::jlimit(0.0f, 1.0f, message.getFloatVelocity());
             if (routing.velocityCurve == 3 && routing.velocityCalibrationEnabled)
@@ -709,10 +713,14 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             if (layer.pianoLoaded)
             {
                 const auto channel = juce::jlimit(1, 16, message.getChannel());
-                // Pedal sustain holds the currently played note. Do not
-                // switch to the NPNO pedal-down sample bank: its extra
-                // resonance can sound like a lingering reverb on some pianos.
-                const auto stroke = findPianoStroke(layer, note, velocity, 0);
+                // The pedal-down bank is an explicit opt-in: some NPNOs have
+                // a pronounced reflection that sounds like lingering reverb.
+                // Existing performances continue to play the dry bank.
+                const auto pedalDown = layer.sustainDown[(size_t) channel - 1];
+                auto stroke = routing.pianoPedalResonance && pedalDown
+                    ? findPianoStroke(layer, note, velocity, 1) : -1;
+                if (stroke < 0)
+                    stroke = findPianoStroke(layer, note, velocity, 0);
                 if (stroke >= 0)
                     startPianoVoice(layer, stroke, note, channel, velocity, routing);
             }
@@ -722,7 +730,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
         else if (message.isNoteOff())
         {
             const auto inputNote = message.getNoteNumber();
-            if (inputNote < routing.lowNote || inputNote > routing.highNote) continue;
+            if (inputNote < routing.lowNote || inputNote > routing.highNote) return;
             const auto note = juce::jlimit(0, 127, inputNote + routing.octave * 12);
             if (layer.pianoLoaded)
             {
@@ -739,13 +747,13 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                     for (auto& voice : layer.voices)
                         if (voice.active && voice.sampleIndex >= 0 && !voice.pianoRelease
                             && voice.note == note && voice.channel == channel)
-                            releasePianoVoice(voice, routing.release);
+                            releasePianoVoice(voice, routing.release, routing.pianoSoftRelease);
                 }
             }
             else
                 releaseVoice(layer, note, message.getChannel(), routing.release);
         }
-    }
+    };
 
     const auto normalEndSample = layer.config.endSeconds > 0.0
         ? juce::jmin(layer.audio.getNumSamples(),
@@ -760,8 +768,11 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
     // Organs retain continuous sustain; piano notes use the per-voice tail length.
     const auto finitePiano = layer.pianoLoaded && layer.finitePiano;
 
-    for (auto& voice : layer.voices)
+    const auto renderVoices = [&] (int firstSample, int lastSample)
     {
+      if (firstSample >= lastSample) return;
+      for (auto& voice : layer.voices)
+      {
         if (!voice.active) continue;
 
         const auto isPianoVoice = voice.sampleIndex >= 0;
@@ -786,7 +797,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
         const auto loopedPiano = pianoStroke != nullptr && !voice.pianoRelease
             && pianoStroke->loopEndFrame > pianoStroke->loopStartFrame;
         const auto inverseDecaySamples = 1.0 / (currentSampleRate * voice.pianoDecaySeconds);
-        for (int sample = 0; sample < output.getNumSamples(); ++sample)
+        for (int sample = firstSample; sample < lastSample; ++sample)
         {
             const auto elapsedDecay = static_cast<double>(voice.age) * inverseDecaySamples;
             if (isPianoVoice && finitePiano && elapsedDecay >= 1.0)
@@ -846,7 +857,22 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 if (voice.releaseGain < 0.0001f) { voice.active = false; break; }
             }
         }
+      }
+    };
+
+    // MIDI offsets are relative to this audio block. Rendering each span before
+    // applying its next event keeps notes, pedal and releases sample-accurate,
+    // without allocating memory in the audio callback.
+    int renderedThrough = 0;
+    for (const auto metadata : midi)
+    {
+        const auto eventSample = juce::jlimit(renderedThrough, output.getNumSamples(),
+                                              metadata.samplePosition);
+        renderVoices(renderedThrough, eventSample);
+        processEvent(metadata.getMessage());
+        renderedThrough = eventSample;
     }
+    renderVoices(renderedThrough, output.getNumSamples());
     layer.peak.store(juce::jmax(peak, layer.peak.load(std::memory_order_relaxed) * 0.8f),
                      std::memory_order_relaxed);
 }

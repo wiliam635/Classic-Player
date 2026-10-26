@@ -3397,6 +3397,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
     const auto destinationZero = juce::String(destinationLayer);
     const juce::StringArray oneBased {
         "layerType", "dx7Layer", "dx7Patch", "sf2Layer", "sf2Bank", "sf2Program", "pianoTimbre", "pianoDecaySeconds",
+        "pianoSoftRelease", "pianoDynamicCompression", "pianoPedalResonance",
         "nordTremoloMix", "nordTremoloRate", "nordFlangerMix", "nordFlangerRate",
         "nordChorusMix", "nordChorusRate", "nordDelayMix", "nordDelayBpm", "nordDelayFeedback",
         "externalInstrument", "externalInstrumentState", "analogOsc1Wave", "analogOsc2Wave",
@@ -3550,6 +3551,9 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("velocityHardInput" + juce::String(i), config.velocityHardInput, nullptr);
         state.setProperty("pianoTimbre" + juce::String(i + 1), config.pianoTimbre, nullptr);
         state.setProperty("pianoDecaySeconds" + juce::String(i + 1), config.pianoDecaySeconds, nullptr);
+        state.setProperty("pianoSoftRelease" + juce::String(i + 1), config.pianoSoftRelease, nullptr);
+        state.setProperty("pianoDynamicCompression" + juce::String(i + 1), config.pianoDynamicCompression, nullptr);
+        state.setProperty("pianoPedalResonance" + juce::String(i + 1), config.pianoPedalResonance, nullptr);
         const auto fxKey = juce::String(i + 1);
         state.setProperty("nordTremoloMix" + fxKey, config.nordFx.tremoloMix, nullptr);
         state.setProperty("nordTremoloRate" + fxKey, config.nordFx.tremoloRate, nullptr);
@@ -4001,6 +4005,12 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     "pianoTimbre" + juce::String(i + 1), config.pianoTimbre)));
                 config.pianoDecaySeconds = juce::jlimit(3.0f, 15.0f, static_cast<float>(
                     state.getProperty("pianoDecaySeconds" + juce::String(i + 1), 15.0f)));
+                config.pianoSoftRelease = static_cast<bool>(state.getProperty(
+                    "pianoSoftRelease" + juce::String(i + 1), false));
+                config.pianoDynamicCompression = juce::jlimit(0, 3, static_cast<int>(state.getProperty(
+                    "pianoDynamicCompression" + juce::String(i + 1), 0)));
+                config.pianoPedalResonance = static_cast<bool>(state.getProperty(
+                    "pianoPedalResonance" + juce::String(i + 1), false));
                 const auto fxKey = juce::String(i + 1);
                 config.nordFx.tremoloMix = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordTremoloMix" + fxKey, 0.0f));
                 config.nordFx.tremoloRate = juce::jlimit(0.2f, 12.0f, (float) state.getProperty("nordTremoloRate" + fxKey, 4.0f));
