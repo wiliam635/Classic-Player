@@ -5,6 +5,7 @@
 #include "LicenseVerifier.h"
 #include "ClassicPlayerAssets.h"
 #include "ChordDetector.h"
+#include "NordSampleExport.h"
 #if JucePlugin_Build_Standalone
  #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
 #endif
@@ -2080,7 +2081,7 @@ public:
         categoryLabel.setColour(juce::Label::textColourId, juce::Colour(text));
         categoryLabel.setFont(juce::FontOptions(10.0f, juce::Font::bold));
         addAndMakeVisible(categoryLabel);
-        libraryLabel.setText(isSampleLayer ? "BIBLIOTECA NSMP4" : "BIBLIOTECA NPNO", juce::dontSendNotification);
+        libraryLabel.setText(isSampleLayer ? "BIBLIOTECA NSMP" : "BIBLIOTECA NPNO", juce::dontSendNotification);
         libraryLabel.setColour(juce::Label::textColourId, juce::Colour(text));
         libraryLabel.setFont(juce::FontOptions(10.0f, juce::Font::bold));
         addAndMakeVisible(libraryLabel);
@@ -2114,7 +2115,7 @@ public:
                 : processor.loadNordPiano(index, libraryFiles.getReference(selected), selectedCategoryId(categoryBox));
             if (result.failed())
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                    isSampleLayer ? "Falha ao carregar NSMP4" : "Falha ao carregar piano Nord", result.getErrorMessage());
+                    isSampleLayer ? "Falha ao carregar NSMP" : "Falha ao carregar piano Nord", result.getErrorMessage());
             else
             {
                 rebuildLibrary();
@@ -2124,13 +2125,13 @@ public:
         addAndMakeVisible(libraryBox);
 
         flatButton(importButton);
-        importButton.setButtonText(isSampleLayer ? "IMPORTAR NSMP4" : "IMPORTAR NPNO");
-        importButton.setTooltip(isSampleLayer ? "Importar uma amostra Nord (.nsmp4)" : "Importar um piano Nord (.npno) nesta categoria");
+        importButton.setButtonText(isSampleLayer ? "IMPORTAR NSMP" : "IMPORTAR NPNO");
+        importButton.setTooltip(isSampleLayer ? "Importar uma amostra Nord (.nsmp, .nsmp3, .nsmp4)" : "Importar um piano Nord (.npno) nesta categoria");
         importButton.onClick = [this]
         {
             chooser = std::make_unique<juce::FileChooser>(
-                isSampleLayer ? "Escolha uma amostra Nord (.nsmp4)" : "Escolha um piano Nord (.npno)",
-                juce::File{}, isSampleLayer ? "*.nsmp4;*.NSMP4" : "*.npno;*.NPNO");
+                isSampleLayer ? "Escolha uma amostra Nord (.nsmp, .nsmp3, .nsmp4)" : "Escolha um piano Nord (.npno)",
+                juce::File{}, isSampleLayer ? "*.nsmp;*.NSMP;*.nsmp3;*.NSMP3;*.nsmp4;*.NSMP4" : "*.npno;*.NPNO");
             chooser->launchAsync(juce::FileBrowserComponent::openMode
                                      | juce::FileBrowserComponent::canSelectFiles,
                 [this](const juce::FileChooser& fileChooser)
@@ -2146,7 +2147,7 @@ public:
                                                : processor.loadNordPiano(index, imported, selectedCategoryId(categoryBox));
                     if (result.failed())
                         juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                            isSampleLayer ? "Falha ao importar NSMP4" : "Falha ao importar piano Nord", result.getErrorMessage());
+                            isSampleLayer ? "Falha ao importar NSMP" : "Falha ao importar piano Nord", result.getErrorMessage());
                     else
                     {
                         rebuildLibrary();
@@ -2157,8 +2158,9 @@ public:
         addAndMakeVisible(importButton);
 
         flatButton(deleteButton);
-        deleteButton.setButtonText(isSampleLayer ? "EXCLUIR NSMP4" : "EXCLUIR NPNO");
-        deleteButton.setTooltip("Excluir o piano Nord selecionado da biblioteca");
+        deleteButton.setButtonText(isSampleLayer ? "EXCLUIR NSMP" : "EXCLUIR NPNO");
+        deleteButton.setTooltip(isSampleLayer ? "Excluir a amostra Nord selecionada da biblioteca"
+                                              : "Excluir o piano Nord selecionado da biblioteca");
         deleteButton.onClick = [this]
         {
             const auto selected = libraryBox.getSelectedItemIndex();
@@ -2166,7 +2168,7 @@ public:
             const auto file = libraryFiles.getReference(selected);
             const juce::Component::SafePointer<NordPianoImportPanel> safe(this);
             juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon,
-                isSampleLayer ? "Excluir NSMP4" : "Excluir piano Nord", "Excluir '" + file.getFileName() + "' da biblioteca?",
+                isSampleLayer ? "Excluir NSMP" : "Excluir piano Nord", "Excluir '" + file.getFileName() + "' da biblioteca?",
                 "Excluir", "Cancelar", this, juce::ModalCallbackFunction::create(
                     [safe, file](int answer)
                     {
@@ -2176,12 +2178,41 @@ public:
                             : safe->processor.deleteLibraryNordPiano(file);
                         if (result.failed())
                             juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                safe->isSampleLayer ? "Falha ao excluir NSMP4" : "Falha ao excluir piano Nord", result.getErrorMessage());
+                                safe->isSampleLayer ? "Falha ao excluir NSMP" : "Falha ao excluir piano Nord", result.getErrorMessage());
                         safe->rebuildLibrary();
                         if (safe->instrumentChanged) safe->instrumentChanged();
                     }));
         };
         addAndMakeVisible(deleteButton);
+        flatButton(exportButton);
+        exportButton.setButtonText("EXPORTAR WAV");
+        exportButton.setTooltip("Exportar cada zona da amostra Nord selecionada como WAV");
+        exportButton.setVisible(isSampleLayer);
+        exportButton.onClick = [this]
+        {
+            const auto selected = libraryBox.getSelectedItemIndex();
+            if (!isSampleLayer || !juce::isPositiveAndBelow(selected, libraryFiles.size())) return;
+            const auto source = libraryFiles.getReference(selected);
+            chooser = std::make_unique<juce::FileChooser>("Escolha a pasta para exportar os WAVs");
+            const juce::Component::SafePointer<NordPianoImportPanel> safe(this);
+            chooser->launchAsync(juce::FileBrowserComponent::openMode
+                                     | juce::FileBrowserComponent::canSelectDirectories,
+                [safe, source](const juce::FileChooser& selectedFolder)
+                {
+                    if (safe == nullptr) return;
+                    const auto folder = selectedFolder.getResult();
+                    if (!folder.isDirectory()) return;
+                    int count = 0;
+                    const auto result = NordSampleExport::exportZonesAsWav(source, folder, count);
+                    juce::AlertWindow::showMessageBoxAsync(
+                        result.wasOk() ? juce::MessageBoxIconType::InfoIcon
+                                       : juce::MessageBoxIconType::WarningIcon,
+                        result.wasOk() ? "WAVs exportados" : "Falha ao exportar WAVs",
+                        result.wasOk() ? juce::String(count) + " arquivos em " + folder.getFullPathName()
+                                       : result.getErrorMessage());
+                });
+        };
+        addAndMakeVisible(exportButton);
         rebuildLibrary();
         setSize(620, 58);
     }
@@ -2195,7 +2226,13 @@ public:
         importButton.setBounds(row.reduced(2, 1));
         row = area.removeFromTop(27);
         libraryLabel.setBounds(row.removeFromLeft(100));
-        libraryBox.setBounds(row.removeFromLeft(row.getWidth() - 105).reduced(2, 1));
+        if (isSampleLayer)
+        {
+            libraryBox.setBounds(row.removeFromLeft(row.getWidth() - 198).reduced(2, 1));
+            exportButton.setBounds(row.removeFromLeft(100).reduced(2, 1));
+        }
+        else
+            libraryBox.setBounds(row.removeFromLeft(row.getWidth() - 105).reduced(2, 1));
         deleteButton.setBounds(row.reduced(2, 1));
     }
 
@@ -2214,11 +2251,12 @@ private:
             if (file.getFullPathName() == currentPath) selectedId = i + 1;
         }
         libraryBox.setTextWhenNothingSelected(libraryFiles.isEmpty()
-            ? (isSampleLayer ? "BIBLIOTECA NSMP4 VAZIA" : "CATEGORIA VAZIA")
-            : (isSampleLayer ? "ESCOLHA O NSMP4" : "ESCOLHA O NPNO"));
+            ? (isSampleLayer ? "BIBLIOTECA NSMP VAZIA" : "CATEGORIA VAZIA")
+            : (isSampleLayer ? "ESCOLHA O NSMP" : "ESCOLHA O NPNO"));
         if (selectedId > 0)
             libraryBox.setSelectedId(selectedId, juce::dontSendNotification);
         deleteButton.setEnabled(selectedId > 0);
+        exportButton.setEnabled(selectedId > 0);
     }
 
     ClassicPlayerAudioProcessor& processor;
@@ -2228,7 +2266,7 @@ private:
     bool isSampleLayer = false;
     juce::Label categoryLabel, libraryLabel;
     juce::ComboBox categoryBox, libraryBox;
-    juce::TextButton importButton, deleteButton;
+    juce::TextButton importButton, deleteButton, exportButton;
     juce::Array<juce::File> libraryFiles;
     std::unique_ptr<juce::FileChooser> chooser;
 };
@@ -5094,7 +5132,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
                 : processor.loadSoundFont(index, libraryFiles.getReference(selected), selectedCategoryId(categoryBox));
         if (result.failed())
             juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                isNordSample ? "Falha ao carregar Nord NSMP4" : isNord ? "Falha ao carregar piano Nord" : "Falha ao carregar SF2",
+                isNordSample ? "Falha ao carregar Nord NSMP" : isNord ? "Falha ao carregar piano Nord" : "Falha ao carregar SF2",
                 result.getErrorMessage());
         refresh();
     };
@@ -5564,7 +5602,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::saveLayerPreset()
     {
         case ClassicPlayerAudioProcessor::LayerType::sf2: typeName = "SF2"; break;
         case ClassicPlayerAudioProcessor::LayerType::nord: typeName = "Nord"; break;
-        case ClassicPlayerAudioProcessor::LayerType::nordSample: typeName = "Nord NSMP4"; break;
+        case ClassicPlayerAudioProcessor::LayerType::nordSample: typeName = "Nord NSMP"; break;
         case ClassicPlayerAudioProcessor::LayerType::dx7: typeName = "DX7"; break;
         case ClassicPlayerAudioProcessor::LayerType::analog: typeName = "Moog"; break;
         case ClassicPlayerAudioProcessor::LayerType::hammond: typeName = "Hammond"; break;
@@ -6260,7 +6298,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showQuickPresetMenu()
             safe->refresh();
             if (result.failed())
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                    "Falha ao carregar NSMP4", result.getErrorMessage());
+                    "Falha ao carregar NSMP", result.getErrorMessage());
             return;
         }
         if (selected >= 100000 && juce::isPositiveAndBelow(selected - 100000, banks.size()))
@@ -6601,9 +6639,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
 {
     const auto isNord = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord;
     const auto isNordSample = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordSample;
-    const auto title = isNordSample ? "Escolha uma amostra Nord NSMP4 (.nsmp4)"
+    const auto title = isNordSample ? "Escolha uma amostra Nord NSMP (.nsmp, .nsmp3, .nsmp4)"
                      : isNord ? "Escolha um piano Nord (.npno)" : "Escolha um SoundFont (.sf2)";
-    const auto filter = isNordSample ? "*.nsmp4;*.NSMP4"
+    const auto filter = isNordSample ? "*.nsmp;*.NSMP;*.nsmp3;*.NSMP3;*.nsmp4;*.NSMP4"
                       : isNord ? "*.npno;*.NPNO" : "*.sf2;*.SF2";
     fileChooser = std::make_unique<juce::FileChooser>(
         localizedUiText(title, activeUiLanguage.load()), juce::File{}, filter);
@@ -6638,7 +6676,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
             loadButton.setEnabled(true);
             if (result.failed())
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                    isNordSample ? "Falha ao importar Nord NSMP4" : isNord ? "Falha ao importar piano Nord" : "Falha ao importar SF2",
+                    isNordSample ? "Falha ao importar Nord NSMP" : isNord ? "Falha ao importar piano Nord" : "Falha ao importar SF2",
                     result.getErrorMessage());
             refresh();
         });
@@ -6754,14 +6792,14 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     for (auto* control : sharedControls)
         control->setVisible(!isDrumPads);
 
-    loadButton.setButtonText(isNordSample ? "IMPORTAR NSMP4" : isNord ? "IMPORTAR NPNO" : "IMPORTAR SF2");
-    loadButton.setTooltip(isNordSample ? "Importar uma amostra Nord NSMP4 (.nsmp4)"
+    loadButton.setButtonText(isNordSample ? "IMPORTAR NSMP" : isNord ? "IMPORTAR NPNO" : "IMPORTAR SF2");
+    loadButton.setTooltip(isNordSample ? "Importar uma amostra Nord NSMP (.nsmp, .nsmp3, .nsmp4)"
                        : isNord ? "Importar um piano Nord (.npno)" : "Importar um SoundFont (.sf2)");
     loadButton.setVisible(isSf2 || isNord || isNordSample);
     categoryBox.setVisible(isSf2 || isNord);
     libraryBox.setVisible(isSf2 || isNord || isNordSample);
     deleteLibraryButton.setVisible(isSf2 || isNord || isNordSample);
-    deleteLibraryButton.setButtonText(isNordSample ? "EXCLUIR NSMP4" : isNord ? "EXCLUIR NPNO" : "EXCLUIR SF2");
+    deleteLibraryButton.setButtonText(isNordSample ? "EXCLUIR NSMP" : isNord ? "EXCLUIR NPNO" : "EXCLUIR SF2");
     presetBox.setVisible(isSf2);
     externalInstrumentBox.setVisible(isVst && processor.supportsExternalInstruments());
     externalInstrumentButton.setVisible(isVst && processor.supportsExternalInstruments());
@@ -6983,8 +7021,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::rebuildLibrary()
         if (file.getFullPathName() == currentPath) selectedId = item + 1;
     }
     libraryBox.setTextWhenNothingSelected(libraryFiles.isEmpty()
-        ? (isNordSample ? "BIBLIOTECA NSMP4 VAZIA" : "CATEGORIA VAZIA")
-        : isNordSample ? "ESCOLHA O NSMP4" : isNord ? "ESCOLHA O NPNO" : "ESCOLHA O SF2");
+        ? (isNordSample ? "BIBLIOTECA NSMP VAZIA" : "CATEGORIA VAZIA")
+        : isNordSample ? "ESCOLHA O NSMP" : isNord ? "ESCOLHA O NPNO" : "ESCOLHA O SF2");
     if (selectedId > 0) libraryBox.setSelectedId(selectedId, juce::dontSendNotification);
     deleteLibraryButton.setEnabled(libraryBox.getSelectedItemIndex() >= 0);
 }
@@ -7436,7 +7474,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     {
         juce::PopupMenu menu;
         menu.addItem(2, localizedUiText("Layer Nord Piano (.npno)", uiLanguage));
-        menu.addItem(8, localizedUiText("Layer Nord NSMP4 (.nsmp4)", uiLanguage));
+        menu.addItem(8, localizedUiText("Layer Nord NSMP (.nsmp, .nsmp3, .nsmp4)", uiLanguage));
         menu.addItem(1, localizedUiText("Layer SF2 (.sf2)", uiLanguage));
         menu.addItem(3, localizedUiText("Layer DX7 (.syx)", uiLanguage));
         menu.addItem(6, localizedUiText("Hammond", uiLanguage));

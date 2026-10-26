@@ -1,4 +1,5 @@
 #include "NordSampleEngine.h"
+#include "NordLegacySampleDecoder.h"
 #include <algorithm>
 #include <cmath>
 
@@ -60,11 +61,13 @@ void NordSampleEngine::prepareLoopCrossfades(NordSampleDecoder::Instrument& inst
 juce::Result NordSampleEngine::loadSample(int layerIndex, const juce::File& file)
 {
     if (!juce::isPositiveAndBelow(layerIndex, layerCount) || !file.existsAsFile()
-        || !file.hasFileExtension(".nsmp4"))
-        return juce::Result::fail("Selecione um arquivo de amostra Nord NSMP4 (.nsmp4).");
+        || !file.hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
+        return juce::Result::fail("Selecione uma amostra Nord (.nsmp, .nsmp3 ou .nsmp4).");
 
     NordSampleDecoder::Instrument decoded;
-    const auto result = NordSampleDecoder::decode(file, decoded);
+    const auto result = file.hasFileExtension(".nsmp4")
+        ? NordSampleDecoder::decode(file, decoded)
+        : NordLegacySampleDecoder::decodeFile(file, decoded);
     if (result.failed()) return result;
 
     // Use the native NSMP4 loop points for every sound; a consistent, capped overlap

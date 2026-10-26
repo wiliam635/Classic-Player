@@ -2771,8 +2771,8 @@ juce::Result ClassicPlayerAudioProcessor::deleteLibraryNordPiano(const juce::Fil
 juce::Result ClassicPlayerAudioProcessor::importNordSample(const juce::File& source,
                                                             juce::File& importedFile) const
 {
-    if (!source.existsAsFile() || !source.hasFileExtension(".nsmp4"))
-        return juce::Result::fail(juce::String::fromUTF8("Selecione um arquivo Nord NSMP4 (.nsmp4) válido."));
+    if (!source.existsAsFile() || !source.hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
+        return juce::Result::fail(juce::String::fromUTF8("Selecione uma amostra Nord .nsmp, .nsmp3 ou .nsmp4 válida."));
     auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                     .getChildFile("Classic Player").getChildFile("Nord Samples");
     const auto directoryResult = folder.createDirectory();
@@ -2785,10 +2785,11 @@ juce::Result ClassicPlayerAudioProcessor::importNordSample(const juce::File& sou
             importedFile = destination;
             return juce::Result::ok();
         }
-        destination = folder.getNonexistentChildFile(source.getFileNameWithoutExtension(), ".nsmp4", true);
+        destination = folder.getNonexistentChildFile(source.getFileNameWithoutExtension(),
+                                                     source.getFileExtension(), true);
     }
     if (!source.copyFileTo(destination))
-        return juce::Result::fail(juce::String::fromUTF8("Não foi possível copiar o NSMP4 para a biblioteca."));
+        return juce::Result::fail(juce::String::fromUTF8("Não foi possível copiar a amostra Nord para a biblioteca."));
     importedFile = destination;
     return juce::Result::ok();
 }
@@ -2798,7 +2799,8 @@ juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordSamples() const
     juce::Array<juce::File> result;
     const auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                             .getChildFile("Classic Player").getChildFile("Nord Samples");
-    folder.findChildFiles(result, juce::File::findFiles, false, "*.nsmp4;*.NSMP4");
+    folder.findChildFiles(result, juce::File::findFiles, false,
+                          "*.nsmp;*.NSMP;*.nsmp3;*.NSMP3;*.nsmp4;*.NSMP4");
     std::sort(result.begin(), result.end(), [](const auto& a, const auto& b)
     {
         return a.getFileName().compareNatural(b.getFileName()) < 0;
@@ -2810,14 +2812,14 @@ juce::Result ClassicPlayerAudioProcessor::deleteLibraryNordSample(const juce::Fi
 {
     const auto root = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                           .getChildFile("Classic Player").getChildFile("Nord Samples");
-    if (!file.existsAsFile() || !file.hasFileExtension(".nsmp4") || !file.isAChildOf(root))
-        return juce::Result::fail(juce::String::fromUTF8("Só é possível excluir um NSMP4 da biblioteca Nord do Classic Player."));
+    if (!file.existsAsFile() || !file.hasFileExtension(".nsmp;.nsmp3;.nsmp4") || !file.isAChildOf(root))
+        return juce::Result::fail(juce::String::fromUTF8("Só é possível excluir uma amostra da biblioteca Nord do Classic Player."));
     for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
         if (layerType(layer) == LayerType::nordSample
             && nordSampleEngine.path(layer) == file.getFullPathName())
             unloadNordSample(layer);
     return file.deleteFile() ? juce::Result::ok()
-                             : juce::Result::fail(juce::String::fromUTF8("Não foi possível excluir o arquivo NSMP4."));
+                             : juce::Result::fail(juce::String::fromUTF8("Não foi possível excluir a amostra Nord."));
 }
 
 void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* source,
@@ -3844,7 +3846,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     && juce::File(savedSourcePath).hasFileExtension(".npno"))
                     savedType = static_cast<int>(LayerType::nord);
                 if (savedType == static_cast<int>(LayerType::sf2)
-                    && juce::File(savedSourcePath).hasFileExtension(".nsmp4"))
+                    && juce::File(savedSourcePath).hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
                     savedType = static_cast<int>(LayerType::nordSample);
                 layerTypes[(size_t) i].store(savedType, std::memory_order_relaxed);
                 savedPaths[(size_t) i] = (savedType == static_cast<int>(LayerType::sf2)
@@ -4091,10 +4093,10 @@ void ClassicPlayerAudioProcessor::restoreLayerPaths()
             && savedPaths[(size_t) i].isNotEmpty())
         {
             if (layerType(i) == LayerType::nordSample
-                || juce::File(savedPaths[(size_t) i]).hasFileExtension(".nsmp4"))
+                || juce::File(savedPaths[(size_t) i]).hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
             {
                 if (nordSampleEngine.loadSample(i, juce::File(savedPaths[(size_t) i])).failed())
-                    juce::Logger::writeToLog("Não foi possível restaurar NSMP4 da layer " + juce::String(i + 1));
+                    juce::Logger::writeToLog("Não foi possível restaurar a amostra Nord da layer " + juce::String(i + 1));
             }
             else if (juce::File(savedPaths[(size_t) i]).hasFileExtension(".npno"))
             {

@@ -1,4 +1,6 @@
 #include "NordSampleEngine.h"
+#include "NordLegacySampleDecoder.h"
+#include "NordSampleExport.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -145,6 +147,22 @@ struct NordSampleRegressionTests
                 "Loop-decay flag incorrectly replaced the explicit NSMP4 LoopBegin pointer");
         require(zone.clippedSamples == 8 && zone.pcm[0] > 0.99f && zone.pcm[0] <= 1.0f,
                 "NSMP4 hot samples were rejected or hard-clipped instead of soft-limited");
+
+        auto exportFolder = juce::File::getSpecialLocation(juce::File::tempDirectory)
+            .getNonexistentChildFile("classic-nord-wav-export", "", false);
+        require(exportFolder.createDirectory().wasOk(), "Could not create WAV export test folder");
+        struct FolderCleanup
+        {
+            juce::File folder;
+            ~FolderCleanup() { folder.deleteRecursively(); }
+        } folderCleanup { exportFolder };
+        int exported = 0;
+        const auto exportResult = NordSampleExport::exportZonesAsWav(file, exportFolder, exported);
+        require(exportResult.wasOk(), exportResult.getErrorMessage().toRawUTF8());
+        juce::Array<juce::File> wavFiles;
+        exportFolder.findChildFiles(wavFiles, juce::File::findFiles, false, "*.wav");
+        require(exported == 1 && wavFiles.size() == 1 && wavFiles[0].getSize() > 44,
+                "NSMP4 zone WAV export did not produce a playable-sized file");
     }
 
     static void require(bool condition, const char* message)
@@ -463,18 +481,20 @@ struct NordSampleRegressionTests
         {
             NordSampleDecoder::Instrument instrument;
             const auto file = juce::File(argv[i]);
-            const auto result = NordSampleDecoder::decode(file, instrument);
+            const auto result = file.hasFileExtension(".nsmp4")
+                ? NordSampleDecoder::decode(file, instrument)
+                : NordLegacySampleDecoder::decodeFile(file, instrument);
             require(result.wasOk(), result.getErrorMessage().toRawUTF8());
-            require(!instrument.zones.empty(), "NSMP4 real-file decode returned no key zones");
+            require(!instrument.zones.empty(), "Nord Sample decode returned no key zones");
             size_t samples = 0;
             for (const auto& zone : instrument.zones)
             {
                 require(zone.frames() > 0 && zone.channels >= 1 && zone.channels <= 2,
-                        "NSMP4 real-file zone has invalid PCM dimensions");
+                        "Nord Sample zone has invalid PCM dimensions");
                 samples += zone.pcm.size();
                 require(std::all_of(zone.pcm.begin(), zone.pcm.end(),
                                     [](float sample) { return std::isfinite(sample); }),
-                        "NSMP4 real-file decode produced NaN or infinity");
+                        "Nord Sample decode produced NaN or infinity");
             }
             std::vector<std::pair<size_t, size_t>> loopPoints;
             for (const auto& zone : instrument.zones)
@@ -488,8 +508,26 @@ struct NordSampleRegressionTests
                         "NSMP4 real-file loop pitch changed during seam smoothing");
                 require(std::all_of(zone.pcm.begin(), zone.pcm.end(),
                                     [](float sample) { return std::isfinite(sample) && std::abs(sample) < 4.0f; }),
-                        "NSMP4 real-file loop smoothing produced unstable PCM");
+                        "Nord Sample loop smoothing produced unstable PCM");
             }
+            auto engine = std::make_unique<NordSampleEngine>();
+            engine->prepare(48000.0, 512);
+            const auto loaded = engine->loadSample(0, file);
+            require(loaded.wasOk(), loaded.getErrorMessage().toRawUTF8());
+            require(engine->isLoaded(0), "Nord Sample could not be loaded into its layer");
+            auto exportFolder = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                .getNonexistentChildFile("classic-nord-real-wav-export", "", false);
+            require(exportFolder.createDirectory().wasOk(), "Could not create real-file WAV export folder");
+            struct FolderCleanup
+            {
+                juce::File folder;
+                ~FolderCleanup() { folder.deleteRecursively(); }
+            } folderCleanup { exportFolder };
+            int exported = 0;
+            const auto exportResult = NordSampleExport::exportZonesAsWav(file, exportFolder, exported);
+            require(exportResult.wasOk(), exportResult.getErrorMessage().toRawUTF8());
+            require(exported == static_cast<int>(instrument.zones.size()),
+                    "Nord Sample did not export every zone as WAV");
             std::cout << file.getFileName() << ": " << instrument.zones.size()
                       << " zones, " << samples << " decoded samples\n";
         }
@@ -514,7 +552,7 @@ int main(int argc, char** argv)
     try
     {
         NordSampleRegressionTests::run(argc, argv);
-        std::cout << "NSMP4 region mapping, decode, playback, sustain and polyphony: OK\n";
+        std::cout << "Nord Sample region mapping, decode, playback, sustain and polyphony: OK\n";
         return 0;
     }
     catch (const std::exception& error)
