@@ -58,10 +58,13 @@ private:
         float crossover = 0;
         std::array<float,2> lowpass {}, compressor {};
         LayerEqState eq;
-        juce::Reverb reverb;
+        NordLayerEffects organEffects;
+        LayerReverb reverb;
         uint64_t clock = 0;
+        uint64_t quietSamples = 0;
         uint32_t noise = 0x1341257u;
         bool enabled = false;
+        bool tailPending = false;
     };
     void message(int layer, const juce::MidiMessage&, Config&);
     void release(Voice&);

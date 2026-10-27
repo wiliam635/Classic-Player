@@ -176,8 +176,9 @@ struct NordSampleRegressionTests
         engine->prepare(rate, 512);
         auto& layer = engine->layers[0];
         layer.loaded = true;
-        layer.instrument.name = "Synthetic NSMP4";
-        layer.instrument.gain.fill(1.0f);
+        layer.instrument = std::make_shared<NordSampleDecoder::Instrument>();
+        layer.instrument->name = "Synthetic NSMP4";
+        layer.instrument->gain.fill(1.0f);
         NordSampleDecoder::Zone zone;
         zone.root = 60;
         zone.low = 0;
@@ -196,8 +197,19 @@ struct NordSampleRegressionTests
             zone.pcm[(size_t) i * 2] = sample;
             zone.pcm[(size_t) i * 2 + 1] = sample * 0.75f;
         }
-        layer.instrument.zones.push_back(std::move(zone));
+        layer.instrument->zones.push_back(std::move(zone));
         return engine;
+    }
+
+    static void decodedSampleCacheSharesPcm()
+    {
+        NordSampleEngine engine;
+        const auto source = juce::File::getSpecialLocation(juce::File::tempDirectory)
+            .getChildFile("classic-nsmp-cache-test.nsmp4");
+        auto decoded = std::make_shared<NordSampleDecoder::Instrument>();
+        const auto cached = engine.cacheInstrument(source, decoded);
+        require(cached == decoded && engine.findCachedInstrument(source) == decoded,
+                "NSMP preload cache copied instead of sharing decoded PCM");
     }
 
     static Sf2Engine::LayerConfig routing()
@@ -317,7 +329,7 @@ struct NordSampleRegressionTests
     static void monoLegatoAndNoteReturn()
     {
         auto engine = fixture();
-        engine->layers[0].instrument.zones[0].secondStart = 512;
+        engine->layers[0].instrument->zones[0].secondStart = 512;
         auto config = routing();
         config.mono = true;
         float rms = 0.0f;
@@ -535,6 +547,7 @@ struct NordSampleRegressionTests
 
     static void run(int argc, char** argv)
     {
+        decodedSampleCacheSharesPcm();
         decoderUsesExplicitRegionPointers();
         padLoopCrossfade();
         audioAndSustain();

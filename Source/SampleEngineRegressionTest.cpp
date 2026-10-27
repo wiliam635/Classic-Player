@@ -22,13 +22,14 @@ struct SampleEngineRegressionTests
         layer.finitePiano = true;
         layer.sourcePath = juce::File::getSpecialLocation(juce::File::tempDirectory)
             .getChildFile("Piano Acustico/synthetic.npno").getFullPathName();
-        layer.piano.channels = 1;
-        layer.piano.keyMap.fill(60);
+        layer.piano = std::make_shared<NordPianoDecoder::Instrument>();
+        layer.piano->channels = 1;
+        layer.piano->keyMap.fill(60);
         NordPianoDecoder::Stroke stroke;
         stroke.rootNote = 60;
         stroke.loopEndFrame = 4096;
         stroke.interleavedPcm.assign(4096, 4096);
-        layer.piano.strokes.push_back(std::move(stroke));
+        layer.piano->strokes.push_back(std::move(stroke));
         return engine;
     }
 
@@ -46,6 +47,23 @@ struct SampleEngineRegressionTests
     {
         return static_cast<int>(std::count_if(engine.layers[0].voices.begin(),
             engine.layers[0].voices.end(), [](const auto& voice) { return voice.active; }));
+    }
+
+    static void decodedPianoCacheSharesPcm()
+    {
+        SampleEngine engine;
+        const auto source = juce::File::getSpecialLocation(juce::File::tempDirectory)
+            .getChildFile("classic-piano-cache-test.npno");
+        auto decoded = std::make_shared<NordPianoDecoder::Instrument>();
+        decoded->channels = 1;
+        const auto cached = engine.cachePiano(source, decoded);
+        require(cached == decoded && engine.findCachedPiano(source) == decoded,
+                "NPNO preload cache copied instead of sharing decoded PCM");
+    }
+
+    static bool hasCachedPiano(SampleEngine& engine, const juce::File& file)
+    {
+        return engine.findCachedPiano(file) != nullptr;
     }
 
     static void midiTiming(double rate)
@@ -145,9 +163,9 @@ struct SampleEngineRegressionTests
     {
         auto engine = instrument(48000.0);
         auto& layer = engine->layers[0];
-        layer.piano.signedTenthsDbTrim = true;
-        layer.piano.gainTenthsDb = 80;
-        layer.piano.strokes[0].trimDb = 64;
+        layer.piano->signedTenthsDbTrim = true;
+        layer.piano->gainTenthsDb = 80;
+        layer.piano->strokes[0].trimDb = 64;
         engine->startPianoVoice(layer, 0, 60, 1, 1.0f, config());
         const auto voice = std::find_if(layer.voices.begin(), layer.voices.end(),
             [](const auto& candidate) { return candidate.active; });
@@ -208,10 +226,10 @@ struct SampleEngineRegressionTests
     {
         auto engine = instrument(48000.0);
         auto& layer = engine->layers[0];
-        auto pedalSample = layer.piano.strokes[0];
+        auto pedalSample = layer.piano->strokes[0];
         pedalSample.bank = 1;
         std::fill(pedalSample.interleavedPcm.begin(), pedalSample.interleavedPcm.end(), 8192);
-        layer.piano.strokes.push_back(std::move(pedalSample));
+        layer.piano->strokes.push_back(std::move(pedalSample));
 
         auto routing = config();
         routing.enabled = true;
@@ -500,7 +518,7 @@ struct SampleEngineRegressionTests
         auto engine = instrument(rate);
         auto& layer = engine->layers[0];
         const auto routing = config();
-        SampleEngine::preparePianoLoops(layer.piano);
+        SampleEngine::preparePianoLoops(*layer.piano);
         engine->startPianoVoice(layer, 0, 60, 1, 1.0f, routing);
         std::vector<float> result;
         juce::MidiBuffer midi;
@@ -564,6 +582,7 @@ struct SampleEngineRegressionTests
 
     static void run()
     {
+        decodedPianoCacheSharesPcm();
         {
             auto lower = config();
             lower.lowVelocity = 1;
@@ -650,8 +669,26 @@ int main(int argc, char** argv)
                                                  "Real NPNO decoded without playable strokes");
             const auto pedalStrokes = std::count_if(piano.strokes.begin(), piano.strokes.end(),
                 [](const auto& stroke) { return stroke.bank == 1; });
+            size_t pcmBytes = 0;
+            for (const auto& stroke : piano.strokes)
+                pcmBytes += stroke.interleavedPcm.size() * sizeof(std::int16_t);
             std::cout << "Real NPNO: " << argv[argument] << ", " << piano.strokes.size()
-                      << " strokes, " << pedalStrokes << " pedal-down strokes\n";
+                      << " strokes, " << pedalStrokes << " pedal-down strokes, "
+                      << (pcmBytes / (1024 * 1024)) << " MiB decoded PCM\n";
+        }
+        if (argc > 2)
+        {
+            SampleEngine cache;
+            for (int argument = 1; argument < argc; ++argument)
+                SampleEngineRegressionTests::require(
+                    cache.preloadSample(juce::File(juce::String::fromUTF8(argv[argument]))).wasOk(),
+                    "Live Set piano preload failed");
+            for (int argument = 1; argument < argc; ++argument)
+                SampleEngineRegressionTests::require(
+                    SampleEngineRegressionTests::hasCachedPiano(
+                        cache, juce::File(juce::String::fromUTF8(argv[argument]))),
+                    "Live Set piano was evicted during bank preload");
+            std::cout << "All Live Set pianos retained after preload\n";
         }
         std::cout << "NPNO velocity calibration, polyphony, sustain, lifetime and EQ: OK\n";
         return 0;

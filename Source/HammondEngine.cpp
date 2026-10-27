@@ -1,4 +1,5 @@
 #include "HammondEngine.h"
+#include "LayerEffects.h"
 #include <algorithm>
 #include <cmath>
 
@@ -63,6 +64,7 @@ void HammondEngine::prepare(double rate,int block)
     for(int i=0;i<layerCount;++i){
         auto& l=layers[(size_t)i];
         for(auto& delay:l.delay)delay.assign((size_t)std::ceil(sampleRate*.025)+4,0.f);
+        l.organEffects.prepare(sampleRate);
         l.reverb.setSampleRate(sampleRate);
         unload(i);
     }
@@ -81,7 +83,9 @@ void HammondEngine::unload(int index)
         l.speed[(size_t)r].setCurrentAndTargetValue(0);
         std::fill(l.delay[(size_t)r].begin(),l.delay[(size_t)r].end(),0.f);}
     l.rotorPhase={};l.delayPosition=0;l.crossover=0;l.lowpass={};l.compressor={};l.eq.reset();
-    l.reverb.reset();l.enabled=false;l.clock=0;peaks[(size_t)index].store(0);
+    l.organEffects.reset();
+    l.reverb.reset();l.enabled=false;l.clock=0;l.quietSamples=0;l.tailPending=false;
+    peaks[(size_t)index].store(0);
 }
 void HammondEngine::stopAllSounds(){for(int i=0;i<layerCount;++i)unload(i);}
 float HammondEngine::sine(double phase) const
@@ -172,8 +176,8 @@ void HammondEngine::message(int index,const juce::MidiMessage& m,Config& c)
 float HammondEngine::renderVoice(Voice& v,Layer& l,const Config& c,const std::array<float,9>& bars,float leak)
 {
     if(!v.active)return 0;
-    const int attack=std::max(1,(int)(sampleRate*juce::jmax(0.0f,c.routing.attack)*.001f));
-    const int releaseSamples=std::max(1,(int)(sampleRate*juce::jmax(15.0f,c.routing.release)*.001f));
+    const int attack=std::max(1,(int)(sampleRate*layerAttackSeconds(c.routing.attack)));
+    const int releaseSamples=std::max(1,(int)(sampleRate*layerReleaseSeconds(c.routing.release)));
     if(v.releasing){
         if(v.releaseAge>=releaseSamples){v.active=false;v.envelope=0;return 0;}
         v.envelope=v.releaseStart*.5f*(1.f+(float)std::cos(pi*(double)++v.releaseAge/releaseSamples));
@@ -222,13 +226,43 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
         setTargets();
         if(!c.routing.sustainEnabled)for(int ch=0;ch<16;++ch)if(l.sustain[(size_t)ch]){
             l.sustain[(size_t)ch]=false;for(auto& v:l.voices)if(v.channel==ch&&!v.down)release(v);}
+        const auto hasVoices = [&l] {
+            return std::any_of(l.voices.begin(), l.voices.end(),
+                               [](const auto& voice) { return voice.active; });
+        };
+        // Sleep only after the previous notes and effect tails have drained.
+        // MIDI wakes the normal sample-accurate path on the very next block.
+        if (!l.tailPending && !hasVoices() && host.isEmpty() && local.isEmpty())
+        {
+            const auto count = out.getNumSamples();
+            for (auto& value : l.bars) value.skip(count);
+            for (auto& value : l.channelGain) value.skip(count);
+            for (auto* value : { &l.gain, &l.drive, &l.leakage, &l.level,
+                                 &l.pan, &l.rotaryDepth }) value->skip(count);
+            for (size_t rotor = 0; rotor < l.speed.size(); ++rotor)
+            {
+                const auto before = l.speed[rotor].getCurrentValue();
+                const auto rampSamples = juce::jmin(count, l.speed[rotor].getNumSamplesToReachTarget());
+                const auto after = l.speed[rotor].skip(count);
+                const auto speedSum = rampSamples > 0
+                    ? 0.5 * rampSamples * (before + after) + 0.5 * (after - before)
+                        + (count - rampSamples) * after
+                    : count * after;
+                l.rotorPhase[rotor] += speedSum / sampleRate;
+                l.rotorPhase[rotor] -= std::floor(l.rotorPhase[rotor]);
+            }
+            l.clock += static_cast<uint64_t>(count);
+            peaks[(size_t)index].store(0.0f, std::memory_order_relaxed);
+            continue;
+        }
         const float cross=1.f-(float)std::exp(-2*pi*800/sampleRate);
         const float cutoffHz=40.f*std::pow(450.f,juce::jlimit(0.f,100.f,c.routing.cutoff)/100.f);
         const float lowpass=1.f-(float)std::exp(-2*pi*std::min((double)cutoffHz,sampleRate*.45)/sampleRate);
         juce::Reverb::Parameters rp;
         rp.roomSize=c.routing.reverbSize/100.f;rp.damping=c.routing.reverbDamping/100.f;
-        rp.width=c.routing.reverbWidth/100.f;rp.wetLevel=c.routing.reverb/100.f*.4f;
-        rp.dryLevel=1.f-c.routing.reverb/100.f*.2f;l.reverb.setParameters(rp);
+        rp.width=c.routing.reverbWidth/100.f;
+        setLayerReverbMix(rp, c.routing.reverb / 100.0f, 0.4f);
+        l.reverb.setParameters(rp);
         const auto compressorMix = juce::jlimit(0.0f, 1.0f, c.routing.compressor / 100.0f);
         const auto compressorEnabled = compressorMix > 0.0f;
         const auto compressorAttack = compressorEnabled
@@ -248,6 +282,7 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
                            sampleRate, c.routing.eqLowFrequency,
                            c.routing.eqMidFrequency, c.routing.eqHighFrequency,
                            c.routing.eqLowQ, c.routing.eqMidQ, c.routing.eqHighQ);
+        scratch.clear();
         for(int s=0;s<out.getNumSamples();++s){
             bool event=false;
             while(hi!=host.cend()&&(*hi).samplePosition<=s){message(index,(*hi).getMessage(),c);++hi;event=true;}
@@ -280,7 +315,26 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
                 left+=value*std::sqrt(.5f*(1-pan));right+=value*std::sqrt(.5f*(1+pan));
             }
             l.delayPosition=(l.delayPosition+1)%(int)l.delay[0].size();
-            l.reverb.processStereo(&left,&right,1);
+            scratch.setSample(0,s,left);
+            scratch.setSample(1,s,right);
+            ++l.clock;
+        }
+
+        NordEffectSettings organFx;
+        organFx.chorusMix = c.routing.sf2Chorus;
+        organFx.chorusRate = c.routing.sf2ChorusRate;
+        organFx.chorusDepth = c.routing.sf2ChorusDepth;
+        l.organEffects.process(scratch, organFx);
+        if(l.reverb.shouldProcess())
+            l.reverb.processStereo(scratch.getWritePointer(0),scratch.getWritePointer(1),out.getNumSamples());
+
+        // Use the pre-fader signal as well as the output peak: lowering the
+        // layer volume must not discard an effect tail that can still return.
+        const auto effectPeak = juce::jmax(scratch.getMagnitude(0, 0, out.getNumSamples()),
+                                           scratch.getMagnitude(1, 0, out.getNumSamples()));
+
+        for(int s=0;s<out.getNumSamples();++s){
+            float left=scratch.getSample(0,s),right=scratch.getSample(1,s);
             const float gain=l.gain.getNextValue()*l.level.getNextValue();
             const float pan=juce::jlimit(-1.f,1.f,l.pan.getNextValue());
             float* values[2]={&left,&right};
@@ -303,7 +357,18 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
             }
             if(out.getNumChannels()>1){out.addSample(0,s,left);out.addSample(1,s,right);}
             else if(out.getNumChannels()==1)out.addSample(0,s,(left+right)*.5f);
-            peak=std::max(peak,std::max(std::abs(left),std::abs(right)));++l.clock;
+            peak=std::max(peak,std::max(std::abs(left),std::abs(right)));
+        }
+        if (hasVoices() || effectPeak > 0.000001f || peak > 0.000001f)
+        {
+            l.tailPending = true;
+            l.quietSamples = 0;
+        }
+        else if (l.tailPending)
+        {
+            l.quietSamples += static_cast<uint64_t>(out.getNumSamples());
+            if (l.quietSamples >= static_cast<uint64_t>(sampleRate * 2.0))
+                l.tailPending = false;
         }
         peaks[(size_t)index].store(peak,std::memory_order_relaxed);
     }

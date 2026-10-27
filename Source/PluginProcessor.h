@@ -10,6 +10,7 @@
 #include "Dx7Engine.h"
 #include "AnalogSynthEngine.h"
 #include "HammondEngine.h"
+#include "NordOrganEngine.h"
 #include "ContinuousPadBank.h"
 #include "ExternalInstrumentHost.h"
 #include <atomic>
@@ -45,7 +46,7 @@ public:
     void panic();
     // A source is chosen only when a new layer is created. The initial four
     // layers are SF2 by design.
-    enum class LayerType { sf2 = 0, vst, dx7, analog, drumPads, hammond, continuousPads, nord, nordSample };
+    enum class LayerType { sf2 = 0, vst, dx7, analog, drumPads, hammond, continuousPads, nord, nordSample, nordOrgan };
     ContinuousPadBank& continuousPads(int layer) { return *continuousBanks[(size_t)layer]; }
     explicit ClassicPlayerAudioProcessor(juce::File programStorageOverride = {});
     ~ClassicPlayerAudioProcessor() override;
@@ -116,6 +117,10 @@ public:
     // Copies the latest post-master samples. FFT work is deliberately left to
     // the editor/message thread so the real-time audio callback stays light.
     void copySpectrumSamples(float* destination, int sampleCount) const noexcept;
+    void setSpectrumCaptureEnabled(bool enabled) noexcept
+    {
+        spectrumCaptureEnabled.store(enabled, std::memory_order_release);
+    }
     double spectrumSampleRate() const noexcept
     {
         return analyserSampleRate.load(std::memory_order_relaxed);
@@ -185,6 +190,8 @@ public:
     juce::Result importNordSample(const juce::File&, juce::File& importedFile) const;
     juce::Array<juce::File> libraryNordSamples() const;
     juce::Result deleteLibraryNordSample(const juce::File&);
+    NordOrganEngine::Config nordOrganConfig(int layer) const;
+    void setNordOrganConfig(int layer, const NordOrganEngine::Config&);
 
     // Persistent Classic Player programs are standalone files, independent
     // from DAW session state, and work on both macOS and Windows.
@@ -212,6 +219,11 @@ public:
     juce::Result assignLiveSetSlot(int bank, int slot, const juce::File& programFile);
     void clearLiveSetSlot(int bank, int slot);
     juce::Result loadLiveSetSlot(int bank, int slot);
+    void beginLiveSetFadeOut();
+    void cancelLiveSetFade();
+    // Decode Nord samples used by a Live Set bank on a worker thread. The
+    // decoded instruments are held in a bounded cache for fast slot changes.
+    void preloadLiveSetBank(int bank);
     void beginLiveSetSlotMidiLearn(int bank, int slot);
     void resetLiveSetSlotMidiLearn(int bank, int slot);
     int liveSetSlotMidiLearnCC(int bank, int slot) const;
@@ -340,6 +352,7 @@ private:
     Dx7Engine dx7Engine;
     AnalogSynthEngine analogSynthEngine;
     HammondEngine hammondEngine;
+    NordOrganEngine nordOrganEngine;
     // Stored independently from the audio parameters so switching a source
     // never changes the layer routing, split or controller assignments.
     std::array<std::atomic<int>, Sf2Engine::layerCount> layerTypes {};
@@ -350,6 +363,7 @@ private:
     std::array<Sf2Engine::LayerConfig, Sf2Engine::layerCount> dx7LayerConfigs {};
     std::array<AnalogSynthEngine::Config, Sf2Engine::layerCount> analogLayerConfigs {};
     std::array<HammondEngine::Config, Sf2Engine::layerCount> hammondLayerConfigs {};
+    std::array<NordOrganEngine::Config, Sf2Engine::layerCount> nordOrganLayerConfigs {};
     std::array<std::atomic<float>, Sf2Engine::layerCount> externalPeaks {};
     std::array<int, Sf2Engine::layerCount> lastExternalPortamento {};
     double currentSampleRate = 44100.0;
@@ -368,8 +382,15 @@ private:
         -999.0f, -999.0f, -999.0f, -999.0f
     };
     std::array<std::atomic<float>, spectrumSampleCount> spectrumSamples {};
+    std::atomic<bool> spectrumCaptureEnabled { false };
     std::atomic<unsigned int> spectrumWritePosition { 0 };
     std::atomic<double> analyserSampleRate { 48000.0 };
+    // Output ramp is applied after rendering; no old voice or pedal state is
+    // carried into the next program. Protected by the audio callback lock.
+    int liveSetFadePosition = 0;
+    int liveSetFadeFrames = 0;
+    bool liveSetFadingOut = false;
+    bool liveSetFadingIn = false;
     juce::TimeSliceThread recordingThread { "Classic Player WAV Writer" };
     std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> recordingWriter;
     std::atomic<juce::AudioFormatWriter::ThreadedWriter*> activeRecordingWriter { nullptr };
@@ -413,6 +434,8 @@ private:
     static constexpr int liveSetSlotCount = liveSetBankCount * liveSetSlotsPerBank;
     std::array<std::atomic<int>, liveSetSlotCount> learnedLiveSetSlotCCs {};
     std::array<std::atomic<int>, liveSetSlotCount> learnedLiveSetSlotChannels {};
+    std::array<std::atomic<bool>, liveSetBankCount> liveSetBankPreloadQueued {};
+    std::array<std::atomic<bool>, liveSetBankCount> liveSetBankPreloaded {};
     std::atomic<int> activeLiveSetSlotMidiLearn { -1 };
     std::atomic<int> requestedLiveSetSlot { -1 };
     std::atomic<bool> liveSetSlotMidiLearnChanged { false };
@@ -454,5 +477,8 @@ private:
     juce::AudioFormatManager drumPadFormats;
     mutable juce::CriticalSection drumPadLock;
     std::atomic<bool> activated { false };
+    // Declared last so it is destroyed first, joining any decoder job before
+    // the sample engines they access are destroyed.
+    juce::ThreadPool nordPreloadPool { 1, 3 };
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ClassicPlayerAudioProcessor)
 };

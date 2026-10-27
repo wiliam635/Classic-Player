@@ -3,8 +3,14 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "NordPianoDecoder.h"
 #include "Sf2Engine.h"
+#include "LayerEffects.h"
 #include <array>
 #include <atomic>
+#include <cstdint>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <unordered_map>
 
 // A small, self-contained sample instrument used by the clean-room Samplit
 // compatibility layer.  It intentionally keeps the audio callback free from
@@ -26,6 +32,7 @@ public:
 
     void prepare(double sampleRate, int maximumBlockSize);
     juce::Result loadSample(int layer, const juce::File& file);
+    juce::Result preloadSample(const juce::File& file);
     void unload(int layer);
     void stopAllSounds();
     bool isLoaded(int layer) const;
@@ -63,11 +70,13 @@ private:
 
     struct Layer
     {
+        enum class ModulationKind { none, tremolo, rotary };
         juce::AudioBuffer<float> audio;
-        NordPianoDecoder::Instrument piano;
+        std::shared_ptr<NordPianoDecoder::Instrument> piano;
         bool pianoLoaded = false;
         bool finitePiano = false;
         juce::String sourcePath;
+        ModulationKind modulationKind = ModulationKind::none;
         double sourceSampleRate = 44100.0;
         LayerConfig config;
         std::array<Voice, Sf2Engine::maxPolyphonyPerLayer> voices;
@@ -82,7 +91,9 @@ private:
         juce::SmoothedValue<float> gain;
         LayerEqState eq;
         NordLayerEffects nordFx;
-        juce::Reverb reverb;
+        LayerReverb reverb;
+        bool effectTailPending = false;
+        uint64_t effectQuietSamples = 0;
         std::array<float, 4> lastReverbParameters { -1.0f, -1.0f, -1.0f, -1.0f };
         std::atomic<float> peak { 0.0f };
     };
@@ -93,6 +104,9 @@ private:
                          const Sf2Engine::LayerConfig& routing);
     Voice& allocateVoice(Layer&, int polyphony);
     static void preparePianoLoops(NordPianoDecoder::Instrument&);
+    std::shared_ptr<NordPianoDecoder::Instrument> findCachedPiano(const juce::File&);
+    std::shared_ptr<NordPianoDecoder::Instrument> cachePiano(
+        const juce::File&, std::shared_ptr<NordPianoDecoder::Instrument>);
     int findPianoStroke(const Layer&, int note, float velocity, int bank) const;
     void releasePianoVoice(Voice&, float releaseControl, bool softRelease);
     void releaseVoice(Layer&, int note, int channel, float releaseControl);
@@ -114,4 +128,18 @@ private:
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;
     mutable juce::CriticalSection lock;
+    struct CachedPiano
+    {
+        std::shared_ptr<NordPianoDecoder::Instrument> instrument;
+        size_t bytes = 0;
+        std::uint64_t lastUse = 0;
+    };
+    // An XL Nord piano can exceed 600 MiB decoded. Keep enough room for one
+    // such piano plus the other instruments in a Live Set bank; otherwise the
+    // background preload silently discards it and every switch decodes again.
+    static constexpr size_t decodedCacheLimitBytes = 1024u * 1024u * 1024u;
+    std::mutex pianoCacheMutex;
+    std::unordered_map<std::string, CachedPiano> pianoCache;
+    size_t pianoCacheBytes = 0;
+    std::uint64_t pianoCacheClock = 0;
 };

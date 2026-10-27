@@ -54,10 +54,12 @@ bool ClassicPlayerUpdateChecker::start()
         if (isHttps(feedUrl))
         {
             int status = 0;
+            const auto uncachedFeed = juce::URL(feedUrl).withParameter(
+                "_cp_check", juce::String(juce::Time::getMillisecondCounter()));
             const auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                .withExtraHeaders("Accept: application/json\r\nUser-Agent: Classic-Player/" JucePlugin_VersionString)
+                .withExtraHeaders("Accept: application/json\r\nCache-Control: no-cache\r\nPragma: no-cache\r\nUser-Agent: Classic-Player/" JucePlugin_VersionString)
                 .withConnectionTimeoutMs(5000).withNumRedirectsToFollow(3).withStatusCode(&status);
-            if (auto stream = juce::URL(feedUrl).createInputStream(options);
+            if (auto stream = uncachedFeed.createInputStream(options);
                 stream != nullptr && status == 200)
             {
                 juce::MemoryBlock data;

@@ -1,4 +1,5 @@
 #include "Dx7Engine.h"
+#include "LayerEffects.h"
 #include <cmath>
 #include <cstdint>
 #include <utility>
@@ -32,10 +33,14 @@ void Dx7Engine::prepare(double newSampleRate, int newMaximumBlockSize)
     {
         auto& layer = layers[(size_t) layerIndex];
         layerPeaks[(size_t) layerIndex].store(0.0f, std::memory_order_relaxed);
+        layer.reverb.setSampleRate(sampleRate);
+        layer.reverb.reset();
         layer.renderScratch.setSize(2, maximumBlockSize, false, true, true);
         layer.gain.reset(sampleRate, 0.02);
         layer.gain.setCurrentAndTargetValue(0.0f);
         layer.gainReady = false;
+        layer.effectTailPending = false;
+        layer.effectQuietSamples = 0;
         // 45 ms accommodates a gently modulated stereo chorus at any supported rate.
         layer.chorusDelay.setSize(2, juce::jmax(8, (int) std::ceil(sampleRate * 0.045)),
                                   false, true, true);
@@ -241,6 +246,8 @@ juce::Result Dx7Engine::loadSysEx(int index, const juce::File& file)
     target.gain.reset(sampleRate, 0.02);
     target.gain.setCurrentAndTargetValue(0.0f);
     target.gainReady = false;
+    target.effectTailPending = false;
+    target.effectQuietSamples = 0;
     target.sourcePath = std::move(loaded.sourcePath);
     target.patches = std::move(loaded.patches);
     target.patchesLoaded = loaded.patchesLoaded;
@@ -283,6 +290,8 @@ void Dx7Engine::unload(int index)
     layer.compressorEnvelope = {};
     layer.filterState = {};
     layer.reverb.reset();
+    layer.effectTailPending = false;
+    layer.effectQuietSamples = 0;
     for (auto& voice : layer.voices) voice = {};
     layerPeaks[(size_t) index].store(0.0f, std::memory_order_relaxed);
 }
@@ -590,6 +599,34 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
     if (maximumBlockSize < output.getNumSamples()
         || layer.chorusDelay.getNumSamples() == 0) return;
 
+    const auto& patch = layer.patches[(size_t) layer.selectedPatch];
+    const auto hasVoices = std::any_of(layer.voices.begin(), layer.voices.end(),
+        [](const auto& voice) { return voice.active; });
+    if (!hasVoices && hostMidi.isEmpty() && routedMidi.isEmpty() && !layer.effectTailPending)
+    {
+        const auto samples = output.getNumSamples();
+        const auto lfoSpeed = juce::jlimit(0.0f, 1.0f, (float) patch.raw[137] / 99.0f);
+        const auto lfoHz = 0.05 + 11.5 * lfoSpeed * lfoSpeed;
+        layer.lfoPhase = std::fmod(layer.lfoPhase
+            + samples * juce::MathConstants<double>::twoPi * lfoHz / sampleRate,
+            juce::MathConstants<double>::twoPi);
+        layer.lfoDelayProgress += samples / sampleRate;
+        layer.chorusPhase = std::fmod(layer.chorusPhase
+            + samples * juce::MathConstants<double>::twoPi * 0.28 / sampleRate,
+            juce::MathConstants<double>::twoPi);
+        layer.chorusWritePosition = (layer.chorusWritePosition + samples)
+            % layer.chorusDelay.getNumSamples();
+        if (!layer.gainReady)
+        {
+            layer.gain.setCurrentAndTargetValue(config.gain);
+            layer.gainReady = true;
+        }
+        layer.gain.setTargetValue(config.gain);
+        layer.gain.skip(samples);
+        layerPeaks[(size_t) layerIndex].store(0.0f, std::memory_order_relaxed);
+        return;
+    }
+
     auto& scratch = layer.renderScratch;
     scratch.setSize(2, output.getNumSamples(), false, false, true);
     scratch.clear();
@@ -599,7 +636,6 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
         layer.gainReady = true;
     }
     layer.gain.setTargetValue(config.gain);
-    const auto& patch = layer.patches[(size_t) layer.selectedPatch];
     constexpr float fixedToFloat = 1.0f / (float) (1 << 24);
     const auto lfoSpeed = juce::jlimit(0.0f, 1.0f, (float) patch.raw[137] / 99.0f);
     // The DX7 speed curve is deliberately exponential; a linear mapping makes
@@ -659,12 +695,12 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
                            * fixedToFloat * voice.velocity * 0.24f;
             if (!voice.releasing)
             {
-                const auto attackSamples = juce::jmax(1.0, sampleRate * juce::jmax(0.0f, config.attack) * 0.001);
+                const auto attackSamples = juce::jmax(1.0, sampleRate * layerAttackSeconds(config.attack));
                 voice.envelope = juce::jmin(1.0f, voice.envelope + static_cast<float>(1.0 / attackSamples));
             }
             else
             {
-                const auto releaseSeconds = juce::jmax(0.015, config.release * 0.01);
+                const auto releaseSeconds = layerReleaseSeconds(config.release);
                 voice.envelope *= static_cast<float>(std::exp(-1.0 / (releaseSeconds * sampleRate)));
             }
             const auto value = voice.transition.process(raw) * layerGain * voice.envelope;
@@ -746,10 +782,9 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
     reverbParameters.roomSize = juce::jlimit(0.0f, 1.0f, config.reverbSize / 100.0f);
     reverbParameters.damping = juce::jlimit(0.0f, 1.0f, config.reverbDamping / 100.0f);
     reverbParameters.width = juce::jlimit(0.0f, 1.0f, config.reverbWidth / 100.0f);
-    reverbParameters.wetLevel = reverbMix * 0.72f;
-    reverbParameters.dryLevel = 1.0f;
+    setLayerReverbMix(reverbParameters, reverbMix);
     layer.reverb.setParameters(reverbParameters);
-    if (reverbMix > 0.001f)
+    if (layer.reverb.shouldProcess())
         layer.reverb.processStereo(scratch.getWritePointer(0), scratch.getWritePointer(1),
                                    scratch.getNumSamples());
     const auto compressorMix = juce::jlimit(0.0f, 100.0f, config.compressor) / 100.0f;
@@ -786,6 +821,10 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
                                          scratch.getMagnitude(1, 0, output.getNumSamples()));
     const auto previousPeak = layerPeaks[(size_t) layerIndex].load(std::memory_order_relaxed) * 0.82f;
     layerPeaks[(size_t) layerIndex].store(juce::jmax(renderedPeak, previousPeak), std::memory_order_relaxed);
+    const auto voicesRemaining = std::any_of(layer.voices.begin(), layer.voices.end(),
+        [](const auto& voice) { return voice.active; });
+    updateLayerEffectTail(layer.effectTailPending, layer.effectQuietSamples,
+                          voicesRemaining, renderedPeak, output.getNumSamples(), sampleRate);
 
     for (int channel = 0; channel < juce::jmin(2, output.getNumChannels()); ++channel)
         output.addFrom(channel, 0, scratch, channel, 0, output.getNumSamples());

@@ -8,6 +8,7 @@
 #include "UpdateChecker.h"
 #include <array>
 #include <atomic>
+#include <functional>
 
 class ClassicPlayerAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                                 private juce::Timer,
@@ -23,6 +24,28 @@ public:
 
 private:
     friend struct LiveSetLayoutRegressionAccess;
+    class ContextButton final : public juce::TextButton
+    {
+    public:
+        using juce::TextButton::TextButton;
+        std::function<void()> onContextMenu;
+        void mouseDown(const juce::MouseEvent& event) override
+        {
+            contextGesture = event.mods.isPopupMenu();
+            if (contextGesture)
+            {
+                if (onContextMenu) onContextMenu();
+            }
+            else juce::TextButton::mouseDown(event);
+        }
+        void mouseUp(const juce::MouseEvent& event) override
+        {
+            if (contextGesture) { contextGesture = false; return; }
+            juce::TextButton::mouseUp(event);
+        }
+    private:
+        bool contextGesture = false;
+    };
     class ChordDisplay final : public juce::Label
     {
     public:
@@ -178,6 +201,7 @@ private:
         void showLayerEditor();
         void showAnalogSynthEditor();
         void showHammondEditor();
+        void showNordOrganEditor();
         void showDx7Editor();
         void showQuickPresetMenu();
         void saveLayerPreset();
@@ -327,6 +351,7 @@ private:
     juce::TextButton exportProgramButton { "EXPORTAR" };
     juce::TextButton deleteProgramButton { "EXCLUIR" };
     juce::TextButton importProgramButton { "IMPORTAR" };
+    ContextButton nordBanksButton { "BANCOS NORD" };
     juce::TextButton addLayerButton { "+ LAYER" };
     juce::TextButton recordingButton { "GRAVAR WAV+MIDI" };
     juce::TextButton panicButton { "PANIC" };
@@ -382,10 +407,12 @@ private:
     juce::Label activationStatus;
     std::array<std::atomic<bool>, 128> heldNotes {};
     int timerTicks = 0;
+    bool liveSetPreloadStarted = false;
     int displayedLayerCount = Sf2Engine::defaultLayerCount;
     int activeLiveSetBank = 0;
     int activeLiveSetSlot = -1;
     int loadedLiveSetBank = -1;
+    unsigned int liveSetSwitchGeneration = 0;
     int liveVolumeTrackedBank = -1;
     int liveVolumeTrackedSlot = -1;
     std::array<float, Sf2Engine::layerCount> liveSetLastVolumes {};

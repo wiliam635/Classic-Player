@@ -2,6 +2,7 @@
 #include "NordLegacySampleDecoder.h"
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 namespace
 {
@@ -19,6 +20,9 @@ void NordSampleEngine::prepare(double sampleRate, int blockSize)
         auto& layer = layers[(size_t) i];
         layer.reverb.setSampleRate(currentSampleRate);
         layer.reverb.reset();
+        layer.effectTailPending = false;
+        layer.effectQuietSamples = 0;
+        layer.lastReverbParameters.fill(-1.0f);
         layer.eq.reset();
         layer.nordFx.prepare(currentSampleRate);
         layer.gain.reset(currentSampleRate, 0.02);
@@ -64,15 +68,20 @@ juce::Result NordSampleEngine::loadSample(int layerIndex, const juce::File& file
         || !file.hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
         return juce::Result::fail("Selecione uma amostra Nord (.nsmp, .nsmp3 ou .nsmp4).");
 
-    NordSampleDecoder::Instrument decoded;
-    const auto result = file.hasFileExtension(".nsmp4")
-        ? NordSampleDecoder::decode(file, decoded)
-        : NordLegacySampleDecoder::decodeFile(file, decoded);
-    if (result.failed()) return result;
+    auto decoded = findCachedInstrument(file);
+    if (decoded == nullptr)
+    {
+        decoded = std::make_shared<NordSampleDecoder::Instrument>();
+        const auto result = file.hasFileExtension(".nsmp4")
+            ? NordSampleDecoder::decode(file, *decoded)
+            : NordLegacySampleDecoder::decodeFile(file, *decoded);
+        if (result.failed()) return result;
 
-    // Use the native NSMP4 loop points for every sound; a consistent, capped overlap
-    // softens the seam without relying on instrument-name heuristics.
-    prepareLoopCrossfades(decoded);
+        // Use the native NSMP4 loop points for every sound; a consistent, capped overlap
+        // softens the seam without relying on instrument-name heuristics.
+        prepareLoopCrossfades(*decoded);
+        decoded = cacheInstrument(file, std::move(decoded));
+    }
 
     const juce::ScopedLock stateLock(lock);
     auto& layer = layers[(size_t) layerIndex];
@@ -91,10 +100,71 @@ juce::Result NordSampleEngine::loadSample(int layerIndex, const juce::File& file
     layer.eq.reset();
     layer.nordFx.reset();
     layer.reverb.reset();
+    layer.effectTailPending = false;
+    layer.effectQuietSamples = 0;
     layer.lastReverbParameters.fill(-1.0f);
     for (auto& voice : layer.voices) voice = {};
     layer.peak.store(0.0f, std::memory_order_release);
     return juce::Result::ok();
+}
+
+juce::Result NordSampleEngine::preloadSample(const juce::File& file)
+{
+    if (!file.existsAsFile() || !file.hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
+        return juce::Result::fail("Selecione uma amostra Nord válida.");
+    if (findCachedInstrument(file) != nullptr) return juce::Result::ok();
+
+    auto decoded = std::make_shared<NordSampleDecoder::Instrument>();
+    const auto result = file.hasFileExtension(".nsmp4")
+        ? NordSampleDecoder::decode(file, *decoded)
+        : NordLegacySampleDecoder::decodeFile(file, *decoded);
+    if (result.failed()) return result;
+    prepareLoopCrossfades(*decoded);
+    cacheInstrument(file, std::move(decoded));
+    return juce::Result::ok();
+}
+
+std::shared_ptr<NordSampleDecoder::Instrument> NordSampleEngine::findCachedInstrument(
+    const juce::File& file)
+{
+    const auto key = file.getFullPathName() + "|" + juce::String(file.getSize()) + "|"
+                   + juce::String(file.getLastModificationTime().toMilliseconds());
+    const std::lock_guard<std::mutex> guard(instrumentCacheMutex);
+    const auto found = instrumentCache.find(key.toStdString());
+    if (found == instrumentCache.end()) return {};
+    found->second.lastUse = ++instrumentCacheClock;
+    return found->second.instrument;
+}
+
+std::shared_ptr<NordSampleDecoder::Instrument> NordSampleEngine::cacheInstrument(
+    const juce::File& file, std::shared_ptr<NordSampleDecoder::Instrument> decoded)
+{
+    if (decoded == nullptr) return {};
+    const auto key = file.getFullPathName() + "|" + juce::String(file.getSize()) + "|"
+                   + juce::String(file.getLastModificationTime().toMilliseconds());
+    size_t bytes = sizeof(NordSampleDecoder::Instrument);
+    for (const auto& zone : decoded->zones)
+        bytes += sizeof(NordSampleDecoder::Zone) + zone.pcm.size() * sizeof(float);
+    if (bytes > decodedCacheLimitBytes) return decoded;
+
+    const std::lock_guard<std::mutex> guard(instrumentCacheMutex);
+    const auto keyString = key.toStdString();
+    if (const auto found = instrumentCache.find(keyString); found != instrumentCache.end())
+    {
+        found->second.lastUse = ++instrumentCacheClock;
+        return found->second.instrument;
+    }
+    while (instrumentCacheBytes + bytes > decodedCacheLimitBytes && !instrumentCache.empty())
+    {
+        const auto oldest = std::min_element(instrumentCache.begin(), instrumentCache.end(),
+            [](const auto& left, const auto& right)
+            { return left.second.lastUse < right.second.lastUse; });
+        instrumentCacheBytes -= oldest->second.bytes;
+        instrumentCache.erase(oldest);
+    }
+    instrumentCacheBytes += bytes;
+    instrumentCache.emplace(keyString, CachedInstrument { decoded, bytes, ++instrumentCacheClock });
+    return decoded;
 }
 
 void NordSampleEngine::unload(int layerIndex)
@@ -102,7 +172,7 @@ void NordSampleEngine::unload(int layerIndex)
     if (!juce::isPositiveAndBelow(layerIndex, layerCount)) return;
     const juce::ScopedLock stateLock(lock);
     auto& layer = layers[(size_t) layerIndex];
-    layer.instrument = {};
+    layer.instrument.reset();
     layer.sourcePath.clear();
     layer.loaded = false;
     layer.sustainDown.fill(false);
@@ -116,6 +186,8 @@ void NordSampleEngine::unload(int layerIndex)
     layer.eq.reset();
     layer.nordFx.reset();
     layer.reverb.reset();
+    layer.effectTailPending = false;
+    layer.effectQuietSamples = 0;
     layer.peak.store(0.0f, std::memory_order_release);
 }
 
@@ -153,7 +225,8 @@ juce::String NordSampleEngine::name(int layerIndex) const
 {
     if (!juce::isPositiveAndBelow(layerIndex, layerCount)) return {};
     const juce::ScopedTryLock stateLock(lock);
-    return stateLock.isLocked() ? layers[(size_t) layerIndex].instrument.name : juce::String{};
+    return stateLock.isLocked() && layers[(size_t) layerIndex].instrument != nullptr
+        ? layers[(size_t) layerIndex].instrument->name : juce::String{};
 }
 
 float NordSampleEngine::getLayerPeak(int layerIndex) const
@@ -234,11 +307,9 @@ float NordSampleEngine::readSample(const NordSampleDecoder::Zone& zone, int chan
 
 float NordSampleEngine::releaseCoefficientFor(float control, double sampleRate) noexcept
 {
-    const auto value = juce::jlimit(0.0f, 100.0f, control);
-    const auto seconds = value <= 50.0f ? juce::jmax(0.005f, value * 0.01f)
-        : 0.5f * std::pow(20.0f, (value - 50.0f) / 50.0f);
+    const auto seconds = layerReleaseSeconds(control);
     return (float) std::exp(std::log(envelopeFloor)
-        / juce::jmax(1.0, (double) seconds * sampleRate));
+        / juce::jmax(1.0, seconds * sampleRate));
 }
 
 void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& message,
@@ -255,10 +326,10 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
     const auto startVoice = [&](int note, int midiChannel, float shapedVelocity, bool legato) -> bool
     {
         const auto velocity = juce::jlimit(1, 127, juce::roundToInt(shapedVelocity * 127.0f));
-        const auto zoneIndex = findZone(layer.instrument, note, velocity);
-        if (!juce::isPositiveAndBelow(zoneIndex, (int) layer.instrument.zones.size())) return false;
+        const auto zoneIndex = findZone(*layer.instrument, note, velocity);
+        if (!juce::isPositiveAndBelow(zoneIndex, (int) layer.instrument->zones.size())) return false;
 
-        const auto& zone = layer.instrument.zones[(size_t) zoneIndex];
+        const auto& zone = layer.instrument->zones[(size_t) zoneIndex];
         if (routing.mono)
             for (auto& prior : layer.voices)
                 if (prior.active && (prior.keyDown || prior.waitingForSustain))
@@ -270,7 +341,7 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
                 }
 
         auto& voice = allocateVoice(layer, routing.polyphony);
-        const auto cents = layer.instrument.detune[(size_t) note];
+        const auto cents = layer.instrument->detune[(size_t) note];
         voice = {};
         voice.active = zone.frames() > 0;
         voice.note = note;
@@ -281,11 +352,11 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
             ? static_cast<double>(zone.secondStart) : 0.0;
         voice.increment = std::pow(2.0, (note - zone.root + cents / 100.0) / 12.0)
                         * NordSampleDecoder::sampleRate / currentSampleRate;
-        const auto noteGain = layer.instrument.gain[(size_t) note];
+        const auto noteGain = layer.instrument->gain[(size_t) note];
         voice.amplitude = shapedVelocity * zone.gain * juce::jmax(0.0f, noteGain);
         voice.attack = routing.attack <= 0.0f ? 1.0f : 0.0f;
         voice.attackStep = routing.attack <= 0.0f ? 1.0f
-            : (float) (1.0 / juce::jmax(1.0, routing.attack * 0.001 * currentSampleRate));
+            : (float) (1.0 / juce::jmax(1.0, layerAttackSeconds(routing.attack) * currentSampleRate));
         voice.releaseGain = 1.0f;
         if (routing.mono)
         {
@@ -434,12 +505,12 @@ void NordSampleEngine::renderVoices(Layer& layer, juce::AudioBuffer<float>& outp
     for (auto& voice : layer.voices)
     {
         if (!voice.active) continue;
-        if (!juce::isPositiveAndBelow(voice.zone, (int) layer.instrument.zones.size()))
+        if (!juce::isPositiveAndBelow(voice.zone, (int) layer.instrument->zones.size()))
         {
             voice = {};
             continue;
         }
-        const auto& zone = layer.instrument.zones[(size_t) voice.zone];
+        const auto& zone = layer.instrument->zones[(size_t) voice.zone];
         const auto frames = (int) zone.frames();
         const auto looped = zone.loopEnd > zone.loopStart + 8;
         for (int sample = startSample; sample < endSample; ++sample)
@@ -565,13 +636,12 @@ void NordSampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<floa
         parameters.roomSize = juce::jlimit(0.0f, 1.0f, routing.reverbSize / 100.0f);
         parameters.damping = juce::jlimit(0.0f, 1.0f, routing.reverbDamping / 100.0f);
         parameters.width = juce::jlimit(0.0f, 1.0f, routing.reverbWidth / 100.0f);
-        parameters.wetLevel = juce::jlimit(0.0f, 1.0f, routing.reverb / 100.0f) * 0.72f;
-        parameters.dryLevel = 1.0f;
+        setLayerReverbMix(parameters, routing.reverb / 100.0f);
         parameters.freezeMode = 0.0f;
         layer.reverb.setParameters(parameters);
         layer.lastReverbParameters = reverbValues;
     }
-    if (routing.reverb > 0.001f)
+    if (layer.reverb.shouldProcess())
         layer.reverb.processStereo(scratchBuffer.getWritePointer(0), scratchBuffer.getWritePointer(1), samples);
 
     const auto compMix = juce::jlimit(0.0f, 100.0f, routing.compressor) / 100.0f;
@@ -604,8 +674,11 @@ void NordSampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<floa
     const auto panLeft = routing.pan <= 0.0f ? 1.0f : 1.0f - routing.pan;
     const auto panRight = routing.pan >= 0.0f ? 1.0f : 1.0f + routing.pan;
     float peak = 0.0f;
+    float effectTailPeak = 0.0f;
     for (int i = 0; i < samples; ++i)
     {
+        effectTailPeak = juce::jmax(effectTailPeak, std::abs(scratchBuffer.getSample(0, i)),
+                                    std::abs(scratchBuffer.getSample(1, i)));
         const auto gain = layer.gain.getNextValue();
         const auto left = scratchBuffer.getSample(0, i) * gain * panLeft;
         const auto right = scratchBuffer.getSample(1, i) * gain * panRight;
@@ -615,6 +688,10 @@ void NordSampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<floa
     }
     layer.peak.store(juce::jmax(peak, layer.peak.load(std::memory_order_relaxed) * 0.82f),
                      std::memory_order_relaxed);
+    const auto hasVoices = std::any_of(layer.voices.begin(), layer.voices.end(),
+        [](const auto& voice) { return voice.active; });
+    updateLayerEffectTail(layer.effectTailPending, layer.effectQuietSamples,
+                          hasVoices, effectTailPeak, samples, currentSampleRate);
 }
 
 void NordSampleEngine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer& midi,
@@ -627,10 +704,18 @@ void NordSampleEngine::process(juce::AudioBuffer<float>& output, const juce::Mid
     {
         auto& layer = layers[(size_t) i];
         if (!layer.loaded || !routing[(size_t) i].enabled) continue;
+        const auto& localMidi = routedMidi[(size_t) i];
+        const auto hasVoices = std::any_of(layer.voices.begin(), layer.voices.end(),
+                                           [](const auto& voice) { return voice.active; });
+        if (!hasVoices && midi.isEmpty() && localMidi.isEmpty() && !layer.effectTailPending)
+        {
+            layer.peak.store(0.0f, std::memory_order_relaxed);
+            continue;
+        }
         auto& events = combinedMidi[(size_t) i];
         events.clear();
         events.addEvents(midi, 0, -1, 0);
-        events.addEvents(routedMidi[(size_t) i], 0, -1, 0);
+        events.addEvents(localMidi, 0, -1, 0);
         auto& storage = scratch[(size_t) i];
         const auto chunkLimit = juce::jmax(1, maximumBlockSize);
         for (int start = 0; start < output.getNumSamples(); start += chunkLimit)

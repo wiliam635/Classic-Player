@@ -197,7 +197,11 @@ static void continuousPadRegression()
     check(bank.mapping(0)==21&&bank.mapping(ContinuousPadBank::count)==48
           &&bank.path(0)==fixture.getFile().getFullPathName(),"pad settings lost");
     auto p=std::make_unique<ClassicPlayerAudioProcessor>();
-    p->setLayerType(1,ClassicPlayerAudioProcessor::LayerType::continuousPads);p->continuousPads(1).restore(saved);
+    p->setLayerType(1,ClassicPlayerAudioProcessor::LayerType::continuousPads);
+    for (int pad = 0; pad < ContinuousPadBank::count; ++pad)
+        check(p->continuousPads(1).path(pad) == "@factory-pad:" + ContinuousPadBank::noteName(pad),
+              "factory continuous pad missing or out of chromatic order");
+    p->continuousPads(1).restore(saved);
     auto routing=p->layerConfig(1);routing.midiChannel=1;p->setLayerConfig(1,routing);
     p->continuousPads(1).learn(ContinuousPadBank::count);
     ContinuousPadRegressionAccess::handleIncomingMidiMessage(
@@ -469,6 +473,15 @@ struct LiveSetLayoutRegressionAccess
             }
         }
         editor->liveSetSlotButtons[0].onClick();
+        // Switching uses a short asynchronous fade before loading the slot.
+        // Run pending timers so this checks the completed switch, not the
+        // state immediately after clicking the card.
+        for (int attempt = 0; attempt < 30
+             && !(bool) editor->liveSetSlotButtons[0].getProperties()["liveActive"]; ++attempt)
+        {
+            juce::Thread::sleep(20);
+            juce::Timer::callPendingTimersSynchronously();
+        }
         check(editor->programBox.getText() == "Test instruments",
               "Live Set selection left the previous program name in Save");
         check(processor->activeLayerCount()==2,"Live Set load changed layer count");
@@ -536,7 +549,7 @@ struct LiveSetLayoutRegressionAccess
 using Configs=std::array<HammondEngine::Config,HammondEngine::layerCount>;
 static Configs configs(){
     Configs c;for(auto& x:c)x.routing.enabled=false;
-    c[0].routing.enabled=true;c[0].routing.reverb=0;c[0].leslie=0;
+    c[0].routing.enabled=true;c[0].routing.reverb=0;c[0].routing.release=5;c[0].leslie=0;
     c[0].click=c[0].leakage=c[0].drive=0;return c;
 }
 static std::vector<float> render(int block,double rate,bool routed,bool allBars=false)
@@ -603,6 +616,98 @@ static void hammondCompressorRegression()
     const auto slow = hammondCompressorRms(100.0f, 100.0f, 0.0f, 1000, 3000);
     check(slow > fast * 1.05f,
           "Hammond compressor ignored the layer attack control");
+}
+
+static void hammondIdleWakeRegression()
+{
+    auto engine = std::make_unique<HammondEngine>();
+    engine->prepare(48000.0, 128);
+    auto c = configs();
+    c[0].routing.sustainEnabled = true;
+    c[0].routing.reverb = 40.0f;
+    juce::AudioBuffer<float> audio(2, 128);
+    juce::MidiBuffer midi;
+    for (int block = 0; block < 100; ++block)
+    {
+        audio.clear();
+        engine->process(audio, midi, c);
+        check(audio.getMagnitude(0, 128) == 0.0f, "idle Hammond produced audio");
+    }
+    midi.addEvent(juce::MidiMessage::controllerEvent(1, 64, 127), 0);
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.8f), 64);
+    audio.clear();
+    engine->process(audio, midi, c);
+    check(audio.getMagnitude(0, 0, 64) == 0.0f, "idle wake ignored MIDI offset");
+    midi.clear();
+    float sounding = 0.0f;
+    for (int block = 0; block < 12; ++block)
+    {
+        audio.clear();
+        engine->process(audio, midi, c);
+        sounding = std::max(sounding, audio.getMagnitude(0, 128));
+    }
+    check(sounding > 0.0001f, "Hammond did not wake for a note");
+    midi.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+    audio.clear();
+    engine->process(audio, midi, c);
+    midi.clear();
+    audio.clear();
+    engine->process(audio, midi, c);
+    check(audio.getMagnitude(0, 128) > 0.00001f, "idle optimization cut pedal sustain");
+    midi.addEvent(juce::MidiMessage::controllerEvent(1, 64, 0), 0);
+    audio.clear();
+    engine->process(audio, midi, c);
+    check(audio.getMagnitude(0, 128) > 0.00001f, "idle optimization cut release tail");
+    midi.clear();
+    for (int block = 0; block < 1500; ++block)
+    {
+        audio.clear();
+        engine->process(audio, midi, c);
+    }
+    midi.addEvent(juce::MidiMessage::noteOn(1, 67, 0.8f), 0);
+    audio.clear();
+    engine->process(audio, midi, c);
+    midi.clear();
+    sounding = 0.0f;
+    for (int block = 0; block < 12; ++block)
+    {
+        audio.clear();
+        engine->process(audio, midi, c);
+        sounding = std::max(sounding, audio.getMagnitude(0, 128));
+    }
+    check(sounding > 0.0001f, "Hammond did not wake after its effect tail");
+}
+
+static void benchmarkIdleHammond()
+{
+    constexpr int blocks = 3000;
+    constexpr int blockSize = 512;
+    constexpr double rate = 48000.0;
+    const auto measure = [](bool forceFullPath)
+    {
+        auto engine = std::make_unique<HammondEngine>();
+        engine->prepare(rate, blockSize);
+        auto c = configs();
+        juce::AudioBuffer<float> audio(2, blockSize);
+        juce::MidiBuffer midi;
+        // A harmless unmapped CC keeps the previous full processing path
+        // active without creating notes; it adds a small MIDI handling cost.
+        if (forceFullPath)
+            midi.addEvent(juce::MidiMessage::controllerEvent(1, 99, 0), 0);
+        const auto start = std::chrono::steady_clock::now();
+        for (int block = 0; block < blocks; ++block)
+        {
+            audio.clear();
+            engine->process(audio, midi, c);
+        }
+        return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    };
+    const auto full = measure(true);
+    const auto idle = measure(false);
+    const auto audioSeconds = blocks * blockSize / rate;
+    std::cout << "Hammond idle benchmark: full path " << full / audioSeconds * 100.0
+              << "% of audio deadline; sleeping path " << idle / audioSeconds * 100.0
+              << "%; elapsed ratio " << idle / full << '\n';
 }
 static void nativeWindowStyle()
 {
@@ -695,6 +800,9 @@ struct DrumPadRegressionAccess
         for(int i=0;i<10;++i)block();
         check(std::abs(block()-.125f)<1e-6,"drum half gain");
         check(std::abs(p->layerPeak(0)-.125f)<1e-6,"drum meter ignores layer gain");
+        gain(0);
+        check(p->layerPeak(0)<1e-6,"zero-volume layer meter still modulates");
+        gain(50);
         p->setLayerMuted(0,true);
         check(p->layerPeak(0)<1e-6,"muted layer meter still shows a peak");
         p->setLayerMuted(0,false);
@@ -796,10 +904,120 @@ static void hammondPresetAndWheel()
     std::cout<<"Hammond preset reopen, CC1 channel/threshold and host/routed checks passed\n";
 }
 
+static void nordOrganRegression()
+{
+    NordOrganEngine engine;
+    engine.prepare(48000.0, 128);
+    std::array<NordOrganEngine::Config, NordOrganEngine::layerCount> configs;
+    for (auto& config : configs) config.routing.enabled = false;
+    configs[0].routing.enabled = true;
+    configs[0].routing.gain = 0.8f;
+    configs[0].routing.midiChannel = 2;
+    configs[0].routing.attack = 0.0f;
+    configs[0].routing.release = 30.0f;
+    configs[0].model = NordOrganEngine::Model::vox;
+
+    juce::AudioBuffer<float> audio(2, 128);
+    audio.clear();
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.85f), 0);
+    engine.process(audio, midi, configs);
+    check(audio.getMagnitude(0, audio.getNumSamples()) < 1.0e-6f,
+          "Nord organ ignored its configured MIDI channel");
+
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::noteOn(2, 60, 0.85f), 0);
+    audio.clear();
+    engine.process(audio, midi, configs);
+    check(audio.getMagnitude(0, audio.getNumSamples()) > 0.001f,
+          "Nord organ did not render a note");
+    check(std::isfinite(engine.getLayerPeak(0)) && engine.getLayerPeak(0) > 0.001f,
+          "Nord organ meter did not report output");
+
+    const auto renderEvents = [&](juce::MidiBuffer events)
+    {
+        audio.clear();
+        engine.process(audio, events, configs);
+        return audio.getMagnitude(0, audio.getNumSamples());
+    };
+    check(renderEvents(juce::MidiBuffer{}) > 0.001f, "Nord organ note did not sustain while held");
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::noteOff(2, 60), 0);
+    renderEvents(midi);
+    float releasedPeak = 1.0f;
+    for (int i = 0; i < 150; ++i) releasedPeak = renderEvents(juce::MidiBuffer{});
+    check(releasedPeak < 1.0e-5f, "Nord organ release remained latched after key-up");
+
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::controllerEvent(2, 64, 127), 0);
+    renderEvents(midi);
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::noteOn(2, 62, 0.85f), 0);
+    renderEvents(midi);
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::noteOff(2, 62), 0);
+    renderEvents(midi);
+    for (int i = 0; i < 14; ++i)
+        check(renderEvents(juce::MidiBuffer{}) > 0.001f,
+              "Nord organ sustain pedal failed to hold the released note");
+    midi.clear();
+    midi.addEvent(juce::MidiMessage::controllerEvent(2, 64, 0), 0);
+    renderEvents(midi);
+    releasedPeak = 1.0f;
+    for (int i = 0; i < 150; ++i) releasedPeak = renderEvents(juce::MidiBuffer{});
+    check(releasedPeak < 1.0e-5f, "Nord organ pedal-up did not start the release envelope");
+
+    for (auto& drawbar : configs[0].drawbars) drawbar = 0;
+    midi.clear();
+    audio.clear();
+    engine.process(audio, midi, configs);
+    check(audio.getMagnitude(0, audio.getNumSamples()) < 1.0e-6f,
+          "Nord organ produced tone with all drawbars closed");
+
+    configs[0].drawbars = { 8, 8, 7, 6, 8, 5, 4, 3, 2 };
+    configs[0].routing.gain = 0.0f;
+    audio.clear();
+    engine.process(audio, midi, configs);
+    check(audio.getMagnitude(0, audio.getNumSamples()) < 1.0e-6f,
+          "Nord organ ignored zero layer gain");
+
+    NordOrganEngine::Config saved;
+    saved.model = NordOrganEngine::Model::farfisa;
+    saved.percussion = 3;
+    saved.vibratoChorus = 2;
+    saved.rotary = 0;
+    saved.drive = 0.43f;
+    saved.drawbars[0] = 2;
+    const auto restored = NordOrganEngine::restore(NordOrganEngine::save(saved, 0));
+    check(restored.model == saved.model && restored.percussion == saved.percussion
+          && restored.vibratoChorus == saved.vibratoChorus && restored.rotary == saved.rotary
+          && restored.drawbars[0] == 2 && std::abs(restored.drive - saved.drive) < 1.0e-6f,
+          "Nord organ controls did not persist");
+
+    auto processor = std::make_unique<ClassicPlayerAudioProcessor>();
+    processor->setLayerType(0, ClassicPlayerAudioProcessor::LayerType::nordOrgan);
+    processor->setNordOrganConfig(0, saved);
+    juce::MemoryBlock state;
+    processor->getStateInformation(state);
+    auto restoredProcessor = std::make_unique<ClassicPlayerAudioProcessor>();
+    restoredProcessor->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+    const auto restoredConfig = restoredProcessor->nordOrganConfig(0);
+    check(restoredProcessor->layerType(0) == ClassicPlayerAudioProcessor::LayerType::nordOrgan
+          && restoredConfig.model == saved.model && restoredConfig.percussion == saved.percussion
+          && restoredConfig.drawbars[0] == 2,
+          "Nord organ did not persist in a saved performance");
+    std::cout << "Nord organ render, gain/drawbar control and performance persistence passed\n";
+}
+
 int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
     try{
+        if (argc > 1 && juce::String(argv[1]) == "--benchmark-idle-hammond")
+        {
+            benchmarkIdleHammond();
+            return 0;
+        }
         if (argc > 1 && juce::String(argv[1]) == "--responsive-ui")
         {
             LiveSetLayoutRegressionAccess::responsiveUi(argc > 2 ? argv[2] : nullptr);
@@ -836,11 +1054,18 @@ int main(int argc, char** argv)
             performanceEffectsRegression();
             return 0;
         }
+        if (argc > 1 && juce::String(argv[1]) == "--nord-organ")
+        {
+            nordOrganRegression();
+            return 0;
+        }
         performanceEffectsRegression();
+        nordOrganRegression();
         DrumPadRegressionAccess::run();
         continuousPadRegression();
         hammondPresetAndWheel();
         hammondCompressorRegression();
+        hammondIdleWakeRegression();
         analogEditorLifecycle();
         nativeWindowStyle();
         LiveSetLayoutRegressionAccess::run(argc>2 ? argv[2] : nullptr);

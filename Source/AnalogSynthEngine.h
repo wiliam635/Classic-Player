@@ -66,6 +66,12 @@ public:
         bool monophonic = false;
         // Opt-in for approved browser presets; existing saved sounds remain legacy.
         bool browserCompatible = false;
+        // Nord Stage 4 FM/WAVE programs use a bounded native approximation.
+        int nordSynthType = 0; // 0 analog, 1 FM-H, 2 FM-I, 3 WAVE
+        int nordTimbre = 0;
+        // Nord program layers retrigger one voice per pitch while sustain is held.
+        // Keep the original Analog behavior for existing Classic performances.
+        bool nordRetriggerSameNote = false;
     };
 
     AnalogSynthEngine();
@@ -131,10 +137,12 @@ private:
         float lfoPhase = 0.0f;
         juce::SmoothedValue<float> gain;
         bool gainReady = false;
+        bool effectTailPending = false;
+        uint64_t effectQuietSamples = 0;
         bool sustainPedal = false;
         float modWheel = 0.0f;
         float pitchBendSemitones = 0.0f;
-        juce::Reverb reverb;
+        LayerReverb reverb;
         std::array<float, 2> compressorEnvelope {};
         std::array<float, 2> filterState {};
         LayerEqState eq;
@@ -155,7 +163,8 @@ private:
     float processLadder(Voice& voice, float input, float cutoffHz, float resonance,
                         float drive) noexcept;
     void renderVoice(Voice& voice, const Config& config, float lfo, float modWheel,
-                     float pitchBendSemitones, float& left, float& right);
+                     float pitchBendSemitones, const std::array<float, 3>& oscillatorRatios,
+                     float& left, float& right);
 
     std::array<Layer, layerCount> layers {};
     std::array<std::atomic<float>, layerCount> peaks {};

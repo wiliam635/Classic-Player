@@ -2,6 +2,7 @@
 #include "AnalogSynthEngine.h"
 #include "AnalogBrowserPresets.h"
 #include "OutputSafety.h"
+#include "LayerEffects.h"
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -38,6 +39,39 @@ static void outputCeilingRegression()
     sanitizeOutput(audio);
     require(audio.getSample(0, 0) == 1.5f && audio.getSample(0, 1) == 0.0f,
             "Limiter bypass clipped finite audio or passed a non-finite sample");
+}
+
+static void reverbMixDoesNotAddLayerGain()
+{
+    for (const auto maximumWet : { 0.4f, 0.72f, 1.0f })
+        for (const auto amount : { 0.0f, 0.1f, 0.5f, 1.0f })
+        {
+            juce::Reverb::Parameters parameters;
+            setLayerReverbMix(parameters, amount, maximumWet);
+            require(std::abs(parameters.dryLevel + parameters.wetLevel - 1.0f) < 1.0e-6f,
+                    "Reverb mix changed the layer's unity gain sum");
+            require(parameters.wetLevel >= 0.0f && parameters.dryLevel >= 0.0f,
+                    "Reverb mix produced a negative coefficient");
+        }
+
+    LayerReverb effect;
+    effect.setSampleRate(48000.0);
+    float previous = 0.25f;
+    for (int amount = 0; amount <= 17; ++amount)
+    {
+        juce::Reverb::Parameters parameters;
+        setLayerReverbMix(parameters, static_cast<float>(amount) / 100.0f);
+        effect.setParameters(parameters);
+        float left = 0.25f, right = 0.25f;
+        effect.processStereo(&left, &right, 1);
+        if (left > 0.250001f || right > 0.250001f)
+            std::cerr << "Reverb amount " << amount << ": " << left << ", " << right << '\n';
+        require(left <= 0.250001f && right <= 0.250001f,
+                "Reverb caused an immediate dry signal boost");
+        require(std::abs(left - previous) < 0.001f,
+                "Reverb mix change caused a dry signal jump");
+        previous = left;
+    }
 }
 
 static juce::MidiBuffer events(int start, int count, bool transitions)
@@ -369,6 +403,7 @@ int main()
         bytes[161] = static_cast<uint8_t>((128 - (sum & 127)) & 127); bytes[162] = 0xf7;
         require(fixture.getFile().replaceWithData(bytes.data(), bytes.size()), "fixture write");
         outputCeilingRegression();
+        reverbMixDoesNotAddLayerGain();
         cachedLayerEq();
         volumeRamp(fixture.getFile());
         independentAnalogTuning();

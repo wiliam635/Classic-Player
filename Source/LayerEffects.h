@@ -6,13 +6,140 @@
 #include <cstring>
 #include <vector>
 #include <algorithm>
+#include <cstdint>
 
 struct NordEffectSettings
 {
     float tremoloMix = 0.0f, tremoloRate = 4.0f;
     float flangerMix = 0.0f, flangerRate = 0.35f;
-    float chorusMix = 0.0f, chorusRate = 0.8f;
+    float chorusMix = 0.0f, chorusRate = 0.8f, chorusDepth = 8.0f;
     float delayMix = 0.0f, delayBpm = 120.0f, delayFeedback = 30.0f;
+};
+
+// Shared layer Attack scale. Preserve the existing 0..50 ms range for old
+// programs, then extend the upper half smoothly to 2 s for pads and strings.
+inline double layerAttackSeconds(float control) noexcept
+{
+    const auto value = juce::jlimit(0.0f, 100.0f, control);
+    if (value <= 50.0f)
+        return static_cast<double>(value) * 0.001;
+    return 0.05 * std::pow(40.0, static_cast<double>(value - 50.0f) / 50.0);
+}
+
+// Shared layer Release scale: 0..50 maps to 5..500 ms and 50..100 to
+// 0.5..10 s. Keep the envelope feel aligned across sampler and synth layers.
+inline double layerReleaseSeconds(float control) noexcept
+{
+    const auto value = juce::jlimit(0.0f, 100.0f, control);
+    return value <= 50.0f
+        ? juce::jmax(0.005, static_cast<double>(value) * 0.01)
+        : 0.5 * std::pow(20.0, static_cast<double>(value - 50.0f) / 50.0);
+}
+
+// Convert the UI amount to complementary external mix coefficients. The
+// LayerReverb wrapper uses wetLevel as the target wet share.
+inline void setLayerReverbMix(juce::Reverb::Parameters& parameters,
+                              float amount, float maximumWet = 0.72f) noexcept
+{
+    const auto wet = juce::jlimit(0.0f, 1.0f, amount)
+                   * juce::jlimit(0.0f, 1.0f, maximumWet);
+    parameters.wetLevel = wet;
+    parameters.dryLevel = 1.0f - wet;
+}
+
+// Delay and reverb returns can be silent for a buffer before another reflection.
+// Keep processing for two quiet seconds after the last voice or audible tail.
+inline void updateLayerEffectTail(bool& pending, std::uint64_t& quietSamples,
+                                  bool hasVoices, float peak, int samples,
+                                  double sampleRate) noexcept
+{
+    if (hasVoices || peak > 1.0e-6f)
+    {
+        pending = true;
+        quietSamples = 0;
+    }
+    else if (pending)
+    {
+        quietSamples += static_cast<std::uint64_t>(juce::jmax(0, samples));
+        if (quietSamples >= static_cast<std::uint64_t>(sampleRate * 2.0))
+            pending = false;
+    }
+}
+
+// Smoothed, independent room reverb return.
+struct LayerReverb
+{
+    LayerReverb() noexcept { wetMix.reset(1024); wetMix.setCurrentAndTargetValue(0.0f); }
+    void setSampleRate(double rate)
+    {
+        // Set the internal return fully wet before JUCE resets its smoothers.
+        // Otherwise its default dry signal fades out only after processing
+        // starts, briefly adding gain to the layer when reverb is enabled.
+        auto parameters = reverb.getParameters();
+        parameters.wetLevel = 1.0f / 3.0f;
+        parameters.dryLevel = 0.0f;
+        reverb.setParameters(parameters);
+        reverb.setSampleRate(rate);
+    }
+    void reset() noexcept
+    {
+        reverb.reset();
+        wetMix.setCurrentAndTargetValue(0.0f);
+        targetWet = 0.0f;
+        reverbParametersReady = false;
+        cachedRoomParameters.fill(-1.0f);
+    }
+    void setParameters(juce::Reverb::Parameters parameters)
+    {
+        const auto nextWet = juce::jlimit(0.0f, 1.0f, parameters.wetLevel);
+        if (nextWet != targetWet)
+        {
+            if (nextWet > 0.0f && targetWet <= 0.0f) reverb.reset();
+            targetWet = nextWet;
+            wetMix.setTargetValue(targetWet);
+        }
+        const std::array<float, 4> roomParameters {
+            parameters.roomSize, parameters.damping, parameters.width, parameters.freezeMode
+        };
+        if (!reverbParametersReady || roomParameters != cachedRoomParameters)
+        {
+            parameters.wetLevel = 1.0f / 3.0f;
+            parameters.dryLevel = 0.0f;
+            reverb.setParameters(parameters);
+            cachedRoomParameters = roomParameters;
+            reverbParametersReady = true;
+        }
+    }
+    bool shouldProcess() const noexcept
+    {
+        return targetWet > 0.0f || wetMix.isSmoothing() || wetMix.getCurrentValue() > 0.0f;
+    }
+    void processStereo(float* left, float* right, int samples) noexcept
+    {
+        if (left == nullptr || right == nullptr || samples <= 0 || !shouldProcess()) return;
+        constexpr int chunkSize = 64;
+        float wetLeft[chunkSize], wetRight[chunkSize];
+        for (int start = 0; start < samples; start += chunkSize)
+        {
+            const auto count = juce::jmin(chunkSize, samples - start);
+            std::copy_n(left + start, count, wetLeft);
+            std::copy_n(right + start, count, wetRight);
+            reverb.processStereo(wetLeft, wetRight, count);
+            for (int i = 0; i < count; ++i)
+            {
+                const auto wet = wetMix.getNextValue();
+                const auto dry = std::sqrt(juce::jmax(0.0f, 1.0f - wet * wet));
+                left[start + i] = left[start + i] * dry + wetLeft[i] * wet;
+                right[start + i] = right[start + i] * dry + wetRight[i] * wet;
+            }
+        }
+    }
+private:
+    juce::Reverb reverb;
+    juce::SmoothedValue<float> wetMix;
+    std::array<float, 4> cachedRoomParameters { -1.0f, -1.0f, -1.0f, -1.0f };
+    float targetWet = 0.0f;
+    bool reverbParametersReady = false;
 };
 
 // Audio-thread-safe, allocation-free processing. Buffers are allocated only
@@ -43,6 +170,7 @@ struct NordLayerEffects
         const auto tremolo = juce::jlimit(0.0f, 1.0f, settings.tremoloMix * 0.01f);
         const auto flanger = juce::jlimit(0.0f, 1.0f, settings.flangerMix * 0.01f);
         const auto chorus = juce::jlimit(0.0f, 1.0f, settings.chorusMix * 0.01f);
+        const auto chorusDepthMs = juce::jlimit(0.0f, 20.0f, settings.chorusDepth);
         const auto delayMix = juce::jlimit(0.0f, 1.0f, settings.delayMix * 0.01f);
         if (tremolo + flanger + chorus + delayMix <= 0.0f) return;
         const auto feedback = juce::jlimit(0.0f, 0.8f, settings.delayFeedback * 0.01f);
@@ -67,7 +195,8 @@ struct NordLayerEffects
                 if (chorus > 0.0f)
                 {
                     const auto phase = channel == 0 ? chorusLfo : 1.0f - chorusLfo;
-                    const auto tap = read(modLine, modulationPosition, sampleRate * (0.016 + 0.008 * phase));
+                    const auto tap = read(modLine, modulationPosition,
+                                          sampleRate * (0.016 + 0.001 * chorusDepthMs * phase));
                     value = value * (1.0f - 0.35f * chorus) + tap * (0.35f * chorus);
                 }
                 modLine[modulationPosition] = value;

@@ -1,4 +1,5 @@
 #include "AnalogSynthEngine.h"
+#include "LayerEffects.h"
 
 #include <algorithm>
 #include <cmath>
@@ -48,6 +49,8 @@ void AnalogSynthEngine::prepare(double newSampleRate, int maximumBlockSize)
     reset();
     for (auto& layer : layers)
     {
+        layer.reverb.setSampleRate(sampleRate);
+        layer.reverb.reset();
         layer.gain.reset(sampleRate, 0.02);
         layer.gain.setCurrentAndTargetValue(0.0f);
     }
@@ -71,6 +74,8 @@ void AnalogSynthEngine::reset()
         layer.eq.reset();
         layer.lfoPhase = 0.0f;
         layer.gainReady = false;
+        layer.effectTailPending = false;
+        layer.effectQuietSamples = 0;
     }
 
     for (auto& peak : peaks)
@@ -101,6 +106,8 @@ void AnalogSynthEngine::unload(int layerIndex)
     layer.filterState = {};
     layer.eq.reset();
     layer.lfoPhase = 0.0f;
+    layer.effectTailPending = false;
+    layer.effectQuietSamples = 0;
     peaks[static_cast<size_t>(layerIndex)].store(0.0f, std::memory_order_relaxed);
 }
 
@@ -253,7 +260,18 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
     }
     else
     {
-        for (int i = 0; i < juce::jlimit(64, voicesPerLayer, config.routing.polyphony); ++i)
+        const auto voiceLimit = juce::jlimit(64, voicesPerLayer, config.routing.polyphony);
+        if (config.nordRetriggerSameNote)
+            for (int i = 0; i < voiceLimit; ++i)
+            {
+                auto& candidate = layer.voices[(size_t) i];
+                if (candidate.active && candidate.note == note && candidate.midiChannel == midiChannel)
+                {
+                    voice = &candidate;
+                    break;
+                }
+            }
+        for (int i = 0; voice == nullptr && i < voiceLimit; ++i)
         {
             auto& candidate = layer.voices[(size_t) i];
             if (!candidate.active)
@@ -478,6 +496,7 @@ float AnalogSynthEngine::processLadder(Voice& voice, float input, float cutoffHz
 
 void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lfo,
                                     float modWheel, float pitchBendSemitones,
+                                    const std::array<float, 3>& oscillatorRatios,
                                     float& left, float& right)
 {
     // No portamento/glide in Analog: Mono/Legato transitions are immediate,
@@ -500,16 +519,9 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
     const auto pitchRatio = std::pow(2.0f,
         (pitchBendSemitones + lfo * pitchDepth) / 12.0f);
     const auto base = voice.currentFrequency * pitchRatio;
-    const auto ratio1 = std::pow(2.0f, (config.oscillator1Semitones
-                                         + config.oscillator1FineCents * 0.01f) / 12.0f);
-    const auto ratio2 = std::pow(2.0f, (config.oscillator2Semitones
-                                         + config.oscillator2FineCents * 0.01f) / 12.0f);
-    const auto ratio3 = std::pow(2.0f, (config.oscillator3Semitones
-                                         + config.oscillator3FineCents * 0.01f) / 12.0f);
-
-    const auto increment1 = juce::jlimit(0.0f, 0.49f, base * ratio1 / static_cast<float>(sampleRate));
-    const auto increment2 = juce::jlimit(0.0f, 0.49f, base * ratio2 / static_cast<float>(sampleRate));
-    const auto increment3 = juce::jlimit(0.0f, 0.49f, base * ratio3 / static_cast<float>(sampleRate));
+    const auto increment1 = juce::jlimit(0.0f, 0.49f, base * oscillatorRatios[0] / static_cast<float>(sampleRate));
+    const auto increment2 = juce::jlimit(0.0f, 0.49f, base * oscillatorRatios[1] / static_cast<float>(sampleRate));
+    const auto increment3 = juce::jlimit(0.0f, 0.49f, base * oscillatorRatios[2] / static_cast<float>(sampleRate));
     const auto waveSample = [&](Waveform wave, float phase, float increment)
     {
         // Web Audio's saw is centred on the positive zero crossing.
@@ -529,6 +541,22 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
         sample += waveSample(config.oscillator2Wave, config.browserCompatible ? p2 : voice.phase2, increment2) * config.oscillator2Level;
     if (config.oscillator3Enabled)
         sample += waveSample(config.oscillator3Wave, config.browserCompatible ? p3 : voice.phase3, increment3) * config.oscillator3Level;
+
+    if (config.nordSynthType == 1 || config.nordSynthType == 2)
+    {
+        const auto depth = 0.55f + 0.12f * (float)(std::abs(config.nordTimbre) % 6);
+        const auto modulator = std::sin(juce::MathConstants<float>::twoPi * p2
+            * (config.nordSynthType == 1 ? 2.0f : 3.0f));
+        sample = 0.68f * std::sin(juce::MathConstants<float>::twoPi * p1 + depth * modulator)
+            + 0.18f * std::sin(juce::MathConstants<float>::twoPi * p3);
+    }
+    else if (config.nordSynthType == 3)
+    {
+        const auto harmonic = 2.0f + (float)(std::abs(config.nordTimbre) % 4);
+        sample = 0.55f * std::sin(juce::MathConstants<float>::twoPi * p1)
+            + 0.25f * std::sin(juce::MathConstants<float>::twoPi * p1 * harmonic)
+            + 0.12f * std::sin(juce::MathConstants<float>::twoPi * p2 * (harmonic + 1.0f));
+    }
 
     auto noise = nextNoise(voice.noiseState);
     if (config.pinkNoise)
@@ -640,6 +668,32 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
             continue;
         }
 
+        const juce::MidiBuffer empty;
+        const auto& routedMessages = routedMidi != nullptr ? (*routedMidi)[(size_t) layerIndex] : empty;
+        const auto hasVoices = std::any_of(layer.voices.begin(), layer.voices.end(),
+            [](const auto& voice) { return voice.active; });
+        if (!hasVoices && midi.isEmpty() && routedMessages.isEmpty() && !layer.effectTailPending)
+        {
+            layer.lfoPhase = wrapPhase(layer.lfoPhase + static_cast<float>(
+                config.lfoRateHz * output.getNumSamples() / sampleRate));
+            if (!layer.gainReady)
+            {
+                layer.gain.setCurrentAndTargetValue(config.routing.gain);
+                layer.gainReady = true;
+            }
+            layer.gain.setTargetValue(config.routing.gain);
+            layer.gain.skip(output.getNumSamples());
+            peaks[static_cast<size_t>(layerIndex)].store(0.0f, std::memory_order_relaxed);
+            continue;
+        }
+
+        // These pitches belong to the layer, not to individual samples or voices.
+        const std::array<float, 3> oscillatorRatios {
+            std::exp2((config.oscillator1Semitones + config.oscillator1FineCents * 0.01f) / 12.0f),
+            std::exp2((config.oscillator2Semitones + config.oscillator2FineCents * 0.01f) / 12.0f),
+            std::exp2((config.oscillator3Semitones + config.oscillator3FineCents * 0.01f) / 12.0f)
+        };
+
         renderScratch.setSize(2, output.getNumSamples(), false, false, true);
         renderScratch.clear();
         if (!layer.gainReady)
@@ -648,8 +702,6 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
             layer.gainReady = true;
         }
         layer.gain.setTargetValue(config.routing.gain);
-        const juce::MidiBuffer empty;
-        const auto& routedMessages = routedMidi != nullptr ? (*routedMidi)[(size_t) layerIndex] : empty;
         auto host = midi.begin();
         auto routed = routedMessages.begin();
         float peak = 0.0f;
@@ -672,7 +724,7 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
             for (auto& voice : layer.voices)
                 if (voice.active)
                     renderVoice(voice, config, lfo, layer.modWheel,
-                               layer.pitchBendSemitones, left, right);
+                               layer.pitchBendSemitones, oscillatorRatios, left, right);
 
             const auto gain = layer.gain.getNextValue();
             renderScratch.setSample(0, sampleIndex, left * gain);
@@ -692,18 +744,15 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
                 renderScratch.setSample(channel, sampleIndex, state);
             }
 
-        if (config.routing.reverb > 0.001f)
-        {
-            juce::Reverb::Parameters parameters;
-            parameters.roomSize = juce::jlimit(0.0f, 1.0f, config.routing.reverbSize / 100.0f);
-            parameters.damping = juce::jlimit(0.0f, 1.0f, config.routing.reverbDamping / 100.0f);
-            parameters.width = juce::jlimit(0.0f, 1.0f, config.routing.reverbWidth / 100.0f);
-            parameters.wetLevel = juce::jlimit(0.0f, 1.0f, config.routing.reverb / 100.0f);
-            parameters.dryLevel = 1.0f;
-            layer.reverb.setParameters(parameters);
+        juce::Reverb::Parameters parameters;
+        parameters.roomSize = juce::jlimit(0.0f, 1.0f, config.routing.reverbSize / 100.0f);
+        parameters.damping = juce::jlimit(0.0f, 1.0f, config.routing.reverbDamping / 100.0f);
+        parameters.width = juce::jlimit(0.0f, 1.0f, config.routing.reverbWidth / 100.0f);
+        setLayerReverbMix(parameters, config.routing.reverb / 100.0f);
+        layer.reverb.setParameters(parameters);
+        if (layer.reverb.shouldProcess())
             layer.reverb.processStereo(renderScratch.getWritePointer(0), renderScratch.getWritePointer(1),
                                        output.getNumSamples());
-        }
 
         if (config.routing.compressor > 0.001f)
         {
@@ -750,5 +799,9 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
         }
 
         peaks[static_cast<size_t>(layerIndex)].store(peak, std::memory_order_relaxed);
+        const auto voicesRemaining = std::any_of(layer.voices.begin(), layer.voices.end(),
+            [](const auto& voice) { return voice.active; });
+        updateLayerEffectTail(layer.effectTailPending, layer.effectQuietSamples,
+                              voicesRemaining, peak, output.getNumSamples(), sampleRate);
     }
 }

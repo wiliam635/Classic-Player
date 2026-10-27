@@ -4,11 +4,33 @@
 #include "LayerEffects.h"
 #include <atomic>
 #include <array>
+#include <cmath>
+#include <cstdint>
+#include <memory>
+#include <vector>
+
+#if JUCE_MAC || JUCE_LINUX
+ #include <dlfcn.h>
+#elif JUCE_WINDOWS
+ #ifndef NOMINMAX
+  #define NOMINMAX
+ #endif
+ #include <windows.h>
+#endif
 
 // File decoding is performed by the caller outside the audio callback. The
 // callback only reads the published buffers and uses fixed-size voice storage.
 class ContinuousPadBank
 {
+    struct SampleData
+    {
+        // Interleaved signed 16-bit PCM halves the resident footprint versus
+        // float buffers. Factory data is shared between continuous-pad layers.
+        std::vector<int16_t> stereo;
+        int frames = 0;
+        double rate = 48000.0;
+    };
+
 public:
     static constexpr int count=12;
     struct EqSettings
@@ -27,36 +49,30 @@ public:
     juce::Result load(int index,const juce::File& file)
     {
         if(!juce::isPositiveAndBelow(index,count))return juce::Result::fail(juce::String::fromUTF8("Pad inválido"));
-        juce::AudioFormatManager formats;formats.registerBasicFormats();
-        std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
-        if(!reader || reader->lengthInSamples<4 || reader->sampleRate<=0)
-            return juce::Result::fail(juce::String::fromUTF8("Não foi possível ler este áudio"));
-        // This is a time limit, not a byte limit: a 44.1 kHz source gets the
-        // same ten minutes as a 48 kHz source. Audio is held as stereo float
-        // internally. Keep a deliberately generous per-layer working budget:
-        // several ten-minute MP3 pads can coexist without rejecting the second
-        // pad solely because the first one was decoded to PCM.
-        constexpr double maxSeconds = 10.0 * 60.0;
-        const auto maxFrames = static_cast<juce::int64>(std::floor(reader->sampleRate * maxSeconds));
-        if(reader->lengthInSamples>maxFrames)
-            return juce::Result::fail(juce::String::fromUTF8("Áudio muito grande. Cada pad contínuo aceita até 10 minutos."));
-        juce::AudioBuffer<float> audio(2,(int)reader->lengthInSamples);
-        if(!reader->read(&audio,0,audio.getNumSamples(),0,true,true))
-            return juce::Result::fail(juce::String::fromUTF8("Falha ao ler o áudio"));
-        if(reader->numChannels==1)audio.copyFrom(1,0,audio,0,0,audio.getNumSamples());
+        std::shared_ptr<SampleData> audio;
+        const auto decoded = decodeFile(file, 10.0 * 60.0, audio);
+        if (decoded.failed()) return decoded;
         const juce::ScopedLock guard(lock);
-        juce::int64 totalFrames=audio.getNumSamples();
-        for(int i=0;i<count;++i)if(i!=index)totalFrames+=pads[(size_t)i].audio.getNumSamples();
-        constexpr juce::int64 maximumBankBytes=4ll*1024ll*1024ll*1024ll; // 4 GiB decoded stereo PCM
-        constexpr juce::int64 bytesPerStereoFrame=(juce::int64)sizeof(float)*2;
+        juce::int64 totalFrames=audio->frames;
+        for(int i=0;i<count;++i)
+            if(i!=index && pads[(size_t)i].audio != nullptr)
+                totalFrames+=pads[(size_t)i].audio->frames;
+        constexpr juce::int64 maximumBankBytes=4ll*1024ll*1024ll*1024ll;
+        constexpr juce::int64 bytesPerStereoFrame=(juce::int64)sizeof(int16_t)*2;
         if(totalFrames*bytesPerStereoFrame>maximumBankBytes)
             return juce::Result::fail(juce::String::fromUTF8("Limite de memória dos pads contínuos atingido (4 GB). Remova um pad ou use arquivos menores."));
-        auto& p=pads[(size_t)index];std::swap(p.audio,audio);p.rate=reader->sampleRate;
+        auto& p=pads[(size_t)index];p.audio=std::move(audio);
         p.path=file.getFullPathName();p.position=0;p.level=0;
         if(active.load()==index){active=-1;command=-2;}
         return juce::Result::ok();
     }
     juce::String path(int i) const {const juce::ScopedLock g(lock);return pads[(size_t)i].path;}
+    static juce::String noteName(int i)
+    {
+        static constexpr const char* names[count] { "C", "C#", "D", "D#", "E", "F",
+                                                     "F#", "G", "G#", "A", "A#", "B" };
+        return juce::isPositiveAndBelow(i, count) ? juce::String(names[i]) : juce::String{};
+    }
     int mapping(int i) const {const juce::ScopedLock g(lock);return i==count?stopCC.load():pads[(size_t)i].cc;}
     int learningTarget() const {return learning.load();}
     void learn(int i){learning = learning.load() == i ? -1 : i;}
@@ -123,7 +139,8 @@ public:
         const juce::ScopedTryLock g(lock);if(!g.isLocked()){meter=0;return;}
         const int next=command.exchange(-2);
         if(next==-1)active=-1;
-        else if(next>=0 && next!=active.load() && pads[(size_t)next].audio.getNumSamples()>0)
+        else if(next>=0 && next!=active.load() && pads[(size_t)next].audio != nullptr
+                && pads[(size_t)next].audio->frames>0)
         {
             if(pads[(size_t)next].level==0)pads[(size_t)next].position=0;
             active=next;
@@ -147,9 +164,9 @@ public:
             {
                 auto& p=pads[(size_t)i];const bool on=i==active.load();
                 p.level=juce::jlimit(0.f,1.f,p.level+(on?step:-step));
-                const int length=p.audio.getNumSamples();
+                const int length=p.audio != nullptr ? p.audio->frames : 0;
                 if(p.level<=0 || length<4)continue;
-                const double overlap=juce::jlimit(1.0,length*.5,seconds*p.rate);
+                const double overlap=juce::jlimit(1.0,length*.5,seconds*p.audio->rate);
                 const double seam=length-overlap;
                 for(int ch=0;ch<2;++ch)
                 {
@@ -161,7 +178,7 @@ public:
                     }
                     sum[ch]+=value*p.level;
                 }
-                p.position+=p.rate/sampleRate;
+                p.position+=p.audio->rate/sampleRate;
                 if(p.position>=length)p.position=overlap+std::fmod(p.position-length,length-overlap);
             }
             const float v=volume.getNextValue();
@@ -183,22 +200,148 @@ public:
          child.setProperty("cc",pads[(size_t)i].cc,nullptr);tree.addChild(child,-1,nullptr);}
         return tree;
     }
-    void restore(const juce::ValueTree& tree)
+    void restore(const juce::ValueTree& tree, bool provideFactoryPad = false)
     {
         stopImmediately();
         setFadeSeconds((double)tree.getProperty("fade",1.0));
         {const juce::ScopedLock g(lock);stopCC=validCC((int)tree.getProperty("stopCC",-1));
-         for(auto& p:pads){p.audio.setSize(0,0);p.path.clear();p.cc=-1;}}
+         for(auto& p:pads){p.audio.reset();p.path.clear();p.cc=-1;}}
         for(int i=0;i<count;++i)
         {
             const auto child=tree.getChild(i);const auto filename=child.getProperty("path").toString();
-            if(filename.isNotEmpty())load(i,juce::File(filename));
+            const bool isFactory = filename.startsWith(factoryPathPrefix())
+                                || filename == "Built-in Warm Pad";
+            bool loaded = false;
+            if (isFactory)
+                loaded = loadFactoryPad(i);
+            else if(filename.isNotEmpty())
+                loaded = load(i,juce::File(filename)).wasOk();
+            if (!loaded && provideFactoryPad && filename.isEmpty())
+                loaded = loadFactoryPad(i);
             const juce::ScopedLock g(lock);
-            pads[(size_t)i].path=filename;pads[(size_t)i].cc=validCC((int)child.getProperty("cc",-1));
+            if (!isFactory && filename.isNotEmpty()) pads[(size_t)i].path=filename;
+            pads[(size_t)i].cc=validCC((int)child.getProperty("cc",-1));
         }
         stopImmediately();
     }
+    bool loadFactoryPad(int index)
+    {
+        if (!juce::isPositiveAndBelow(index, count)) return false;
+        auto audio = getFactorySample(index);
+        if (audio == nullptr) return false;
+        const juce::ScopedLock guard(lock);
+        auto& pad = pads[(size_t)index];
+        pad.audio = std::move(audio);
+        pad.path = factoryPath(index);
+        pad.position = 0.0;
+        pad.level = 0.0f;
+        return true;
+    }
 private:
+    static juce::Result decodeFile(const juce::File& file, double maxSeconds,
+                                   std::shared_ptr<SampleData>& result)
+    {
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
+        if (!reader || reader->lengthInSamples < 4 || reader->sampleRate <= 0.0)
+            return juce::Result::fail(juce::String::fromUTF8("Não foi possível ler este áudio"));
+
+        const auto maxFrames = static_cast<juce::int64>(std::floor(reader->sampleRate * maxSeconds));
+        if (reader->lengthInSamples > maxFrames)
+            return juce::Result::fail(juce::String::fromUTF8("Áudio muito grande. Cada pad contínuo aceita até 10 minutos."));
+
+        const auto frames = static_cast<int>(reader->lengthInSamples);
+        juce::AudioBuffer<float> decoded(2, frames);
+        if (!reader->read(&decoded, 0, frames, 0, true, true))
+            return juce::Result::fail(juce::String::fromUTF8("Falha ao ler o áudio"));
+        if (reader->numChannels == 1)
+            decoded.copyFrom(1, 0, decoded, 0, 0, frames);
+
+        auto packed = std::make_shared<SampleData>();
+        packed->frames = frames;
+        packed->rate = reader->sampleRate;
+        packed->stereo.resize((size_t)frames * 2);
+        for (int frame = 0; frame < frames; ++frame)
+        {
+            for (int channel = 0; channel < 2; ++channel)
+            {
+                const auto value = juce::jlimit(-1.0f, 0.999969f, decoded.getSample(channel, frame));
+                packed->stereo[(size_t)frame * 2 + (size_t)channel]
+                    = static_cast<int16_t>(std::lrint(value * 32768.0f));
+            }
+        }
+        result = std::move(packed);
+        return juce::Result::ok();
+    }
+
+    static juce::String factoryPathPrefix() { return "@factory-pad:"; }
+    static juce::String factoryPath(int index) { return factoryPathPrefix() + noteName(index); }
+
+    static juce::File factoryResourceDirectory()
+    {
+        juce::File moduleFile;
+#if JUCE_MAC || JUCE_LINUX
+        Dl_info info{};
+        const auto address = reinterpret_cast<const void*>(
+            reinterpret_cast<uintptr_t>(&ContinuousPadBank::factoryResourceDirectory));
+        if (dladdr(address, &info) != 0 && info.dli_fname != nullptr)
+            moduleFile = juce::File(juce::String::fromUTF8(info.dli_fname));
+#elif JUCE_WINDOWS
+        HMODULE module = nullptr;
+        const auto address = reinterpret_cast<LPCWSTR>(
+            reinterpret_cast<uintptr_t>(&ContinuousPadBank::factoryResourceDirectory));
+        if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                              | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                              address, &module) != 0)
+        {
+            std::array<wchar_t, 32768> path{};
+            const auto length = GetModuleFileNameW(module, path.data(), (DWORD)path.size());
+            if (length > 0 && length < path.size())
+                moduleFile = juce::File(juce::String::fromWideCharPointer(path.data()));
+        }
+#endif
+
+        auto directory = moduleFile.existsAsFile()
+                       ? moduleFile.getParentDirectory()
+                       : juce::File::getSpecialLocation(juce::File::currentApplicationFile);
+        for (int level = 0; level < 7 && directory != directory.getParentDirectory(); ++level)
+        {
+            for (const auto& candidate : {
+                    directory.getChildFile("Resources/ContinuousPads"),
+                    directory.getChildFile("Contents/Resources/ContinuousPads"),
+                    directory.getChildFile("ContinuousPads") })
+                if (candidate.isDirectory()) return candidate;
+            directory = directory.getParentDirectory();
+        }
+        return {};
+    }
+
+    static std::shared_ptr<SampleData> getFactorySample(int index)
+    {
+        static juce::CriticalSection cacheLock;
+        static std::array<std::shared_ptr<SampleData>, count> cache{};
+        const juce::ScopedLock guard(cacheLock);
+        auto& sample = cache[(size_t)index];
+        if (sample != nullptr) return sample;
+
+        static constexpr const char* resourceNames[count] {
+            "C", "C_sharp", "D", "D_sharp", "E", "F",
+            "F_sharp", "G", "G_sharp", "A", "A_sharp", "B"
+        };
+        const auto file = factoryResourceDirectory().getChildFile(
+            juce::String(resourceNames[index]) + ".flac");
+        std::shared_ptr<SampleData> decoded;
+        if (decodeFile(file, 121.0, decoded).failed())
+        {
+            juce::Logger::writeToLog(juce::String::fromUTF8("Pad de fábrica não encontrado ou inválido: ")
+                                     + file.getFullPathName());
+            return {};
+        }
+        sample = std::move(decoded);
+        return sample;
+    }
+
     bool assignLearnedCC(int cc)
     {
         const int target = learning.exchange(-1);
@@ -211,12 +354,14 @@ private:
         return true; // Learning must not start/stop audio unexpectedly.
     }
 
-    struct Pad {juce::AudioBuffer<float> audio;juce::String path;double rate=48000,position=0;float level=0;int cc=-1;};
+    struct Pad {std::shared_ptr<SampleData> audio;juce::String path;double position=0;float level=0;int cc=-1;};
     static int validCC(int cc){return cc>=0&&cc<120&&cc!=64?cc:-1;}
     static float read(const Pad& p,int ch,double pos)
-    {const int i=juce::jlimit(0,p.audio.getNumSamples()-1,(int)pos);
-     const int j=juce::jmin(i+1,p.audio.getNumSamples()-1);
-     return p.audio.getSample(ch,i)+(p.audio.getSample(ch,j)-p.audio.getSample(ch,i))*(float)(pos-i);}
+    {const int i=juce::jlimit(0,p.audio->frames-1,(int)pos);
+     const int j=juce::jmin(i+1,p.audio->frames-1);
+     const auto a=(float)p.audio->stereo[(size_t)i*2+(size_t)ch]/32768.0f;
+     const auto b=(float)p.audio->stereo[(size_t)j*2+(size_t)ch]/32768.0f;
+     return a+(b-a)*(float)(pos-i);}
     mutable juce::CriticalSection lock;
     std::array<Pad,count> pads;
     std::array<std::array<bool,128>,16> ccDown{};

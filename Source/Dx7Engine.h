@@ -105,10 +105,12 @@ private:
         juce::AudioBuffer<float> renderScratch;
         juce::SmoothedValue<float> gain;
         bool gainReady = false;
+        bool effectTailPending = false;
+        uint64_t effectQuietSamples = 0;
         juce::AudioBuffer<float> chorusDelay;
         std::array<float, 2> dcInput {};
         std::array<float, 2> dcOutput {};
-        juce::Reverb reverb;
+        LayerReverb reverb;
         std::array<float, 2> compressorEnvelope {};
         std::array<float, 2> filterState {};
         LayerEqState eq;

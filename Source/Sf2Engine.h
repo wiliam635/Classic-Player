@@ -16,7 +16,7 @@ public:
     // created with + LAYER without the former eight-layer ceiling.
     static constexpr int defaultLayerCount = 6;
     static constexpr int layerCount = 16;
-    static constexpr int polyphonyPerLayer = 192;
+    static constexpr int polyphonyPerLayer = 128;
     static constexpr int maxPolyphonyPerLayer = 256;
 
     struct LayerConfig
@@ -141,13 +141,15 @@ private:
         std::array<float, 128> heldVelocities {};
         int lastCutoff = -1;
         int lastReverb = -1;
-        int lastAttack = -1;
         int lastPortamento = -1;
         int lastMono = -1;
+        float lastAppliedAttackTimecents = -100000.0f;
         float lastAppliedReleaseTimecents = -100000.0f;
         std::array<unsigned int, 2> lastMuteVolumeChannels {};
         float modulationAmount = 0.0f;
         double modulationPhase = 0.0;
+        bool effectTailPending = false;
+        uint64_t effectQuietSamples = 0;
         std::array<float, 2> filterState { 0.0f, 0.0f };
         std::array<float, 2> highPassInput { 0.0f, 0.0f };
         std::array<float, 2> highPassOutput { 0.0f, 0.0f };
@@ -155,7 +157,7 @@ private:
         juce::SmoothedValue<float> gain;
         std::array<float, 2> compressorEnvelope { 0.0f, 0.0f };
         LayerEqState eq;
-        juce::Reverb nativeReverb;
+        LayerReverb nativeReverb;
         std::array<float, 4> lastReverbParameters { -1.0f, -1.0f, -1.0f, -1.0f };
         std::array<float, 3> lastChorusParameters { -1.0f, -1.0f, -1.0f };
         std::atomic<float> peak { 0.0f };

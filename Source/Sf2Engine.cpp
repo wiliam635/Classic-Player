@@ -1,4 +1,5 @@
 #include "Sf2Engine.h"
+#include "LayerEffects.h"
 #include <cmath>
 
 #if JUCE_MAC
@@ -47,9 +48,11 @@ void Sf2Engine::createSynth(Layer& layer)
     layer.heldVelocities.fill(0.0f);
     layer.modulationAmount = 0.0f;
     layer.modulationPhase = 0.0;
+    layer.effectTailPending = false;
+    layer.effectQuietSamples = 0;
     layer.lastCutoff = -1;
     layer.lastReverb = -1;
-    layer.lastAttack = -1;
+    layer.lastAppliedAttackTimecents = -100000.0f;
     layer.lastPortamento = -1;
     layer.lastMono = -1;
     layer.lastAppliedReleaseTimecents = -100000.0f;
@@ -78,6 +81,9 @@ void Sf2Engine::prepare(double sampleRate, int maximumBlockSize)
     {
         layer.nativeReverb.setSampleRate(currentSampleRate);
         layer.nativeReverb.reset();
+        layer.effectTailPending = false;
+        layer.effectQuietSamples = 0;
+        layer.lastReverbParameters.fill(-1.0f);
         layer.compressorEnvelope = { 0.0f, 0.0f };
         layer.gain.reset(currentSampleRate, 0.02);
         layer.gain.setCurrentAndTargetValue(layer.config.gain);
@@ -192,6 +198,8 @@ juce::Result Sf2Engine::loadSoundFont(int index, const juce::File& file)
     layer.lowPassState = { 0.0f, 0.0f };
     layer.modulationAmount = 0.0f;
     layer.modulationPhase = 0.0;
+    layer.effectTailPending = false;
+    layer.effectQuietSamples = 0;
     return juce::Result::ok();
 }
 
@@ -233,6 +241,8 @@ void Sf2Engine::unloadSoundFont(int index)
     layer.selectedProgram = 0;
     layer.modulationAmount = 0.0f;
     layer.modulationPhase = 0.0;
+    layer.effectTailPending = false;
+    layer.effectQuietSamples = 0;
 }
 
 void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
@@ -419,19 +429,17 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         // SoundFont's own generator send dry, so its quality is independent
         // of each library's embedded reverb setup.
         const auto reverb = 0;
-        const auto attack = juce::jlimit(0, 127, static_cast<int>(std::round(layer.config.attack * 1.27f)));
         const auto portamento = layer.config.portamento ? 127 : 0;
         // Portamento is always monophonic. Mono Legato uses the same single
         // voice policy but retains the instantaneous pitch transition.
         const auto mono = (layer.config.mono || layer.config.portamento) ? 1 : 0;
-        if (cutoff != layer.lastCutoff || reverb != layer.lastReverb || attack != layer.lastAttack
+        if (cutoff != layer.lastCutoff || reverb != layer.lastReverb
             || portamento != layer.lastPortamento || mono != layer.lastMono)
         {
             for (int channel = 0; channel < 16; ++channel)
             {
                 if (cutoff != layer.lastCutoff) fluid_synth_cc(layer.synth.get(), channel, 74, cutoff);
                 if (reverb != layer.lastReverb) fluid_synth_cc(layer.synth.get(), channel, 91, reverb);
-                if (attack != layer.lastAttack) fluid_synth_cc(layer.synth.get(), channel, 73, attack);
                 if (portamento != layer.lastPortamento)
                 {
                     fluid_synth_cc(layer.synth.get(), channel, 65, portamento);
@@ -454,7 +462,6 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
             }
             layer.lastCutoff = cutoff;
             layer.lastReverb = reverb;
-            layer.lastAttack = attack;
             layer.lastPortamento = portamento;
             layer.lastMono = mono;
         }
@@ -484,15 +491,24 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
             layer.lastChorusParameters = chorusValues;
         }
 
-        // CC72 only works when the SF2 defines a corresponding modulator.
-        // Set the actual voice envelope in timecents instead, consistently
-        // Preserve the existing default (50 = 0.5s), while the upper half
-        // expands smoothly to a long 10-second release at 100.
-        const auto releaseControl = juce::jlimit(0.0f, 100.0f, layer.config.release);
-        const auto releaseSeconds = releaseControl <= 50.0f
-            ? juce::jmax(0.005f, releaseControl * 0.01f)
-            : 0.5f * std::pow(20.0f, (releaseControl - 50.0f) / 50.0f);
+        // Set the actual voice envelope in timecents instead of relying on
+        // optional SF2 CC modulators. The shared attack preserves its legacy
+        // 0..50 ms range and extends to 2 s; release extends to 10 s.
+        const auto attackSeconds = juce::jmax(0.001, layerAttackSeconds(layer.config.attack));
+        const auto attackTimecents = 1200.0f * std::log2(static_cast<float>(attackSeconds));
+        const auto releaseSeconds = layerReleaseSeconds(layer.config.release);
         const auto releaseTimecents = 1200.0f * std::log2(releaseSeconds);
+        const auto applyAttack = [&]
+        {
+            std::array<fluid_voice_t*, maxPolyphonyPerLayer> voices {};
+            fluid_synth_get_voicelist(layer.synth.get(), voices.data(), (int) voices.size(), -1);
+            for (auto* voice : voices)
+                if (voice != nullptr && fluid_voice_gen_get(voice, GEN_VOLENVATTACK) != attackTimecents)
+                {
+                    fluid_voice_gen_set(voice, GEN_VOLENVATTACK, attackTimecents);
+                    fluid_voice_update_param(voice, GEN_VOLENVATTACK);
+                }
+        };
         const auto applyRelease = [&]
         {
             std::array<fluid_voice_t*, maxPolyphonyPerLayer> voices {};
@@ -504,6 +520,11 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
                     fluid_voice_update_param(voice, GEN_VOLENVRELEASE);
                 }
         };
+        if (attackTimecents != layer.lastAppliedAttackTimecents)
+        {
+            applyAttack();
+            layer.lastAppliedAttackTimecents = attackTimecents;
+        }
         if (releaseTimecents != layer.lastAppliedReleaseTimecents)
         {
             applyRelease();
@@ -525,7 +546,22 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         // Only newly allocated voices need the generator override. Scanning
         // every active voice twice per audio block grows costly under sustain.
         if (startedVoice)
+        {
+            applyAttack();
             applyRelease();
+        }
+
+        const auto layerIndex = static_cast<size_t>(&layer - layers.data());
+        const auto hasMidiEvents = !midi.isEmpty()
+            || (routedMidi != nullptr && !(*routedMidi)[layerIndex].isEmpty());
+        if (!hasMidiEvents && fluid_synth_get_active_voice_count(layer.synth.get()) == 0
+            && !layer.effectTailPending)
+        {
+            layer.gain.setTargetValue(juce::jmax(0.0f, layer.config.gain));
+            layer.gain.skip(output.getNumSamples());
+            layer.peak.store(0.0f, std::memory_order_relaxed);
+            continue;
+        }
         scratch.clear();
         fluid_synth_write_float(layer.synth.get(), output.getNumSamples(),
                                 scratch.getWritePointer(0), 0, 1,
@@ -534,34 +570,38 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         // CC1 uses category-specific effects without adding knobs or changing
         // the approved front-end: tremolo for electric pianos and fast rotary
         // movement for organs. CC1 at zero keeps the layer dry.
-        const auto category = juce::File { layer.soundFontPath }.getParentDirectory().getFileName();
         const auto mod = layer.config.modulationEnabled
             ? juce::jlimit(0.0f, 1.0f, layer.modulationAmount) : 0.0f;
-        if (mod > 0.001f && (category == "Piano Eletrico" || category == "Organ"))
+        if (mod > 0.001f)
         {
-            const auto tremolo = category == "Piano Eletrico";
-            const auto speedHz = tremolo ? 5.0f : 6.8f;
-            const auto phaseStep = juce::MathConstants<double>::twoPi * speedHz / currentSampleRate;
-            auto* left = scratch.getWritePointer(0);
-            auto* right = scratch.getWritePointer(1);
-            for (int sample = 0; sample < output.getNumSamples(); ++sample)
+            const auto category = juce::File { layer.soundFontPath }
+                .getParentDirectory().getFileName();
+            if (category == "Piano Eletrico" || category == "Organ")
             {
-                const auto wave = static_cast<float>(std::sin(layer.modulationPhase));
-                layer.modulationPhase += phaseStep;
-                if (layer.modulationPhase >= juce::MathConstants<double>::twoPi)
-                    layer.modulationPhase -= juce::MathConstants<double>::twoPi;
+                const auto tremolo = category == "Piano Eletrico";
+                const auto speedHz = tremolo ? 5.0f : 6.8f;
+                const auto phaseStep = juce::MathConstants<double>::twoPi * speedHz / currentSampleRate;
+                auto* left = scratch.getWritePointer(0);
+                auto* right = scratch.getWritePointer(1);
+                for (int sample = 0; sample < output.getNumSamples(); ++sample)
+                {
+                    const auto wave = static_cast<float>(std::sin(layer.modulationPhase));
+                    layer.modulationPhase += phaseStep;
+                    if (layer.modulationPhase >= juce::MathConstants<double>::twoPi)
+                        layer.modulationPhase -= juce::MathConstants<double>::twoPi;
 
-                if (tremolo)
-                {
-                    const auto gain = 1.0f - mod * 0.58f * (0.5f + 0.5f * wave);
-                    left[sample] *= gain;
-                    right[sample] *= gain;
-                }
-                else
-                {
-                    const auto pan = wave * mod * 0.62f;
-                    left[sample] *= 1.0f - pan;
-                    right[sample] *= 1.0f + pan;
+                    if (tremolo)
+                    {
+                        const auto gain = 1.0f - mod * 0.58f * (0.5f + 0.5f * wave);
+                        left[sample] *= gain;
+                        right[sample] *= gain;
+                    }
+                    else
+                    {
+                        const auto pan = wave * mod * 0.62f;
+                        left[sample] *= 1.0f - pan;
+                        right[sample] *= 1.0f + pan;
+                    }
                 }
             }
         }
@@ -651,13 +691,12 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
             parameters.roomSize = juce::jlimit(0.0f, 1.0f, layer.config.reverbSize / 100.0f);
             parameters.damping = juce::jlimit(0.0f, 1.0f, layer.config.reverbDamping / 100.0f);
             parameters.width = juce::jlimit(0.0f, 1.0f, layer.config.reverbWidth / 100.0f);
-            parameters.wetLevel = reverbMix * 0.72f;
-            parameters.dryLevel = 1.0f;
+            setLayerReverbMix(parameters, reverbMix);
             parameters.freezeMode = 0.0f;
             layer.nativeReverb.setParameters(parameters);
             layer.lastReverbParameters = reverbValues;
         }
-        if (reverbMix > 0.001f)
+        if (layer.nativeReverb.shouldProcess())
             layer.nativeReverb.processStereo(scratch.getWritePointer(0), scratch.getWritePointer(1),
                                              scratch.getNumSamples());
 
@@ -699,8 +738,12 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         const auto leftPan = layer.config.pan <= 0.0f ? 1.0f : 1.0f - layer.config.pan;
         const auto rightPan = layer.config.pan >= 0.0f ? 1.0f : 1.0f + layer.config.pan;
         float renderedPeak = 0.0f;
+        float effectTailPeak = 0.0f;
         for (int sample = 0; sample < output.getNumSamples(); ++sample)
         {
+            effectTailPeak = juce::jmax(effectTailPeak,
+                std::abs(scratch.getSample(0, sample)),
+                std::abs(scratch.getSample(1, sample)));
             const auto gain = layer.gain.getNextValue();
             const auto left = scratch.getSample(0, sample) * gain * leftPan;
             renderedPeak = juce::jmax(renderedPeak, std::abs(left));
@@ -714,6 +757,9 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         }
         const auto previousPeak = layer.peak.load(std::memory_order_relaxed) * 0.82f;
         layer.peak.store(juce::jmax(renderedPeak, previousPeak), std::memory_order_relaxed);
+        updateLayerEffectTail(layer.effectTailPending, layer.effectQuietSamples,
+                              fluid_synth_get_active_voice_count(layer.synth.get()) > 0,
+                              effectTailPeak, output.getNumSamples(), currentSampleRate);
     }
 }
 

@@ -1,6 +1,8 @@
 #include "SampleEngine.h"
+#include "LayerEffects.h"
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 namespace
 {
@@ -8,14 +10,9 @@ constexpr double pianoCrossfadeSeconds = 0.55;
 
 float releaseCoefficientFor(float releaseControl, double sampleRate, bool softRelease = false)
 {
-    // Match the shared layer Release control: 50 is 0.5 s and 100 is 10 s.
-    // Values are mapped to the time it takes the envelope to become inaudible.
-    const auto value = juce::jlimit(0.0f, 100.0f, releaseControl);
-    auto releaseSeconds = value <= 50.0f
-        ? juce::jmax(0.005f, value * 0.01f)
-        : 0.5f * std::pow(20.0f, (value - 50.0f) / 50.0f);
+    auto releaseSeconds = layerReleaseSeconds(releaseControl);
     if (softRelease)
-        releaseSeconds = juce::jmin(15.0f, juce::jmax(0.18f, releaseSeconds * 1.5f));
+        releaseSeconds = juce::jmin(15.0, juce::jmax(0.18, releaseSeconds * 1.5));
     constexpr auto silenceThreshold = 0.0001f;
     const auto releaseSamples = juce::jmax(1.0, static_cast<double>(releaseSeconds) * sampleRate);
     return static_cast<float>(std::exp(std::log(silenceThreshold) / releaseSamples));
@@ -59,10 +56,15 @@ void SampleEngine::prepare(double sampleRate, int maximumBlockSize)
     currentSampleRate = juce::jmax(1.0, sampleRate);
     currentBlockSize = juce::jmax(1, maximumBlockSize);
     scratch.setSize(2, currentBlockSize, false, false, true);
+    for (auto& events : combinedMidi)
+        events.ensureSize(64 * 1024);
     for (auto& layer : layers)
     {
         layer.reverb.setSampleRate(currentSampleRate);
         layer.reverb.reset();
+        layer.effectTailPending = false;
+        layer.effectQuietSamples = 0;
+        layer.lastReverbParameters.fill(-1.0f);
         layer.compressorEnvelope.fill(0.0f);
         layer.cutoffState.fill(0.0f);
         layer.pianoLowEqState.fill(0.0f);
@@ -86,23 +88,31 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
 
     if (file.getFileExtension().equalsIgnoreCase(".npno"))
     {
-        NordPianoDecoder::Instrument decodedPiano;
-        const auto result = NordPianoDecoder::decodeFile(file, decodedPiano);
-        if (result.failed()) return result;
+        auto decodedPiano = findCachedPiano(file);
+        if (decodedPiano == nullptr)
+        {
+            decodedPiano = std::make_shared<NordPianoDecoder::Instrument>();
+            const auto result = NordPianoDecoder::decodeFile(file, *decodedPiano);
+            if (result.failed()) return result;
 
-        // Prepare fresh decoded PCM outside the audio lock/callback. The
-        // source NPNO stays untouched and voices need no extra fade buffers.
-        const auto finitePiano = file.getParentDirectory().getFileName() != "Organ";
-        if (finitePiano)
-            preparePianoLoops(decodedPiano);
+            // Prepare fresh decoded PCM outside the audio lock/callback. The
+            // source NPNO stays untouched and voices need no extra fade buffers.
+            const auto finitePiano = file.getParentDirectory().getFileName() != "Organ";
+            if (finitePiano)
+                preparePianoLoops(*decodedPiano);
+            decodedPiano = cachePiano(file, std::move(decodedPiano));
+        }
 
         const juce::ScopedLock stateLock(lock);
         auto& destination = layers[(size_t) layer];
         destination.audio.setSize(0, 0);
         destination.piano = std::move(decodedPiano);
         destination.pianoLoaded = true;
-        destination.finitePiano = finitePiano;
+        destination.finitePiano = file.getParentDirectory().getFileName() != "Organ";
         destination.sourcePath = file.getFullPathName();
+        const auto category = file.getParentDirectory().getFileName();
+        destination.modulationKind = category == "Piano Eletrico" ? Layer::ModulationKind::tremolo
+            : category == "Organ" ? Layer::ModulationKind::rotary : Layer::ModulationKind::none;
         destination.sourceSampleRate = NordPianoDecoder::sampleRate;
         destination.config.startSeconds = 0.0;
         destination.config.endSeconds = 0.0;
@@ -118,6 +128,8 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
         destination.eq.reset();
         destination.nordFx.reset();
         destination.reverb.reset();
+        destination.effectTailPending = false;
+        destination.effectQuietSamples = 0;
         destination.lastReverbParameters.fill(-1.0f);
         for (auto& voice : destination.voices) voice = {};
         return juce::Result::ok();
@@ -138,6 +150,9 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
     destination.piano = {};
     destination.pianoLoaded = false;
     destination.sourcePath = file.getFullPathName();
+    const auto category = file.getParentDirectory().getFileName();
+    destination.modulationKind = category == "Piano Eletrico" ? Layer::ModulationKind::tremolo
+        : category == "Organ" ? Layer::ModulationKind::rotary : Layer::ModulationKind::none;
     destination.sourceSampleRate = juce::jmax(1.0, reader->sampleRate);
     destination.sustainDown.fill(false);
     destination.config.startSeconds = 0.0;
@@ -153,9 +168,70 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
     destination.eq.reset();
     destination.nordFx.reset();
     destination.reverb.reset();
+    destination.effectTailPending = false;
+    destination.effectQuietSamples = 0;
     destination.lastReverbParameters.fill(-1.0f);
     for (auto& voice : destination.voices) voice = {};
     return juce::Result::ok();
+}
+
+juce::Result SampleEngine::preloadSample(const juce::File& file)
+{
+    if (!file.existsAsFile() || !file.hasFileExtension(".npno"))
+        return juce::Result::fail("Selecione um piano Nord NPNO válido.");
+    if (findCachedPiano(file) != nullptr) return juce::Result::ok();
+
+    auto decoded = std::make_shared<NordPianoDecoder::Instrument>();
+    if (const auto result = NordPianoDecoder::decodeFile(file, *decoded); result.failed())
+        return result;
+    if (file.getParentDirectory().getFileName() != "Organ")
+        preparePianoLoops(*decoded);
+    cachePiano(file, std::move(decoded));
+    return juce::Result::ok();
+}
+
+std::shared_ptr<NordPianoDecoder::Instrument> SampleEngine::findCachedPiano(
+    const juce::File& file)
+{
+    const auto key = file.getFullPathName() + "|" + juce::String(file.getSize()) + "|"
+                   + juce::String(file.getLastModificationTime().toMilliseconds());
+    const std::lock_guard<std::mutex> guard(pianoCacheMutex);
+    const auto found = pianoCache.find(key.toStdString());
+    if (found == pianoCache.end()) return {};
+    found->second.lastUse = ++pianoCacheClock;
+    return found->second.instrument;
+}
+
+std::shared_ptr<NordPianoDecoder::Instrument> SampleEngine::cachePiano(
+    const juce::File& file, std::shared_ptr<NordPianoDecoder::Instrument> decoded)
+{
+    if (decoded == nullptr) return {};
+    const auto key = file.getFullPathName() + "|" + juce::String(file.getSize()) + "|"
+                   + juce::String(file.getLastModificationTime().toMilliseconds());
+    size_t bytes = sizeof(NordPianoDecoder::Instrument);
+    for (const auto& stroke : decoded->strokes)
+        bytes += sizeof(NordPianoDecoder::Stroke)
+               + stroke.interleavedPcm.size() * sizeof(std::int16_t);
+    if (bytes > decodedCacheLimitBytes) return decoded;
+
+    const std::lock_guard<std::mutex> guard(pianoCacheMutex);
+    const auto keyString = key.toStdString();
+    if (const auto found = pianoCache.find(keyString); found != pianoCache.end())
+    {
+        found->second.lastUse = ++pianoCacheClock;
+        return found->second.instrument;
+    }
+    while (pianoCacheBytes + bytes > decodedCacheLimitBytes && !pianoCache.empty())
+    {
+        const auto oldest = std::min_element(pianoCache.begin(), pianoCache.end(),
+            [](const auto& left, const auto& right)
+            { return left.second.lastUse < right.second.lastUse; });
+        pianoCacheBytes -= oldest->second.bytes;
+        pianoCache.erase(oldest);
+    }
+    pianoCacheBytes += bytes;
+    pianoCache.emplace(keyString, CachedPiano { decoded, bytes, ++pianoCacheClock });
+    return decoded;
 }
 
 void SampleEngine::unload(int layer)
@@ -167,6 +243,7 @@ void SampleEngine::unload(int layer)
     destination.piano = {};
     destination.pianoLoaded = false;
     destination.sourcePath.clear();
+    destination.modulationKind = Layer::ModulationKind::none;
     destination.sustainDown.fill(false);
     destination.cutoffState.fill(0.0f);
     destination.compressorEnvelope.fill(0.0f);
@@ -177,6 +254,8 @@ void SampleEngine::unload(int layer)
     destination.eq.reset();
     destination.nordFx.reset();
     destination.reverb.reset();
+    destination.effectTailPending = false;
+    destination.effectQuietSamples = 0;
     destination.lastReverbParameters.fill(-1.0f);
     for (auto& voice : destination.voices) voice = {};
     destination.peak.store(0.0f, std::memory_order_release);
@@ -292,7 +371,7 @@ void SampleEngine::startVoice(Layer& layer, int note, int channel, float velocit
                          * layer.sourceSampleRate / currentSampleRate;
     candidate->level = velocity;
     candidate->velocity = velocity;
-    const auto attackSamples = juce::jmax(1.0, routing.attack * 0.001 * currentSampleRate);
+    const auto attackSamples = juce::jmax(1.0, layerAttackSeconds(routing.attack) * currentSampleRate);
     candidate->attackGain = routing.attack <= 0.0f ? 1.0f : 0.0f;
     candidate->attackStep = routing.attack <= 0.0f
         ? 1.0f : static_cast<float>(1.0 / attackSamples);
@@ -305,16 +384,16 @@ void SampleEngine::startVoice(Layer& layer, int note, int channel, float velocit
 int SampleEngine::findPianoStroke(const Layer& layer, int note, float velocity, int bank) const
 {
     if (!layer.pianoLoaded || !juce::isPositiveAndBelow(note, 128)) return -1;
-    const auto root = layer.piano.keyMap[(size_t) note];
+    const auto root = layer.piano->keyMap[(size_t) note];
     if (root == 0xff) return -1;
 
     const auto midiVelocity = juce::jlimit(1, 127, juce::roundToInt(velocity * 127.0f));
-    const auto layerLimit = ((127 - midiVelocity) * layer.piano.velocityScale) / 127;
+    const auto layerLimit = ((127 - midiVelocity) * layer.piano->velocityScale) / 127;
     int bestIndex = -1;
     int bestLayer = -1;
-    for (size_t i = 0; i < layer.piano.strokes.size(); ++i)
+    for (size_t i = 0; i < layer.piano->strokes.size(); ++i)
     {
-        const auto& stroke = layer.piano.strokes[i];
+        const auto& stroke = layer.piano->strokes[i];
         if (stroke.rootNote != root || stroke.bank != bank
             || stroke.velocityLayer > layerLimit || stroke.velocityLayer <= bestLayer)
             continue;
@@ -504,19 +583,19 @@ void SampleEngine::preparePianoLoops(NordPianoDecoder::Instrument& piano)
 void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int channel,
                                   float velocity, const Sf2Engine::LayerConfig& routing)
 {
-    if (!juce::isPositiveAndBelow(sampleIndex, static_cast<int>(layer.piano.strokes.size())))
+    if (!juce::isPositiveAndBelow(sampleIndex, static_cast<int>(layer.piano->strokes.size())))
         return;
 
     auto* candidate = &allocateVoice(layer, routing.polyphony);
 
-    const auto& stroke = layer.piano.strokes[(size_t) sampleIndex];
-    const auto frames = stroke.frameCount(layer.piano.channels);
-    const auto cents = static_cast<double>(layer.piano.fineTune[(size_t) note]) * 0.7;
+    const auto& stroke = layer.piano->strokes[(size_t) sampleIndex];
+    const auto frames = stroke.frameCount(layer.piano->channels);
+    const auto cents = static_cast<double>(layer.piano->fineTune[(size_t) note]) * 0.7;
     const auto semitones = static_cast<double>(note - stroke.rootNote) + cents / 100.0;
-    const auto globalGainDb = static_cast<double>(layer.piano.gainTenthsDb) / 10.0;
+    const auto globalGainDb = static_cast<double>(layer.piano->gainTenthsDb) / 10.0;
     const auto trim = static_cast<int>(stroke.trimDb);
     const auto signedTrim = trim >= 0x8000 ? trim - 0x10000 : trim;
-    const auto strokeGainDb = layer.piano.signedTenthsDbTrim
+    const auto strokeGainDb = layer.piano->signedTenthsDbTrim
                             ? -static_cast<double>(signedTrim) / 10.0
                             : -static_cast<double>(trim);
     const auto strokeGain = static_cast<float>(std::pow(10.0, (globalGainDb + strokeGainDb) / 20.0));
@@ -535,7 +614,7 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     const auto dynamicLift = 0.10f * juce::jlimit(0, 3, routing.pianoDynamicCompression);
     candidate->level = (velocity + (1.0f - velocity) * dynamicLift) * strokeGain;
     candidate->velocity = velocity;
-    const auto attackSamples = juce::jmax(1.0, routing.attack * 0.001 * currentSampleRate);
+    const auto attackSamples = juce::jmax(1.0, layerAttackSeconds(routing.attack) * currentSampleRate);
     candidate->attackGain = routing.attack <= 0.0f ? 1.0f : 0.0f;
     candidate->attackStep = routing.attack <= 0.0f
         ? 1.0f : static_cast<float>(1.0 / attackSamples);
@@ -767,6 +846,8 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
     // Piano loops must not occupy the pool indefinitely under a held pedal.
     // Organs retain continuous sustain; piano notes use the per-voice tail length.
     const auto finitePiano = layer.pianoLoaded && layer.finitePiano;
+    auto* outputLeft = output.getNumChannels() > 0 ? output.getWritePointer(0) : nullptr;
+    auto* outputRight = output.getNumChannels() > 1 ? output.getWritePointer(1) : nullptr;
 
     const auto renderVoices = [&] (int firstSample, int lastSample)
     {
@@ -777,16 +858,16 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
 
         const auto isPianoVoice = voice.sampleIndex >= 0;
         if (isPianoVoice && (!layer.pianoLoaded
-            || !juce::isPositiveAndBelow(voice.sampleIndex, static_cast<int>(layer.piano.strokes.size()))))
+            || !juce::isPositiveAndBelow(voice.sampleIndex, static_cast<int>(layer.piano->strokes.size()))))
         {
             voice.active = false;
             continue;
         }
 
         const auto* pianoStroke = isPianoVoice
-            ? &layer.piano.strokes[(size_t) voice.sampleIndex] : nullptr;
+            ? &layer.piano->strokes[(size_t) voice.sampleIndex] : nullptr;
         const auto pianoFrames = pianoStroke != nullptr
-            ? pianoStroke->frameCount(layer.piano.channels) : 0;
+            ? pianoStroke->frameCount(layer.piano->channels) : 0;
         const auto loopEnd = isPianoVoice ? static_cast<double>(pianoFrames) : normalLoopEnd;
         if (pianoFrames <= 0 && isPianoVoice)
         {
@@ -832,8 +913,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             float right = 0.0f;
             if (isPianoVoice)
             {
-                const auto& stroke = layer.piano.strokes[(size_t) voice.sampleIndex];
-                readPianoStereoInterpolated(stroke, layer.piano.channels, voice.position,
+                readPianoStereoInterpolated(*pianoStroke, layer.piano->channels, voice.position,
                                             loopedPiano, left, right);
                 left *= gain;
                 right *= gain;
@@ -845,8 +925,8 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                                          juce::jmin(1, layer.audio.getNumChannels() - 1),
                                          voice.position) * gain;
             }
-            if (output.getNumChannels() > 0) output.addSample(0, sample, left);
-            if (output.getNumChannels() > 1) output.addSample(1, sample, right);
+            if (outputLeft != nullptr) outputLeft[sample] += left;
+            if (outputRight != nullptr) outputRight[sample] += right;
             peak = juce::jmax(peak, std::abs(left), std::abs(right));
             voice.attackGain = juce::jmin(1.0f, voice.attackGain + voice.attackStep);
             voice.position += voice.increment;
@@ -923,12 +1003,11 @@ void SampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<float>& 
         }
     }
 
-    const auto category = juce::File(layer.sourcePath).getParentDirectory().getFileName();
     const auto modulation = routing.modulationEnabled
         ? juce::jlimit(0.0f, 1.0f, layer.modulationAmount) : 0.0f;
-    if (modulation > 0.001f && (category == "Piano Eletrico" || category == "Organ"))
+    if (modulation > 0.001f && layer.modulationKind != Layer::ModulationKind::none)
     {
-        const auto tremolo = category == "Piano Eletrico";
+        const auto tremolo = layer.modulationKind == Layer::ModulationKind::tremolo;
         const auto speedHz = tremolo ? 5.0f : 6.8f;
         const auto phaseStep = juce::MathConstants<double>::twoPi * speedHz / currentSampleRate;
         auto* left = scratch.getWritePointer(0);
@@ -997,13 +1076,12 @@ void SampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<float>& 
         parameters.roomSize = juce::jlimit(0.0f, 1.0f, routing.reverbSize / 100.0f);
         parameters.damping = juce::jlimit(0.0f, 1.0f, routing.reverbDamping / 100.0f);
         parameters.width = juce::jlimit(0.0f, 1.0f, routing.reverbWidth / 100.0f);
-        parameters.wetLevel = reverbMix * 0.72f;
-        parameters.dryLevel = 1.0f;
+        setLayerReverbMix(parameters, reverbMix);
         parameters.freezeMode = 0.0f;
         layer.reverb.setParameters(parameters);
         layer.lastReverbParameters = reverbValues;
     }
-    if (reverbMix > 0.001f)
+    if (layer.reverb.shouldProcess())
         layer.reverb.processStereo(scratch.getWritePointer(0), scratch.getWritePointer(1), samples);
 
     const auto compressorMix = juce::jlimit(0.0f, 100.0f, routing.compressor) / 100.0f;
@@ -1040,18 +1118,29 @@ void SampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<float>& 
     layer.gain.setTargetValue(juce::jmax(0.0f, routing.gain));
     const auto leftPan = routing.pan <= 0.0f ? 1.0f : 1.0f - routing.pan;
     const auto rightPan = routing.pan >= 0.0f ? 1.0f : 1.0f + routing.pan;
+    const auto* scratchLeft = scratch.getReadPointer(0);
+    const auto* scratchRight = scratch.getReadPointer(1);
+    auto* outputLeft = output.getNumChannels() > 0 ? output.getWritePointer(0) : nullptr;
+    auto* outputRight = output.getNumChannels() > 1 ? output.getWritePointer(1) : nullptr;
     float peak = 0.0f;
+    float effectTailPeak = 0.0f;
     for (int sample = 0; sample < samples; ++sample)
     {
+        effectTailPeak = juce::jmax(effectTailPeak, std::abs(scratchLeft[sample]),
+                                    std::abs(scratchRight[sample]));
         const auto gain = layer.gain.getNextValue();
-        const auto left = scratch.getSample(0, sample) * gain * leftPan;
-        const auto right = scratch.getSample(1, sample) * gain * rightPan;
-        if (output.getNumChannels() > 0) output.addSample(0, sample, left);
-        if (output.getNumChannels() > 1) output.addSample(1, sample, right);
+        const auto left = scratchLeft[sample] * gain * leftPan;
+        const auto right = scratchRight[sample] * gain * rightPan;
+        if (outputLeft != nullptr) outputLeft[sample] += left;
+        if (outputRight != nullptr) outputRight[sample] += right;
         peak = juce::jmax(peak, std::abs(left), std::abs(right));
     }
     layer.peak.store(juce::jmax(peak, layer.peak.load(std::memory_order_relaxed) * 0.82f),
                      std::memory_order_relaxed);
+    const auto hasVoices = std::any_of(layer.voices.begin(), layer.voices.end(),
+        [](const auto& voice) { return voice.active; });
+    updateLayerEffectTail(layer.effectTailPending, layer.effectQuietSamples,
+                          hasVoices, effectTailPeak, samples, currentSampleRate);
 }
 
 void SampleEngine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer& midi,
@@ -1067,9 +1156,19 @@ void SampleEngine::process(juce::AudioBuffer<float>& output, const juce::MidiBuf
         if (!layers[(size_t) layer].pianoLoaded || !routing[(size_t) layer].enabled)
             continue;
         auto& events = combinedMidi[(size_t) layer];
+        const auto& layerMidi = routedMidi[(size_t) layer];
+        const auto hasVoices = std::any_of(layers[(size_t) layer].voices.begin(),
+                                           layers[(size_t) layer].voices.end(),
+                                           [](const auto& voice) { return voice.active; });
+        if (!hasVoices && midi.isEmpty() && layerMidi.isEmpty()
+            && !layers[(size_t) layer].effectTailPending)
+        {
+            layers[(size_t) layer].peak.store(0.0f, std::memory_order_relaxed);
+            continue;
+        }
         events.clear();
         events.addEvents(midi, 0, -1, 0);
-        events.addEvents(routedMidi[(size_t) layer], 0, -1, 0);
+        events.addEvents(layerMidi, 0, -1, 0);
         scratch.clear();
         renderLayer(layers[(size_t) layer], scratch, events, routing[(size_t) layer]);
         processEffectsAndMix(layers[(size_t) layer], output, routing[(size_t) layer]);

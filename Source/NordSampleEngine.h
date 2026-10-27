@@ -5,6 +5,11 @@
 #include "LayerEffects.h"
 #include <array>
 #include <atomic>
+#include <cstdint>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <unordered_map>
 
 // Independent sample playback engine for Nord NSMP4 (.nsmp4) instruments.
 // Decoding and file I/O happen on the caller thread, never in process().
@@ -16,6 +21,7 @@ public:
 
     void prepare(double sampleRate, int maximumBlockSize);
     juce::Result loadSample(int layer, const juce::File& file);
+    juce::Result preloadSample(const juce::File& file);
     void unload(int layer);
     void stopAllSounds();
     bool isLoaded(int layer) const;
@@ -40,7 +46,7 @@ private:
 
     struct Layer
     {
-        NordSampleDecoder::Instrument instrument;
+        std::shared_ptr<NordSampleDecoder::Instrument> instrument;
         juce::String sourcePath;
         bool loaded = false;
         std::array<Voice, voicesPerLayer> voices {};
@@ -53,13 +59,18 @@ private:
         std::array<float, 2> cutoffState {}, compressorEnvelope {};
         LayerEqState eq;
         NordLayerEffects nordFx;
-        juce::Reverb reverb;
+        LayerReverb reverb;
+        bool effectTailPending = false;
+        uint64_t effectQuietSamples = 0;
         std::array<float, 4> lastReverbParameters { -1.0f, -1.0f, -1.0f, -1.0f };
         juce::SmoothedValue<float> gain;
         std::atomic<float> peak { 0.0f };
     };
 
     static void prepareLoopCrossfades(NordSampleDecoder::Instrument&) noexcept;
+    std::shared_ptr<NordSampleDecoder::Instrument> findCachedInstrument(const juce::File&);
+    std::shared_ptr<NordSampleDecoder::Instrument> cacheInstrument(
+        const juce::File&, std::shared_ptr<NordSampleDecoder::Instrument>);
     static Voice& allocateVoice(Layer&, int polyphony) noexcept;
     static int findZone(const NordSampleDecoder::Instrument&, int note, int velocity) noexcept;
     static float readSample(const NordSampleDecoder::Zone&, int channel, double position) noexcept;
@@ -79,4 +90,15 @@ private:
     double currentSampleRate = 44100.0;
     int maximumBlockSize = 512;
     mutable juce::CriticalSection lock;
+    struct CachedInstrument
+    {
+        std::shared_ptr<NordSampleDecoder::Instrument> instrument;
+        size_t bytes = 0;
+        std::uint64_t lastUse = 0;
+    };
+    static constexpr size_t decodedCacheLimitBytes = 256u * 1024u * 1024u;
+    std::mutex instrumentCacheMutex;
+    std::unordered_map<std::string, CachedInstrument> instrumentCache;
+    size_t instrumentCacheBytes = 0;
+    std::uint64_t instrumentCacheClock = 0;
 };
