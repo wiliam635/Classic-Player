@@ -35,6 +35,13 @@ if ($sourceFull -ne $destinationFull) {
 if (-not (Test-Path (Join-Path $webUiDestination "index.html"))) {
     throw "Falha ao preparar Resources\WebUI ao lado do executável."
 }
+$padSource = Join-Path $root "Resources\ContinuousPads"
+$padDestination = Join-Path (Split-Path $standalone -Parent) "Resources\ContinuousPads"
+if (-not (Test-Path (Join-Path $padSource "C.flac"))) {
+    throw "Amostras dos pads contínuos ausentes do projeto."
+}
+New-Item -ItemType Directory -Force -Path $padDestination | Out-Null
+Copy-Item -Path (Join-Path $padSource "*.flac") -Destination $padDestination -Force
 
 # Stage the complete WebUI app in the conventional Standalone directory used
 # by the Inno script, regardless of which CMake generator produced it.
@@ -43,6 +50,7 @@ New-Item -ItemType Directory -Force -Path $stagedStandalone | Out-Null
 if ([System.IO.Path]::GetFullPath((Split-Path $standalone -Parent)) -ne [System.IO.Path]::GetFullPath($stagedStandalone)) {
     Copy-Item -Path $standalone -Destination (Join-Path $stagedStandalone "Classic Player.exe") -Force
     Copy-Item -Path $webUiDestination -Destination (Join-Path $stagedStandalone "Resources\WebUI") -Recurse -Force
+    Copy-Item -Path $padDestination -Destination (Join-Path $stagedStandalone "Resources\ContinuousPads") -Recurse -Force
     Get-ChildItem -Path (Split-Path $standalone -Parent) -Filter "*.dll" -File -ErrorAction SilentlyContinue |
         Copy-Item -Destination $stagedStandalone -Force
 }

@@ -12,7 +12,7 @@ if [ -z "$APP" ] || [ ! -d "$APP" ]; then
   exit 1
 fi
 OUTPUT="${OUTPUT_DIR:-$ROOT/../../outputs/installers}"
-PACKAGE_VERSION="3.0.1"
+PACKAGE_VERSION="3.0.2"
 DOWNLOAD_VERSION="${DOWNLOAD_VERSION:-$PACKAGE_VERSION}"
 PACKAGE_NAME="Classic-Player-${DOWNLOAD_VERSION}-macOS-High-Sierra-a-Tahoe-Universal.pkg"
 ZIP_NAME="Classic-Player-${DOWNLOAD_VERSION}-macOS-High-Sierra-a-Tahoe-Universal-App.zip"
