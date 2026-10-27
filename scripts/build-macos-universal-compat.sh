@@ -50,7 +50,16 @@ configure_and_build() {
     -DCMAKE_OSX_ARCHITECTURES="$arch" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="$deployment" \
     -DCMAKE_BUILD_TYPE=Release
-  "$CMAKE" --build "$build" --target ClassicPlayer_Standalone ClassicPlayer_VST3 ClassicPlayer_AU ClassicPlayerVst3HostSmokeTest ClassicPlayerAuHostSmokeTest ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest ClassicPlayerHammondTest ClassicPlayerAudioRegressionTest ClassicPlayerSampleEngineTest --parallel 4
+  local -a targets=(
+    ClassicPlayer_Standalone ClassicPlayer_VST3 ClassicPlayer_AU
+    ClassicPlayerVst3HostSmokeTest ClassicPlayerChordDetectorTest
+    ClassicPlayerUpdateCheckerTest ClassicPlayerHammondTest
+    ClassicPlayerAudioRegressionTest ClassicPlayerSampleEngineTest
+  )
+  if [[ "$arch" == "arm64" ]]; then
+    targets+=(ClassicPlayerAuHostSmokeTest)
+  fi
+  "$CMAKE" --build "$build" --target "${targets[@]}" --parallel 4
   for test_name in ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest ClassicPlayerAudioRegressionTest ClassicPlayerSampleEngineTest; do
     local test_executable="$build/${test_name}_artefacts/Release/$test_name"
     if [[ "$arch" == "x86_64" ]]; then
@@ -73,13 +82,6 @@ configure_and_build() {
     arch -x86_64 "$vst3_host_test" "$vst3_bundle"
   else
     "$vst3_host_test" "$vst3_bundle"
-  fi
-  local au_host_test="$build/ClassicPlayerAuHostSmokeTest_artefacts/Release/ClassicPlayerAuHostSmokeTest"
-  local au_bundle="$build/ClassicPlayer_artefacts/Release/AU/Classic Player.component"
-  if [[ "$arch" == "x86_64" ]]; then
-    arch -x86_64 "$au_host_test" "$au_bundle"
-  else
-    "$au_host_test" "$au_bundle"
   fi
 }
 
@@ -181,6 +183,21 @@ create_universal_plugin() {
 
 create_universal_plugin VST3 vst3 "Classic Player"
 create_universal_plugin AU component "Classic Player"
+
+# AudioComponentFindNext only sees Audio Units registered in standard plug-in
+# locations. Validate the assembled universal bundle there, not from the build
+# tree (which can produce a false "not discovered" failure).
+AU_INSTALL_DIR="$HOME/Library/Audio/Plug-Ins/Components"
+AU_INSTALLED="$AU_INSTALL_DIR/Classic Player.component"
+mkdir -p "$AU_INSTALL_DIR"
+rm -rf "$AU_INSTALLED"
+ditto "$ROOT/build/Classic Player 2.0 macOS Universal.component" "$AU_INSTALLED"
+xattr -cr "$AU_INSTALLED"
+codesign --verify --deep --strict --verbose=2 "$AU_INSTALLED"
+/usr/bin/auval -v aumu ClPl ClKy
+
+AU_HOST_TEST="$ROOT/build/macos-compat-arm64/ClassicPlayerAuHostSmokeTest_artefacts/Release/ClassicPlayerAuHostSmokeTest"
+"$AU_HOST_TEST" "$AU_INSTALLED"
 
 "$EXECUTABLE" >"$ROOT/build/macos-compat-startup.log" 2>&1 &
 APP_PID=$!
