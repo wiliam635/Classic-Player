@@ -1,5 +1,5 @@
 #define MyAppName "Classic Player"
-#define MyAppVersion "3.0.1"
+#define MyAppVersion "3.0.2"
 #define MyAppPublisher "Classic Keys"
 #define BuildRoot "..\..\build\windows-x64\ClassicPlayer_artefacts\Release"
 
@@ -8,8 +8,8 @@ AppId={{7A44AE69-49B7-4FD9-A468-5164FA579A98}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-VersionInfoVersion=3.0.1.0
-VersionInfoProductVersion=3.0.1.0
+VersionInfoVersion=3.0.2.0
+VersionInfoProductVersion=3.0.2.0
 VersionInfoDescription=Classic Player SF2 Workstation Setup
 VersionInfoProductName=Classic Player
 VersionInfoCompany=Classic Keys
@@ -18,7 +18,7 @@ MinVersion=10.0.10240
 DefaultDirName={autopf}\Classic Keys\Classic Player
 DefaultGroupName=Classic Keys
 OutputDir=..\..\outputs\installers
-OutputBaseFilename=Classic-Player-3.0.1-Windows-x64-Setup
+OutputBaseFilename=Classic-Player-3.0.2-Windows-x64-Setup
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible
@@ -31,6 +31,7 @@ UninstallDisplayIcon={app}\Classic Player.exe
 Source: "{#BuildRoot}\Standalone\Classic Player.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildRoot}\Standalone\*.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#BuildRoot}\Standalone\Resources\WebUI\*"; DestDir: "{app}\Resources\WebUI"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BuildRoot}\Standalone\Resources\ContinuousPads\*"; DestDir: "{app}\Resources\ContinuousPads"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#BuildRoot}\WebView2Bootstrapper.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist
 Source: "{#BuildRoot}\VST3\Classic Player.vst3\*"; DestDir: "{commoncf64}\VST3\Classic Player.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 
