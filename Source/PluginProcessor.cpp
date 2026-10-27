@@ -614,15 +614,8 @@ void ClassicPlayerAudioProcessor::releaseResources()
 
 bool ClassicPlayerAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
-    const auto supported = layouts.inputBuses.isEmpty()
-                        && layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();
-    juce::Logger::writeToLog(juce::String::fromUTF8("isBusesLayoutSupported: entradas=")
-                             + juce::String(layouts.inputBuses.size())
-                             + juce::String::fromUTF8(" saída=")
-                             + layouts.getMainOutputChannelSet().getDescription()
-                             + juce::String::fromUTF8(" resultado=")
-                             + (supported ? "OK" : "recusado"));
-    return supported;
+    return layouts.inputBuses.isEmpty()
+        && layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();
 }
 
 void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -1563,6 +1556,16 @@ juce::String ClassicPlayerAudioProcessor::soundFontPath(int layer) const
 }
 Sf2Engine::LayerConfig ClassicPlayerAudioProcessor::layerConfig(int layer) const { return engine.getConfig(layer); }
 void ClassicPlayerAudioProcessor::setLayerConfig(int layer, const Sf2Engine::LayerConfig& c) { engine.setConfig(layer, c); }
+void ClassicPlayerAudioProcessor::setLayerReleaseControl(int layer, float release)
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return;
+    const auto value = juce::jlimit(0.0f, 100.0f, release);
+    if (auto* parameter = parameters.getParameter("layer" + juce::String(layer + 1) + "Release"))
+        parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
+    auto config = engine.getConfig(layer);
+    config.release = value;
+    engine.setConfig(layer, config);
+}
 
 juce::Result ClassicPlayerAudioProcessor::beginNordVelocityCalibration(int layer)
 {
@@ -1782,6 +1785,7 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
         auto config = engine.getConfig(layer);
         config.polyphony = 64;
         engine.setConfig(layer, config);
+        setLayerReleaseControl(layer, 0.0f);
         externalInstruments[(size_t)layer].unload(); engine.unloadSoundFont(layer);
         dx7Engine.unload(layer); analogSynthEngine.unload(layer); hammondEngine.unload(layer);
         savedPaths[(size_t)layer].clear(); hammondLayerConfigs[(size_t)layer] = HammondEngine::Config{};
@@ -1798,6 +1802,7 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
         auto config = engine.getConfig(layer);
         config.polyphony = 64;
         engine.setConfig(layer, config);
+        setLayerReleaseControl(layer, 0.0f);
         externalInstruments[(size_t) layer].unload();
         engine.unloadSoundFont(layer);
         dx7Engine.unload(layer);
@@ -3458,7 +3463,7 @@ void ClassicPlayerAudioProcessor::resetToNewProgram()
     if (hadUiVirtualKeyboardVisible)
         state.setProperty("uiVirtualKeyboardVisible", uiVirtualKeyboardVisible, nullptr);
     state.setProperty("uiDisplaySpectrum", uiDisplaySpectrum, nullptr);
-    state.setProperty("stateVersion", 172, nullptr);
+    state.setProperty("stateVersion", 173, nullptr);
     state.setProperty("activeLayers", 0, nullptr);
     state.setProperty("masterLearnCC", savedMasterCC, nullptr);
     state.setProperty("masterLearnChannel", savedMasterChannel, nullptr);
@@ -3578,6 +3583,10 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
     };
     for (const auto& prefix : oneBased)
         copyProperty(prefix + sourceOne, prefix + destinationOne);
+    if (savedType == static_cast<int>(LayerType::nord)
+        && (int) sourceState.getProperty("stateVersion", 0) < 173
+        && (int) sourceState.getProperty("pianoTimbre" + sourceOne, 1) < 0)
+        destinationState.setProperty("pianoTimbre" + destinationOne, 1, nullptr);
     const juce::StringArray zeroBased {
         "midiChannel", "low", "high", "velocityLow", "velocityHigh", "octave", "polyphony",
         "velocityCurve", "velocityCalibrated",
@@ -3679,7 +3688,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
     }
     state.setProperty("panicLearnCC", panicCC.load(), nullptr);
     state.setProperty("panicLearnChannel", panicCCChannel.load(), nullptr);
-    state.setProperty("stateVersion", 172, nullptr);
+    state.setProperty("stateVersion", 173, nullptr);
     state.setProperty("activeLayers", activeLayerCount(), nullptr);
     for (int position = 0; position < Sf2Engine::layerCount; ++position)
         state.setProperty("visualLayer" + juce::String(position), visualLayerAt(position), nullptr);
@@ -3958,7 +3967,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 }
 
             }
-            state.setProperty("stateVersion", 172, nullptr);
+            state.setProperty("stateVersion", 173, nullptr);
             // Older performances must restore the previously implicit ON
             // state, even after a newer performance disabled the limiter.
             if (!findParameterState("limiterEnabled").isValid())
@@ -4200,6 +4209,12 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     config.velocityCurve);
                 config.pianoTimbre = juce::jlimit(-1, 2, static_cast<int>(state.getProperty(
                     "pianoTimbre" + juce::String(i + 1), config.pianoTimbre)));
+                // Version 172 and earlier defaulted a new NPNO layer to
+                // neutral/off. Restore the 3.0 MID sound for those states,
+                // while preserving intentional OFF in newly saved states.
+                if (savedType == static_cast<int>(LayerType::nord)
+                    && savedStateVersion < 173 && config.pianoTimbre < 0)
+                    config.pianoTimbre = 1;
                 config.pianoDecaySeconds = juce::jlimit(3.0f, 15.0f, static_cast<float>(
                     state.getProperty("pianoDecaySeconds" + juce::String(i + 1), 15.0f)));
                 config.pianoSoftRelease = static_cast<bool>(state.getProperty(

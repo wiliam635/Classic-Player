@@ -12,6 +12,13 @@ $vst3 = Join-Path $artefacts "VST3\Classic Player.vst3"
 if (-not $standalone) {
     throw "Executável Windows não encontrado nos artefatos: $($standaloneCandidates -join ', ')"
 }
+if (-not (Test-Path (Join-Path $vst3 "Contents\Resources\moduleinfo.json"))) {
+    throw "Bundle VST3 obrigatório não encontrado ou incompleto: $vst3"
+}
+$vst3Binary = Get-ChildItem -Path $vst3 -Recurse -File -Filter "*.vst3" | Select-Object -First 1
+if (-not $vst3Binary) {
+    throw "Binário VST3 obrigatório ausente dentro do bundle: $vst3"
+}
 
 # JUCE may place bundle resources in a target-specific directory depending on
 # the generator. Stage WebUI beside the executable so Inno Setup always sees it.

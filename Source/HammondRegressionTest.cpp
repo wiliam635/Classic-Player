@@ -861,13 +861,32 @@ static void hammondPresetAndWheel()
 {
     auto p=std::make_unique<ClassicPlayerAudioProcessor>();
     p->setLayerType(0,ClassicPlayerAudioProcessor::LayerType::hammond);
+    auto* releaseParameter=p->parameters.getParameter("layer1Release");
+    check(releaseParameter!=nullptr,"layer release parameter missing");
+    check(std::abs(releaseParameter->convertFrom0to1(releaseParameter->getValue()))<0.001f,
+          "new Hammond layer did not default to zero release");
+    for(int factoryPreset=0;factoryPreset<HammondEngine::presetNames().size();++factoryPreset)
+        check(std::abs(HammondEngine::preset(factoryPreset).routing.release)<0.001f,
+              "Hammond factory preset has nonzero release");
+    for(size_t factoryPreset=0;factoryPreset<AnalogBrowserPresets::bank.size();++factoryPreset)
+    {
+        const auto analog=AnalogBrowserPresets::config(factoryPreset,Sf2Engine::LayerConfig{});
+        check(std::abs(analog.routing.release)<0.001f
+              &&std::abs(analog.ampReleaseMs)<0.001f
+              &&std::abs(analog.filterReleaseMs)<0.001f,
+              "Moog factory preset has nonzero release");
+    }
     for(int preset:{1,3,28,32})
     {
+        releaseParameter->setValueNotifyingHost(releaseParameter->convertTo0to1(47.0f));
+        auto routing=p->layerConfig(0);routing.release=47.0f;p->setLayerConfig(0,routing);
         p->setHammondConfig(0,HammondEngine::preset(0));
         auto panel=std::make_unique<HammondEditorPanel>(*p,0);
         auto* selection=dynamic_cast<juce::ComboBox*>(panel->getChildComponent(0));
         check(selection!=nullptr,"Hammond preset selector missing");
         selection->setSelectedId(preset+2,juce::sendNotificationSync);
+        check(std::abs(releaseParameter->convertFrom0to1(releaseParameter->getValue()))<0.001f,
+              "selecting a Hammond preset did not reset shared release");
         // Flush the callbacks used by delayed slider notifications from widget
         // setup, without synthesizing an actual change of value.
         for(int i=0;i<panel->getNumChildComponents();++i)
@@ -1114,6 +1133,10 @@ int main(int argc, char** argv)
         check(q->layerType(last-1)==ClassicPlayerAudioProcessor::LayerType::hammond&&q->hammondConfig(last-1).leslie==2,"layer removal loses Hammond");
         q->setLayerType(0,ClassicPlayerAudioProcessor::LayerType::analog);
         check(q->layerType(0)==ClassicPlayerAudioProcessor::LayerType::analog,"switch source");
+        auto* analogRelease=q->parameters.getParameter("layer1Release");
+        check(analogRelease!=nullptr
+              &&std::abs(analogRelease->convertFrom0to1(analogRelease->getValue()))<0.001f,
+              "new Moog layer did not default to zero release");
         auto analog=q->analogSynthConfig(0);
         analog.browserCompatible=true;analog.ampDecayMs=3900;analog.lfoToFilter=25;
         q->setAnalogSynthConfig(0,analog);

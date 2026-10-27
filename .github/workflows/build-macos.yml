@@ -72,6 +72,13 @@ jobs:
           grep -q "CLASSIC KEYS SF2 WORKSTATION" Source/PluginEditor.cpp
           grep -q "set(CLASSIC_PLAYER_FORMATS Standalone VST3)" CMakeLists.txt
           test -d "build/Classic Player 2.0 macOS Universal.app"
+          test -d "build/Classic Player 2.0 macOS Universal.vst3"
+          test -d "build/Classic Player 2.0 macOS Universal.component"
+          test -f "build/Classic Player 2.0 macOS Universal.vst3/Contents/Resources/moduleinfo.json"
+          lipo -archs "build/Classic Player 2.0 macOS Universal.vst3/Contents/MacOS/Classic Player" | grep -q arm64
+          lipo -archs "build/Classic Player 2.0 macOS Universal.vst3/Contents/MacOS/Classic Player" | grep -q x86_64
+          lipo -archs "build/Classic Player 2.0 macOS Universal.component/Contents/MacOS/Classic Player" | grep -q arm64
+          lipo -archs "build/Classic Player 2.0 macOS Universal.component/Contents/MacOS/Classic Player" | grep -q x86_64
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' 'build/Classic Player 2.0 macOS Universal.app/Contents/Info.plist')" = "3.0.2"
           test -f "outputs/installers/Classic-Player-${DOWNLOAD_VERSION}-macOS-High-Sierra-a-Tahoe-Universal.pkg"
           test -f "outputs/installers/Classic-Player-${DOWNLOAD_VERSION}-macOS-High-Sierra-a-Tahoe-Universal-App.zip"

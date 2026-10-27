@@ -53,6 +53,7 @@ inline AnalogSynthEngine::Config config(size_t index, const Sf2Engine::LayerConf
     const auto& p = bank.at(index);
     AnalogSynthEngine::Config c;
     c.routing = routing;
+    c.routing.release = 0.0f;
     c.browserCompatible = true;
     c.oscillator1Wave = p.waves[0]; c.oscillator2Wave = p.waves[1]; c.oscillator3Wave = p.waves[2];
     c.oscillator1Level = p.levels[0]; c.oscillator2Level = p.levels[1]; c.oscillator3Level = p.levels[2];
@@ -62,7 +63,11 @@ inline AnalogSynthEngine::Config config(size_t index, const Sf2Engine::LayerConf
     c.resonance = p.resonanceDb / 20.0f;
     c.filterEnvelopeAmount = 0;
     c.ampAttackMs = p.attack * 1000; c.ampDecayMs = p.decay * 1000;
-    c.ampSustain = p.sustain; c.ampReleaseMs = p.release * 1000;
+    c.ampSustain = p.sustain;
+    // Factory Moog-style programs start at zero release. The renderer keeps
+    // its minimum click-safe tail independently of this control value.
+    c.ampReleaseMs = 0.0f;
+    c.filterReleaseMs = 0.0f;
     c.lfoRateHz = p.lfo;
     // In browser mode this knob is a percent of the original 420 Hz depth.
     c.lfoToFilter = p.modulation * 100;

@@ -298,12 +298,20 @@ if(CLASSIC_PLAYER_BUILD_TESTS)
     target_link_libraries(ClassicPlayerNordSampleTest PRIVATE
         ${CLASSIC_PLAYER_FLUID_TARGET} juce::juce_audio_basics juce::juce_dsp)
     add_test(NAME nord-sample-regression COMMAND ClassicPlayerNordSampleTest)
-    if(WIN32)
+    if(TARGET ClassicPlayer_VST3)
         juce_add_console_app(ClassicPlayerVst3HostSmokeTest PRODUCT_NAME "Classic Player VST3 Host Smoke Test")
         target_sources(ClassicPlayerVst3HostSmokeTest PRIVATE tools/vst3_host_smoke_test.cpp)
         target_compile_definitions(ClassicPlayerVst3HostSmokeTest PRIVATE
             JUCE_PLUGINHOST_VST3=1 JUCE_VST3_CAN_REPLACE_VST2=0)
         target_link_libraries(ClassicPlayerVst3HostSmokeTest PRIVATE
+            juce::juce_audio_utils juce::juce_audio_processors
+            PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+    endif()
+    if(TARGET ClassicPlayer_AU)
+        juce_add_console_app(ClassicPlayerAuHostSmokeTest PRODUCT_NAME "Classic Player AU Host Smoke Test")
+        target_sources(ClassicPlayerAuHostSmokeTest PRIVATE tools/au_host_smoke_test.cpp)
+        target_compile_definitions(ClassicPlayerAuHostSmokeTest PRIVATE JUCE_PLUGINHOST_AU=1)
+        target_link_libraries(ClassicPlayerAuHostSmokeTest PRIVATE
             juce::juce_audio_utils juce::juce_audio_processors
             PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
     endif()

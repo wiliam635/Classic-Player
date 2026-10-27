@@ -101,17 +101,25 @@ jobs:
 
       - name: Configure with Visual Studio 2022 x64
         shell: pwsh
-        run: cmake --preset windows-x64
+        run: cmake --preset windows-x64 -DVCPKG_TARGET_TRIPLET=x64-windows-static '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>'
 
-      - name: Build native standalone release
+      - name: Build native standalone and VST3 release
         shell: pwsh
-        run: cmake --build build\windows-x64 --target ClassicPlayer_Standalone --config Release --parallel 2
+        run: cmake --build build\windows-x64 --target ClassicPlayer_Standalone ClassicPlayer_VST3 ClassicPlayerVst3HostSmokeTest --config Release --parallel 2
 
       - name: Verify standalone artifact before packaging
         shell: pwsh
         run: |
           $standalone = "build\windows-x64\ClassicPlayer_artefacts\Release\Standalone\Classic Player.exe"
           if (-not (Test-Path $standalone)) { throw "Standalone nativo não foi gerado: $standalone" }
+          $vst3 = "build\windows-x64\ClassicPlayer_artefacts\Release\VST3\Classic Player.vst3"
+          if (-not (Test-Path (Join-Path $vst3 "Contents\Resources\moduleinfo.json"))) { throw "Bundle VST3 ausente ou incompleto: $vst3" }
+          $vst3Binary = Get-ChildItem -Path $vst3 -Recurse -File -Filter "*.vst3" | Select-Object -First 1
+          if (-not $vst3Binary) { throw "Binário VST3 não foi gerado dentro do bundle." }
+          $hostTest = Get-ChildItem -Path "build\windows-x64" -Recurse -File -Filter "ClassicPlayerVst3HostSmokeTest.exe" | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $hostTest) { throw "Teste de instanciação VST3 não foi gerado." }
+          & $hostTest $vst3
+          if ($LASTEXITCODE -ne 0) { throw "O host de teste não conseguiu descobrir e instanciar o VST3." }
           if (-not (Test-Path "Resources\WebUI\index.html")) { throw "Resources/WebUI/index.html ausente" }
 
       - name: Install Inno Setup

@@ -98,6 +98,7 @@ public:
     juce::String soundFontPath(int layer) const;
     Sf2Engine::LayerConfig layerConfig(int layer) const;
     void setLayerConfig(int layer, const Sf2Engine::LayerConfig& config);
+    void setLayerReleaseControl(int layer, float release);
     juce::Result beginNordVelocityCalibration(int layer);
     juce::Result advanceNordVelocityCalibration(int layer);
     juce::Result finishNordVelocityCalibration(int layer);

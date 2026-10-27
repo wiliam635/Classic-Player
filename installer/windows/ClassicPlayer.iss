@@ -33,14 +33,11 @@ Source: "{#BuildRoot}\Standalone\*.dll"; DestDir: "{app}"; Flags: ignoreversion 
 Source: "{#BuildRoot}\Standalone\Resources\WebUI\*"; DestDir: "{app}\Resources\WebUI"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#BuildRoot}\Standalone\Resources\ContinuousPads\*"; DestDir: "{app}\Resources\ContinuousPads"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#BuildRoot}\WebView2Bootstrapper.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist
-Source: "{#BuildRoot}\VST3\Classic Player.vst3\*"; DestDir: "{commoncf64}\VST3\Classic Player.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "{#BuildRoot}\VST3\Classic Player.vst3\*"; DestDir: "{commoncf64}\VST3\Classic Player.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\Classic Player"; Filename: "{app}\Classic Player.exe"
-Name: "{autodesktop}\Classic Player"; Filename: "{app}\Classic Player.exe"; Tasks: desktopicon
-
-[Tasks]
-Name: "desktopicon"; Description: "Criar atalho na área de trabalho"; GroupDescription: "Atalhos:"
+Name: "{autodesktop}\Classic Player"; Filename: "{app}\Classic Player.exe"
 
 [Run]
 Filename: "{tmp}\WebView2Bootstrapper.exe"; Parameters: "/silent /install"; StatusMsg: "Instalando o componente de interface do Windows..."; Flags: waituntilterminated skipifdoesntexist

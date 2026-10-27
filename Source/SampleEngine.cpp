@@ -422,146 +422,50 @@ void SampleEngine::preparePianoLoops(NordPianoDecoder::Instrument& piano)
         const auto period = NordPianoDecoder::sampleRate / frequency;
         const auto low = juce::jmax(2, juce::roundToInt(aim - period));
         const auto high = juce::jmin(maximum, juce::roundToInt(aim + period));
-        const auto step = juce::jmax(4, juce::roundToInt(period / 24.0));
+        const auto step = juce::jmax(1, juce::roundToInt(period / 24.0));
         if (low > high) continue;
         const auto read = [&](int frame, int channel)
         {
             return static_cast<double>(stroke.interleavedPcm[
                 static_cast<size_t>(frame * channels + channel)]);
         };
-        struct LoopQuality
+        // Preserve the NPNO loop search and equal-power normalization from
+        // Classic Player 3.0 so velocity layers retain their original sustain tone.
+        auto fade = low;
+        auto bestScore = -2.0;
+        auto correlation = 0.0;
+        // One alignment and one gain law for both channels preserve stereo.
+        for (int candidate = low; candidate <= high; candidate += step)
         {
-            double score = -2.0;
-            double correlation = 0.0;
-            double levelDifferenceDb = 0.0;
-            double localMismatchDb = 0.0;
-            double phasePenalty = 0.0;
-        };
-        const auto analyse = [&](int candidate, int stride)
-        {
-            constexpr int windows = 12;
-            std::array<double, windows> headPower {}, tailPower {}, dot {};
-            for (int frame = 0; frame < candidate; frame += stride)
+            double dot = 0.0, headPower = 0.0, tailPower = 0.0;
+            for (int frame = 0; frame < candidate; frame += 8)
                 for (int channel = 0; channel < channels; ++channel)
                 {
                     const auto head = read(start + frame, channel);
                     const auto tail = read(end - candidate + frame, channel);
-                    const auto window = juce::jmin(windows - 1, frame * windows / candidate);
-                    dot[(size_t) window] += head * tail;
-                    headPower[(size_t) window] += head * head;
-                    tailPower[(size_t) window] += tail * tail;
+                    dot += head * tail;
+                    headPower += head * head;
+                    tailPower += tail * tail;
                 }
-            double totalHead = 0.0, totalTail = 0.0, totalDot = 0.0;
-            double localMismatch = 0.0, phasePenalty = 0.0;
-            int activeWindows = 0;
-            for (int window = 0; window < windows; ++window)
+            const auto norm = std::sqrt(headPower * tailPower);
+            const auto corr = norm > 0.0 ? dot / norm : 1.0;
+            const auto score = corr - 0.01 * std::abs(candidate - aim) / juce::jmax(1, aim);
+            if (score > bestScore)
             {
-                const auto head = headPower[(size_t) window];
-                const auto tail = tailPower[(size_t) window];
-                totalHead += head;
-                totalTail += tail;
-                totalDot += dot[(size_t) window];
-                if (head + tail < 1.0) continue;
-                ++activeWindows;
-                localMismatch += std::abs(10.0 * std::log10((head + 1.0) / (tail + 1.0)));
-                const auto norm = std::sqrt(head * tail);
-                const auto localCorrelation = norm > 0.0 ? dot[(size_t) window] / norm : 1.0;
-                phasePenalty += juce::jmax(0.0, 0.7 - localCorrelation);
+                bestScore = score;
+                fade = candidate;
+                correlation = juce::jlimit(0.0, 1.0, corr);
             }
-            LoopQuality quality;
-            const auto norm = std::sqrt(totalHead * totalTail);
-            quality.correlation = norm > 0.0 ? totalDot / norm : 1.0;
-            quality.levelDifferenceDb = std::abs(10.0 * std::log10((totalHead + 1.0) / (totalTail + 1.0)));
-            quality.localMismatchDb = localMismatch / juce::jmax(1, activeWindows);
-            quality.phasePenalty = phasePenalty / juce::jmax(1, activeWindows);
-            // Correlation alone can rank a loop with a large level mismatch
-            // as "perfect". Such a join makes the 200-250 Hz body pulse at
-            // each repetition even though it has no click at the seam.
-            quality.score = quality.correlation - 0.018 * quality.levelDifferenceDb
-                - 0.007 * quality.localMismatchDb - 0.08 * quality.phasePenalty
-                - 0.01 * std::abs(candidate - aim) / juce::jmax(1, aim);
-            return quality;
-        };
-        auto fade = low;
-        auto best = analyse(fade, 8);
-        for (int candidate = low + step; candidate <= high; candidate += step)
-        {
-            const auto quality = analyse(candidate, 8);
-            if (quality.score > best.score) { best = quality; fade = candidate; }
-        }
-        // Widen the search only for a visibly poor join. Most NPNOs retain
-        // the previous fast path and loading time remains close to unchanged.
-        if (best.correlation < 0.85 || best.levelDifferenceDb > 3.0
-            || best.localMismatchDb > 4.0 || best.phasePenalty > 0.15)
-        {
-            const auto radius = juce::roundToInt(0.08 * NordPianoDecoder::sampleRate);
-            const auto broadLow = juce::jmax(2, aim - radius);
-            const auto broadHigh = juce::jmin(maximum, aim + radius);
-            const auto coarseStep = juce::jmax(96, juce::roundToInt(period / 2.0));
-            auto coarseFade = fade;
-            auto coarseBest = analyse(coarseFade, 32);
-            for (int candidate = broadLow; candidate <= broadHigh; candidate += coarseStep)
-            {
-                const auto quality = analyse(candidate, 32);
-                if (quality.score > coarseBest.score) { coarseBest = quality; coarseFade = candidate; }
-            }
-            const auto fineStep = juce::jmax(4, juce::roundToInt(period / 16.0));
-            for (int candidate = juce::jmax(broadLow, coarseFade - coarseStep);
-                 candidate <= juce::jmin(broadHigh, coarseFade + coarseStep); candidate += fineStep)
-            {
-                const auto quality = analyse(candidate, 8);
-                if (quality.score > best.score) { best = quality; fade = candidate; }
-            }
-        }
-        // Local energy matching keeps the overlap from briefly hollowing out
-        // a strong piano note. It never attenuates the body or applies an EQ.
-        constexpr int energyWindows = 12;
-        std::array<double, energyWindows> headEnergy {}, tailEnergy {}, crossEnergy {}, counts {};
-        for (int frame = 0; frame < fade; frame += 8)
-            for (int channel = 0; channel < channels; ++channel)
-            {
-                const auto window = juce::jmin(energyWindows - 1, frame * energyWindows / fade);
-                const auto head = read(start + frame, channel);
-                const auto tail = read(end - fade + frame, channel);
-                headEnergy[(size_t) window] += head * head;
-                tailEnergy[(size_t) window] += tail * tail;
-                crossEnergy[(size_t) window] += head * tail;
-                counts[(size_t) window] += 1.0;
-            }
-        for (int window = 0; window < energyWindows; ++window)
-        {
-            const auto count = juce::jmax(1.0, counts[(size_t) window]);
-            headEnergy[(size_t) window] /= count;
-            tailEnergy[(size_t) window] /= count;
-            crossEnergy[(size_t) window] /= count;
         }
         const auto blend = [&](int frame, int channel, bool powerCompensation)
         {
             const auto weight = 0.5 - 0.5 * std::cos(
                 juce::MathConstants<double>::pi * frame / (fade - 1));
-            auto gain = 1.0;
-            if (powerCompensation && weight > 0.0 && weight < 1.0)
-            {
-                const auto position = static_cast<double>(frame) * (energyWindows - 1) / (fade - 1);
-                const auto first = juce::jmin(energyWindows - 1, static_cast<int>(position));
-                const auto second = juce::jmin(energyWindows - 1, first + 1);
-                const auto fraction = position - first;
-                const auto interpolate = [&](const auto& values)
-                {
-                    return values[(size_t) first] * (1.0 - fraction) + values[(size_t) second] * fraction;
-                };
-                const auto head = interpolate(headEnergy);
-                const auto tail = interpolate(tailEnergy);
-                const auto cross = interpolate(crossEnergy);
-                const auto dry = 1.0 - weight;
-                const auto actual = std::sqrt(juce::jmax(0.0,
-                    dry * dry * tail + weight * weight * head + 2.0 * dry * weight * cross));
-                const auto target = dry * std::sqrt(tail) + weight * std::sqrt(head);
-                if (actual > 1.0 && target > actual)
-                    gain = juce::jmin(1.15, target / actual);
-            }
-            return gain * ((1.0 - weight) * read(end - fade + frame, channel)
-                           + weight * read(start + frame, channel));
+            const auto norm = powerCompensation
+                ? std::sqrt((1.0 - weight) * (1.0 - weight) + weight * weight
+                            + 2.0 * correlation * weight * (1.0 - weight)) : 1.0;
+            return ((1.0 - weight) * read(end - fade + frame, channel)
+                    + weight * read(start + frame, channel)) / norm;
         };
         bool powerCompensation = true;
         for (int frame = 0; frame < fade && powerCompensation; ++frame)

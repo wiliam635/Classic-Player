@@ -50,7 +50,7 @@ configure_and_build() {
     -DCMAKE_OSX_ARCHITECTURES="$arch" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="$deployment" \
     -DCMAKE_BUILD_TYPE=Release
-  "$CMAKE" --build "$build" --target ClassicPlayer_Standalone ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest ClassicPlayerHammondTest ClassicPlayerAudioRegressionTest ClassicPlayerSampleEngineTest --parallel 4
+  "$CMAKE" --build "$build" --target ClassicPlayer_Standalone ClassicPlayer_VST3 ClassicPlayer_AU ClassicPlayerVst3HostSmokeTest ClassicPlayerAuHostSmokeTest ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest ClassicPlayerHammondTest ClassicPlayerAudioRegressionTest ClassicPlayerSampleEngineTest --parallel 4
   for test_name in ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest ClassicPlayerAudioRegressionTest ClassicPlayerSampleEngineTest; do
     local test_executable="$build/${test_name}_artefacts/Release/$test_name"
     if [[ "$arch" == "x86_64" ]]; then
@@ -67,6 +67,20 @@ configure_and_build() {
       "$ui_test" "$skin_option"
     fi
   done
+  local vst3_host_test="$build/ClassicPlayerVst3HostSmokeTest_artefacts/Release/ClassicPlayerVst3HostSmokeTest"
+  local vst3_bundle="$build/ClassicPlayer_artefacts/Release/VST3/Classic Player.vst3"
+  if [[ "$arch" == "x86_64" ]]; then
+    arch -x86_64 "$vst3_host_test" "$vst3_bundle"
+  else
+    "$vst3_host_test" "$vst3_bundle"
+  fi
+  local au_host_test="$build/ClassicPlayerAuHostSmokeTest_artefacts/Release/ClassicPlayerAuHostSmokeTest"
+  local au_bundle="$build/ClassicPlayer_artefacts/Release/AU/Classic Player.component"
+  if [[ "$arch" == "x86_64" ]]; then
+    arch -x86_64 "$au_host_test" "$au_bundle"
+  else
+    "$au_host_test" "$au_bundle"
+  fi
 }
 
 install_dependencies arm64 arm64-osx-classic
@@ -129,6 +143,44 @@ echo "arm64 minimum macOS: $ARM_MINIMUM"
 test "$X64_MINIMUM" = "10.13"
 test "$ARM_MINIMUM" = "11.0"
 codesign --verify --deep --strict --verbose=2 "$UNIVERSAL"
+
+create_universal_plugin() {
+  local format="$1"
+  local extension="$2"
+  local executable="$3"
+  local arm_bundle="$ROOT/build/macos-compat-arm64/ClassicPlayer_artefacts/Release/$format/Classic Player.$extension"
+  local x64_bundle="$ROOT/build/macos-compat-x86_64/ClassicPlayer_artefacts/Release/$format/Classic Player.$extension"
+  local universal_bundle="$ROOT/build/Classic Player 2.0 macOS Universal.$extension"
+  local universal_binary="$universal_bundle/Contents/MacOS/$executable"
+
+  if [[ ! -d "$arm_bundle" || ! -d "$x64_bundle" ]]; then
+    echo "Erro: bundle $extension não foi gerado para as duas arquiteturas." >&2
+    exit 1
+  fi
+  if [[ ! -f "$arm_bundle/Contents/MacOS/$executable" || ! -f "$x64_bundle/Contents/MacOS/$executable" ]]; then
+    echo "Erro: executável do bundle $extension ausente." >&2
+    exit 1
+  fi
+
+  rm -rf "$universal_bundle"
+  ditto "$arm_bundle" "$universal_bundle"
+  lipo -create \
+    "$arm_bundle/Contents/MacOS/$executable" \
+    "$x64_bundle/Contents/MacOS/$executable" \
+    -output "$universal_binary"
+  xattr -cr "$universal_bundle"
+  codesign --force --deep --sign - "$universal_bundle"
+  codesign --verify --deep --strict --verbose=2 "$universal_bundle"
+  local architectures
+  architectures="$(lipo -archs "$universal_binary")"
+  [[ "$architectures" == *arm64* && "$architectures" == *x86_64* ]] || {
+    echo "Erro: $extension não é universal ($architectures)." >&2
+    exit 1
+  }
+}
+
+create_universal_plugin VST3 vst3 "Classic Player"
+create_universal_plugin AU component "Classic Player"
 
 "$EXECUTABLE" >"$ROOT/build/macos-compat-startup.log" 2>&1 &
 APP_PID=$!

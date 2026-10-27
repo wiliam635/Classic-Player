@@ -583,6 +583,8 @@ struct SampleEngineRegressionTests
     static void run()
     {
         decodedPianoCacheSharesPcm();
+        require(Sf2Engine::LayerConfig{}.pianoTimbre == 1,
+                "A new NPNO layer must retain Classic Player 3.0's default MID voicing");
         {
             auto lower = config();
             lower.lowVelocity = 1;

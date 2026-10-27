@@ -65,9 +65,10 @@ public:
         addAndMakeVisible(preset);
         preset.onChange=[this]{
             if(preset.getSelectedId()<2)return;
+            processor.setLayerReleaseControl(index, 0.0f);
             const auto old=processor.hammondConfig(index);
             auto c=HammondEngine::preset(preset.getSelectedId()-2);
-            c.routing=old.routing;c.cc=old.cc;c.channel=old.channel;c.level=old.level;
+            c.routing=old.routing;c.routing.release=0.0f;c.cc=old.cc;c.channel=old.channel;c.level=old.level;
             processor.setHammondConfig(index,c);refresh();
         };
         // Keep these labels strictly ASCII: some macOS/Windows UI fonts render

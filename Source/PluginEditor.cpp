@@ -3360,7 +3360,7 @@ public:
               { "ATTACK ms", source.ampAttackMs, 1.0f, 2000.0f, 1.0f, 0 },
               { "DECAY ms", source.ampDecayMs, 1.0f, 5000.0f, 1.0f, 0 },
               { "SUSTAIN", source.ampSustain * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
-              { "RELEASE ms", source.ampReleaseMs, 1.0f, 5000.0f, 1.0f, 0 },
+              { "RELEASE ms", source.ampReleaseMs, 0.0f, 5000.0f, 1.0f, 0 },
               { "LFO RATE Hz", source.lfoRateHz, 0.05f, 20.0f, 0.01f, 2 },
               { "LFO PITCH", source.lfoToPitch, 0.0f, 12.0f, 0.1f, 1 },
               { "LFO FILTER", source.lfoToFilter, 0.0f, 100.0f, 1.0f, 0 },
@@ -6425,15 +6425,17 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showQuickPresetMenu()
             p.selectDx7Patch(layer, preset);
         else if (type == ClassicPlayerAudioProcessor::LayerType::hammond)
         {
+            p.setLayerReleaseControl(layer, 0.0f);
             const auto previous = p.hammondConfig(layer);
             auto config = HammondEngine::preset(preset);
-            config.routing = previous.routing; config.cc = previous.cc;
+            config.routing = previous.routing; config.routing.release = 0.0f; config.cc = previous.cc;
             config.channel = previous.channel; config.level = previous.level;
             p.setHammondConfig(layer, config);
         }
         else if (type == ClassicPlayerAudioProcessor::LayerType::analog
             && juce::isPositiveAndBelow(preset, (int) AnalogBrowserPresets::bank.size()))
         {
+            p.setLayerReleaseControl(layer, 0.0f);
             p.resetAnalogSynthVoices(layer);
             p.setAnalogSynthConfig(layer, AnalogBrowserPresets::config((size_t) preset, p.layerConfig(layer)));
         }
@@ -8024,8 +8026,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     {
         if (safe != nullptr)
         {
+            safe->processor.setLayerReleaseControl(safe->index, 0.0f);
             safe->processor.resetAnalogSynthVoices(safe->index);
-            safe->processor.setAnalogSynthConfig(safe->index, config);
+            auto factoryConfig = config;
+            factoryConfig.routing.release = 0.0f;
+            safe->processor.setAnalogSynthConfig(safe->index, factoryConfig);
         }
     };
     dialog->setSize(actionWidth + 52, 570);
