@@ -298,7 +298,7 @@ private:
             std::array<wchar_t, 32768> path{};
             const auto length = GetModuleFileNameW(module, path.data(), (DWORD)path.size());
             if (length > 0 && length < path.size())
-                moduleFile = juce::File(juce::String::fromWideCharPointer(path.data()));
+                moduleFile = juce::File(juce::String(path.data()));
         }
 #endif
 
