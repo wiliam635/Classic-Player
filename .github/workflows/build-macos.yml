@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       approved:
-        description: "Versão 3.0.1 aprovada (remove TESTE do nome do download)"
+        description: "Versão 3.0.2 aprovada (remove TESTE do nome do download)"
         required: true
         default: false
         type: boolean
@@ -22,9 +22,9 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ inputs.approved }}" == "true" ]]; then
-            echo "DOWNLOAD_VERSION=3.0.1" >> "$GITHUB_ENV"
+            echo "DOWNLOAD_VERSION=3.0.2" >> "$GITHUB_ENV"
           else
-            echo "DOWNLOAD_VERSION=3.0.1-teste-${{ github.run_number }}" >> "$GITHUB_ENV"
+            echo "DOWNLOAD_VERSION=3.0.2-teste-${{ github.run_number }}" >> "$GITHUB_ENV"
           fi
 
       - name: Preflight native source
@@ -72,7 +72,7 @@ jobs:
           grep -q "CLASSIC KEYS SF2 WORKSTATION" Source/PluginEditor.cpp
           grep -q "set(CLASSIC_PLAYER_FORMATS Standalone VST3)" CMakeLists.txt
           test -d "build/Classic Player 2.0 macOS Universal.app"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' 'build/Classic Player 2.0 macOS Universal.app/Contents/Info.plist')" = "3.0.1"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' 'build/Classic Player 2.0 macOS Universal.app/Contents/Info.plist')" = "3.0.2"
           test -f "outputs/installers/Classic-Player-${DOWNLOAD_VERSION}-macOS-High-Sierra-a-Tahoe-Universal.pkg"
           test -f "outputs/installers/Classic-Player-${DOWNLOAD_VERSION}-macOS-High-Sierra-a-Tahoe-Universal-App.zip"
 

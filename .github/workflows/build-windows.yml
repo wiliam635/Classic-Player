@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       approved:
-        description: "Versão 3.0.1 aprovada (remove TESTE do nome do download)"
+        description: "Versão 3.0.2 aprovada (remove TESTE do nome do download)"
         required: true
         default: false
         type: boolean
@@ -22,9 +22,9 @@ jobs:
         shell: pwsh
         run: |
           if ("${{ inputs.approved }}" -eq "true") {
-            "DOWNLOAD_VERSION=3.0.1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "DOWNLOAD_VERSION=3.0.2" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           } else {
-            "DOWNLOAD_VERSION=3.0.1-teste-${{ github.run_number }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "DOWNLOAD_VERSION=3.0.2-teste-${{ github.run_number }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           }
 
       - name: Preflight native source
@@ -122,7 +122,7 @@ jobs:
         shell: pwsh
         run: |
           scripts\package-windows.ps1
-          Rename-Item "outputs\installers\Classic-Player-3.0.1-Windows-x64-Setup.exe" "Classic-Player-${env:DOWNLOAD_VERSION}-Windows-x64-Setup.exe"
+          Rename-Item "outputs\installers\Classic-Player-3.0.2-Windows-x64-Setup.exe" "Classic-Player-${env:DOWNLOAD_VERSION}-Windows-x64-Setup.exe"
 
       - name: Verify installer payload
         shell: pwsh
