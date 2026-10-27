@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(ClassicPlayer VERSION 3.0.1 LANGUAGES C CXX)
+project(ClassicPlayer VERSION 3.0.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -45,7 +45,9 @@ endif()
 
 # The native editor in PluginEditor.cpp is the approved Classic Player interface.
 # Only the explicit legacy option builds the separate WebUI executable.
-if(CLASSIC_PLAYER_BUILD_WEBUI_APP)
+if(CLASSIC_PLAYER_STANDALONE_ONLY)
+    set(CLASSIC_PLAYER_FORMATS Standalone)
+elseif(CLASSIC_PLAYER_BUILD_WEBUI_APP)
     set(CLASSIC_PLAYER_FORMATS VST3)
 else()
     set(CLASSIC_PLAYER_FORMATS Standalone VST3)
@@ -96,6 +98,9 @@ juce_add_binary_data(ClassicPlayerAssets
     SOURCES
         Resources/classic-player-license-public.pem
         Resources/classic-player-app-icon.png
+        Resources/Hammond/drawbar-ivory.png
+        Resources/Hammond/drawbar-black.png
+        Resources/Hammond/drawbar-red.png
         Resources/WebUI/classic-keys-logo.jpeg
         Resources/WebUI/willam-silva-logo.png
         Resources/CategoryArt/piano-acustico.png
@@ -142,6 +147,8 @@ target_sources(ClassicPlayer PRIVATE
     Source/AnalogSynthEngine.h
     Source/HammondEngine.cpp
     Source/HammondEngine.h
+    Source/NordOrganEngine.cpp
+    Source/NordOrganEngine.h
     third_party/msfa/dx7note.cc
     third_party/msfa/env.cc
     third_party/msfa/exp2.cc
@@ -216,6 +223,27 @@ if(TARGET ClassicPlayer_AU)
     juce_add_bundle_resources_directory(ClassicPlayer_AU Resources/WebUI)
 endif()
 
+function(classic_player_attach_continuous_pad_resources target)
+    if(NOT TARGET ${target})
+        return()
+    endif()
+
+    if(APPLE)
+        juce_add_bundle_resources_directory(${target} Resources/ContinuousPads)
+    else()
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/Resources/ContinuousPads"
+                "$<TARGET_FILE_DIR:${target}>/Resources/ContinuousPads"
+            COMMENT "Copying factory continuous-pad samples for ${target}"
+            VERBATIM)
+    endif()
+endfunction()
+
+foreach(continuous_pad_target IN ITEMS ClassicPlayer_Standalone ClassicPlayer_VST3 ClassicPlayer_AU)
+    classic_player_attach_continuous_pad_resources(${continuous_pad_target})
+endforeach()
+
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES
     Source/PluginProcessor.cpp Source/PluginProcessor.h
     Source/PluginEditor.cpp Source/PluginEditor.h
@@ -250,6 +278,7 @@ if(CLASSIC_PLAYER_BUILD_WEBUI_APP)
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
     juce_add_bundle_resources_directory(ClassicPlayerApp Resources/WebUI)
+    classic_player_attach_continuous_pad_resources(ClassicPlayerApp)
 endif()
 
 if(CLASSIC_PLAYER_BUILD_TESTS)
@@ -281,9 +310,16 @@ if(CLASSIC_PLAYER_BUILD_TESTS)
     juce_add_console_app(ClassicPlayerHammondTest PRODUCT_NAME "Classic Player Hammond Test")
     target_sources(ClassicPlayerHammondTest PRIVATE Source/HammondRegressionTest.cpp)
     target_include_directories(ClassicPlayerHammondTest PRIVATE third_party/msfa)
-    target_link_libraries(ClassicPlayerHammondTest PRIVATE ClassicPlayer ${CLASSIC_PLAYER_FLUID_TARGET}
+    target_link_libraries(ClassicPlayerHammondTest PRIVATE ClassicPlayer ClassicPlayerAssets ${CLASSIC_PLAYER_FLUID_TARGET}
         juce::juce_audio_utils juce::juce_dsp)
+    add_custom_command(TARGET ClassicPlayerHammondTest POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/Resources/ContinuousPads"
+            "$<TARGET_FILE_DIR:ClassicPlayerHammondTest>/Resources/ContinuousPads"
+        COMMENT "Copying factory continuous-pad samples for regression tests"
+        VERBATIM)
     add_test(NAME hammond COMMAND ClassicPlayerHammondTest)
+    add_test(NAME nord-organ COMMAND ClassicPlayerHammondTest --nord-organ)
     add_test(NAME ui-silver-flags COMMAND ClassicPlayerHammondTest --silver-ui)
     add_test(NAME ui-dark-steel COMMAND ClassicPlayerHammondTest --dark-steel-ui)
     juce_add_console_app(ClassicPlayerMasterMidiTest PRODUCT_NAME "Classic Player Master MIDI Test")
