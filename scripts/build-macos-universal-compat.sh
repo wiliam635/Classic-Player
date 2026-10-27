@@ -194,6 +194,28 @@ rm -rf "$AU_INSTALLED"
 ditto "$ROOT/build/Classic Player 2.0 macOS Universal.component" "$AU_INSTALLED"
 xattr -cr "$AU_INSTALLED"
 codesign --verify --deep --strict --verbose=2 "$AU_INSTALLED"
+
+# AudioComponentRegistrar caches Audio Units. A newly copied bundle may pass
+# codesign checks but remain invisible to auval and hosts until the registrar
+# rescans the plug-in folders. Restart only the runner's registrar, then make
+# auval enumerate components before validating/instantiating this AU.
+killall -9 AudioComponentRegistrar 2>/dev/null || true
+sleep 2
+AU_ENUMERATION_LOG="$ROOT/build/auval-components.log"
+AU_DISCOVERED=false
+for attempt in {1..15}; do
+  /usr/bin/auval -a >"$AU_ENUMERATION_LOG" 2>&1 || true
+  if grep -Eq 'aumu[[:space:]]+ClPl[[:space:]]+ClKy' "$AU_ENUMERATION_LOG"; then
+    AU_DISCOVERED=true
+    break
+  fi
+  sleep 1
+done
+if [[ "$AU_DISCOVERED" != true ]]; then
+  echo "Erro: o Audio Unit universal não foi registrado pelo macOS após a nova varredura." >&2
+  tail -n 80 "$AU_ENUMERATION_LOG" >&2 || true
+  exit 1
+fi
 /usr/bin/auval -v aumu ClPl ClKy
 
 AU_HOST_TEST="$ROOT/build/macos-compat-arm64/ClassicPlayerAuHostSmokeTest_artefacts/Release/ClassicPlayerAuHostSmokeTest"
