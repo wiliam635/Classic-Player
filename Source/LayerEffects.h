@@ -262,6 +262,7 @@ struct LayerEqState
     std::array<BiquadCoefficients, 3> coefficients {};
     double cachedSampleRate = 0.0;
     std::array<float, 9> cachedParameters {};
+    std::array<float, 3> cachedSafeFrequencies {};
     bool coefficientsReady = false;
 
     void reset() noexcept
@@ -312,11 +313,19 @@ struct LayerEqState
                                         std::abs(gainDb) > 1.0e-6f };
         };
 
-        coefficients[0] = makePeaking(safeLow, lowDb, lowQ);
-        coefficients[1] = makePeaking(safeMid, midDb, midQ);
-        coefficients[2] = makePeaking(safeHigh, highDb, highQ);
+        const std::array<float, 3> safeFrequencies { safeLow, safeMid, safeHigh };
+        // A moving knob changes one band at a time. Keep the other filters'
+        // coefficients and state untouched on the real-time audio thread.
+        for (size_t band = 0; band < coefficients.size(); ++band)
+            if (!coefficientsReady || !sameRate
+                || parameters[band] != cachedParameters[band]
+                || parameters[band + 6] != cachedParameters[band + 6]
+                || safeFrequencies[band] != cachedSafeFrequencies[band])
+                coefficients[band] = makePeaking(safeFrequencies[band], parameters[band],
+                                                 parameters[band + 6]);
         cachedSampleRate = sampleRate;
         cachedParameters = parameters;
+        cachedSafeFrequencies = safeFrequencies;
         coefficientsReady = true;
     }
 

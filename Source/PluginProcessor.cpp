@@ -991,6 +991,7 @@ void ClassicPlayerAudioProcessor::updateMasterEq()
         masterEqValue("masterEqHighFrequency"), masterEqValue("masterEqHighCut")
     };
     if (values == lastMasterEqValues) return;
+    const auto previous = lastMasterEqValues;
     lastMasterEqValues = values;
 
     const auto nyquistSafe = (float) juce::jmax(1000.0, currentSampleRate * 0.45);
@@ -999,27 +1000,32 @@ void ClassicPlayerAudioProcessor::updateMasterEq()
     const auto midFrequency = juce::jlimit(200.0f, nyquistSafe, values[4]);
     const auto highFrequency = juce::jlimit(2000.0f, nyquistSafe, values[6]);
     const auto highCutFrequency = juce::jlimit(2000.0f, nyquistSafe, values[7]);
-    const auto lowCut = juce::dsp::IIR::Coefficients<float>::makeHighPass(
-        currentSampleRate, lowCutFrequency);
-    const auto low = juce::dsp::IIR::Coefficients<float>::makeLowShelf(
-        currentSampleRate, lowFrequency, 0.7071f, juce::Decibels::decibelsToGain(values[1]));
-    const auto mid = juce::dsp::IIR::Coefficients<float>::makePeakFilter(
-        currentSampleRate, midFrequency, 0.85f, juce::Decibels::decibelsToGain(values[3]));
-    const auto high = juce::dsp::IIR::Coefficients<float>::makeHighShelf(
-        currentSampleRate, highFrequency, 0.7071f, juce::Decibels::decibelsToGain(values[5]));
-    const auto highCut = juce::dsp::IIR::Coefficients<float>::makeLowPass(
-        currentSampleRate, highCutFrequency);
-    for (int channel = 0; channel < 2; ++channel)
+    const auto update = [](auto& filters, const auto& coefficients, bool reset = false)
     {
-        masterEqLowCut[(size_t) channel].coefficients = lowCut;
-        masterEqLow[(size_t) channel].coefficients = low;
-        masterEqMid[(size_t) channel].coefficients = mid;
-        masterEqHigh[(size_t) channel].coefficients = high;
-        if (std::abs(values[1]) <= 0.0001f) masterEqLow[(size_t) channel].reset();
-        if (std::abs(values[3]) <= 0.0001f) masterEqMid[(size_t) channel].reset();
-        if (std::abs(values[5]) <= 0.0001f) masterEqHigh[(size_t) channel].reset();
-        masterEqHighCut[(size_t) channel].coefficients = highCut;
-    }
+        for (auto& filter : filters)
+        {
+            filter.coefficients = coefficients;
+            if (reset) filter.reset();
+        }
+    };
+    if (values[0] != previous[0])
+        update(masterEqLowCut, juce::dsp::IIR::Coefficients<float>::makeHighPass(
+            currentSampleRate, lowCutFrequency));
+    if (values[1] != previous[1] || values[2] != previous[2])
+        update(masterEqLow, juce::dsp::IIR::Coefficients<float>::makeLowShelf(
+            currentSampleRate, lowFrequency, 0.7071f,
+            juce::Decibels::decibelsToGain(values[1])), std::abs(values[1]) <= 0.0001f);
+    if (values[3] != previous[3] || values[4] != previous[4])
+        update(masterEqMid, juce::dsp::IIR::Coefficients<float>::makePeakFilter(
+            currentSampleRate, midFrequency, 0.85f,
+            juce::Decibels::decibelsToGain(values[3])), std::abs(values[3]) <= 0.0001f);
+    if (values[5] != previous[5] || values[6] != previous[6])
+        update(masterEqHigh, juce::dsp::IIR::Coefficients<float>::makeHighShelf(
+            currentSampleRate, highFrequency, 0.7071f,
+            juce::Decibels::decibelsToGain(values[5])), std::abs(values[5]) <= 0.0001f);
+    if (values[7] != previous[7])
+        update(masterEqHighCut, juce::dsp::IIR::Coefficients<float>::makeLowPass(
+            currentSampleRate, highCutFrequency));
 }
 
 juce::Result ClassicPlayerAudioProcessor::startAudioRecording()

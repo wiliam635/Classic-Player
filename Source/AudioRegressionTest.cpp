@@ -244,10 +244,26 @@ static void cachedLayerEq()
     double rate = 44100.0;
     float maximumError = 0.0f;
     constexpr int blockSize = 64;
+    auto p = first;
     for (int block = 0; block < 4096 / blockSize; ++block)
     {
-        const auto& p = block < 2048 / blockSize ? first : second;
-        if (block == 2048 / blockSize) rate = 48000.0;
+        if (block == 2048 / blockSize)
+        {
+            p = second;
+            rate = 48000.0;
+        }
+        else if (block > 2048 / blockSize)
+        {
+            // Exercise rapid single-band knob moves while audio is playing.
+            p[(size_t) (block % 3)] = (float) ((block % 11) - 5) + 0.25f;
+            if (block == 48)
+            {
+                // A low-frequency change can also clamp the mid/high bands.
+                p[3] = 1900.0f;
+                p[4] = 1800.0f;
+                p[5] = 1950.0f;
+            }
+        }
         optimized.setParameters(p[0], p[1], p[2], rate, p[3], p[4], p[5], p[6], p[7], p[8]);
         for (int offset = 0; offset < blockSize; ++offset)
         {

@@ -2569,7 +2569,9 @@ public:
         : processor(p), layer(layerIndex), master(masterEditor)
     {
         setSize(700, 268);
-        startTimerHz(30);
+        // The analyser is visual only; 15 Hz keeps it responsive while
+        // halving FFT and graph repaints during live EQ adjustments.
+        startTimerHz(15);
     }
 
     ~ParametricEqGraph() override { stopTimer(); }
