@@ -357,6 +357,20 @@ struct UiTranslation
 // across the standalone app and plug-in formats; audio terms such as MIDI,
 // REVERB, CUTOFF and PANIC intentionally remain industry-standard labels.
 static constexpr UiTranslation uiTranslations[] {
+    { "Gráfico do Ciclo ADSR", "ADSR Cycle Graph", "Gráfico del ciclo ADSR" },
+    { "Ataque", "Attack", "Ataque" },
+    { "Decaimento", "Decay", "Decaimiento" },
+    { "Sustentação (Tecla Pressionada)", "Sustain (Key Held)", "Sostenimiento (Tecla presionada)" },
+    { "Liberação", "Release", "Liberación" },
+    { "Note On", "Note On", "Note On" },
+    { "Note Off", "Note Off", "Note Off" },
+    { "Tempo", "Time", "Tiempo" },
+    { "100%", "100%", "100%" },
+    { "Sustain", "Sustain", "Sustain" },
+    { "0%", "0%", "0%" },
+    { "Attack e Release usam a escala de 0 a 100 da layer; Decay é medido em ms e Sustain em %.",
+      "Attack and Release use the layer's 0 to 100 scale; Decay is measured in ms and Sustain in %.",
+      "Attack y Release usan la escala de 0 a 100 de la capa; Decay se mide en ms y Sustain en %." },
     { "PRATEADO", "SILVER", "PLATEADO" },
     { "AÇO ESCURO", "DARK STEEL", "ACERO OSCURO" },
     { "ATUALIZACOES", "UPDATES", "ACTUALIZACIONES" },
@@ -1863,6 +1877,188 @@ private:
     juce::OwnedArray<juce::Slider> knobs;
     // Disconnect listeners before their sliders are destroyed.
     juce::OwnedArray<juce::AudioProcessorValueTreeState::SliderAttachment> attachments;
+};
+
+class AdsrEnvelopeGraph final : public juce::Component, private juce::Timer
+{
+public:
+    AdsrEnvelopeGraph(std::atomic<float>* attackParameter,
+                      std::atomic<float>* decayParameter,
+                      std::atomic<float>* sustainParameter,
+                      std::atomic<float>* releaseParameter)
+        : attack(attackParameter), decay(decayParameter), sustain(sustainParameter),
+          release(releaseParameter)
+    {
+        setSize(720, 230);
+        startTimerHz(15);
+    }
+
+    ~AdsrEnvelopeGraph() override { stopTimer(); }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.fillAll(juce::Colour(panel));
+        g.setColour(juce::Colour(text));
+        g.setFont(juce::FontOptions(19.0f, juce::Font::bold));
+        g.drawText(localizedUiText("Gráfico do Ciclo ADSR", activeUiLanguage.load()),
+                   14, 2, getWidth() - 28, 27, juce::Justification::centredLeft);
+
+        const auto attackValue = read(attack, 5.0f);
+        const auto decayValue = read(decay, 0.0f);
+        const auto sustainValue = juce::jlimit(0.0f, 100.0f, read(sustain, 100.0f));
+        const auto releaseValue = read(release, 50.0f);
+
+        auto plot = getLocalBounds().toFloat().reduced(14.0f, 0.0f);
+        plot.setY(39.0f);
+        plot.setHeight(juce::jmax(60.0f, static_cast<float>(getHeight()) - 91.0f));
+        plot.removeFromLeft(61.0f);
+        plot.removeFromRight(20.0f);
+
+        const auto attackSeconds = attackValue <= 50.0f
+            ? static_cast<double>(attackValue) * 0.001
+            : 0.05 * std::pow(40.0, static_cast<double>(attackValue - 50.0f) / 50.0);
+        const auto releaseSeconds = releaseValue <= 50.0f
+            ? juce::jmax(0.005, static_cast<double>(releaseValue) * 0.01)
+            : 0.5 * std::pow(20.0, static_cast<double>(releaseValue - 50.0f) / 50.0);
+
+        // Keep all four stages visible while letting longer settings occupy
+        // more of the timeline. Sustain is shown as a held key interval.
+        const std::array<double, 4> weights {
+            0.8 + 0.5 * std::sqrt(juce::jmax(0.0, attackSeconds)),
+            0.8 + 0.5 * std::sqrt(juce::jmax(0.0, static_cast<double>(decayValue) * 0.001)),
+            2.3,
+            0.8 + 0.35 * std::sqrt(juce::jmax(0.0, releaseSeconds))
+        };
+        const auto weightTotal = weights[0] + weights[1] + weights[2] + weights[3];
+        const auto usableWidth = plot.getWidth();
+        const auto x0 = plot.getX();
+        const auto x1 = x0 + usableWidth * static_cast<float>(weights[0] / weightTotal);
+        const auto x2 = x1 + usableWidth * static_cast<float>(weights[1] / weightTotal);
+        const auto x3 = x2 + usableWidth * static_cast<float>(weights[2] / weightTotal);
+        const auto x4 = plot.getRight();
+        const auto yTop = plot.getY();
+        const auto yBottom = plot.getBottom();
+        const auto ySustain = yBottom - (sustainValue * 0.01f) * plot.getHeight();
+
+        const auto grid = juce::Colour(paletteLine).withAlpha(0.54f);
+        drawDashed(g, { plot.getX(), yTop }, { plot.getRight(), yTop }, grid);
+        drawDashed(g, { plot.getX(), ySustain }, { plot.getRight(), ySustain }, grid);
+        g.setColour(juce::Colour(paletteLine).withAlpha(0.8f));
+        g.drawHorizontalLine(juce::roundToInt(yBottom), plot.getX(), plot.getRight());
+        for (const auto x : { x1, x2, x3 })
+            drawDashed(g, { x, yTop }, { x, yBottom }, grid);
+
+        g.setFont(juce::FontOptions(10.0f));
+        g.setColour(juce::Colour(mutedText));
+        g.drawText(localizedUiText("100%", activeUiLanguage.load()), 0,
+                   juce::roundToInt(yTop - 7.0f), juce::roundToInt(plot.getX() - 8.0f), 14,
+                   juce::Justification::centredRight);
+        g.drawText(localizedUiText("Sustain", activeUiLanguage.load()), 0,
+                   juce::roundToInt(ySustain - 7.0f), juce::roundToInt(plot.getX() - 8.0f), 14,
+                   juce::Justification::centredRight);
+        g.drawText(localizedUiText("0%", activeUiLanguage.load()), 0,
+                   juce::roundToInt(yBottom - 7.0f), juce::roundToInt(plot.getX() - 8.0f), 14,
+                   juce::Justification::centredRight);
+
+        juce::Path envelope;
+        envelope.startNewSubPath(x0, yBottom);
+        envelope.lineTo(x1, yTop);
+        envelope.lineTo(x2, ySustain);
+        envelope.lineTo(x3, ySustain);
+        envelope.lineTo(x4, yBottom);
+        g.setColour(juce::Colour(0xff1682ff));
+        g.strokePath(envelope, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved,
+                                                     juce::PathStrokeType::rounded));
+
+        drawMarker(g, { x1, yTop }, juce::Colour(0xffff493f));
+        drawMarker(g, { x2, ySustain }, juce::Colour(0xffffc400));
+        drawMarker(g, { x3, ySustain }, juce::Colour(0xff38d76b));
+
+        const auto labelY = juce::roundToInt(yBottom + 5.0f);
+        drawStageLabel(g, localizedUiText("Ataque", activeUiLanguage.load()), x0, x1, labelY);
+        drawStageLabel(g, localizedUiText("Decaimento", activeUiLanguage.load()), x1, x2, labelY);
+        drawStageLabel(g, localizedUiText("Sustentação (Tecla Pressionada)", activeUiLanguage.load()),
+                       x2, x3, labelY);
+        drawStageLabel(g, localizedUiText("Liberação", activeUiLanguage.load()), x3, x4, labelY);
+
+        const auto noteY = labelY + 17;
+        g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+        g.setColour(juce::Colour(0xff1682ff));
+        g.drawText(localizedUiText("Note On", activeUiLanguage.load()),
+                   juce::roundToInt(x0 - 18.0f), noteY, 68, 14, juce::Justification::left);
+        g.setColour(juce::Colour(0xffff493f));
+        g.drawText(localizedUiText("Note Off", activeUiLanguage.load()),
+                   juce::roundToInt(x3 - 36.0f), noteY, 72, 14, juce::Justification::centred);
+        g.setFont(juce::FontOptions(10.0f));
+        g.setColour(juce::Colour(mutedText));
+        g.drawText(localizedUiText("Tempo", activeUiLanguage.load()),
+                   juce::roundToInt(x4 - 42.0f), noteY, 46, 14, juce::Justification::right);
+    }
+
+private:
+    static float read(const std::atomic<float>* parameter, float fallback) noexcept
+    {
+        return parameter != nullptr ? parameter->load(std::memory_order_relaxed) : fallback;
+    }
+
+    static void drawDashed(juce::Graphics& g, juce::Point<float> from,
+                           juce::Point<float> to, juce::Colour colour)
+    {
+        const auto delta = to - from;
+        const auto length = delta.getDistanceFromOrigin();
+        if (length <= 0.0f) return;
+        const auto direction = delta / length;
+        g.setColour(colour);
+        for (float offset = 0.0f; offset < length; offset += 7.0f)
+        {
+            const auto end = juce::jmin(length, offset + 3.5f);
+            g.drawLine(from.x + direction.x * offset, from.y + direction.y * offset,
+                       from.x + direction.x * end, from.y + direction.y * end, 1.0f);
+        }
+    }
+
+    static void drawMarker(juce::Graphics& g, juce::Point<float> centre, juce::Colour colour)
+    {
+        g.setColour(colour);
+        g.fillEllipse(centre.x - 5.0f, centre.y - 5.0f, 10.0f, 10.0f);
+    }
+
+    static void drawStageLabel(juce::Graphics& g, const juce::String& label,
+                               float left, float right, int y)
+    {
+        g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+        g.setColour(juce::Colour(text));
+        const auto labelWidth = juce::roundToInt(right - left);
+        g.drawText(label, juce::roundToInt(left), y, labelWidth, 15,
+                   juce::Justification::centred, false);
+    }
+
+    void timerCallback() override
+    {
+        const std::array<float, 4> values {
+            read(attack, 5.0f), read(decay, 0.0f),
+            read(sustain, 100.0f), read(release, 50.0f)
+        };
+        bool changed = false;
+        for (size_t i = 0; i < values.size(); ++i)
+        {
+            if (!std::isfinite(lastValues[i]) || std::abs(values[i] - lastValues[i]) > 0.05f)
+            {
+                lastValues[i] = values[i];
+                changed = true;
+            }
+        }
+        if (changed) repaint();
+    }
+
+    std::atomic<float>* attack = nullptr;
+    std::atomic<float>* decay = nullptr;
+    std::atomic<float>* sustain = nullptr;
+    std::atomic<float>* release = nullptr;
+    std::array<float, 4> lastValues {
+        std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()
+    };
 };
 
 class VelocityCurveEditorPanel final : public juce::Component
@@ -6020,9 +6216,15 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAdsrEditor()
         return processor.parameters.getRawParameterValue(prefix + suffix)->load();
     };
     auto* dialog = new LayerEditorWindow("ENVELOPE ADSR",
-        "Attack e Release usam a escala 0-100 da layer; Decay e medido em ms e Sustain em %.",
+        "Attack e Release usam a escala de 0 a 100 da layer; Decay é medido em ms e Sustain em %.",
         juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
+    auto* graph = new AdsrEnvelopeGraph(
+        processor.parameters.getRawParameterValue(prefix + "Attack"),
+        processor.parameters.getRawParameterValue(prefix + "Decay"),
+        processor.parameters.getRawParameterValue(prefix + "SustainLevel"),
+        processor.parameters.getRawParameterValue(prefix + "Release"));
+    dialog->addCustomComponent(graph);
     auto* knobs = new KnobEditorPanel({
         { "ATTACK 0-2s", value("Attack"), 0.0f, 100.0f, 0.1f, 1 },
         { "DECAY ms", value("Decay"), 0.0f, 5000.0f, 1.0f, 0 },
@@ -6034,7 +6236,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAdsrEditor()
             std::array<const char*, 4> { "Attack", "Decay", "SustainLevel", "Release" }[(size_t) i]);
     dialog->addCustomComponent(knobs);
     const juce::Component::SafePointer<LayerStrip> safe(this);
+    dialog->setSize(770, 510);
     dialog->fitWithinApp(this);
+    dialog->fitCustomComponentsVertically();
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
