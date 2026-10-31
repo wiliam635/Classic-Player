@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 #include "LayerEffects.h"
+#include "VelocityCurve.h"
 
 class Sf2Engine
 {
@@ -41,6 +42,12 @@ public:
         int octave = 0;
         int polyphony = polyphonyPerLayer;
         int velocityCurve = 0; // 0 linear, 1 soft, 2 hard, 3 calibrated (NPNO)
+        // 4 selects the user curve. Keep the table when another mode is
+        // selected so switching back does not erase the user's drawing.
+        VelocityTable velocityTable = linearVelocityTable();
+        int velocityEditorMode = 0; // 0 shaper, 1 freehand
+        int velocityOutputMin = 1, velocityOutputMax = 127;
+        float velocitySlope = 0.0f;
         bool velocityCalibrationEnabled = false;
         int velocitySoftInput = 20;
         int velocityMidInput = 64;

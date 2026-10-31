@@ -193,6 +193,7 @@ private:
         void updateMidiLearnState();
         void showReverbEditor();
         void showAdsrEditor();
+        void showVelocityEditor();
         void showCompressorEditor();
         void showEqEditor();
         void showChorusEditor();

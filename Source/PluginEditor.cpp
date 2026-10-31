@@ -1865,6 +1865,378 @@ private:
     juce::OwnedArray<juce::AudioProcessorValueTreeState::SliderAttachment> attachments;
 };
 
+class VelocityCurveEditorPanel final : public juce::Component
+{
+public:
+    VelocityCurveEditorPanel(ClassicPlayerAudioProcessor& owner, int layerIndex)
+        : processor(owner), index(layerIndex)
+    {
+        const auto config = processor.layerConfig(index);
+        graph.setTable(config.velocityTable);
+        graph.onDraw = [this](const VelocityTable& table)
+        {
+            auto next = processor.layerConfig(index);
+            next.velocityTable = table;
+            next.velocityEditorMode = 1;
+            next.velocityCurve = 4;
+            processor.setLayerConfig(index, next);
+            updateActiveButton();
+        };
+        addAndMakeVisible(graph);
+
+        mode.addItem("AJUSTAR CURVA", 1);
+        mode.addItem("DESENHAR CURVA", 2);
+        mode.setSelectedId(config.velocityEditorMode + 1, juce::dontSendNotification);
+        mode.onChange = [this]
+        {
+            auto next = processor.layerConfig(index);
+            next.velocityEditorMode = mode.getSelectedId() == 2 ? 1 : 0;
+            if (next.velocityEditorMode == 0)
+                next.velocityTable = shapedVelocityTable(next.velocityOutputMin,
+                    next.velocityOutputMax, next.velocitySlope);
+            next.velocityCurve = 4;
+            processor.setLayerConfig(index, next);
+            graph.setTable(next.velocityTable);
+            updateControls();
+        };
+        addAndMakeVisible(mode);
+        flatButton(presetMenu);
+        presetMenu.onClick = [this] { showPresetMenu(); };
+        addAndMakeVisible(presetMenu);
+
+        for (auto* slider : { &minimum, &maximum })
+        {
+            slider->setRange(1, 127, 1);
+            slider->setSliderStyle(juce::Slider::LinearVertical);
+            slider->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 48, 18);
+            addAndMakeVisible(*slider);
+        }
+        minimum.setValue(config.velocityOutputMin, juce::dontSendNotification);
+        maximum.setValue(config.velocityOutputMax, juce::dontSendNotification);
+        minimum.onValueChange = [this] { updateShaper(); };
+        maximum.onValueChange = [this] { updateShaper(); };
+        slope.setRange(-100, 100, 1);
+        slope.setValue(config.velocitySlope, juce::dontSendNotification);
+        slope.setSliderStyle(juce::Slider::LinearHorizontal);
+        slope.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 18);
+        slope.onValueChange = [this] { updateShaper(); };
+        addAndMakeVisible(slope);
+
+        for (auto* label : { &minimumLabel, &maximumLabel, &slopeLabel })
+        {
+            label->setJustificationType(juce::Justification::centred);
+            label->setColour(juce::Label::textColourId, juce::Colour(text));
+            addAndMakeVisible(*label);
+        }
+        minimumLabel.setText("MIN", juce::dontSendNotification);
+        maximumLabel.setText("MAX", juce::dontSendNotification);
+        slopeLabel.setText("INCLINACAO", juce::dontSendNotification);
+
+        for (auto* button : { &activate, &reset, &save, &load })
+        {
+            flatButton(*button);
+            addAndMakeVisible(*button);
+        }
+        activate.onClick = [this]
+        {
+            auto next = processor.layerConfig(index);
+            next.velocityCurve = 4;
+            processor.setLayerConfig(index, next);
+            updateActiveButton();
+        };
+        reset.onClick = [this]
+        {
+            auto next = processor.layerConfig(index);
+            next.velocityOutputMin = 1;
+            next.velocityOutputMax = 127;
+            next.velocitySlope = 0.0f;
+            next.velocityTable = linearVelocityTable();
+            next.velocityCurve = 4;
+            processor.setLayerConfig(index, next);
+            minimum.setValue(1, juce::dontSendNotification);
+            maximum.setValue(127, juce::dontSendNotification);
+            slope.setValue(0, juce::dontSendNotification);
+            graph.setTable(next.velocityTable);
+            updateActiveButton();
+        };
+        save.onClick = [this] { saveCurve(); };
+        load.onClick = [this] { loadCurve(); };
+        updateControls();
+        setSize(650, 388);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(10, 8);
+        auto top = area.removeFromTop(32);
+        presetMenu.setBounds(top.removeFromLeft(152).reduced(2));
+        mode.setBounds(top.removeFromLeft(225).reduced(2));
+        activate.setBounds(top.removeFromRight(160).reduced(2));
+        area.removeFromTop(8);
+        auto chart = area.removeFromTop(228);
+        auto left = chart.removeFromLeft(64);
+        minimumLabel.setBounds(left.removeFromTop(20));
+        minimum.setBounds(left.reduced(3, 0));
+        auto right = chart.removeFromRight(64);
+        maximumLabel.setBounds(right.removeFromTop(20));
+        maximum.setBounds(right.reduced(3, 0));
+        graph.setBounds(chart.reduced(2));
+        area.removeFromTop(6);
+        auto slopeRow = area.removeFromTop(36);
+        slopeLabel.setBounds(slopeRow.removeFromLeft(105));
+        slope.setBounds(slopeRow);
+        area.removeFromTop(6);
+        auto buttons = area.removeFromTop(34);
+        for (auto* button : { &reset, &save, &load })
+            button->setBounds(buttons.removeFromLeft(buttons.getWidth()
+                / (button == &load ? 1 : button == &save ? 2 : 3)).reduced(2));
+    }
+
+private:
+    class Graph final : public juce::Component
+    {
+    public:
+        std::function<void(const VelocityTable&)> onDraw;
+        void setTable(const VelocityTable& next) { table = next; repaint(); }
+        void setEditable(bool next) { editable = next; setMouseCursor(next ? juce::MouseCursor::CrosshairCursor : juce::MouseCursor::NormalCursor); }
+        void paint(juce::Graphics& g) override
+        {
+            auto bounds = getLocalBounds().toFloat().reduced(5.0f);
+            g.setColour(juce::Colour(0xff101b25));
+            g.fillRoundedRectangle(bounds, 4.0f);
+            bounds = bounds.reduced(12.0f);
+            g.setColour(juce::Colour(0xff36505b));
+            for (int line = 0; line <= 4; ++line)
+            {
+                const auto x = bounds.getX() + bounds.getWidth() * line / 4.0f;
+                const auto y = bounds.getY() + bounds.getHeight() * line / 4.0f;
+                g.drawVerticalLine(juce::roundToInt(x), bounds.getY(), bounds.getBottom());
+                g.drawHorizontalLine(juce::roundToInt(y), bounds.getX(), bounds.getRight());
+            }
+            g.setColour(juce::Colour(0xff70a8ad));
+            for (int input = 1; input <= 127; ++input)
+            {
+                const auto x = bounds.getX() + (input - 1) * bounds.getWidth() / 126.0f;
+                const auto y = bounds.getBottom() - (table[(size_t) input] - 1) * bounds.getHeight() / 126.0f;
+                g.drawLine(x, bounds.getBottom(), x, y, 2.0f);
+            }
+        }
+        void mouseDown(const juce::MouseEvent& event) override
+        {
+            previous = -1;
+            mouseDrag(event);
+        }
+        void mouseDrag(const juce::MouseEvent& event) override
+        {
+            if (!editable) return;
+            const auto bounds = getLocalBounds().toFloat().reduced(17.0f);
+            const auto x = juce::jlimit(1, 127, 1 + juce::roundToInt(
+                (event.position.x - bounds.getX()) * 126.0f / bounds.getWidth()));
+            const auto y = juce::jlimit(1, 127, 1 + juce::roundToInt(
+                (bounds.getBottom() - event.position.y) * 126.0f / bounds.getHeight()));
+            if (previous >= 1 && previous != x)
+            {
+                const auto from = juce::jmin(previous, x);
+                const auto to = juce::jmax(previous, x);
+                for (int input = from; input <= to; ++input)
+                    table[(size_t) input] = static_cast<std::uint8_t>(juce::jlimit(1, 127,
+                        juce::roundToInt(juce::jmap((float) (input - previous) / (x - previous),
+                            (float) previousOutput, (float) y))));
+            }
+            table[(size_t) x] = static_cast<std::uint8_t>(y);
+            previous = x;
+            previousOutput = y;
+            if (onDraw) onDraw(table);
+            repaint();
+        }
+    private:
+        VelocityTable table = linearVelocityTable();
+        bool editable = false;
+        int previous = -1, previousOutput = 1;
+    } graph;
+
+    void updateControls()
+    {
+        const auto shaper = mode.getSelectedId() != 2;
+        minimum.setEnabled(shaper);
+        maximum.setEnabled(shaper);
+        slope.setEnabled(shaper);
+        graph.setEditable(!shaper);
+        updateActiveButton();
+    }
+    void updateActiveButton()
+    {
+        activate.setButtonText(processor.layerConfig(index).velocityCurve == 4
+            ? "CURVA ATIVA" : "USAR ESTA CURVA");
+    }
+    void updateShaper()
+    {
+        if (mode.getSelectedId() == 2) return;
+        auto next = processor.layerConfig(index);
+        next.velocityOutputMin = juce::jlimit(1, 127, (int) minimum.getValue());
+        next.velocityOutputMax = juce::jlimit(next.velocityOutputMin, 127, (int) maximum.getValue());
+        maximum.setValue(next.velocityOutputMax, juce::dontSendNotification);
+        next.velocitySlope = (float) slope.getValue();
+        next.velocityEditorMode = 0;
+        next.velocityTable = shapedVelocityTable(next.velocityOutputMin,
+            next.velocityOutputMax, next.velocitySlope);
+        next.velocityCurve = 4;
+        processor.setLayerConfig(index, next);
+        graph.setTable(next.velocityTable);
+        updateActiveButton();
+    }
+    static juce::File presetDirectory()
+    {
+        return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+            .getChildFile("Classic Player").getChildFile("VelocityCurves");
+    }
+    void showPresetMenu()
+    {
+        juce::PopupMenu menu;
+        menu.addSectionHeader("CURVAS");
+        menu.addItem(1, "Linear");
+        menu.addItem(2, "Soft");
+        menu.addItem(3, "Hard");
+        menu.addItem(4, "Ajustar curva");
+        menu.addItem(5, "Desenhar curva");
+        menu.addSeparator();
+        juce::Array<juce::File> saved;
+        presetDirectory().findChildFiles(saved, juce::File::findFiles, false, "*.ckvelocity");
+        if (!saved.isEmpty())
+        {
+            juce::PopupMenu userPresets;
+            for (int i = 0; i < saved.size(); ++i)
+                userPresets.addItem(100 + i, saved[i].getFileNameWithoutExtension());
+            menu.addSubMenu("Presets salvos", userPresets);
+        }
+        menu.addItem(6, "Salvar curva...");
+        menu.addItem(7, "Carregar arquivo...");
+        const juce::Component::SafePointer<VelocityCurveEditorPanel> safe(this);
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&presetMenu),
+            [safe, saved](int selection)
+            {
+                if (safe == nullptr || selection == 0) return;
+                if (selection >= 100 && juce::isPositiveAndBelow(selection - 100, saved.size()))
+                {
+                    safe->readCurveFile(saved[selection - 100]);
+                    return;
+                }
+                if (selection == 6) { safe->saveCurve(); return; }
+                if (selection == 7) { safe->loadCurve(); return; }
+                auto next = safe->processor.layerConfig(safe->index);
+                if (selection == 4 || selection == 5)
+                {
+                    next.velocityEditorMode = selection == 5 ? 1 : 0;
+                    if (selection == 4)
+                        next.velocityTable = shapedVelocityTable(next.velocityOutputMin,
+                            next.velocityOutputMax, next.velocitySlope);
+                }
+                else
+                {
+                    next.velocityEditorMode = 0;
+                    next.velocityOutputMin = 1;
+                    next.velocityOutputMax = 127;
+                    next.velocitySlope = selection == 2 ? 50.0f : selection == 3 ? -50.0f : 0.0f;
+                    next.velocityTable = shapedVelocityTable(1, 127, next.velocitySlope);
+                }
+                next.velocityCurve = 4;
+                safe->processor.setLayerConfig(safe->index, next);
+                safe->mode.setSelectedId(next.velocityEditorMode + 1, juce::dontSendNotification);
+                safe->minimum.setValue(next.velocityOutputMin, juce::dontSendNotification);
+                safe->maximum.setValue(next.velocityOutputMax, juce::dontSendNotification);
+                safe->slope.setValue(next.velocitySlope, juce::dontSendNotification);
+                safe->graph.setTable(next.velocityTable);
+                safe->updateControls();
+            });
+    }
+    void saveCurve()
+    {
+        presetDirectory().createDirectory();
+        chooser = std::make_unique<juce::FileChooser>("Salvar curva de velocity",
+            presetDirectory(), "*.ckvelocity");
+        const juce::Component::SafePointer<VelocityCurveEditorPanel> safe(this);
+        chooser->launchAsync(juce::FileBrowserComponent::saveMode
+            | juce::FileBrowserComponent::canSelectFiles
+            | juce::FileBrowserComponent::warnAboutOverwriting,
+            [safe](const juce::FileChooser& selected)
+            {
+                if (safe == nullptr || selected.getResult() == juce::File{}) return;
+                const auto config = safe->processor.layerConfig(safe->index);
+                auto* object = new juce::DynamicObject();
+                object->setProperty("format", "classic-velocity-1");
+                object->setProperty("mode", config.velocityEditorMode);
+                object->setProperty("minimum", config.velocityOutputMin);
+                object->setProperty("maximum", config.velocityOutputMax);
+                object->setProperty("slope", config.velocitySlope);
+                object->setProperty("table", juce::MemoryBlock(config.velocityTable.data(),
+                    config.velocityTable.size()).toBase64Encoding());
+                auto file = selected.getResult();
+                if (file.getFileExtension().toLowerCase() != ".ckvelocity")
+                    file = file.withFileExtension(".ckvelocity");
+                if (!file.replaceWithText(juce::JSON::toString(juce::var(object), true)))
+                    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                        "Velocity", "Nao foi possivel salvar a curva.");
+            });
+    }
+    void loadCurve()
+    {
+        chooser = std::make_unique<juce::FileChooser>("Abrir curva de velocity",
+            presetDirectory(), "*.ckvelocity");
+        const juce::Component::SafePointer<VelocityCurveEditorPanel> safe(this);
+        chooser->launchAsync(juce::FileBrowserComponent::openMode
+            | juce::FileBrowserComponent::canSelectFiles,
+            [safe](const juce::FileChooser& selected)
+            {
+                if (safe == nullptr || selected.getResult() == juce::File{}) return;
+                safe->readCurveFile(selected.getResult());
+            });
+    }
+
+    void readCurveFile(const juce::File& file)
+    {
+        const auto data = juce::JSON::parse(file.loadFileAsString());
+        auto* object = data.getDynamicObject();
+        juce::MemoryBlock bytes;
+        if (object == nullptr || object->getProperty("format").toString() != "classic-velocity-1"
+            || !bytes.fromBase64Encoding(object->getProperty("table").toString())
+            || bytes.getSize() != 128)
+        {
+            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                "Velocity", "Arquivo de curva invalido.");
+            return;
+        }
+        auto next = processor.layerConfig(index);
+        next.velocityEditorMode = juce::jlimit(0, 1, (int) object->getProperty("mode"));
+        next.velocityOutputMin = juce::jlimit(1, 127, (int) object->getProperty("minimum"));
+        next.velocityOutputMax = juce::jlimit(next.velocityOutputMin, 127,
+            (int) object->getProperty("maximum"));
+        next.velocitySlope = juce::jlimit(-100.0f, 100.0f,
+            (float) object->getProperty("slope"));
+        const auto* values = static_cast<const std::uint8_t*>(bytes.getData());
+        for (int input = 1; input < 128; ++input)
+            next.velocityTable[(size_t) input] = static_cast<std::uint8_t>(
+                juce::jlimit(1, 127, (int) values[input]));
+        next.velocityCurve = 4;
+        processor.setLayerConfig(index, next);
+        mode.setSelectedId(next.velocityEditorMode + 1, juce::dontSendNotification);
+        minimum.setValue(next.velocityOutputMin, juce::dontSendNotification);
+        maximum.setValue(next.velocityOutputMax, juce::dontSendNotification);
+        slope.setValue(next.velocitySlope, juce::dontSendNotification);
+        graph.setTable(next.velocityTable);
+        updateControls();
+    }
+
+    ClassicPlayerAudioProcessor& processor;
+    int index;
+    juce::ComboBox mode;
+    juce::TextButton presetMenu { "CURVAS / PRESETS" };
+    juce::Slider minimum, maximum, slope;
+    juce::Label minimumLabel, maximumLabel, slopeLabel;
+    juce::TextButton activate { "USAR ESTA CURVA" }, reset { "RESET LINEAR" },
+                     save { "SALVAR CURVA" }, load { "CARREGAR CURVA" };
+    std::unique_ptr<juce::FileChooser> chooser;
+};
+
 // Keep response graphs and every numeric control visible together on short
 // notebook displays instead of stacking them into a scrolling dialog.
 class SideBySideEditorPanel final : public juce::Component
@@ -2261,6 +2633,7 @@ public:
         velocityBox.addItem("VEL SOFT", 2);
         velocityBox.addItem("VEL HARD", 3);
         velocityBox.addItem("VEL ADAPTATIVA", 4);
+        velocityBox.addItem("VEL EDITADA", 5);
         velocityBox.setTooltip("Selecione ADAPTATIVA para calibrar com 5 toques suaves, medios e fortes.");
         velocityBox.setSelectedId(processor.layerConfig(index).velocityCurve + 1,
                                   juce::dontSendNotification);
@@ -3934,6 +4307,7 @@ public:
         for (int value = -4; value <= 4; ++value) octaveBox.addItem((value > 0 ? "+" : "") + juce::String(value) + " OIT", value + 5);
         for (int note = 0; note < 128; ++note) { lowNoteBox.addItem(midiNoteName(note), note + 1); highNoteBox.addItem(midiNoteName(note), note + 1); }
         velocityBox.addItem("VEL LINEAR", 1); velocityBox.addItem("VEL SOFT", 2); velocityBox.addItem("VEL HARD", 3);
+        velocityBox.addItem("VEL EDITADA", 5);
         for (int voices = 64; voices <= Sf2Engine::maxPolyphonyPerLayer; voices += 32)
             polyphonyBox.addItem(juce::String(voices) + " VOZES", voices);
         for (int velocity = 1; velocity <= 127; ++velocity)
@@ -4171,6 +4545,7 @@ public:
         }
         velocityBox.addItem("VEL LINEAR", 1); velocityBox.addItem("VEL SOFT", 2); velocityBox.addItem("VEL HARD", 3);
         velocityBox.addItem("VEL CALIBRADA", 4);
+        velocityBox.addItem("VEL EDITADA", 5);
         for (int voices = 64; voices <= Sf2Engine::maxPolyphonyPerLayer; voices += 32)
             polyphonyBox.addItem(juce::String(voices) + " VOZES", voices);
         for (int velocity = 1; velocity <= 127; ++velocity)
@@ -4386,7 +4761,7 @@ private:
         config.highVelocity = juce::jlimit(config.lowVelocity, 127, velocityHighBox.getSelectedId());
         velocityHighBox.setSelectedId(config.highVelocity, juce::dontSendNotification);
         if (!velocityHandledExternally && !velocityDisabled)
-            config.velocityCurve = juce::jlimit(0, config.velocityCalibrationEnabled ? 3 : 2,
+            config.velocityCurve = juce::jlimit(0, 4,
                                                 velocityBox.getSelectedId() - 1);
         processor.setLayerConfig(index, config);
     }
@@ -5380,6 +5755,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::initialiseComboBoxes()
     velocityCurve.addItem("VEL SOFT", 2);
     velocityCurve.addItem("VEL HARD", 3);
     velocityCurve.addItem("VEL CALIBRADA", 4);
+    velocityCurve.addItem("VEL EDITADA", 5);
     for (auto* box : { &mode, &sustain, &midiChannel, &octave, &lowNote, &highNote, &velocityCurve })
     {
         box->onChange = [this] { applyConfig(); };
@@ -5550,6 +5926,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         flatButton(*adsrButton);
         adsrButton->onClick = [safe] { if (safe != nullptr) safe->showAdsrEditor(); };
         dialog->addCustomComponent(new CenteredPanel(adsrButton, 620, 28));
+        auto* velocityButton = new juce::TextButton("EDITAR VELOCITY");
+        flatButton(*velocityButton);
+        velocityButton->onClick = [safe] { if (safe != nullptr) safe->showVelocityEditor(); };
+        dialog->addCustomComponent(new CenteredPanel(velocityButton, 620, 28));
     }
     dialog->addCustomComponent(new CenteredPanel(knobs, 620, 128));
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
@@ -5622,6 +6002,24 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAdsrEditor()
         knobs->bindParameter(i, processor.parameters, prefix +
             std::array<const char*, 4> { "Attack", "Decay", "SustainLevel", "Release" }[(size_t) i]);
     dialog->addCustomComponent(knobs);
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    dialog->fitWithinApp(this);
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create(
+        [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::showVelocityEditor()
+{
+    const auto type = processor.layerType(index);
+    if (type != ClassicPlayerAudioProcessor::LayerType::sf2
+        && type != ClassicPlayerAudioProcessor::LayerType::nord
+        && type != ClassicPlayerAudioProcessor::LayerType::nordSample
+        && type != ClassicPlayerAudioProcessor::LayerType::dx7) return;
+    auto* dialog = new LayerEditorWindow("CURVA DE VELOCITY",
+        "Ajuste a resposta ao toque ou desenhe uma curva. Entrada e saida MIDI: 1 a 127.",
+        juce::MessageBoxIconType::NoIcon);
+    dialog->setLookAndFeel(&classicLookAndFeel);
+    dialog->addCustomComponent(new VelocityCurveEditorPanel(processor, index));
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->fitWithinApp(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
@@ -7384,8 +7782,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::applyConfig()
     config.octave = octave.getSelectedId() - 5;
     config.lowNote = juce::jlimit(0, 127, lowNote.getSelectedId() - 1);
     config.highNote = juce::jlimit(0, 127, highNote.getSelectedId() - 1);
-    const auto maxVelocityCurve = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord
-        && config.velocityCalibrationEnabled ? 3 : 2;
+    const auto maxVelocityCurve = 4;
     config.velocityCurve = juce::jlimit(0, maxVelocityCurve, velocityCurve.getSelectedId() - 1);
     if (config.lowNote > config.highNote)
     {
@@ -8181,6 +8578,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     flatButton(*adsrButton);
     adsrButton->onClick = [safe] { if (safe != nullptr) safe->showAdsrEditor(); };
     dialog->addCustomComponent(new CenteredPanel(adsrButton, 600, 28));
+    auto* velocityButton = new juce::TextButton("EDITAR VELOCITY");
+    flatButton(*velocityButton);
+    velocityButton->onClick = [safe] { if (safe != nullptr) safe->showVelocityEditor(); };
+    dialog->addCustomComponent(new CenteredPanel(velocityButton, 600, 28));
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.

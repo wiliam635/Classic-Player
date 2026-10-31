@@ -107,7 +107,19 @@ static void layerDefaultsSplitAndMasterEqLearn()
         p->consumeMidiControlUpdates();
     }
     juce::MemoryBlock state;
+    auto velocityConfig = p->layerConfig(0);
+    velocityConfig.velocityCurve = 4;
+    velocityConfig.velocityEditorMode = 1;
+    velocityConfig.velocityOutputMin = 12;
+    velocityConfig.velocityOutputMax = 110;
+    velocityConfig.velocitySlope = 35.0f;
+    velocityConfig.velocityTable = shapedVelocityTable(12, 110, 35.0f);
+    velocityConfig.velocityTable[64] = 93; // preserve a freehand point
+    p->setLayerConfig(0, velocityConfig);
     p->getStateInformation(state);
+    velocityConfig.velocityCurve = 0;
+    velocityConfig.velocityTable = linearVelocityTable();
+    p->setLayerConfig(0, velocityConfig);
     for (int band = 0; band < 3; ++band) p->clearMasterEqMidiLearn(band);
     p->setStateInformation(state.getData(), (int) state.getSize());
     for (int band = 0; band < 3; ++band)
@@ -116,6 +128,11 @@ static void layerDefaultsSplitAndMasterEqLearn()
               "master EQ gain or mapping did not survive state restore");
     check(p->layerConfig(0).octave == 3 && p->layerConfig(0).lowNote == 0,
           "split/routing did not survive state restore");
+    const auto restoredVelocity = p->layerConfig(0);
+    check(restoredVelocity.velocityCurve == 4 && restoredVelocity.velocityEditorMode == 1
+          && restoredVelocity.velocityOutputMin == 12 && restoredVelocity.velocityOutputMax == 110
+          && restoredVelocity.velocityTable[64] == 93,
+          "custom velocity curve did not survive state restore");
     p->clearMasterEqMidiLearn(0);
     cc(*p, 5, 20, 127);
     check(p->masterEqValue("masterEqLow") == -12.0f, "cleared EQ CC mapping still active");

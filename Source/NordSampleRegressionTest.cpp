@@ -346,6 +346,21 @@ struct NordSampleRegressionTests
                 "NSMP ADSR sustain did not change the rendered audio");
     }
 
+    static void customVelocity()
+    {
+        auto engine = fixture();
+        auto config = routing();
+        config.velocityCurve = 4;
+        config.velocityTable[64] = 100;
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 64), 0);
+        float rms = 0.0f;
+        render(*engine, midi, config, rms);
+        const auto& voice = engine->layers[0].voices[0];
+        require(voice.active && std::abs(voice.amplitude - 0.8f * 100.0f / 127.0f) < 0.001f,
+                "NSMP did not apply the custom velocity curve");
+    }
+
     static void monoLegatoAndNoteReturn()
     {
         auto engine = fixture();
@@ -572,6 +587,7 @@ struct NordSampleRegressionTests
         padLoopCrossfade();
         audioAndSustain();
         adsrSustain();
+        customVelocity();
         monoLegatoAndNoteReturn();
         monoModeChangeReleasesPriorVoices();
         nordEffects();

@@ -3607,12 +3607,23 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
         destinationState.setProperty("pianoTimbre" + destinationOne, 1, nullptr);
     const juce::StringArray zeroBased {
         "midiChannel", "low", "high", "velocityLow", "velocityHigh", "octave", "polyphony",
-        "velocityCurve", "velocityCalibrated",
+        "velocityCurve", "velocityCalibrated", "velocityEditorMode", "velocityOutputMin",
+        "velocityOutputMax", "velocitySlope", "velocityTable",
         "velocitySoftInput", "velocityMidInput", "velocityHardInput", "mono", "portamento",
         "sustain", "highPassHz", "lowPassHz", "midiDevice"
     };
     for (const auto& prefix : zeroBased)
         copyProperty(prefix + sourceZero, prefix + destinationZero);
+    if (!sourceState.hasProperty("velocityTable" + sourceZero))
+    {
+        const auto neutral = linearVelocityTable();
+        destinationState.setProperty("velocityTable" + destinationZero,
+            juce::MemoryBlock(neutral.data(), neutral.size()).toBase64Encoding(), nullptr);
+        destinationState.setProperty("velocityEditorMode" + destinationZero, 0, nullptr);
+        destinationState.setProperty("velocityOutputMin" + destinationZero, 1, nullptr);
+        destinationState.setProperty("velocityOutputMax" + destinationZero, 127, nullptr);
+        destinationState.setProperty("velocitySlope" + destinationZero, 0.0f, nullptr);
+    }
     for (int target = 0; target < learnTargetCount; ++target)
     {
         copyProperty("learn" + sourceZero + "_" + juce::String(target),
@@ -3755,6 +3766,12 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("octave" + juce::String(i), config.octave, nullptr);
         state.setProperty("polyphony" + juce::String(i), config.polyphony, nullptr);
         state.setProperty("velocityCurve" + juce::String(i), config.velocityCurve, nullptr);
+        state.setProperty("velocityEditorMode" + juce::String(i), config.velocityEditorMode, nullptr);
+        state.setProperty("velocityOutputMin" + juce::String(i), config.velocityOutputMin, nullptr);
+        state.setProperty("velocityOutputMax" + juce::String(i), config.velocityOutputMax, nullptr);
+        state.setProperty("velocitySlope" + juce::String(i), config.velocitySlope, nullptr);
+        state.setProperty("velocityTable" + juce::String(i),
+            juce::MemoryBlock(config.velocityTable.data(), config.velocityTable.size()).toBase64Encoding(), nullptr);
         state.setProperty("velocityCalibrated" + juce::String(i), config.velocityCalibrationEnabled, nullptr);
         state.setProperty("velocitySoftInput" + juce::String(i), config.velocitySoftInput, nullptr);
         state.setProperty("velocityMidInput" + juce::String(i), config.velocityMidInput, nullptr);
@@ -4247,6 +4264,25 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     static_cast<int>(state.getProperty("polyphony" + juce::String(i),
                                                        Sf2Engine::polyphonyPerLayer)));
                 config.velocityCurve = state.getProperty("velocityCurve" + juce::String(i), 0);
+                config.velocityEditorMode = juce::jlimit(0, 1, (int) state.getProperty(
+                    "velocityEditorMode" + juce::String(i), 0));
+                config.velocityOutputMin = juce::jlimit(1, 127, (int) state.getProperty(
+                    "velocityOutputMin" + juce::String(i), 1));
+                config.velocityOutputMax = juce::jlimit(config.velocityOutputMin, 127, (int) state.getProperty(
+                    "velocityOutputMax" + juce::String(i), 127));
+                config.velocitySlope = juce::jlimit(-100.0f, 100.0f, (float) state.getProperty(
+                    "velocitySlope" + juce::String(i), 0.0f));
+                const auto encodedVelocityTable = state.getProperty("velocityTable" + juce::String(i)).toString();
+                config.velocityTable = linearVelocityTable();
+                juce::MemoryBlock velocityBytes;
+                if (velocityBytes.fromBase64Encoding(encodedVelocityTable)
+                    && velocityBytes.getSize() == config.velocityTable.size())
+                {
+                    const auto* values = static_cast<const std::uint8_t*>(velocityBytes.getData());
+                    for (int value = 1; value < 128; ++value)
+                        config.velocityTable[(size_t) value] = static_cast<std::uint8_t>(
+                            juce::jlimit(1, 127, (int) values[value]));
+                }
                 config.velocityCalibrationEnabled = state.getProperty(
                     "velocityCalibrated" + juce::String(i), false);
                 config.velocitySoftInput = juce::jlimit(1, 119, static_cast<int>(state.getProperty(
@@ -4256,8 +4292,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.velocityHardInput = juce::jlimit(3, 127, static_cast<int>(state.getProperty(
                     "velocityHardInput" + juce::String(i), 108)));
                 config.velocityCurve = juce::jlimit(0,
-                    savedType == static_cast<int>(LayerType::nord)
-                        && config.velocityCalibrationEnabled ? 3 : 2,
+                    4,
                     config.velocityCurve);
                 config.pianoTimbre = juce::jlimit(-1, 2, static_cast<int>(state.getProperty(
                     "pianoTimbre" + juce::String(i + 1), config.pianoTimbre)));

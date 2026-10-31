@@ -450,6 +450,23 @@ struct SampleEngineRegressionTests
                 "NPNO ADSR was not reset for a new note");
     }
 
+    static void customVelocity(double rate)
+    {
+        auto engine = instrument(rate);
+        auto routing = config();
+        routing.velocityCurve = 4;
+        routing.velocityTable = shapedVelocityTable(1, 127, 0.0f);
+        routing.velocityTable[64] = 100;
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 64), 0);
+        juce::AudioBuffer<float> audio(2, 64);
+        audio.clear();
+        engine->renderLayer(engine->layers[0], audio, midi, routing);
+        const auto& voice = engine->layers[0].voices[0];
+        require(voice.active && std::abs(voice.velocity - 100.0f / 127.0f) < 0.001f,
+                "NPNO did not use the custom velocity curve for sample selection");
+    }
+
     static void crossfades()
     {
         NordPianoDecoder::Instrument piano;
@@ -676,6 +693,7 @@ struct SampleEngineRegressionTests
             lifetime(rate);
             shortenedDecay(rate);
             adsrSustain(rate);
+            customVelocity(rate);
             loopDuringRelease(rate);
             require(partitionedDecay(rate, 127) == partitionedDecay(rate, 512),
                     "Piano decay/crossfade changed with audio block size");

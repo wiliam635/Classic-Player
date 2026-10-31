@@ -367,6 +367,9 @@ float Dx7Engine::shapedVelocity(const Sf2Engine::LayerConfig& config, float velo
 {
     if (config.velocityCurve == 1) velocity = std::sqrt(velocity);
     else if (config.velocityCurve == 2) velocity *= velocity;
+    else if (config.velocityCurve == 4)
+        velocity = config.velocityTable[(size_t) juce::jlimit(1, 127,
+            juce::roundToInt(velocity * 127.0f))] / 127.0f;
     return juce::jlimit(0.0f, 1.0f, velocity);
 }
 

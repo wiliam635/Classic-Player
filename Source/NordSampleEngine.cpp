@@ -436,6 +436,8 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
             velocity = juce::jlimit(1, 127, juce::roundToInt(std::sqrt(velocity / 127.0f) * 127.0f));
         else if (routing.velocityCurve == 2)
             velocity = juce::jlimit(1, 127, juce::roundToInt((velocity / 127.0f) * (velocity / 127.0f) * 127.0f));
+        else if (routing.velocityCurve == 4)
+            velocity = juce::jlimit(1, 127, (int) routing.velocityTable[(size_t) message.getVelocity()]);
         const auto shapedVelocity = velocity / 127.0f;
         const auto previousNote = highestHeld();
         const auto legato = routing.mono && previousNote >= 0 && previousNote != note;

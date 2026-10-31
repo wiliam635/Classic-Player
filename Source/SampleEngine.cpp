@@ -695,6 +695,8 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 velocity = calibratedVelocity(velocity, routing);
             else if (routing.velocityCurve == 1) velocity = std::sqrt(velocity);
             else if (routing.velocityCurve == 2) velocity *= velocity;
+            else if (routing.velocityCurve == 4)
+                velocity = routing.velocityTable[(size_t) message.getVelocity()] / 127.0f;
             if (layer.pianoLoaded)
             {
                 const auto channel = juce::jlimit(1, 16, message.getChannel());
