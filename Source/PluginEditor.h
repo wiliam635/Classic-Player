@@ -192,6 +192,7 @@ private:
         void initialiseComboBoxes();
         void updateMidiLearnState();
         void showReverbEditor();
+        void showAdsrEditor();
         void showCompressorEditor();
         void showEqEditor();
         void showChorusEditor();

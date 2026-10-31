@@ -422,6 +422,34 @@ struct SampleEngineRegressionTests
                 "New NPNO note did not adopt the changed tail length");
     }
 
+    static void adsrSustain(double rate)
+    {
+        auto engine = instrument(rate);
+        auto routing = config();
+        routing.decayMs = 10.0f;
+        routing.sustainLevel = 25.0f;
+        auto& layer = engine->layers[0];
+        engine->startPianoVoice(layer, 0, 60, 1, 1.0f, routing);
+        auto& voice = layer.voices[0];
+        juce::AudioBuffer<float> audio(2, 128);
+        juce::MidiBuffer midi;
+        for (int block = 0; block < 8; ++block)
+        {
+            audio.clear();
+            engine->renderLayer(layer, audio, midi, routing);
+        }
+        require(std::abs(voice.decayGain - 0.25f) < 0.001f,
+                "NPNO ADSR did not reach the selected sustain level");
+        const auto sustainedLevel = audio.getMagnitude(0, 128);
+        require(sustainedLevel > 0.0f && sustainedLevel < 0.04f,
+                "NPNO ADSR did not attenuate the rendered audio");
+        engine->startPianoVoice(layer, 0, 60, 1, 1.0f, routing);
+        const auto fresh = std::find_if(layer.voices.begin(), layer.voices.end(),
+            [](const auto& item) { return item.active && item.age == 0; });
+        require(fresh != layer.voices.end() && fresh->decayGain == 1.0f,
+                "NPNO ADSR was not reset for a new note");
+    }
+
     static void crossfades()
     {
         NordPianoDecoder::Instrument piano;
@@ -647,6 +675,7 @@ struct SampleEngineRegressionTests
             sustainAndPolyphony(rate);
             lifetime(rate);
             shortenedDecay(rate);
+            adsrSustain(rate);
             loopDuringRelease(rate);
             require(partitionedDecay(rate, 127) == partitionedDecay(rate, 512),
                     "Piano decay/crossfade changed with audio block size");

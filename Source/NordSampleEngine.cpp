@@ -500,7 +500,8 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
 }
 
 void NordSampleEngine::renderVoices(Layer& layer, juce::AudioBuffer<float>& output,
-                                    int startSample, int endSample, float& peak) noexcept
+                                    int startSample, int endSample, float& peak,
+                                    const Sf2Engine::LayerConfig& routing) noexcept
 {
     for (auto& voice : layer.voices)
     {
@@ -513,6 +514,9 @@ void NordSampleEngine::renderVoices(Layer& layer, juce::AudioBuffer<float>& outp
         const auto& zone = layer.instrument->zones[(size_t) voice.zone];
         const auto frames = (int) zone.frames();
         const auto looped = zone.loopEnd > zone.loopStart + 8;
+        const auto adsrTarget = juce::jlimit(0.0f, 1.0f, routing.sustainLevel * 0.01f);
+        const auto adsrStep = static_cast<float>((1.0f - adsrTarget)
+            / juce::jmax(1.0, routing.decayMs * 0.001 * currentSampleRate));
         for (int sample = startSample; sample < endSample; ++sample)
         {
             if (looped && voice.position >= zone.loopEnd)
@@ -523,13 +527,17 @@ void NordSampleEngine::renderVoices(Layer& layer, juce::AudioBuffer<float>& outp
                 voice = {};
                 break;
             }
-            const auto amplitude = voice.amplitude * voice.attack * voice.releaseGain;
+            const auto amplitude = voice.amplitude * voice.attack * voice.decayGain * voice.releaseGain;
             const auto left = readSample(zone, 0, voice.position) * amplitude;
             const auto right = readSample(zone, 1, voice.position) * amplitude;
             output.addSample(0, sample, left);
             if (output.getNumChannels() > 1) output.addSample(1, sample, right);
             peak = juce::jmax(peak, std::abs(left), std::abs(right));
             voice.attack = juce::jmin(1.0f, voice.attack + voice.attackStep);
+            if (!voice.released && voice.attack >= 1.0f)
+            {
+                voice.decayGain = juce::jmax(adsrTarget, voice.decayGain - adsrStep);
+            }
             voice.position += voice.increment;
             ++voice.age;
             if (voice.released)
@@ -587,11 +595,11 @@ void NordSampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& outpu
     {
         const auto eventSample = metadata.samplePosition - midiStartSample;
         if (eventSample < 0 || eventSample >= endSample) continue;
-        renderVoices(layer, output, renderedThrough, eventSample, peak);
+        renderVoices(layer, output, renderedThrough, eventSample, peak, routing);
         handleMidiMessage(layer, metadata.getMessage(), routing);
         renderedThrough = eventSample;
     }
-    renderVoices(layer, output, renderedThrough, endSample, peak);
+    renderVoices(layer, output, renderedThrough, endSample, peak, routing);
     layer.peak.store(juce::jmax(peak, layer.peak.load(std::memory_order_relaxed) * 0.82f),
                      std::memory_order_relaxed);
 }

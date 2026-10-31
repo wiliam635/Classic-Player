@@ -54,6 +54,8 @@ public:
         float gain = 0.8f;
         float pan = 0.0f;
         float attack = 5.0f;
+        float decayMs = 0.0f; // 0 bypasses the additional ADSR stage for old programs.
+        float sustainLevel = 100.0f;
         float release = 50.0f;
         float cutoff = 100.0f;
         float eqLow = 0.0f;
@@ -144,6 +146,8 @@ private:
         int lastPortamento = -1;
         int lastMono = -1;
         float lastAppliedAttackTimecents = -100000.0f;
+        float lastAppliedDecayTimecents = -100000.0f;
+        float lastAppliedSustainCentibels = -100000.0f;
         float lastAppliedReleaseTimecents = -100000.0f;
         std::array<unsigned int, 2> lastMuteVolumeChannels {};
         float modulationAmount = 0.0f;

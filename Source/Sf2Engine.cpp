@@ -53,6 +53,8 @@ void Sf2Engine::createSynth(Layer& layer)
     layer.lastCutoff = -1;
     layer.lastReverb = -1;
     layer.lastAppliedAttackTimecents = -100000.0f;
+    layer.lastAppliedDecayTimecents = -100000.0f;
+    layer.lastAppliedSustainCentibels = -100000.0f;
     layer.lastPortamento = -1;
     layer.lastMono = -1;
     layer.lastAppliedReleaseTimecents = -100000.0f;
@@ -498,6 +500,10 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         const auto attackTimecents = 1200.0f * std::log2(static_cast<float>(attackSeconds));
         const auto releaseSeconds = layerReleaseSeconds(layer.config.release);
         const auto releaseTimecents = 1200.0f * std::log2(releaseSeconds);
+        const auto customDecay = layer.config.decayMs > 0.0f || layer.config.sustainLevel < 100.0f;
+        const auto decayTimecents = 1200.0f * std::log2(juce::jmax(0.001f, layer.config.decayMs * 0.001f));
+        const auto sustainCentibels = juce::jlimit(0.0f, 1440.0f,
+            -200.0f * std::log10(juce::jmax(0.000001f, layer.config.sustainLevel * 0.01f)));
         const auto applyAttack = [&]
         {
             std::array<fluid_voice_t*, maxPolyphonyPerLayer> voices {};
@@ -520,6 +526,26 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
                     fluid_voice_update_param(voice, GEN_VOLENVRELEASE);
                 }
         };
+        const auto applyDecayAndSustain = [&]
+        {
+            if (!customDecay) return;
+            std::array<fluid_voice_t*, maxPolyphonyPerLayer> voices {};
+            fluid_synth_get_voicelist(layer.synth.get(), voices.data(), (int) voices.size(), -1);
+            for (auto* voice : voices)
+            {
+                if (voice == nullptr) continue;
+                if (fluid_voice_gen_get(voice, GEN_VOLENVDECAY) != decayTimecents)
+                {
+                    fluid_voice_gen_set(voice, GEN_VOLENVDECAY, decayTimecents);
+                    fluid_voice_update_param(voice, GEN_VOLENVDECAY);
+                }
+                if (fluid_voice_gen_get(voice, GEN_VOLENVSUSTAIN) != sustainCentibels)
+                {
+                    fluid_voice_gen_set(voice, GEN_VOLENVSUSTAIN, sustainCentibels);
+                    fluid_voice_update_param(voice, GEN_VOLENVSUSTAIN);
+                }
+            }
+        };
         if (attackTimecents != layer.lastAppliedAttackTimecents)
         {
             applyAttack();
@@ -530,6 +556,11 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
             applyRelease();
             layer.lastAppliedReleaseTimecents = releaseTimecents;
         }
+        if (customDecay && (decayTimecents != layer.lastAppliedDecayTimecents
+                            || sustainCentibels != layer.lastAppliedSustainCentibels))
+            applyDecayAndSustain();
+        layer.lastAppliedDecayTimecents = customDecay ? decayTimecents : -100000.0f;
+        layer.lastAppliedSustainCentibels = customDecay ? sustainCentibels : -100000.0f;
         bool startedVoice = false;
         for (const auto metadata : midi)
         {
@@ -549,6 +580,7 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         {
             applyAttack();
             applyRelease();
+            applyDecayAndSustain();
         }
 
         const auto layerIndex = static_cast<size_t>(&layer - layers.data());

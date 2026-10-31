@@ -261,6 +261,8 @@ private:
         std::atomic<float>* Gain = nullptr;
         std::atomic<float>* PreGainDb = nullptr;
         std::atomic<float>* Attack = nullptr;
+        std::atomic<float>* Decay = nullptr;
+        std::atomic<float>* SustainLevel = nullptr;
         std::atomic<float>* Release = nullptr;
         std::atomic<float>* Cutoff = nullptr;
         std::atomic<float>* EqLow = nullptr;

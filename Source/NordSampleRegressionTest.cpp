@@ -326,6 +326,26 @@ struct NordSampleRegressionTests
                 "Pedal-up changed a note whose key is still held");
     }
 
+    static void adsrSustain()
+    {
+        auto engine = fixture();
+        auto config = routing();
+        config.decayMs = 10.0f;
+        config.sustainLevel = 25.0f;
+        float rms = 0.0f;
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.8f), 0);
+        render(*engine, midi, config, rms);
+        midi.clear();
+        for (int block = 0; block < 8; ++block)
+            render(*engine, midi, config, rms);
+        auto& voice = engine->layers[0].voices[0];
+        require(voice.active && std::abs(voice.decayGain - 0.25f) < 0.001f,
+                "NSMP ADSR failed to reach its sustain level");
+        require(rms > 0.01f && rms < 0.07f,
+                "NSMP ADSR sustain did not change the rendered audio");
+    }
+
     static void monoLegatoAndNoteReturn()
     {
         auto engine = fixture();
@@ -551,6 +571,7 @@ struct NordSampleRegressionTests
         decoderUsesExplicitRegionPointers();
         padLoopCrossfade();
         audioAndSustain();
+        adsrSustain();
         monoLegatoAndNoteReturn();
         monoModeChangeReleasesPriorVoices();
         nordEffects();

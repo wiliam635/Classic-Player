@@ -293,6 +293,10 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
         jassert(cached.PreGainDb != nullptr);
         cached.Attack = parameters.getRawParameterValue(prefix + "Attack");
         jassert(cached.Attack != nullptr);
+        cached.Decay = parameters.getRawParameterValue(prefix + "Decay");
+        jassert(cached.Decay != nullptr);
+        cached.SustainLevel = parameters.getRawParameterValue(prefix + "SustainLevel");
+        jassert(cached.SustainLevel != nullptr);
         cached.Release = parameters.getRawParameterValue(prefix + "Release");
         jassert(cached.Release != nullptr);
         cached.Cutoff = parameters.getRawParameterValue(prefix + "Cutoff");
@@ -441,6 +445,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"layer" + n + "Attack", 1}, "Layer " + n + " Attack",
             juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f), 5.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "Decay", 1}, "Layer " + n + " Decay ms",
+            juce::NormalisableRange<float>(0.0f, 5000.0f, 1.0f), 0.0f));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{"layer" + n + "SustainLevel", 1}, "Layer " + n + " Sustain Level %",
+            juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 100.0f));
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"layer" + n + "Release", 1}, "Layer " + n + " Release",
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 50.0f));
@@ -763,6 +773,8 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         config.muteCC = learnedCCs[(size_t) i][(size_t) LearnTarget::mute].load(std::memory_order_relaxed);
         config.muteCCChannel = learnedChannels[(size_t) i][(size_t) LearnTarget::mute].load(std::memory_order_relaxed);
         config.attack = realtime.Attack->load(std::memory_order_relaxed);
+        config.decayMs = realtime.Decay->load(std::memory_order_relaxed);
+        config.sustainLevel = realtime.SustainLevel->load(std::memory_order_relaxed);
         config.release = realtime.Release->load(std::memory_order_relaxed);
         config.cutoff = realtime.Cutoff->load(std::memory_order_relaxed);
         config.eqLow = realtime.EqLow->load(std::memory_order_relaxed);
@@ -2072,8 +2084,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     }
     for (int position = visualPosition; position < Sf2Engine::layerCount; ++position)
         visualLayerOrder[(size_t) position].store(position, std::memory_order_relaxed);
-    static constexpr std::array<const char*, 31> parameterSuffixes {
-        "Gain", "PreGainDb", "Muted", "Attack", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh",
+    static constexpr std::array<const char*, 33> parameterSuffixes {
+        "Gain", "PreGainDb", "Muted", "Attack", "Decay", "SustainLevel", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh",
         "EqLowFrequency", "EqMidFrequency", "EqHighFrequency", "EqLowQ", "EqMidQ", "EqHighQ",
         "Reverb", "ReverbSize", "ReverbDamping",
         "ReverbWidth", "ReverbPreset", "Comp", "CompThreshold", "CompRatio", "CompAttack",
@@ -3624,6 +3636,25 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
                 break;
             }
     }
+    // Older layer presets predate ADSR Decay/Sustain. Loading one should not
+    // borrow these controls from the layer that happened to be selected.
+    for (const auto* suffix : { "Decay", "SustainLevel" })
+    {
+        const auto sourceId = sourceParameterPrefix + suffix;
+        const auto destinationId = destinationParameterPrefix + suffix;
+        bool found = false;
+        for (const auto& sourceChild : sourceState)
+            found |= sourceChild.getProperty("id").toString() == sourceId;
+        if (found) continue;
+        if (auto* parameter = parameters.getParameter(destinationId))
+            for (auto destinationChild : destinationState)
+                if (destinationChild.getProperty("id").toString() == destinationId)
+                {
+                    destinationChild.setProperty("value",
+                        parameter->convertFrom0to1(parameter->getDefaultValue()), nullptr);
+                    break;
+                }
+    }
     // A preset created before SF2 chorus existed must load dry, rather than
     // inheriting whatever chorus happens to be active in the destination.
     if (savedType == static_cast<int>(LayerType::sf2))
@@ -3970,6 +4001,21 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     presetState.setProperty("id", presetId, nullptr);
                     presetState.setProperty("value", -1.0f, nullptr);
                     state.addChild(presetState, -1, nullptr);
+                }
+
+                // Old performances did not store ADSR Decay/Sustain. Restore
+                // their neutral values instead of inheriting the prior song.
+                for (const auto& setting : { std::pair { "Decay", 0.0f },
+                                             std::pair { "SustainLevel", 100.0f } })
+                {
+                    const auto id = "layer" + juce::String(i + 1) + setting.first;
+                    if (!findParameterState(id).isValid())
+                    {
+                        juce::ValueTree parameterState("PARAM");
+                        parameterState.setProperty("id", id, nullptr);
+                        parameterState.setProperty("value", setting.second, nullptr);
+                        state.addChild(parameterState, -1, nullptr);
+                    }
                 }
 
             }

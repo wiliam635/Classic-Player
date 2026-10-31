@@ -434,6 +434,7 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
             voice.currentFrequency = voice.targetFrequency;
             voice.phase.fill(0.0);
             voice.envelope = 1.0f;
+            voice.decayGain = 1.0f;
         }
         else if (!config.portamento)
         {
@@ -559,6 +560,7 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
     target->currentFrequency = target->targetFrequency;
     target->phase.fill(0.0);
     target->envelope = 0.0f;
+    target->decayGain = 1.0f;
     const auto patchIndex = juce::jlimit(0, juce::jmax(0, layer.patchesLoaded - 1),
                                          layer.selectedPatch);
     beginCoreVoice(*target, layer.patches[(size_t) patchIndex], note, velocity, false);
@@ -643,6 +645,13 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
     const auto lfoHz = 0.05 + 11.5 * lfoSpeed * lfoSpeed;
     const auto lfoStep = juce::MathConstants<double>::twoPi * lfoHz / sampleRate;
     const auto delaySeconds = 0.015 + 2.2 * (double) patch.raw[138] / 99.0;
+    const auto attackStep = static_cast<float>(1.0
+        / juce::jmax(1.0, sampleRate * layerAttackSeconds(config.attack)));
+    const auto adsrTarget = juce::jlimit(0.0f, 1.0f, config.sustainLevel * 0.01f);
+    const auto adsrStep = static_cast<float>((1.0f - adsrTarget)
+        / juce::jmax(1.0, config.decayMs * 0.001 * sampleRate));
+    const auto releaseCoefficient = static_cast<float>(std::exp(
+        -1.0 / (layerReleaseSeconds(config.release) * sampleRate)));
 
     auto host = hostMidi.begin();
     auto routed = routedMidi.begin();
@@ -695,15 +704,15 @@ void Dx7Engine::render(int layerIndex, Layer& layer, const Sf2Engine::LayerConfi
                            * fixedToFloat * voice.velocity * 0.24f;
             if (!voice.releasing)
             {
-                const auto attackSamples = juce::jmax(1.0, sampleRate * layerAttackSeconds(config.attack));
-                voice.envelope = juce::jmin(1.0f, voice.envelope + static_cast<float>(1.0 / attackSamples));
+                voice.envelope = juce::jmin(1.0f, voice.envelope + attackStep);
+                if (voice.envelope >= 1.0f)
+                    voice.decayGain = juce::jmax(adsrTarget, voice.decayGain - adsrStep);
             }
             else
             {
-                const auto releaseSeconds = layerReleaseSeconds(config.release);
-                voice.envelope *= static_cast<float>(std::exp(-1.0 / (releaseSeconds * sampleRate)));
+                voice.envelope *= releaseCoefficient;
             }
-            const auto value = voice.transition.process(raw) * layerGain * voice.envelope;
+            const auto value = voice.transition.process(raw) * layerGain * voice.envelope * voice.decayGain;
             scratch.addSample(0, offset, value);
             scratch.addSample(1, offset, value);
         }

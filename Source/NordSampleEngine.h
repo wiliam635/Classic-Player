@@ -41,6 +41,7 @@ private:
         std::uint64_t age = 0;
         double position = 0.0, increment = 1.0;
         float amplitude = 0.0f, attack = 1.0f, attackStep = 1.0f;
+        float decayGain = 1.0f;
         float releaseGain = 1.0f, releaseCoefficient = 0.0f;
     };
 
@@ -78,7 +79,7 @@ private:
     void handleMidiMessage(Layer&, const juce::MidiMessage&,
                            const Sf2Engine::LayerConfig&) noexcept;
     void renderVoices(Layer&, juce::AudioBuffer<float>&, int startSample, int endSample,
-                      float& peak) noexcept;
+                      float& peak, const Sf2Engine::LayerConfig&) noexcept;
     void renderLayer(Layer&, juce::AudioBuffer<float>&, const juce::MidiBuffer&,
                      const Sf2Engine::LayerConfig&, int midiStartSample);
     void processEffectsAndMix(Layer&, juce::AudioBuffer<float>&,

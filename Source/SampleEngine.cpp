@@ -375,6 +375,7 @@ void SampleEngine::startVoice(Layer& layer, int note, int channel, float velocit
     candidate->attackGain = routing.attack <= 0.0f ? 1.0f : 0.0f;
     candidate->attackStep = routing.attack <= 0.0f
         ? 1.0f : static_cast<float>(1.0 / attackSamples);
+    candidate->decayGain = 1.0f;
     candidate->releaseGain = 1.0f;
     candidate->releaseCoefficient = 0.0f;
     candidate->pianoRelease = false;
@@ -522,6 +523,7 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     candidate->attackGain = routing.attack <= 0.0f ? 1.0f : 0.0f;
     candidate->attackStep = routing.attack <= 0.0f
         ? 1.0f : static_cast<float>(1.0 / attackSamples);
+    candidate->decayGain = 1.0f;
     candidate->releaseGain = 1.0f;
     candidate->releaseCoefficient = 0.0f;
     candidate->pianoRelease = stroke.bank == 2;
@@ -782,6 +784,9 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
         const auto loopedPiano = pianoStroke != nullptr && !voice.pianoRelease
             && pianoStroke->loopEndFrame > pianoStroke->loopStartFrame;
         const auto inverseDecaySamples = 1.0 / (currentSampleRate * voice.pianoDecaySeconds);
+        const auto adsrTarget = juce::jlimit(0.0f, 1.0f, routing.sustainLevel * 0.01f);
+        const auto adsrStep = static_cast<float>((1.0f - adsrTarget)
+            / juce::jmax(1.0, routing.decayMs * 0.001 * currentSampleRate));
         for (int sample = firstSample; sample < lastSample; ++sample)
         {
             const auto elapsedDecay = static_cast<double>(voice.age) * inverseDecaySamples;
@@ -812,7 +817,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             const auto remaining = juce::jlimit(0.0, 1.0, 1.0 - elapsedDecay);
             const auto lifetimeGain = isPianoVoice && finitePiano
                 ? static_cast<float>(remaining * remaining) : 1.0f;
-            const auto gain = voice.level * voice.releaseGain * voice.attackGain * lifetimeGain;
+            const auto gain = voice.level * voice.releaseGain * voice.attackGain * voice.decayGain * lifetimeGain;
             float left = 0.0f;
             float right = 0.0f;
             if (isPianoVoice)
@@ -833,6 +838,10 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             if (outputRight != nullptr) outputRight[sample] += right;
             peak = juce::jmax(peak, std::abs(left), std::abs(right));
             voice.attackGain = juce::jmin(1.0f, voice.attackGain + voice.attackStep);
+            if (!voice.released && voice.attackGain >= 1.0f)
+            {
+                voice.decayGain = juce::jmax(adsrTarget, voice.decayGain - adsrStep);
+            }
             voice.position += voice.increment;
             ++voice.age;
             if (voice.released)

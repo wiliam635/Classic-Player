@@ -61,6 +61,7 @@ private:
         float velocity = 0.0f;
         float attackGain = 1.0f;
         float attackStep = 1.0f;
+        float decayGain = 1.0f;
         float releaseGain = 1.0f;
         float releaseCoefficient = 0.0f;
         float pianoDecaySeconds = 15.0f; // captured at note-on to avoid jumps during playback

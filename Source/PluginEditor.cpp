@@ -5542,6 +5542,15 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
         [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 620, 28));
     dialog->addCustomComponent(new CenteredPanel(new ModulationTogglePanel(processor, index), 620, 28));
+    if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::sf2
+        || processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord
+        || processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordSample)
+    {
+        auto* adsrButton = new juce::TextButton("EDITAR ADSR");
+        flatButton(*adsrButton);
+        adsrButton->onClick = [safe] { if (safe != nullptr) safe->showAdsrEditor(); };
+        dialog->addCustomComponent(new CenteredPanel(adsrButton, 620, 28));
+    }
     dialog->addCustomComponent(new CenteredPanel(knobs, 620, 128));
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
     const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect(getScreenBounds());
@@ -5584,6 +5593,39 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
             set("PreGainDb", knobs->value(9));
             safe->refresh();
         }), true);
+}
+
+void ClassicPlayerAudioProcessorEditor::LayerStrip::showAdsrEditor()
+{
+    const auto type = processor.layerType(index);
+    if (type != ClassicPlayerAudioProcessor::LayerType::sf2
+        && type != ClassicPlayerAudioProcessor::LayerType::nord
+        && type != ClassicPlayerAudioProcessor::LayerType::nordSample
+        && type != ClassicPlayerAudioProcessor::LayerType::dx7) return;
+
+    const auto prefix = "layer" + juce::String(index + 1);
+    const auto value = [this, &prefix](const char* suffix)
+    {
+        return processor.parameters.getRawParameterValue(prefix + suffix)->load();
+    };
+    auto* dialog = new LayerEditorWindow("ENVELOPE ADSR",
+        "Attack e Release usam a escala 0-100 da layer; Decay e medido em ms e Sustain em %.",
+        juce::MessageBoxIconType::NoIcon);
+    dialog->setLookAndFeel(&classicLookAndFeel);
+    auto* knobs = new KnobEditorPanel({
+        { "ATTACK 0-2s", value("Attack"), 0.0f, 100.0f, 0.1f, 1 },
+        { "DECAY ms", value("Decay"), 0.0f, 5000.0f, 1.0f, 0 },
+        { "SUSTAIN %", value("SustainLevel"), 0.0f, 100.0f, 1.0f, 0 },
+        { "RELEASE 0-100", value("Release"), 0.0f, 100.0f, 1.0f, 0 }
+    }, 4);
+    for (int i = 0; i < 4; ++i)
+        knobs->bindParameter(i, processor.parameters, prefix +
+            std::array<const char*, 4> { "Attack", "Decay", "SustainLevel", "Release" }[(size_t) i]);
+    dialog->addCustomComponent(knobs);
+    const juce::Component::SafePointer<LayerStrip> safe(this);
+    dialog->fitWithinApp(this);
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create(
+        [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
@@ -8135,6 +8177,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         set("PreGainDb", common->value(7));
     });
     dialog->addCustomComponent(new CenteredPanel(new ModulationTogglePanel(processor, index), 600, 28));
+    auto* adsrButton = new juce::TextButton("EDITAR ADSR");
+    flatButton(*adsrButton);
+    adsrButton->onClick = [safe] { if (safe != nullptr) safe->showAdsrEditor(); };
+    dialog->addCustomComponent(new CenteredPanel(adsrButton, 600, 28));
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.

@@ -70,6 +70,7 @@ private:
         int note = -1;
         float velocity = 0.0f;
         float envelope = 0.0f;
+        float decayGain = 1.0f;
         double currentFrequency = 0.0;
         double targetFrequency = 0.0;
         std::array<double, 6> phase {};
