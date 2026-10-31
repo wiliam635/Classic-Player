@@ -2914,6 +2914,40 @@ private:
     juce::TextButton reverb, compressor, chorus, eq, nord;
 };
 
+class LayerDynamicsButtons final : public juce::Component
+{
+public:
+    LayerDynamicsButtons(std::function<void()> adsrCallback,
+                         std::function<void()> velocityCallback)
+        : onAdsr(std::move(adsrCallback)), onVelocity(std::move(velocityCallback))
+    {
+        adsr.setButtonText("EDITAR ADSR");
+        velocity.setButtonText("EDITAR CURVA VELOCITY");
+        flatButton(adsr);
+        flatButton(velocity);
+        adsr.setTooltip("Abrir os controles Attack, Decay, Sustain e Release desta layer.");
+        velocity.setTooltip("Abrir o editor da curva de resposta ao velocity desta layer.");
+        adsr.onClick = [this] { if (onAdsr) onAdsr(); };
+        velocity.onClick = [this] { if (onVelocity) onVelocity(); };
+        addAndMakeVisible(adsr);
+        addAndMakeVisible(velocity);
+        setSize(620, 36);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(2);
+        const auto buttonWidth = (area.getWidth() - 6) / 2;
+        adsr.setBounds(area.removeFromLeft(buttonWidth).reduced(2, 1));
+        area.removeFromLeft(6);
+        velocity.setBounds(area.reduced(2, 1));
+    }
+
+private:
+    std::function<void()> onAdsr, onVelocity;
+    juce::TextButton adsr, velocity;
+};
+
 class CentredEditorPanel final : public juce::Component
 {
 public:
@@ -5914,23 +5948,20 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     // footer, must fit without an inner scroll area.
     if (sf2Panel != nullptr)
         dialog->addCustomComponent(new CenteredPanel(sf2Panel, 620, 236));
+    const auto layerType = processor.layerType(index);
+    if (layerType == ClassicPlayerAudioProcessor::LayerType::sf2
+        || layerType == ClassicPlayerAudioProcessor::LayerType::nord
+        || layerType == ClassicPlayerAudioProcessor::LayerType::nordSample)
+    {
+        auto* dynamicsButtons = new LayerDynamicsButtons(
+            [safe] { if (safe != nullptr) safe->showAdsrEditor(); },
+            [safe] { if (safe != nullptr) safe->showVelocityEditor(); });
+        dialog->addCustomComponent(new CenteredPanel(dynamicsButtons, 620, 36));
+    }
     dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
         [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 620, 28));
     dialog->addCustomComponent(new CenteredPanel(new ModulationTogglePanel(processor, index), 620, 28));
-    if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::sf2
-        || processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord
-        || processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordSample)
-    {
-        auto* adsrButton = new juce::TextButton("EDITAR ADSR");
-        flatButton(*adsrButton);
-        adsrButton->onClick = [safe] { if (safe != nullptr) safe->showAdsrEditor(); };
-        dialog->addCustomComponent(new CenteredPanel(adsrButton, 620, 28));
-        auto* velocityButton = new juce::TextButton("EDITAR VELOCITY");
-        flatButton(*velocityButton);
-        velocityButton->onClick = [safe] { if (safe != nullptr) safe->showVelocityEditor(); };
-        dialog->addCustomComponent(new CenteredPanel(velocityButton, 620, 28));
-    }
     dialog->addCustomComponent(new CenteredPanel(knobs, 620, 128));
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
     const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect(getScreenBounds());
@@ -8552,6 +8583,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     };
 
     dialog->addCustomComponent(new CenteredPanel(dx7Panel, 600, Dx7EditorPanel::preferredHeight));
+    auto* dynamicsButtons = new LayerDynamicsButtons(
+        [safe] { if (safe != nullptr) safe->showAdsrEditor(); },
+        [safe] { if (safe != nullptr) safe->showVelocityEditor(); });
+    dialog->addCustomComponent(new CenteredPanel(dynamicsButtons, 600, 36));
     dialog->addCustomComponent(new CenteredPanel(new EngineProgramSavePanel(processor, index, "DX7"), 600, 30));
     dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
@@ -8574,14 +8609,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         set("PreGainDb", common->value(7));
     });
     dialog->addCustomComponent(new CenteredPanel(new ModulationTogglePanel(processor, index), 600, 28));
-    auto* adsrButton = new juce::TextButton("EDITAR ADSR");
-    flatButton(*adsrButton);
-    adsrButton->onClick = [safe] { if (safe != nullptr) safe->showAdsrEditor(); };
-    dialog->addCustomComponent(new CenteredPanel(adsrButton, 600, 28));
-    auto* velocityButton = new juce::TextButton("EDITAR VELOCITY");
-    flatButton(*velocityButton);
-    velocityButton->onClick = [safe] { if (safe != nullptr) safe->showVelocityEditor(); };
-    dialog->addCustomComponent(new CenteredPanel(velocityButton, 600, 28));
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.
