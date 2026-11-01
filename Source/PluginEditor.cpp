@@ -357,6 +357,23 @@ struct UiTranslation
 // across the standalone app and plug-in formats; audio terms such as MIDI,
 // REVERB, CUTOFF and PANIC intentionally remain industry-standard labels.
 static constexpr UiTranslation uiTranslations[] {
+    { "PRESETS ADSR", "ADSR PRESETS", "PRESETS ADSR" },
+    { "ESCOLHER PRESET", "CHOOSE PRESET", "ELEGIR PRESET" },
+    { "PIANO NATURAL", "NATURAL PIANO", "PIANO NATURAL" },
+    { "PIANO SUAVE", "SOFT PIANO", "PIANO SUAVE" },
+    { "PLUCK / STACCATO", "PLUCK / STACCATO", "PLUCK / STACCATO" },
+    { "ORGAO", "ORGAN", "ORGANO" },
+    { "STRINGS / CORDAS", "STRINGS", "CUERDAS" },
+    { "PAD AMBIENTE", "AMBIENT PAD", "PAD AMBIENTE" },
+    { "SALVAR CONFIG", "SAVE SETTINGS", "GUARDAR CONFIG" },
+    { "CARREGAR CONFIG", "LOAD SETTINGS", "CARGAR CONFIG" },
+    { "Salvar configuracao ADSR", "Save ADSR settings", "Guardar configuracion ADSR" },
+    { "Carregar configuracao ADSR", "Load ADSR settings", "Cargar configuracion ADSR" },
+    { "Configuracao ADSR salva", "ADSR settings saved", "Configuracion ADSR guardada" },
+    { "Configuracao ADSR carregada", "ADSR settings loaded", "Configuracion ADSR cargada" },
+    { "Falha ao salvar configuracao ADSR", "Could not save ADSR settings", "No se pudo guardar la configuracion ADSR" },
+    { "Falha ao carregar configuracao ADSR", "Could not load ADSR settings", "No se pudo cargar la configuracion ADSR" },
+    { "Arquivo de configuracao ADSR invalido.", "Invalid ADSR settings file.", "Archivo de configuracion ADSR no valido." },
     { "Gráfico do Ciclo ADSR", "ADSR Cycle Graph", "Gráfico del ciclo ADSR" },
     { "Ataque", "Attack", "Ataque" },
     { "Decaimento", "Decay", "Decaimiento" },
@@ -1877,6 +1894,193 @@ private:
     juce::OwnedArray<juce::Slider> knobs;
     // Disconnect listeners before their sliders are destroyed.
     juce::OwnedArray<juce::AudioProcessorValueTreeState::SliderAttachment> attachments;
+};
+
+struct AdsrPresetDefinition
+{
+    const char* name;
+    std::array<float, 4> values; // Attack, Decay, Sustain, Release
+};
+
+static constexpr std::array<AdsrPresetDefinition, 6> factoryAdsrPresets {{
+    { "PIANO NATURAL", { 0.0f, 0.0f, 100.0f, 19.0f } },
+    { "PIANO SUAVE", { 4.0f, 260.0f, 72.0f, 28.0f } },
+    { "PLUCK / STACCATO", { 0.0f, 220.0f, 0.0f, 5.0f } },
+    { "ORGAO", { 0.0f, 0.0f, 100.0f, 5.0f } },
+    { "STRINGS / CORDAS", { 24.0f, 700.0f, 82.0f, 48.0f } },
+    { "PAD AMBIENTE", { 62.0f, 1800.0f, 78.0f, 78.0f } }
+}};
+
+class AdsrPresetPanel final : public juce::Component
+{
+public:
+    AdsrPresetPanel(juce::AudioProcessorValueTreeState& parameterState,
+                    juce::String parameterPrefix,
+                    std::function<void(const std::array<float, 4>&)> valuesApplied)
+        : state(parameterState), prefix(std::move(parameterPrefix)),
+          onValuesApplied(std::move(valuesApplied))
+    {
+        presets.addItem("ESCOLHER PRESET", 1);
+        for (size_t i = 0; i < factoryAdsrPresets.size(); ++i)
+            presets.addItem(factoryAdsrPresets[i].name, (int) i + 2);
+        presets.setSelectedId(1, juce::dontSendNotification);
+        presets.onChange = [this]
+        {
+            const auto index = presets.getSelectedId() - 2;
+            if (juce::isPositiveAndBelow(index, (int) factoryAdsrPresets.size()))
+                applyValues(factoryAdsrPresets[(size_t) index].values);
+        };
+        addAndMakeVisible(presets);
+
+        flatButton(saveButton);
+        flatButton(loadButton);
+        saveButton.onClick = [this] { savePreset(); };
+        loadButton.onClick = [this] { loadPreset(); };
+        addAndMakeVisible(saveButton);
+        addAndMakeVisible(loadButton);
+        setSize(720, 42);
+    }
+
+    void resized() override
+    {
+        auto row = getLocalBounds().reduced(2, 1);
+        presets.setBounds(row.removeFromLeft(270).reduced(2));
+        saveButton.setBounds(row.removeFromLeft(220).reduced(2));
+        loadButton.setBounds(row.reduced(2));
+    }
+
+private:
+    static constexpr std::array<const char*, 4> parameterSuffixes {
+        "Attack", "Decay", "SustainLevel", "Release"
+    };
+
+    static constexpr std::array<float, 4> minimumValues { 0.0f, 0.0f, 0.0f, 0.0f };
+    static constexpr std::array<float, 4> maximumValues { 100.0f, 5000.0f, 100.0f, 100.0f };
+
+    static juce::File presetDirectory()
+    {
+        return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+            .getChildFile("Classic Player").getChildFile("ADSR Presets");
+    }
+
+    void applyValues(const std::array<float, 4>& requestedValues)
+    {
+        auto values = requestedValues;
+        for (size_t i = 0; i < values.size(); ++i)
+        {
+            values[i] = juce::jlimit(minimumValues[i], maximumValues[i], values[i]);
+            if (auto* parameter = state.getParameter(prefix + parameterSuffixes[i]))
+                parameter->setValueNotifyingHost(parameter->convertTo0to1(values[i]));
+        }
+        if (onValuesApplied) onValuesApplied(values);
+    }
+
+    std::array<float, 4> currentValues() const
+    {
+        std::array<float, 4> values {};
+        for (size_t i = 0; i < values.size(); ++i)
+            if (const auto* parameter = state.getRawParameterValue(prefix + parameterSuffixes[i]))
+                values[i] = parameter->load(std::memory_order_relaxed);
+        return values;
+    }
+
+    void savePreset()
+    {
+        presetDirectory().createDirectory();
+        chooser = std::make_unique<juce::FileChooser>(
+            localizedUiText("Salvar configuracao ADSR", activeUiLanguage.load()),
+            presetDirectory().getChildFile("Classic Player ADSR.ckadsr"), "*.ckadsr");
+        const juce::Component::SafePointer<AdsrPresetPanel> safe(this);
+        chooser->launchAsync(juce::FileBrowserComponent::saveMode
+                           | juce::FileBrowserComponent::canSelectFiles
+                           | juce::FileBrowserComponent::warnAboutOverwriting,
+            [safe](const juce::FileChooser& selected)
+            {
+                if (safe == nullptr || selected.getResult() == juce::File{}) return;
+                auto destination = selected.getResult();
+                if (destination.getFileExtension().toLowerCase() != ".ckadsr")
+                    destination = destination.withFileExtension(".ckadsr");
+
+                juce::ValueTree preset("ClassicPlayerAdsrPreset");
+                preset.setProperty("format", 1, nullptr);
+                const auto values = safe->currentValues();
+                for (size_t i = 0; i < values.size(); ++i)
+                    preset.setProperty(parameterSuffixes[i], values[i], nullptr);
+                const auto xml = preset.createXml();
+                const auto saved = xml != nullptr && destination.replaceWithText(xml->toString());
+                juce::AlertWindow::showMessageBoxAsync(
+                    saved ? juce::MessageBoxIconType::InfoIcon : juce::MessageBoxIconType::WarningIcon,
+                    localizedUiText(saved ? "Configuracao ADSR salva"
+                                          : "Falha ao salvar configuracao ADSR", activeUiLanguage.load()),
+                    saved ? destination.getFullPathName()
+                          : juce::String::fromUTF8("Nao foi possivel gravar o arquivo."));
+            });
+    }
+
+    void loadPreset()
+    {
+        chooser = std::make_unique<juce::FileChooser>(
+            localizedUiText("Carregar configuracao ADSR", activeUiLanguage.load()),
+            presetDirectory(), "*.ckadsr");
+        const juce::Component::SafePointer<AdsrPresetPanel> safe(this);
+        chooser->launchAsync(juce::FileBrowserComponent::openMode
+                           | juce::FileBrowserComponent::canSelectFiles,
+            [safe](const juce::FileChooser& selected)
+            {
+                if (safe == nullptr || selected.getResult() == juce::File{}) return;
+                const auto xml = juce::XmlDocument::parse(selected.getResult());
+                if (xml == nullptr)
+                {
+                    safe->showInvalidPreset();
+                    return;
+                }
+                const auto preset = juce::ValueTree::fromXml(*xml);
+                if (!preset.hasType("ClassicPlayerAdsrPreset")
+                    || (int) preset.getProperty("format", 0) != 1)
+                {
+                    safe->showInvalidPreset();
+                    return;
+                }
+
+                std::array<float, 4> values {};
+                for (size_t i = 0; i < values.size(); ++i)
+                {
+                    const auto propertyName = juce::Identifier(parameterSuffixes[i]);
+                    if (!preset.hasProperty(propertyName))
+                    {
+                        safe->showInvalidPreset();
+                        return;
+                    }
+                    values[i] = (float) preset.getProperty(propertyName);
+                    if (!std::isfinite(values[i]))
+                    {
+                        safe->showInvalidPreset();
+                        return;
+                    }
+                }
+                safe->applyValues(values);
+                safe->presets.setSelectedId(1, juce::dontSendNotification);
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::InfoIcon,
+                    localizedUiText("Configuracao ADSR carregada", activeUiLanguage.load()),
+                    selected.getResult().getFileName());
+            });
+    }
+
+    void showInvalidPreset()
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::WarningIcon,
+            localizedUiText("Falha ao carregar configuracao ADSR", activeUiLanguage.load()),
+            localizedUiText("Arquivo de configuracao ADSR invalido.", activeUiLanguage.load()));
+    }
+
+    juce::AudioProcessorValueTreeState& state;
+    juce::String prefix;
+    std::function<void(const std::array<float, 4>&)> onValuesApplied;
+    juce::ComboBox presets;
+    juce::TextButton saveButton { "SALVAR CONFIG" }, loadButton { "CARREGAR CONFIG" };
+    std::unique_ptr<juce::FileChooser> chooser;
 };
 
 class AdsrEnvelopeGraph final : public juce::Component, private juce::Timer
@@ -6216,7 +6420,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAdsrEditor()
         return processor.parameters.getRawParameterValue(prefix + suffix)->load();
     };
     auto* dialog = new LayerEditorWindow("ENVELOPE ADSR",
-        "Attack e Release usam a escala de 0 a 100 da layer; Decay é medido em ms e Sustain em %.",
+        juce::String::fromUTF8("Attack e Release usam a escala de 0 a 100 da layer; Decay é medido em ms e Sustain em %."),
         juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* graph = new AdsrEnvelopeGraph(
@@ -6234,9 +6438,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAdsrEditor()
     for (int i = 0; i < 4; ++i)
         knobs->bindParameter(i, processor.parameters, prefix +
             std::array<const char*, 4> { "Attack", "Decay", "SustainLevel", "Release" }[(size_t) i]);
+    auto* presetPanel = new AdsrPresetPanel(processor.parameters, prefix,
+        [knobs](const std::array<float, 4>& values)
+        {
+            for (int i = 0; i < 4; ++i)
+                knobs->setValue(i, values[(size_t) i]);
+        });
+    dialog->addCustomComponent(presetPanel);
     dialog->addCustomComponent(knobs);
     const juce::Component::SafePointer<LayerStrip> safe(this);
-    dialog->setSize(770, 510);
+    dialog->setSize(770, 560);
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
