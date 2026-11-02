@@ -345,9 +345,7 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
         if (voicing.isNotEmpty()) parsed.voicing = voicing;
     }
 
-    // Preflight the complete playable PCM footprint before allocating any
-    // decoded sample buffers. Banks 0 and 1 are the attack/held sounds selected
-    // by SampleEngine; bank 2 release samples are not scheduled by playback.
+    // Include the release/reflection bank in the decoded PCM budget as well.
     const auto safeDecodedBytes = decodedAudioBudget(fileBytes);
     std::uint64_t totalDecodedBytes = 0;
     size_t preflightRecordIndex = 0;
@@ -357,7 +355,7 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
             const auto* record = body + directoryOffset + preflightRecordIndex * strokeRecordBytes;
             const auto bank = record[4];
             const auto expectedFrames = readBigEndian32(record + 6);
-            if (bank <= 1)
+            if (bank <= 2)
             {
                 if (expectedFrames > static_cast<std::uint32_t>(std::numeric_limits<int>::max()))
                     return fail("Uma gravação do piano Nord excede a duração máxima suportada.");
@@ -402,7 +400,7 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
             if (audioCursor > bodyBytes || audioBytes > bodyBytes - audioCursor)
                 return fail("Os dados de áudio de uma gravação Nord estão truncados.");
 
-            if (bank <= 1)
+            if (bank <= 2)
             {
                 Stroke stroke;
                 stroke.rootNote = static_cast<std::uint8_t>(root);
