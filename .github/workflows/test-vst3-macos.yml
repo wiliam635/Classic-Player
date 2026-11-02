@@ -47,7 +47,7 @@ jobs:
 
       - name: Build VST3 and AU for Intel and Apple Silicon
         run: |
-          cmake --build build/macos-compat-x86_64 --target ClassicPlayer_VST3 ClassicPlayer_AU --parallel 4
+          cmake --build build/macos-compat-x86_64 --target ClassicPlayer_VST3 ClassicPlayer_AU ClassicPlayerVst3HostSmokeTest --parallel 4
           cmake --build build/macos-compat-arm64 --target ClassicPlayer_VST3 ClassicPlayer_AU --parallel 4
 
       - name: Assemble and verify universal VST3
@@ -67,6 +67,14 @@ jobs:
           codesign --force --deep --sign - "$output"
           codesign --verify --deep --strict "$output"
           lipo "$output/Contents/MacOS/Classic Player" -verify_arch x86_64 arm64
+
+      - name: Open and draw VST3 editor in a host
+        shell: bash
+        run: |
+          set -euo pipefail
+          host_test="$(find build/macos-compat-x86_64 -type f -name 'Classic Player VST3 Host Smoke Test' -perm -111 -print -quit)"
+          test -n "$host_test"
+          "$host_test" "outputs/vst3-test/Classic Player.vst3"
 
       - name: Assemble and verify universal AU
         shell: bash
