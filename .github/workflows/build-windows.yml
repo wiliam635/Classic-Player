@@ -1,6 +1,8 @@
 name: Build Classic Player - Windows
 
 on:
+  push:
+    branches: [codex/nord-bundle-loader-20261102]
   workflow_dispatch:
     inputs:
       approved:
