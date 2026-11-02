@@ -59,6 +59,18 @@ int main(int argc, char** argv)
             std::cerr << "Editor VST3 nao produziu imagem\n";
             return 7;
         }
+        const auto background = snapshot.getPixelAt(0, 0);
+        bool hasVisibleContent = false;
+        for (int row = 1; row < 9 && !hasVisibleContent; ++row)
+            for (int column = 1; column < 13; ++column)
+                if (snapshot.getPixelAt(column * snapshot.getWidth() / 13,
+                                        row * snapshot.getHeight() / 9) != background)
+                    hasVisibleContent = true;
+        if (!hasVisibleContent)
+        {
+            std::cerr << "Editor VST3 desenhou uma tela uniforme\n";
+            return 8;
+        }
         std::cout << "Host abriu, redimensionou e desenhou: "
                   << description->name.toStdString() << "\n";
     }
