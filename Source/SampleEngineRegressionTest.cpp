@@ -284,6 +284,34 @@ struct SampleEngineRegressionTests
                 "Missing pedal-down bank did not fall back to the original piano sample");
     }
 
+    static void uprightReleaseReflections()
+    {
+        auto engine = instrument(48000.0);
+        auto& layer = engine->layers[0];
+        auto releaseStroke = layer.piano->strokes[0];
+        releaseStroke.bank = 2;
+        layer.piano->strokes.push_back(std::move(releaseStroke));
+        auto routing = config();
+        routing.pianoPedalResonance = true;
+        juce::AudioBuffer<float> audio(2, 64);
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 80), 0);
+        midi.addEvent(juce::MidiMessage::noteOff(1, 60), 32);
+        audio.clear();
+        engine->renderLayer(layer, audio, midi, routing);
+        require(std::any_of(layer.voices.begin(), layer.voices.end(),
+            [](const auto& voice) { return voice.active && voice.pianoRelease; }),
+            "Upright release sample was not triggered on key-up");
+
+        engine->stopAllSounds();
+        routing.pianoPedalResonance = false;
+        audio.clear();
+        engine->renderLayer(layer, audio, midi, routing);
+        require(std::none_of(layer.voices.begin(), layer.voices.end(),
+            [](const auto& voice) { return voice.active && voice.pianoRelease; }),
+            "Disabled reflections unexpectedly triggered the release sample");
+    }
+
     static void stageFourPianoControls()
     {
         auto routing = config();
@@ -683,6 +711,7 @@ struct SampleEngineRegressionTests
         stealing();
         positiveOnlyTenthsDbTrim();
         pedalResonanceIsOptional();
+        uprightReleaseReflections();
         stageFourPianoControls();
         crossfades();
         adaptiveVelocity();
