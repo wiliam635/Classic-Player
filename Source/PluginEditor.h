@@ -312,6 +312,7 @@ private:
     void loadSelectedProgram();
     void importProgramFile();
     void refreshAfterProgramLoad();
+    unsigned nordBundleRevisionSeen = 0;
     void showLiveSet(bool show);
     void showAudioMidiSettings();
     void setUiLanguage(int language);

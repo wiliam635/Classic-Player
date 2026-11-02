@@ -282,6 +282,10 @@ if(CLASSIC_PLAYER_BUILD_WEBUI_APP)
 endif()
 
 if(CLASSIC_PLAYER_BUILD_TESTS)
+    add_executable(ClassicPlayerNordProgramTest Source/NordProgramRegressionTest.cpp)
+    target_compile_features(ClassicPlayerNordProgramTest PRIVATE cxx_std_17)
+    add_test(NAME nord-program-regression COMMAND ClassicPlayerNordProgramTest)
+
     enable_testing()
     juce_add_console_app(ClassicPlayerSampleEngineTest PRODUCT_NAME "Classic Player NPNO Regression Test")
     target_sources(ClassicPlayerSampleEngineTest PRIVATE

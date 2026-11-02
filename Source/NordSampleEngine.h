@@ -20,7 +20,9 @@ public:
     static constexpr int voicesPerLayer = Sf2Engine::maxPolyphonyPerLayer;
 
     void prepare(double sampleRate, int maximumBlockSize);
-    juce::Result loadSample(int layer, const juce::File& file);
+    juce::Result loadSample(int layer, const juce::File& file,
+                            std::shared_ptr<NordSampleDecoder::Instrument> prepared = {});
+    juce::Result prepareSample(const juce::File&, std::shared_ptr<NordSampleDecoder::Instrument>&);
     juce::Result preloadSample(const juce::File& file);
     void unload(int layer);
     void stopAllSounds();

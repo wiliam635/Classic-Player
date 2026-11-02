@@ -188,6 +188,11 @@ public:
                                  juce::File& importedFile) const;
     juce::Result importNordBundle(const juce::File& source, juce::File& importedFolder) const;
     juce::Array<juce::File> libraryNordBundles() const;
+    // Prepares only the selected program off-thread, then commits on the message thread.
+    void loadNordBundleProgram(const juce::File& folder, const juce::String& programPath,
+        std::function<void(juce::Result, juce::String)> completion);
+    bool isNordBundleProgramLoading() const noexcept { return nordBundleLoading.load(); }
+    unsigned nordBundleProgramRevision() const noexcept { return nordBundleRevision.load(); }
     juce::Array<juce::File> libraryNordPianos(const juce::String& category) const;
     juce::Result deleteLibraryNordPiano(const juce::File&);
     juce::Result importNordSample(const juce::File&, juce::File& importedFile) const;
@@ -258,6 +263,10 @@ public:
     juce::MidiKeyboardState keyboardState;
 
 private:
+    juce::ThreadPool nordBundlePool { 1 };
+    std::shared_ptr<std::atomic<bool>> nordBundleAlive = std::make_shared<std::atomic<bool>>(true);
+    std::atomic<bool> nordBundleLoading { false };
+    std::atomic<unsigned> nordBundleRevision { 0 };
     struct RealtimeLayerParameters
     {
         std::atomic<float>* Gain = nullptr;

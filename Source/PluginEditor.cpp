@@ -2842,6 +2842,148 @@ private:
     juce::TextButton loadButton { "IMPORTAR PRESET" };
 };
 
+// A bank browser is independent of the currently edited engine. Every program
+// can therefore create all its parts, including synth-only/organ-only presets.
+class NordBundleLibraryPanel final : public juce::Component
+{
+public:
+    explicit NordBundleLibraryPanel(ClassicPlayerAudioProcessor& p) : processor(p)
+    {
+        for (auto* label : { &bankLabel, &programLabel, &status }) addAndMakeVisible(label);
+        bankLabel.setText("BANCO IMPORTADO", juce::dontSendNotification);
+        programLabel.setText("PRESET / PROGRAMA", juce::dontSendNotification);
+        status.setJustificationType(juce::Justification::topLeft);
+        status.setText("Importe um .ns4pbundle, escolha o banco e depois um preset.\nO preset cria suas partes em layers separadas.", juce::dontSendNotification);
+        for (auto* box : { &bankBox, &programBox }) addAndMakeVisible(box);
+        bankBox.setTextWhenNothingSelected("NENHUM BANCO IMPORTADO");
+        programBox.setTextWhenNothingSelected("ESCOLHA UM PRESET");
+        bankBox.onChange = [this] { refreshPrograms(); };
+        programBox.onChange = [this] { loadButton.setEnabled(programBox.getSelectedId() > 0 && !processor.isNordBundleProgramLoading()); };
+        flatButton(importButton); flatButton(loadButton);
+        importButton.setButtonText("IMPORTAR BUNDLE"); loadButton.setButtonText("CARREGAR PRESET COMPLETO");
+        addAndMakeVisible(importButton); addAndMakeVisible(loadButton);
+        importButton.onClick = [this] { chooseBundle(); };
+        loadButton.onClick = [this] { confirmLoad(); };
+        refreshBanks({}); setSize(640, 290);
+    }
+    ~NordBundleLibraryPanel() override { imports.removeAllJobs(true, -1); }
+    void paint(juce::Graphics& g) override { g.fillAll(juce::Colour(0xff15232b)); }
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(18);
+        bankLabel.setBounds(area.removeFromTop(22)); bankBox.setBounds(area.removeFromTop(30));
+        area.removeFromTop(10); programLabel.setBounds(area.removeFromTop(22));
+        programBox.setBounds(area.removeFromTop(30)); area.removeFromTop(12);
+        auto buttons = area.removeFromTop(34);
+        importButton.setBounds(buttons.removeFromLeft(210)); buttons.removeFromLeft(10); loadButton.setBounds(buttons);
+        area.removeFromTop(12); status.setBounds(area);
+    }
+private:
+    void refreshBanks(const juce::File& selected)
+    {
+        banks = processor.libraryNordBundles(); bankBox.clear(juce::dontSendNotification);
+        int selection = 0;
+        for (int i = 0; i < banks.size(); ++i)
+        {
+            bankBox.addItem(banks[i].getFileName(), i+1);
+            if (banks[i] == selected || (selected == juce::File{}
+                && banks[i].getFileName() == processor.parameters.state.getProperty("nordBundleBank").toString())) selection = i+1;
+        }
+        if (selection == 0 && !banks.isEmpty()) selection = 1;
+        bankBox.setSelectedId(selection, juce::dontSendNotification); refreshPrograms();
+    }
+    void refreshPrograms()
+    {
+        programPaths.clear(); programBox.clear(juce::dontSendNotification);
+        const int bank = bankBox.getSelectedItemIndex();
+        if (juce::isPositiveAndBelow(bank, banks.size()))
+            if (auto meta = juce::XmlDocument::parse(banks[bank].getChildFile("meta.xml")))
+                for (const auto* entry : meta->getChildIterator())
+                {
+                    const auto path = entry->getStringAttribute("name");
+                    if (!entry->hasTagName("file") || !path.endsWithIgnoreCase(".ns4p")) continue;
+                    // Display every program, including those without sample dependencies.
+                    programPaths.add(path);
+                    programBox.addItem(path.fromFirstOccurrenceOf("Program/", false, false).upToLastOccurrenceOf(".ns4p", false, true), programPaths.size());
+                }
+        const auto current = processor.parameters.state.getProperty("nordBundleProgramPath").toString();
+        const int selected = programPaths.indexOf(current);
+        if (selected >= 0) programBox.setSelectedId(selected+1, juce::dontSendNotification);
+        loadButton.setEnabled(selected >= 0 && !processor.isNordBundleProgramLoading());
+    }
+    void chooseBundle()
+    {
+        chooser = std::make_unique<juce::FileChooser>("Importar banco Nord", juce::File{}, "*.ns4pbundle;*.NS4PBUNDLE");
+        chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+            [safe = juce::Component::SafePointer<NordBundleLibraryPanel>(this)](const juce::FileChooser& c)
+            {
+                if (safe == nullptr || !c.getResult().existsAsFile()) return;
+                const auto source = c.getResult(); auto* processor = &safe->processor;
+                safe->importButton.setEnabled(false);
+                safe->status.setText("Importando banco...", juce::dontSendNotification);
+                safe->imports.addJob([safe, processor, source]
+                {
+                    juce::File folder; const auto result = processor->importNordBundle(source, folder);
+                    juce::MessageManager::callAsync([safe, result, folder]
+                    {
+                        if (safe == nullptr) return;
+                        safe->importButton.setEnabled(true);
+                        if (result.failed()) safe->status.setText(result.getErrorMessage(), juce::dontSendNotification);
+                        else
+                        {
+                            safe->refreshBanks(folder);
+                            safe->status.setText("Banco importado. Escolha um preset para carregar.", juce::dontSendNotification);
+                        }
+                    });
+                });
+            });
+    }
+    void confirmLoad()
+    {
+        const int bank = bankBox.getSelectedItemIndex(), program = programBox.getSelectedItemIndex();
+        if (!juce::isPositiveAndBelow(bank, banks.size()) || !juce::isPositiveAndBelow(program, programPaths.size())) return;
+        const auto folder = banks[bank]; const auto path = programPaths[program];
+        juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::QuestionIcon, "Carregar preset Nord",
+            "O preset completo substitui as layers atuais. Salve sua performance antes de continuar.\n\nCarregar "
+                + programBox.getText() + "?", "Carregar", "Cancelar", this,
+            juce::ModalCallbackFunction::create([safe = juce::Component::SafePointer<NordBundleLibraryPanel>(this), folder, path](int answer)
+            {
+                if (safe == nullptr || answer == 0) return;
+                safe->loadButton.setEnabled(false); safe->importButton.setEnabled(false);
+                safe->status.setText("Preparando os timbres do preset...", juce::dontSendNotification);
+                safe->processor.loadNordBundleProgram(folder, path, [safe](juce::Result result, juce::String warnings)
+                {
+                    if (safe == nullptr) return;
+                    safe->importButton.setEnabled(true); safe->loadButton.setEnabled(true);
+                    safe->status.setText(result.wasOk() ? "Preset carregado. Salve como uma performance da Classic."
+                        : result.getErrorMessage(), juce::dontSendNotification);
+                    if (result.wasOk() && warnings.isNotEmpty())
+                        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                            "Adaptacoes do preset Nord", warnings);
+                });
+            }));
+    }
+    ClassicPlayerAudioProcessor& processor;
+    juce::ComboBox bankBox, programBox;
+    juce::Label bankLabel, programLabel, status;
+    juce::TextButton importButton, loadButton;
+    juce::Array<juce::File> banks;
+    juce::StringArray programPaths;
+    std::unique_ptr<juce::FileChooser> chooser;
+    juce::ThreadPool imports { 1 };
+};
+
+static void showNordBundleLibrary(ClassicPlayerAudioProcessor& processor, juce::Component* parent)
+{
+    juce::DialogWindow::LaunchOptions options;
+    options.content.setOwned(new NordBundleLibraryPanel(processor));
+    options.dialogTitle = "BANCOS NORD IMPORTADOS";
+    options.dialogBackgroundColour = juce::Colour(0xff15232b);
+    options.componentToCentreAround = parent;
+    options.useNativeTitleBar = true; options.resizable = false;
+    options.launchAsync();
+}
+
 class NordPianoImportPanel final : public juce::Component
 {
 public:
@@ -2935,7 +3077,7 @@ public:
 
         flatButton(importBundleButton);
         importBundleButton.setButtonText("IMPORTAR BUNDLE");
-        importBundleButton.setTooltip("Importa o .ns4pbundle para a biblioteca do usuario. Depois, abra BANCOS IMPORTADOS > banco > programa > som.");
+        importBundleButton.setTooltip("Importa o .ns4pbundle para a biblioteca do usuario. Depois, abra BANCOS IMPORTADOS e escolha o preset completo.");
         importBundleButton.onClick = [this]
         {
             chooser = std::make_unique<juce::FileChooser>("Escolha um bundle Nord",
@@ -2968,7 +3110,7 @@ public:
                                 juce::AlertWindow::showMessageBoxAsync(
                                     juce::MessageBoxIconType::InfoIcon,
                                     "Bundle Nord importado",
-                                    "Banco disponivel em BANCOS IMPORTADOS > banco > programa > som.\n\nPasta: "
+                                    "Banco disponivel em BANCOS IMPORTADOS. Escolha um preset completo.\n\nPasta: "
                                         + folder.getFullPathName());
                             }
                         });
@@ -2978,7 +3120,7 @@ public:
         addAndMakeVisible(importBundleButton);
         flatButton(bundleMenuButton);
         bundleMenuButton.setButtonText("BANCOS IMPORTADOS");
-        bundleMenuButton.setTooltip("Abre os sons dos bundles importados em banco > programa > som e carrega a escolha nesta layer.");
+        bundleMenuButton.setTooltip("Abre os bancos e presets importados. O preset completo cria suas partes em layers separadas.");
         bundleMenuButton.onClick = [this] { showBundleMenu(); };
         addAndMakeVisible(bundleMenuButton);
 
@@ -3031,72 +3173,8 @@ public:
 private:
     void showBundleMenu()
     {
-        struct Choice { juce::File file; juce::String category; };
-        std::vector<Choice> choices;
-        juce::PopupMenu menu;
-        for (const auto& bundle : processor.libraryNordBundles())
-        {
-            juce::PopupMenu programs;
-            const auto meta = juce::XmlDocument::parse(bundle.getChildFile("meta.xml"));
-            if (meta == nullptr) continue;
-            for (auto* program = meta->getFirstChildElement(); program != nullptr;
-                 program = program->getNextElement())
-            {
-                if (!program->hasTagName("file")
-                    || !program->getStringAttribute("name").endsWithIgnoreCase(".ns4p")) continue;
-                juce::PopupMenu sounds;
-                const auto count = juce::jlimit(0, 16, program->getIntAttribute("depCnt"));
-                for (int dep = 0; dep < count; ++dep)
-                {
-                    const auto path = program->getStringAttribute("dep" + juce::String(dep));
-                    const bool piano = path.endsWithIgnoreCase(".npno");
-                    const bool sample = path.endsWithIgnoreCase(".nsmp")
-                        || path.endsWithIgnoreCase(".nsmp3") || path.endsWithIgnoreCase(".nsmp4");
-                    if (isSampleLayer ? !sample : !piano) continue;
-                    const auto file = bundle.getChildFile(path);
-                    if (!file.isAChildOf(bundle) || !file.existsAsFile()) continue;
-                    const auto category = path.startsWithIgnoreCase("Piano/Upright/") ? "Upright Piano"
-                        : path.startsWithIgnoreCase("Piano/Grand/") ? "Piano Acustico"
-                        : path.startsWithIgnoreCase("Piano/Electric/") ? "Piano Eletrico"
-                        : path.containsIgnoreCase("DX") ? "Piano DX" : "Piano Eletrico";
-                    choices.push_back({ file, category });
-                    sounds.addItem(static_cast<int>(choices.size()), file.getFileNameWithoutExtension());
-                }
-                if (sounds.getNumItems() > 0)
-                    programs.addSubMenu(juce::File(program->getStringAttribute("name"))
-                        .getFileNameWithoutExtension(), sounds);
-            }
-            if (programs.getNumItems() > 0)
-                menu.addSubMenu(bundle.getFileName(), programs);
-        }
-        if (menu.getNumItems() == 0)
-        {
-            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
-                "Bancos Nord", "Nenhum programa com sons compatíveis foi importado.");
-            return;
-        }
-        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&bundleMenuButton),
-            [safe = juce::Component::SafePointer<NordPianoImportPanel>(this),
-             choices = std::move(choices)](int selected)
-            {
-                if (safe == nullptr || !juce::isPositiveAndBelow(selected - 1, (int) choices.size())) return;
-                const auto& choice = choices[(size_t) selected - 1];
-                auto result = safe->isSampleLayer
-                    ? safe->processor.loadNordSample(safe->index, choice.file)
-                    : safe->processor.loadNordPiano(safe->index, choice.file, choice.category);
-                if (result.failed())
-                    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                        "Falha ao carregar som Nord", result.getErrorMessage());
-                else
-                {
-                    if (!safe->isSampleLayer)
-                        safe->categoryBox.setSelectedId(
-                            ClassicPlayerAudioProcessor::soundFontCategories().indexOf(choice.category) + 1,
-                            juce::dontSendNotification);
-                    safe->rebuildLibrary();
-                    if (safe->instrumentChanged) safe->instrumentChanged();
-                }
-            });
+        showNordBundleLibrary(processor, this);
+        if (auto* parent = findParentComponentOfClass<juce::AlertWindow>()) parent->exitModalState(0);
     }
 
     void rebuildLibrary()
@@ -8657,7 +8735,19 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     saveProgramButton.onClick = [this] { saveProgram(); };
     exportProgramButton.onClick = [this] { exportProgram(); };
     deleteProgramButton.onClick = [this] { deleteSelectedProgram(); };
-    importProgramButton.onClick = [this] { importProgramFile(); };
+    importProgramButton.onClick = [this]
+    {
+        juce::PopupMenu menu;
+        menu.addItem(1, "IMPORTAR PERFORMANCE CLASSIC");
+        menu.addItem(2, "BANCOS NORD / IMPORTAR BUNDLE");
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&importProgramButton),
+            [safe = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this)](int choice)
+            {
+                if (safe == nullptr) return;
+                if (choice == 1) safe->importProgramFile();
+                else if (choice == 2) showNordBundleLibrary(safe->classicProcessor, safe);
+            });
+    };
     addAndMakeVisible(newProgramButton);
     addAndMakeVisible(saveProgramButton);
     addAndMakeVisible(exportProgramButton);
@@ -9742,6 +9832,15 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
         activeLiveSetSlot = -1;
         if (!showingLiveSet) showLiveSet(true);
         loadLiveSetSlot(requested % ClassicPlayerAudioProcessor::liveSetSlotsPerBank);
+    }
+    const auto bundleRevision = classicProcessor.nordBundleProgramRevision();
+    if (bundleRevision != nordBundleRevisionSeen)
+    {
+        nordBundleRevisionSeen = bundleRevision;
+        activeLiveSetSlot = -1; loadedLiveSetBank = -1;
+        for (auto& strip : strips) if (strip != nullptr) strip->prepareForNewLayer();
+        refreshProgramLibrary();
+        refreshAfterProgramLoad();
     }
     for (int i = 0; i < classicProcessor.activeLayerCount(); ++i)
     {

@@ -62,26 +62,16 @@ void NordSampleEngine::prepareLoopCrossfades(NordSampleDecoder::Instrument& inst
     }
 }
 
-juce::Result NordSampleEngine::loadSample(int layerIndex, const juce::File& file)
+juce::Result NordSampleEngine::loadSample(int layerIndex, const juce::File& file,
+    std::shared_ptr<NordSampleDecoder::Instrument> prepared)
 {
-    if (!juce::isPositiveAndBelow(layerIndex, layerCount) || !file.existsAsFile()
+    if (!juce::isPositiveAndBelow(layerIndex, layerCount) || (prepared == nullptr && !file.existsAsFile())
         || !file.hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
         return juce::Result::fail("Selecione uma amostra Nord (.nsmp, .nsmp3 ou .nsmp4).");
 
-    auto decoded = findCachedInstrument(file);
+    auto decoded = std::move(prepared);
     if (decoded == nullptr)
-    {
-        decoded = std::make_shared<NordSampleDecoder::Instrument>();
-        const auto result = file.hasFileExtension(".nsmp4")
-            ? NordSampleDecoder::decode(file, *decoded)
-            : NordLegacySampleDecoder::decodeFile(file, *decoded);
-        if (result.failed()) return result;
-
-        // Use the native NSMP4 loop points for every sound; a consistent, capped overlap
-        // softens the seam without relying on instrument-name heuristics.
-        prepareLoopCrossfades(*decoded);
-        decoded = cacheInstrument(file, std::move(decoded));
-    }
+        if (const auto result = prepareSample(file, decoded); result.failed()) return result;
 
     const juce::ScopedLock stateLock(lock);
     auto& layer = layers[(size_t) layerIndex];
@@ -108,20 +98,26 @@ juce::Result NordSampleEngine::loadSample(int layerIndex, const juce::File& file
     return juce::Result::ok();
 }
 
-juce::Result NordSampleEngine::preloadSample(const juce::File& file)
+juce::Result NordSampleEngine::prepareSample(const juce::File& file,
+    std::shared_ptr<NordSampleDecoder::Instrument>& decoded)
 {
     if (!file.existsAsFile() || !file.hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
-        return juce::Result::fail("Selecione uma amostra Nord válida.");
-    if (findCachedInstrument(file) != nullptr) return juce::Result::ok();
-
-    auto decoded = std::make_shared<NordSampleDecoder::Instrument>();
+        return juce::Result::fail("Selecione uma amostra Nord valida.");
+    decoded = findCachedInstrument(file);
+    if (decoded != nullptr) return juce::Result::ok();
+    decoded = std::make_shared<NordSampleDecoder::Instrument>();
     const auto result = file.hasFileExtension(".nsmp4")
-        ? NordSampleDecoder::decode(file, *decoded)
-        : NordLegacySampleDecoder::decodeFile(file, *decoded);
-    if (result.failed()) return result;
+        ? NordSampleDecoder::decode(file, *decoded) : NordLegacySampleDecoder::decodeFile(file, *decoded);
+    if (result.failed()) { decoded.reset(); return result; }
     prepareLoopCrossfades(*decoded);
-    cacheInstrument(file, std::move(decoded));
+    decoded = cacheInstrument(file, std::move(decoded));
     return juce::Result::ok();
+}
+
+juce::Result NordSampleEngine::preloadSample(const juce::File& file)
+{
+    std::shared_ptr<NordSampleDecoder::Instrument> decoded;
+    return prepareSample(file, decoded);
 }
 
 std::shared_ptr<NordSampleDecoder::Instrument> NordSampleEngine::findCachedInstrument(

@@ -1,0 +1,19 @@
+name: Validate Nord bundle reader
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/nord-bundle-loader-20261102]
+    paths: ['Source/**', 'tests/nord-program/**', '.github/workflows/test-nord-program.yml']
+permissions:
+  contents: read
+jobs:
+  parser:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-15, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S tests/nord-program -B build/nord-program
+      - run: cmake --build build/nord-program --config Release
+      - run: ctest --test-dir build/nord-program -C Release --output-on-failure

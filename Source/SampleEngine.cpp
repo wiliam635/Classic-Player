@@ -81,27 +81,17 @@ void SampleEngine::prepare(double sampleRate, int maximumBlockSize)
     }
 }
 
-juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
+juce::Result SampleEngine::loadSample(int layer, const juce::File& file,
+    std::shared_ptr<NordPianoDecoder::Instrument> prepared)
 {
-    if (!juce::isPositiveAndBelow(layer, layerCount) || !file.existsAsFile())
+    if (!juce::isPositiveAndBelow(layer, layerCount) || (prepared == nullptr && !file.existsAsFile()))
         return juce::Result::fail("Arquivo de sample invalido.");
 
     if (file.getFileExtension().equalsIgnoreCase(".npno"))
     {
-        auto decodedPiano = findCachedPiano(file);
+        auto decodedPiano = std::move(prepared);
         if (decodedPiano == nullptr)
-        {
-            decodedPiano = std::make_shared<NordPianoDecoder::Instrument>();
-            const auto result = NordPianoDecoder::decodeFile(file, *decodedPiano);
-            if (result.failed()) return result;
-
-            // Prepare fresh decoded PCM outside the audio lock/callback. The
-            // source NPNO stays untouched and voices need no extra fade buffers.
-            const auto finitePiano = file.getParentDirectory().getFileName() != "Organ";
-            if (finitePiano)
-                preparePianoLoops(*decodedPiano);
-            decodedPiano = cachePiano(file, std::move(decodedPiano));
-        }
+            if (const auto result = prepareSample(file, decodedPiano); result.failed()) return result;
 
         const juce::ScopedLock stateLock(lock);
         auto& destination = layers[(size_t) layer];
@@ -175,19 +165,25 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file)
     return juce::Result::ok();
 }
 
-juce::Result SampleEngine::preloadSample(const juce::File& file)
+juce::Result SampleEngine::prepareSample(const juce::File& file,
+    std::shared_ptr<NordPianoDecoder::Instrument>& decoded)
 {
     if (!file.existsAsFile() || !file.hasFileExtension(".npno"))
-        return juce::Result::fail("Selecione um piano Nord NPNO válido.");
-    if (findCachedPiano(file) != nullptr) return juce::Result::ok();
-
-    auto decoded = std::make_shared<NordPianoDecoder::Instrument>();
+        return juce::Result::fail("Selecione um piano Nord NPNO valido.");
+    decoded = findCachedPiano(file);
+    if (decoded != nullptr) return juce::Result::ok();
+    decoded = std::make_shared<NordPianoDecoder::Instrument>();
     if (const auto result = NordPianoDecoder::decodeFile(file, *decoded); result.failed())
-        return result;
-    if (file.getParentDirectory().getFileName() != "Organ")
-        preparePianoLoops(*decoded);
-    cachePiano(file, std::move(decoded));
+    { decoded.reset(); return result; }
+    if (file.getParentDirectory().getFileName() != "Organ") preparePianoLoops(*decoded);
+    decoded = cachePiano(file, std::move(decoded));
     return juce::Result::ok();
+}
+
+juce::Result SampleEngine::preloadSample(const juce::File& file)
+{
+    std::shared_ptr<NordPianoDecoder::Instrument> decoded;
+    return prepareSample(file, decoded);
 }
 
 std::shared_ptr<NordPianoDecoder::Instrument> SampleEngine::findCachedPiano(

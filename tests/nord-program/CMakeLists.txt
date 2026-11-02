@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.20)
+project(NordProgramRegression LANGUAGES CXX)
+enable_testing()
+add_executable(NordProgramRegression ../../Source/NordProgramRegressionTest.cpp)
+target_compile_features(NordProgramRegression PRIVATE cxx_std_17)
+add_test(NAME nord-program COMMAND NordProgramRegression)

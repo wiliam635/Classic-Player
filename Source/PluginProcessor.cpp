@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "NordBundleProgram.h"
 #include "OutputSafety.h"
 #include "AnalogBrowserPresets.h"
 #include "PluginEditor.h"
@@ -387,6 +388,8 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
 
 ClassicPlayerAudioProcessor::~ClassicPlayerAudioProcessor()
 {
+    nordBundleAlive->store(false);
+    nordBundlePool.removeAllJobs(true, -1);
     stopTimer();
     if (startupSettingsDirty.exchange(false)) saveStartupSettings();
     stopAudioRecording();
@@ -2872,19 +2875,22 @@ juce::Result ClassicPlayerAudioProcessor::importNordBundle(const juce::File& sou
     auto name = source.getFileNameWithoutExtension().retainCharacters(
         "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_()").trim();
     if (name.isEmpty()) name = "Banco Nord";
-    const auto destination = root.getChildFile(name);
-    if (destination.getChildFile("meta.xml").existsAsFile())
+    auto destination = root.getChildFile(name);
+    const auto fingerprint = source.getFullPathName() + "|" + juce::String(source.getSize()) + "|"
+                           + juce::String(source.getLastModificationTime().toMilliseconds());
+    if (destination.getChildFile("meta.xml").existsAsFile()
+        && destination.getChildFile(".bundle-source").loadFileAsString() == fingerprint)
     {
         importedFolder = destination;
         return juce::Result::ok();
     }
-    if (destination.exists())
-        return juce::Result::fail("Já existe uma pasta com este nome de banco Nord.");
+    if (destination.exists()) destination = root.getNonexistentChildFile(name, "", true);
 
     const auto temporary = root.getNonexistentChildFile(name + "-importando", "", true);
     if (auto result = temporary.createDirectory(); result.failed()) return result;
     juce::int64 totalBytes = 0;
-    int soundCount = 0;
+    int programCount = 0;
+    juce::StringArray extractedPaths;
     juce::Result outcome = juce::Result::ok();
     for (int index = 0; index < archive.getNumEntries(); ++index)
     {
@@ -2892,6 +2898,9 @@ juce::Result ClassicPlayerAudioProcessor::importNordBundle(const juce::File& sou
         if (entry == nullptr || entry->isSymbolicLink) { outcome = juce::Result::fail("Entrada inválida no bundle Nord."); break; }
         const auto path = entry->filename.replaceCharacter('\\', '/');
         if (path.endsWithChar('/')) continue;
+        if (extractedPaths.contains(path, true))
+        { outcome = juce::Result::fail("Bundle Nord contem caminhos duplicados."); break; }
+        extractedPaths.add(path);
         const auto segments = juce::StringArray::fromTokens(path, "/", "");
         if (path.startsWithChar('/') || path.containsChar(':') || segments.contains("..")
             || segments.contains(".") || path.isEmpty())
@@ -2901,7 +2910,9 @@ juce::Result ClassicPlayerAudioProcessor::importNordBundle(const juce::File& sou
                         || path.endsWithIgnoreCase(".nsmp3")
                         || path.endsWithIgnoreCase(".nsmp4");
         if (!sound && !path.endsWithIgnoreCase(".ns4p") && path != "meta.xml") continue;
-        if (entry->uncompressedSize < 0 || entry->uncompressedSize > 1'500'000'000LL
+        if ((path == "meta.xml" && entry->uncompressedSize > 2'000'000)
+            || (path.endsWithIgnoreCase(".ns4p") && entry->uncompressedSize > 65536)
+            || entry->uncompressedSize < 0 || entry->uncompressedSize > 1'500'000'000LL
             || totalBytes > 4'000'000'000LL - entry->uncompressedSize)
         { outcome = juce::Result::fail("Bundle Nord excede o limite seguro de extração."); break; }
         totalBytes += entry->uncompressedSize;
@@ -2916,21 +2927,160 @@ juce::Result ClassicPlayerAudioProcessor::importNordBundle(const juce::File& sou
         output->flush();
         if (output->getStatus().failed())
         { outcome = juce::Result::fail("Falha ao gravar um arquivo do bundle Nord."); break; }
-        if (sound) ++soundCount;
+        if (path.endsWithIgnoreCase(".ns4p")) ++programCount;
     }
-    if (outcome.wasOk() && soundCount == 0)
-        outcome = juce::Result::fail("Este bundle Nord não contém pianos nem amostras compatíveis.");
+    if (outcome.wasOk() && programCount == 0)
+        outcome = juce::Result::fail("Este bundle Nord nao contem programas NS4P.");
     if (outcome.wasOk())
     {
         const auto meta = juce::XmlDocument::parse(temporary.getChildFile("meta.xml"));
         if (meta == nullptr || !meta->hasTagName("bundle"))
             outcome = juce::Result::fail("O índice meta.xml do bundle Nord é inválido.");
     }
+    if (outcome.wasOk() && !temporary.getChildFile(".bundle-source").replaceWithText(fingerprint))
+        outcome = juce::Result::fail("Falha ao gravar o indice de origem do banco.");
     if (outcome.wasOk() && !temporary.moveFileTo(destination))
         outcome = juce::Result::fail("Não foi possível guardar o bundle Nord na biblioteca.");
     if (outcome.failed()) temporary.deleteRecursively();
     else importedFolder = destination;
     return outcome;
+}
+
+void ClassicPlayerAudioProcessor::loadNordBundleProgram(const juce::File& folder,
+    const juce::String& programPath, std::function<void(juce::Result, juce::String)> completion)
+{
+    if (nordBundleLoading.exchange(true))
+    {
+        if (completion) completion(juce::Result::fail("Aguarde o carregamento do preset Nord atual."), {});
+        return;
+    }
+    const auto alive = nordBundleAlive;
+    nordBundlePool.addJob([this, alive, folder, programPath, completion = std::move(completion)]() mutable
+    {
+        auto prepared = std::make_shared<NordBundleProgram::Prepared>();
+        auto result = juce::Result::ok();
+        try
+        {
+        result = NordBundleProgram::build(folder, programPath, *prepared);
+        std::map<std::string, std::shared_ptr<NordPianoDecoder::Instrument>> pianos;
+        std::map<std::string, std::shared_ptr<NordSampleDecoder::Instrument>> samples;
+        size_t decodedBytes = 0;
+        if (result.wasOk())
+        {
+            for (auto& part : prepared->parts)
+            {
+                if (!alive->load()) return;
+                const auto key = part.file.getFullPathName().toStdString();
+                if (part.source == NordBundleProgram::Source::piano)
+                {
+                    auto& instrument = pianos[key];
+                    if (instrument == nullptr)
+                    {
+                        result = sampleEngine.prepareSample(part.file, instrument);
+                        if (result.wasOk()) for (const auto& stroke : instrument->strokes)
+                            decodedBytes += stroke.interleavedPcm.size() * sizeof(int16_t);
+                    }
+                    part.piano = instrument;
+                }
+                else if (part.source == NordBundleProgram::Source::sample)
+                {
+                    auto& instrument = samples[key];
+                    if (instrument == nullptr)
+                    {
+                        result = nordSampleEngine.prepareSample(part.file, instrument);
+                        if (result.wasOk()) for (const auto& zone : instrument->zones)
+                            decodedBytes += zone.pcm.size() * sizeof(float);
+                    }
+                    part.sample = instrument;
+                }
+                if (result.failed())
+                { result = juce::Result::fail(part.name + ": " + result.getErrorMessage()); break; }
+                if (decodedBytes > 768u * 1024u * 1024u)
+                {
+                    result = juce::Result::fail("Este preset excede 768 MB de audio decodificado. Use um banco com pianos menores.");
+                    break;
+                }
+            }
+        }
+        }
+        catch (const std::exception&)
+        {
+            result = juce::Result::fail("Nao foi possivel preparar o preset Nord. Verifique a memoria disponivel e os arquivos do banco.");
+        }
+        // All expensive file reads and decompression are complete. Keep shared
+        // references alive through the swap even if the bounded caches evict them.
+        juce::MessageManager::callAsync([this, alive, prepared, result, programPath,
+            completion = std::move(completion)]() mutable
+        {
+            if (!alive->load()) return;
+            if (result.wasOk())
+            {
+                const juce::ScopedLock lock(getCallbackLock());
+                stopAllSoundsBeforeProgramChange();
+                for (int i = 0; i < Sf2Engine::layerCount; ++i)
+                {
+                    sampleEngine.unload(i); nordSampleEngine.unload(i);
+                    engine.unloadSoundFont(i); dx7Engine.unload(i);
+                    analogSynthEngine.unload(i); hammondEngine.unload(i); nordOrganEngine.unload(i);
+                    externalInstruments[size_t(i)].unload();
+                    nordLoaded[size_t(i)].store(false); savedPaths[size_t(i)].clear();
+                    auto routing = engine.getConfig(i); routing.enabled = false; engine.setConfig(i, routing);
+                    visualLayerOrder[size_t(i)].store(i);
+                }
+                activeLayers.store(0);
+                for (const auto& part : prepared->parts)
+                {
+                    using Source = NordBundleProgram::Source;
+                    const auto type = part.source == Source::piano ? LayerType::nord
+                        : part.source == Source::sample ? LayerType::nordSample
+                        : part.source == Source::analog ? LayerType::analog
+                        : part.source == Source::hammond ? LayerType::hammond : LayerType::nordOrgan;
+                    const int index = activeLayerCount();
+                    addLayer(type); // A Stage 4 program has at most seven parts; 16 slots are available.
+                    engine.setConfig(index, part.routing);
+                    if (part.source == Source::piano)
+                    {
+                        sampleEngine.loadSample(index, part.file, part.piano);
+                        nordLoaded[size_t(index)].store(true);
+                    }
+                    else if (part.source == Source::sample)
+                        nordSampleEngine.loadSample(index, part.file, part.sample);
+                    else if (part.source == Source::analog)
+                        analogLayerConfigs[size_t(index)] = part.analog;
+                    else if (part.source == Source::hammond)
+                        hammondLayerConfigs[size_t(index)] = part.hammond;
+                    else nordOrganLayerConfigs[size_t(index)] = part.organ;
+                    savedPaths[size_t(index)] = part.file.getFullPathName();
+                    const auto prefix = "layer" + juce::String(index+1);
+                    const auto set = [&](const char* key, float value)
+                    {
+                        const auto id = prefix + key;
+                        if (auto* parameter = parameters.getParameter(id))
+                        {
+                            const auto normalized = parameter->convertTo0to1(value);
+                            parameter->setValueNotifyingHost(normalized);
+                            if (auto* raw = parameters.getRawParameterValue(id))
+                                raw->store(parameter->convertFrom0to1(normalized));
+                        }
+                    };
+                    const auto& c = part.routing;
+                    set("Gain", c.gain * 100.0f); set("Attack", c.attack); set("Release", c.release);
+                    set("Decay", c.decayMs); set("SustainLevel", c.sustainLevel); set("Cutoff", c.cutoff);
+                    set("Reverb", c.reverb); set("ReverbSize", c.reverbSize);
+                    set("ReverbDamping", c.reverbDamping); set("ReverbWidth", c.reverbWidth);
+                    set("Comp", c.compressor); set("EqLow", c.eqLow); set("EqMid", c.eqMid); set("EqHigh", c.eqHigh);
+                    parameters.state.setProperty("nordBundlePart" + juce::String(index+1), part.name, nullptr);
+                }
+                parameters.state.setProperty("nordBundleBank", prepared->bank, nullptr);
+                parameters.state.setProperty("nordBundleProgram", prepared->name, nullptr);
+                parameters.state.setProperty("nordBundleProgramPath", programPath, nullptr);
+                currentSavedProgram = prepared->name;
+                nordBundleRevision.fetch_add(1);
+            }
+            nordBundleLoading.store(false);
+            if (completion) completion(result, prepared->warnings.joinIntoString("\n"));
+        });
+    });
 }
 
 juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordBundles() const
@@ -3725,7 +3875,8 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
         "analogFilterAttack", "analogFilterDecay", "analogFilterSustain", "analogFilterRelease",
         "analogLfoRate", "analogLfoPitch", "analogLfoFilter", "analogGlideMs",
         "analogMonophonic", "analogMixerDrive", "analogKeyTrack", "analogModWheelPitch",
-        "analogModWheelFilter", "analogAmpDecaySwitch", "analogBrowserCompatible"
+        "analogModWheelFilter", "analogAmpDecaySwitch", "analogBrowserCompatible",
+        "analogNordSynthType", "analogNordTimbre", "analogNordRetriggerSameNote"
     };
     for (const auto& prefix : oneBased)
         copyProperty(prefix + sourceOne, prefix + destinationOne);
@@ -3929,7 +4080,8 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("lowPassHz" + juce::String(i), config.lowPassHz, nullptr);
         state.setProperty("midiDevice" + juce::String(i), layerMidiDevice(i), nullptr);
         for(int child = state.getNumChildren(); --child >= 0;)
-            if(state.getChild(child).hasType("Hammond") && (int)state.getChild(child).getProperty("layer",-1)==i)
+            if((state.getChild(child).hasType("Hammond") || state.getChild(child).hasType("NordOrgan"))
+                && (int)state.getChild(child).getProperty("layer",-1)==i)
                 state.removeChild(child,nullptr);
         state.addChild(HammondEngine::save(hammondLayerConfigs[(size_t)i],i),-1,nullptr);
         state.addChild(NordOrganEngine::save(nordOrganLayerConfigs[(size_t)i], i), -1, nullptr);

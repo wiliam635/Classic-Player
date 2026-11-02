@@ -31,7 +31,9 @@ public:
     SampleEngine();
 
     void prepare(double sampleRate, int maximumBlockSize);
-    juce::Result loadSample(int layer, const juce::File& file);
+    juce::Result loadSample(int layer, const juce::File& file,
+                            std::shared_ptr<NordPianoDecoder::Instrument> prepared = {});
+    juce::Result prepareSample(const juce::File&, std::shared_ptr<NordPianoDecoder::Instrument>&);
     juce::Result preloadSample(const juce::File& file);
     void unload(int layer);
     void stopAllSounds();
