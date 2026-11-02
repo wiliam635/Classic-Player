@@ -36,7 +36,31 @@ int main(int argc, char** argv)
                       << ": " << error.toStdString() << "\n";
             return 3;
         }
-        std::cout << "Host descobriu e instanciou: " << description->name.toStdString() << "\n";
+        if (!instance->hasEditor())
+        {
+            std::cerr << "VST3 sem editor grafico: " << description->name.toStdString() << "\n";
+            return 4;
+        }
+        auto* editor = instance->createEditorIfNeeded();
+        if (editor == nullptr)
+        {
+            std::cerr << "Host nao conseguiu abrir o editor VST3\n";
+            return 5;
+        }
+        editor->setSize(1000, 650);
+        if (editor->getWidth() != 1000 || editor->getHeight() != 650)
+        {
+            std::cerr << "Editor VST3 nao aceitou redimensionamento\n";
+            return 6;
+        }
+        const auto snapshot = editor->createComponentSnapshot(editor->getLocalBounds());
+        if (!snapshot.isValid())
+        {
+            std::cerr << "Editor VST3 nao produziu imagem\n";
+            return 7;
+        }
+        std::cout << "Host abriu, redimensionou e desenhou: "
+                  << description->name.toStdString() << "\n";
     }
     return 0;
 }
