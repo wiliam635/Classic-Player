@@ -6202,7 +6202,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::initialiseComboBoxes()
             processor.selectLayerPreset(index, presets[(size_t) selected].bank,
                                          presets[(size_t) selected].program);
     };
-    refreshMidiDevices(processor.availableMidiDevices());
+    if (processor.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
+        refreshMidiDevices(processor.availableMidiDevices());
+    else
+        refreshMidiDevices({});
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::refreshMidiDevices(
@@ -9559,18 +9562,23 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
         }
         const auto modalWindowOpen = juce::ModalComponentManager::getInstance()
                                          ->getNumModalComponents() > 0;
-        const auto devices = classicProcessor.availableMidiDevices();
-        if (audioMidiSettingsOpen && !modalWindowOpen)
+        // A hosted plug-in receives MIDI from its DAW. CoreMIDI enumeration on
+        // the message thread can stall the plug-in editor while Ableton repaints.
+        if (classicProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
         {
-            audioMidiSettingsOpen = false;
-            classicProcessor.refreshStandaloneMidiInputs(devices);
+            const auto devices = classicProcessor.availableMidiDevices();
+            if (audioMidiSettingsOpen && !modalWindowOpen)
+            {
+                audioMidiSettingsOpen = false;
+                classicProcessor.refreshStandaloneMidiInputs(devices);
+            }
+            else if (!audioMidiSettingsOpen)
+            {
+                classicProcessor.refreshStandaloneMidiInputs(devices);
+            }
+            for (auto& strip : strips)
+                if (strip != nullptr) strip->refreshMidiDevices(devices);
         }
-        else if (!audioMidiSettingsOpen)
-        {
-            classicProcessor.refreshStandaloneMidiInputs(devices);
-        }
-        for (auto& strip : strips)
-            if (strip != nullptr) strip->refreshMidiDevices(devices);
     }
     masterMeter.setLevel(juce::jlimit(0.0f, 1.0f, classicProcessor.limiterOutputLevel()));
 
