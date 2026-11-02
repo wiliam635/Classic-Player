@@ -42,6 +42,7 @@ public:
         int octave = 0;
         int polyphony = polyphonyPerLayer;
         int velocityCurve = 0; // 0 linear, 1 soft, 2 hard, 3 calibrated (NPNO)
+        bool velocitySensitivityOff = false; // fixed MIDI velocity while preserving the saved curve
         // 4 selects the user curve. Keep the table when another mode is
         // selected so switching back does not erase the user's drawing.
         VelocityTable velocityTable = linearVelocityTable();
