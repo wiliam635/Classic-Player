@@ -6,6 +6,19 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# A macOS host and its plugin carry separate copies of JUCE. Hide implementation
+# symbols in BOTH C++ and Objective-C++ translation units: weak/coalesced JUCE
+# String/var helpers must never bind to another image's private empty string.
+# The VST3/AU entry points explicitly retain their default visibility.
+if(APPLE)
+    set(CMAKE_C_VISIBILITY_PRESET hidden)
+    set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+    set(CMAKE_OBJCXX_VISIBILITY_PRESET hidden)
+    set(CMAKE_VISIBILITY_INLINES_HIDDEN YES)
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX,OBJCXX>:-fvisibility=hidden>"
+                        "$<$<COMPILE_LANGUAGE:CXX,OBJCXX>:-fvisibility-inlines-hidden>")
+endif()
+
 # Keep Portuguese UI literals encoded as UTF-8 when compiling with MSVC.
 # Without this flag, the Windows code page can turn "ç/ã/é" into mojibake.
 if(MSVC)

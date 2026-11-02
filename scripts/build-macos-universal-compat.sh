@@ -79,6 +79,13 @@ configure_and_build() {
   done
   local vst3_host_test="$build/ClassicPlayerVst3HostSmokeTest_artefacts/Release/ClassicPlayerVst3HostSmokeTest"
   local vst3_bundle="$build/ClassicPlayer_artefacts/Release/VST3/Classic Player.vst3"
+  local exported_juce_symbols
+  exported_juce_symbols="$(/usr/bin/nm -gU "$vst3_bundle/Contents/MacOS/Classic Player" | /usr/bin/grep -E ' __Z[NKVTIS]*[0-9]*4juce' || true)"
+  if [[ -n "$exported_juce_symbols" ]]; then
+    echo "VST3 exports private JUCE symbols; unsafe to load beside another JUCE image" >&2
+    printf '%s\n' "$exported_juce_symbols" >&2
+    return 9
+  fi
   local host_status=0
   if [[ "$arch" == "x86_64" ]]; then
     arch -x86_64 "$vst3_host_test" "$vst3_bundle" || host_status=$?
