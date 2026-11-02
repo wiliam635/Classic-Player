@@ -79,8 +79,10 @@ configure_and_build() {
   done
   local vst3_host_test="$build/ClassicPlayerVst3HostSmokeTest_artefacts/Release/ClassicPlayerVst3HostSmokeTest"
   local vst3_bundle="$build/ClassicPlayer_artefacts/Release/VST3/Classic Player.vst3"
+  # CoreMIDI exports these two RTTI descriptors; they contain no executable
+  # String/var implementation. Keep rejecting all other JUCE exports.
   local exported_juce_symbols
-  exported_juce_symbols="$(/usr/bin/nm -gU "$vst3_bundle/Contents/MacOS/Classic Player" | /usr/bin/grep -E ' __Z[NKVTIS]*[0-9]*4juce' || true)"
+  exported_juce_symbols="$(/usr/bin/nm -gU "$vst3_bundle/Contents/MacOS/Classic Player" | /usr/bin/grep -E ' __Z[NKVTIS]*[0-9]*4juce' | /usr/bin/grep -Ev ' __ZT[IS]N4juce15CoreMidiHelpers25VirtualEndpointImplNativeE$' || true)"
   if [[ -n "$exported_juce_symbols" ]]; then
     echo "VST3 exports private JUCE symbols; unsafe to load beside another JUCE image" >&2
     printf '%s\n' "$exported_juce_symbols" >&2
