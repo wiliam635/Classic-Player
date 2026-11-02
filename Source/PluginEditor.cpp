@@ -2933,6 +2933,47 @@ public:
         };
         addAndMakeVisible(importButton);
 
+        flatButton(importBundleButton);
+        importBundleButton.setButtonText("IMPORTAR BUNDLE");
+        importBundleButton.setTooltip("Importar pianos, amostras e índice de programas de um .ns4pbundle");
+        importBundleButton.onClick = [this]
+        {
+            chooser = std::make_unique<juce::FileChooser>("Escolha um bundle Nord",
+                juce::File{}, "*.ns4pbundle;*.NS4PBUNDLE");
+            chooser->launchAsync(juce::FileBrowserComponent::openMode
+                                     | juce::FileBrowserComponent::canSelectFiles,
+                [safe = juce::Component::SafePointer<NordPianoImportPanel>(this)]
+                (const juce::FileChooser& picker)
+                {
+                    if (safe == nullptr) return;
+                    const auto source = picker.getResult();
+                    if (!source.existsAsFile()) return;
+                    safe->importBundleButton.setEnabled(false);
+                    safe->bundlePool.addJob([safe, source]
+                    {
+                        if (safe == nullptr) return;
+                        juce::File folder;
+                        const auto result = safe->processor.importNordBundle(source, folder);
+                        juce::MessageManager::callAsync([safe, result]
+                        {
+                            if (safe == nullptr) return;
+                            safe->importBundleButton.setEnabled(true);
+                            if (result.failed())
+                                juce::AlertWindow::showMessageBoxAsync(
+                                    juce::MessageBoxIconType::WarningIcon,
+                                    "Falha ao importar bundle Nord", result.getErrorMessage());
+                            else
+                                safe->rebuildLibrary();
+                        });
+                    });
+                });
+        };
+        addAndMakeVisible(importBundleButton);
+        flatButton(bundleMenuButton);
+        bundleMenuButton.setButtonText("BANCOS IMPORTADOS");
+        bundleMenuButton.onClick = [this] { showBundleMenu(); };
+        addAndMakeVisible(bundleMenuButton);
+
         flatButton(deleteButton);
         deleteButton.setButtonText(isSampleLayer ? "EXCLUIR NSMP" : "EXCLUIR NPNO");
         deleteButton.setTooltip(isSampleLayer ? "Excluir a amostra Nord selecionada da biblioteca"
@@ -2970,17 +3011,86 @@ public:
         auto row = area.removeFromTop(27);
         categoryLabel.setBounds(isSampleLayer ? juce::Rectangle<int>{} : row.removeFromLeft(100));
         categoryBox.setBounds(isSampleLayer ? juce::Rectangle<int>{} : row.removeFromLeft(260).reduced(2, 1));
-        importButton.setBounds(row.reduced(2, 1));
+        importButton.setBounds(row.removeFromLeft(row.getWidth() / 2).reduced(2, 1));
+        importBundleButton.setBounds(row.reduced(2, 1));
         row = area.removeFromTop(27);
         libraryLabel.setBounds(row.removeFromLeft(100));
-        if (isSampleLayer)
-            libraryBox.setBounds(row.removeFromLeft(row.getWidth() - 125).reduced(2, 1));
-        else
-            libraryBox.setBounds(row.removeFromLeft(row.getWidth() - 105).reduced(2, 1));
+        libraryBox.setBounds(row.removeFromLeft(juce::jmax(90, row.getWidth() - 230)).reduced(2, 1));
+        bundleMenuButton.setBounds(row.removeFromLeft(125).reduced(2, 1));
         deleteButton.setBounds(row.reduced(2, 1));
     }
 
 private:
+    void showBundleMenu()
+    {
+        struct Choice { juce::File file; juce::String category; };
+        std::vector<Choice> choices;
+        juce::PopupMenu menu;
+        for (const auto& bundle : processor.libraryNordBundles())
+        {
+            juce::PopupMenu programs;
+            const auto meta = juce::XmlDocument::parse(bundle.getChildFile("meta.xml"));
+            if (meta == nullptr) continue;
+            for (auto* program = meta->getFirstChildElement(); program != nullptr;
+                 program = program->getNextElement())
+            {
+                if (!program->hasTagName("file")
+                    || !program->getStringAttribute("name").endsWithIgnoreCase(".ns4p")) continue;
+                juce::PopupMenu sounds;
+                const auto count = juce::jlimit(0, 16, program->getIntAttribute("depCnt"));
+                for (int dep = 0; dep < count; ++dep)
+                {
+                    const auto path = program->getStringAttribute("dep" + juce::String(dep));
+                    const bool piano = path.endsWithIgnoreCase(".npno");
+                    const bool sample = path.endsWithIgnoreCase(".nsmp")
+                        || path.endsWithIgnoreCase(".nsmp3") || path.endsWithIgnoreCase(".nsmp4");
+                    if (isSampleLayer ? !sample : !piano) continue;
+                    const auto file = bundle.getChildFile(path);
+                    if (!file.isAChildOf(bundle) || !file.existsAsFile()) continue;
+                    const auto category = path.startsWithIgnoreCase("Piano/Upright/") ? "Upright Piano"
+                        : path.startsWithIgnoreCase("Piano/Grand/") ? "Piano Acustico"
+                        : path.startsWithIgnoreCase("Piano/Electric/") ? "Piano Eletrico"
+                        : path.containsIgnoreCase("DX") ? "Piano DX" : "Piano Eletrico";
+                    choices.push_back({ file, category });
+                    sounds.addItem(static_cast<int>(choices.size()), file.getFileNameWithoutExtension());
+                }
+                if (sounds.getNumItems() > 0)
+                    programs.addSubMenu(juce::File(program->getStringAttribute("name"))
+                        .getFileNameWithoutExtension(), sounds);
+            }
+            if (programs.getNumItems() > 0)
+                menu.addSubMenu(bundle.getFileName(), programs);
+        }
+        if (menu.getNumItems() == 0)
+        {
+            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                "Bancos Nord", "Nenhum programa com sons compatíveis foi importado.");
+            return;
+        }
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&bundleMenuButton),
+            [safe = juce::Component::SafePointer<NordPianoImportPanel>(this),
+             choices = std::move(choices)](int selected)
+            {
+                if (safe == nullptr || !juce::isPositiveAndBelow(selected - 1, (int) choices.size())) return;
+                const auto& choice = choices[(size_t) selected - 1];
+                auto result = safe->isSampleLayer
+                    ? safe->processor.loadNordSample(safe->index, choice.file)
+                    : safe->processor.loadNordPiano(safe->index, choice.file, choice.category);
+                if (result.failed())
+                    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                        "Falha ao carregar som Nord", result.getErrorMessage());
+                else
+                {
+                    if (!safe->isSampleLayer)
+                        safe->categoryBox.setSelectedId(
+                            ClassicPlayerAudioProcessor::soundFontCategories().indexOf(choice.category) + 1,
+                            juce::dontSendNotification);
+                    safe->rebuildLibrary();
+                    if (safe->instrumentChanged) safe->instrumentChanged();
+                }
+            });
+    }
+
     void rebuildLibrary()
     {
         libraryFiles = isSampleLayer ? processor.libraryNordSamples()
@@ -2999,7 +3109,11 @@ private:
             : (isSampleLayer ? "ESCOLHA O NSMP" : "ESCOLHA O NPNO"));
         if (selectedId > 0)
             libraryBox.setSelectedId(selectedId, juce::dontSendNotification);
-        deleteButton.setEnabled(selectedId > 0);
+        const auto selectedFile = juce::isPositiveAndBelow(selectedId - 1, libraryFiles.size())
+            ? libraryFiles.getReference(selectedId - 1) : juce::File{};
+        const auto bundleRoot = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+            .getChildFile("Classic Player").getChildFile("Nord Bundles");
+        deleteButton.setEnabled(selectedId > 0 && !selectedFile.isAChildOf(bundleRoot));
         deleteButton.setTooltip(isSampleLayer ? "Excluir a amostra Nord selecionada da biblioteca"
                                                : "Excluir o piano Nord selecionado da biblioteca");
     }
@@ -3011,9 +3125,10 @@ private:
     bool isSampleLayer = false;
     juce::Label categoryLabel, libraryLabel;
     juce::ComboBox categoryBox, libraryBox;
-    juce::TextButton importButton, deleteButton;
+    juce::TextButton importButton, importBundleButton, bundleMenuButton, deleteButton;
     juce::Array<juce::File> libraryFiles;
     std::unique_ptr<juce::FileChooser> chooser;
+    juce::ThreadPool bundlePool { 1 };
 };
 
 class NordPianoTimbrePanel final : public juce::Component, private juce::Timer
@@ -3022,43 +3137,6 @@ public:
     NordPianoTimbrePanel(ClassicPlayerAudioProcessor& p, int layer)
         : processor(p), index(layer)
     {
-        velocityLabel.setText("VELOCIDADE", juce::dontSendNotification);
-        velocityLabel.setColour(juce::Label::textColourId, juce::Colour(text));
-        velocityLabel.setFont(juce::FontOptions(10.0f, juce::Font::bold));
-        addAndMakeVisible(velocityLabel);
-        velocityBox.getProperties().set("uiDataItems", true);
-        velocityBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
-        velocityBox.setColour(juce::ComboBox::textColourId, juce::Colour(text));
-        velocityBox.addItem("VEL LINEAR", 1);
-        velocityBox.addItem("VEL SOFT", 2);
-        velocityBox.addItem("VEL HARD", 3);
-        velocityBox.addItem("VEL ADAPTATIVA", 4);
-        velocityBox.addItem("VEL EDITADA", 5);
-        velocityBox.setTooltip("Selecione ADAPTATIVA para calibrar com 5 toques suaves, medios e fortes.");
-        velocityBox.setSelectedId(processor.layerConfig(index).velocityCurve + 1,
-                                  juce::dontSendNotification);
-        velocityBox.onChange = [this]
-        {
-            auto config = processor.layerConfig(index);
-            if (velocityBox.getSelectedId() == 4 && !config.velocityCalibrationEnabled)
-            {
-                if (processor.nordVelocityCalibrationStage(index) < 0)
-                {
-                    const auto result = processor.beginNordVelocityCalibration(index);
-                    if (result.failed())
-                        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                            "Calibrar velocity", result.getErrorMessage());
-                }
-                return;
-            }
-            if (velocityBox.getSelectedId() != 4
-                && processor.nordVelocityCalibrationStage(index) >= 0)
-                processor.cancelNordVelocityCalibration(index);
-            config.velocityCurve = velocityBox.getSelectedId() - 1;
-            processor.setLayerConfig(index, config);
-        };
-        addAndMakeVisible(velocityBox);
-
         title.setText("EQ", juce::dontSendNotification);
         title.setColour(juce::Label::textColourId, juce::Colour(text));
         title.setFont(juce::FontOptions(11.0f, juce::Font::bold));
@@ -3169,9 +3247,6 @@ public:
     void resized() override
     {
         auto area = getLocalBounds();
-        auto velocityArea = area.removeFromLeft(108);
-        velocityLabel.setBounds(velocityArea.removeFromTop(15));
-        velocityBox.setBounds(velocityArea.reduced(2, 1));
         auto decayArea = area.removeFromRight(90);
         decayLabel.setBounds(decayArea.removeFromTop(15));
         decayBox.setBounds(decayArea.reduced(2, 1));
@@ -3197,9 +3272,6 @@ private:
     void timerCallback() override
     {
         const auto config = processor.layerConfig(index);
-        const auto calibrating = processor.nordVelocityCalibrationStage(index) >= 0;
-        velocityBox.setSelectedId(calibrating ? 4 : config.velocityCurve + 1,
-                                  juce::dontSendNotification);
         decayBox.setSelectedId(juce::roundToInt(config.pianoDecaySeconds),
                                juce::dontSendNotification);
         dynamicBox.setSelectedId(config.pianoDynamicCompression + 1, juce::dontSendNotification);
@@ -3229,8 +3301,8 @@ private:
 
     ClassicPlayerAudioProcessor& processor;
     int index;
-    juce::Label title, velocityLabel, decayLabel, dynamicLabel, softReleaseLabel, pedalResonanceLabel;
-    juce::ComboBox velocityBox, decayBox, dynamicBox;
+    juce::Label title, decayLabel, dynamicLabel, softReleaseLabel, pedalResonanceLabel;
+    juce::ComboBox decayBox, dynamicBox;
     juce::TextButton softReleaseButton, pedalResonanceButton;
     std::array<juce::TextButton, 4> modes;
 };
@@ -4727,6 +4799,19 @@ public:
             box->setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
             box->setColour(juce::ComboBox::textColourId, juce::Colour(text));
         }
+        velocityLabel.setVisible(false);
+        velocityBox.setVisible(false);
+        sensitivityButton.setButtonText("DESLIGAR SENSIBILIDADE");
+        sensitivityButton.setClickingTogglesState(true);
+        sensitivityButton.setTooltip("Usa velocity fixa de 100 e preserva a curva editada para reativar depois.");
+        sensitivityButton.onClick = [this]
+        {
+            auto config = processor.layerConfig(index);
+            config.velocitySensitivityOff = sensitivityButton.getToggleState();
+            processor.setLayerConfig(index, config);
+        };
+        flatButton(sensitivityButton);
+        addAndMakeVisible(sensitivityButton);
         addAndMakeVisible(importButton); addAndMakeVisible(deleteButton);
         addAndMakeVisible(splitControls);
         // Split boundaries are set by playing the desired notes; the old note
@@ -4762,6 +4847,12 @@ public:
             processor.setLayerMidiDevice(index, juce::isPositiveAndBelow(selected, devices.size())
                                                    ? devices.getReference(selected).identifier : juce::String{});
         };
+        flatButton(numaButton);
+        numaButton.setButtonText("NUMA");
+        numaButton.setTooltip("Escolha a porta CONTROLLER do Numa Compact 2 para Zone A/B; ajuste o canal MIDI da zona ao lado.");
+        numaButton.onClick = [this] { chooseNumaController(); };
+        addAndMakeVisible(numaButton);
+        numaButton.setVisible(processor.wrapperType == juce::AudioProcessor::wrapperType_Standalone);
         refreshFromProcessor();
         setSize(700, 430);
     }
@@ -4794,6 +4885,12 @@ public:
                 place(line.removeFromLeft(cell), sustainLabel, sustainBox);
                 place(line.removeFromLeft(cell), channelLabel, channelBox);
                 place(line, deviceLabel, deviceBox);
+                if (numaButton.isVisible())
+                {
+                    auto bounds = deviceBox.getBounds();
+                    numaButton.setBounds(bounds.removeFromRight(56).reduced(1, 1));
+                    deviceBox.setBounds(bounds);
+                }
                 continue;
             }
 
@@ -4802,13 +4899,35 @@ public:
             splitControls.setBounds(splitArea.reduced(1, 0));
         }
         auto velocityRow = area.removeFromTop(compactLayout ? 38 : 44);
-        place(velocityRow.removeFromLeft(cell), velocityLabel, velocityBox);
+        sensitivityButton.setBounds(velocityRow.removeFromLeft(cell).reduced(2, 3));
         place(velocityRow.removeFromLeft(cell), polyphonyLabel, polyphonyBox);
         place(velocityRow.removeFromLeft(cell), velocityLowLabel, velocityLowBox);
         place(velocityRow, velocityHighLabel, velocityHighBox);
     }
 
 private:
+    void chooseNumaController()
+    {
+        const auto devices = processor.availableMidiDevices();
+        juce::PopupMenu menu;
+        for (int i = 0; i < devices.size(); ++i)
+            if (devices.getReference(i).name.containsIgnoreCase("numa"))
+                menu.addItem(i + 1, devices.getReference(i).name);
+        if (menu.getNumItems() == 0)
+        {
+            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                "Numa Compact 2", "Conecte o teclado por USB. Selecione a porta CONTROLLER para as zonas MIDI A/B.");
+            return;
+        }
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&numaButton),
+            [safe = juce::Component::SafePointer<Sf2EditorPanel>(this), devices](int choice)
+            {
+                if (safe == nullptr || !juce::isPositiveAndBelow(choice - 1, devices.size())) return;
+                safe->processor.setLayerMidiDevice(safe->index,
+                    devices.getReference(choice - 1).identifier);
+                safe->refreshFromProcessor();
+            });
+    }
     void selectCurrentCategory()
     {
         const auto path = processor.soundFontPath(index);
@@ -4879,6 +4998,7 @@ private:
         lowNoteBox.setSelectedId(config.lowNote + 1, juce::dontSendNotification);
         highNoteBox.setSelectedId(config.highNote + 1, juce::dontSendNotification);
         velocityBox.setSelectedId(config.velocityCurve + 1, juce::dontSendNotification);
+        sensitivityButton.setToggleState(config.velocitySensitivityOff, juce::dontSendNotification);
         polyphonyBox.setSelectedId(config.polyphony, juce::dontSendNotification);
         velocityLowBox.setSelectedId(config.lowVelocity, juce::dontSendNotification);
         velocityHighBox.setSelectedId(config.highVelocity, juce::dontSendNotification);
@@ -4914,6 +5034,7 @@ private:
     bool compactLayout = false;
     juce::Label categoryLabel, libraryLabel, presetLabel, modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel, velocityLabel, polyphonyLabel,
                 velocityLowLabel, velocityHighLabel;
+    juce::TextButton sensitivityButton, numaButton;
     juce::ComboBox categoryBox, libraryBox, presetBox, modeBox, sustainBox, channelBox, deviceBox, octaveBox, lowNoteBox, highNoteBox,
                    velocityBox, polyphonyBox, velocityLowBox, velocityHighBox;
     SplitLearnControls splitControls;
@@ -4929,7 +5050,9 @@ public:
         : processor(p), index(layer), splitControls(p, layer, lowNoteBox, highNoteBox)
     {
         const auto layerType = processor.layerType(index);
-        velocityHandledExternally = layerType == ClassicPlayerAudioProcessor::LayerType::nord;
+        velocityHandledExternally = layerType == ClassicPlayerAudioProcessor::LayerType::nord
+            || layerType == ClassicPlayerAudioProcessor::LayerType::nordSample
+            || layerType == ClassicPlayerAudioProcessor::LayerType::dx7;
         velocityDisabled = layerType == ClassicPlayerAudioProcessor::LayerType::hammond;
         addAndMakeVisible(splitControls);
         deviceBox.getProperties().set("uiDataItems", true);
@@ -4962,6 +5085,18 @@ public:
             velocityLabel.setVisible(false);
             velocityBox.setVisible(false);
         }
+        sensitivityButton.setButtonText("DESLIGAR SENSIBILIDADE");
+        sensitivityButton.setClickingTogglesState(true);
+        sensitivityButton.setTooltip("Toca cada nota com velocity fixa de 100; a curva editada fica salva para quando reativar.");
+        sensitivityButton.onClick = [this]
+        {
+            auto config = processor.layerConfig(index);
+            config.velocitySensitivityOff = sensitivityButton.getToggleState();
+            processor.setLayerConfig(index, config);
+        };
+        flatButton(sensitivityButton);
+        addAndMakeVisible(sensitivityButton);
+        sensitivityButton.setVisible(!velocityDisabled);
         modeBox.addItem("POLI", 1); modeBox.addItem("MONO / LEGATO", 2); modeBox.addItem("PORTAMENTO", 3);
         sustainBox.addItem("SUSTAIN ON", 1); sustainBox.addItem("SUSTAIN OFF", 2);
         channelBox.addItem("MIDI OMNI", 1);
@@ -4998,6 +5133,12 @@ public:
             processor.setLayerMidiDevice(index, juce::isPositiveAndBelow(selected, devices.size())
                                                    ? devices.getReference(selected).identifier : juce::String{});
         };
+        flatButton(numaButton);
+        numaButton.setButtonText("NUMA");
+        numaButton.setTooltip("Escolha a porta CONTROLLER do Numa Compact 2 para Zone A/B; configure o canal MIDI da zona.");
+        numaButton.onClick = [this] { chooseNumaController(); };
+        addAndMakeVisible(numaButton);
+        numaButton.setVisible(processor.wrapperType == juce::AudioProcessor::wrapperType_Standalone);
         const auto isNord = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord;
         calibrationButton.onClick = [this] { handleCalibrationButton(); };
         calibrationCancelButton.onClick = [this]
@@ -5058,7 +5199,7 @@ public:
             compactPlace(second.removeFromLeft(cellWidth), octaveLabel, octaveBox);
             splitControls.setBounds(second.reduced(2, 0));
             auto third = area;
-            velocityLabel.setBounds({}); velocityBox.setBounds({});
+            velocityLabel.setBounds({}); velocityBox.setBounds({}); sensitivityButton.setBounds({});
             compactPlace(third.removeFromLeft(cellWidth), polyphonyLabel, polyphonyBox);
             compactPlace(third.removeFromLeft(cellWidth), velocityLowLabel, velocityLowBox);
             compactPlace(third, velocityHighLabel, velocityHighBox);
@@ -5069,19 +5210,25 @@ public:
         place(modeRow.removeFromLeft(cellWidth), sustainLabel, sustainBox);
         place(modeRow.removeFromLeft(cellWidth), channelLabel, channelBox);
         place(modeRow, deviceLabel, deviceBox);
+        if (numaButton.isVisible())
+        {
+            auto bounds = deviceBox.getBounds();
+            numaButton.setBounds(bounds.removeFromRight(56).reduced(1, 1));
+            deviceBox.setBounds(bounds);
+        }
 
         auto splitRow = area.removeFromTop(60);
         place(splitRow.removeFromLeft(cellWidth), octaveLabel, octaveBox);
         auto splitArea = splitRow.removeFromLeft(cellWidth * 3);
         splitControls.setBounds(splitArea.reduced(1, 0));
         auto velocityRow = area;
-        if (!velocityHandledExternally && !velocityDisabled)
-            place(velocityRow.removeFromLeft(cellWidth), velocityLabel, velocityBox);
-        else
+        if (!velocityDisabled)
         {
-            velocityLabel.setBounds({});
-            velocityBox.setBounds({});
+            auto sensitivityArea = velocityRow.removeFromLeft(cellWidth);
+            sensitivityButton.setBounds(sensitivityArea.reduced(2, 2));
         }
+        velocityLabel.setBounds({});
+        velocityBox.setBounds({});
         place(velocityRow.removeFromLeft(cellWidth), polyphonyLabel, polyphonyBox);
         place(velocityRow.removeFromLeft(cellWidth), velocityLowLabel, velocityLowBox);
         place(velocityRow, velocityHighLabel, velocityHighBox);
@@ -5094,6 +5241,28 @@ public:
     }
 
 private:
+    void chooseNumaController()
+    {
+        const auto devices = processor.availableMidiDevices();
+        juce::PopupMenu menu;
+        for (int i = 0; i < devices.size(); ++i)
+            if (devices.getReference(i).name.containsIgnoreCase("numa"))
+                menu.addItem(i + 1, devices.getReference(i).name);
+        if (menu.getNumItems() == 0)
+        {
+            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                "Numa Compact 2", "Conecte o teclado por USB. Selecione a porta CONTROLLER para as zonas MIDI A/B.");
+            return;
+        }
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&numaButton),
+            [safe = juce::Component::SafePointer<LayerRoutingEditorPanel>(this), devices](int choice)
+            {
+                if (safe == nullptr || !juce::isPositiveAndBelow(choice - 1, devices.size())) return;
+                safe->processor.setLayerMidiDevice(safe->index,
+                    devices.getReference(choice - 1).identifier);
+                safe->refresh();
+            });
+    }
     void timerCallback() override { refreshCalibrationControls(); }
 
     void handleCalibrationButton()
@@ -5163,6 +5332,7 @@ private:
             processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord
                 && config.velocityCalibrationEnabled);
         velocityBox.setSelectedId(config.velocityCurve + 1, juce::dontSendNotification);
+        sensitivityButton.setToggleState(config.velocitySensitivityOff, juce::dontSendNotification);
         polyphonyBox.setSelectedId(config.polyphony, juce::dontSendNotification);
         velocityLowBox.setSelectedId(config.lowVelocity, juce::dontSendNotification);
         velocityHighBox.setSelectedId(config.highVelocity, juce::dontSendNotification);
@@ -5206,6 +5376,7 @@ private:
     bool velocityDisabled = false;
     juce::Label modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel,
                 velocityLabel, polyphonyLabel, velocityLowLabel, velocityHighLabel;
+    juce::TextButton sensitivityButton, numaButton;
     juce::ComboBox modeBox, sustainBox, channelBox, deviceBox, octaveBox,
                    lowNoteBox, highNoteBox, velocityBox, polyphonyBox,
                    velocityLowBox, velocityHighBox;
