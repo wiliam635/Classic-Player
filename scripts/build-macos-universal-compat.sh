@@ -79,10 +79,30 @@ configure_and_build() {
   done
   local vst3_host_test="$build/ClassicPlayerVst3HostSmokeTest_artefacts/Release/ClassicPlayerVst3HostSmokeTest"
   local vst3_bundle="$build/ClassicPlayer_artefacts/Release/VST3/Classic Player.vst3"
+  local host_status=0
   if [[ "$arch" == "x86_64" ]]; then
-    arch -x86_64 "$vst3_host_test" "$vst3_bundle"
+    arch -x86_64 "$vst3_host_test" "$vst3_bundle" || host_status=$?
   else
-    "$vst3_host_test" "$vst3_bundle"
+    "$vst3_host_test" "$vst3_bundle" || host_status=$?
+  fi
+  if [[ "$host_status" -ne 0 ]]; then
+    # Preserve the original failure and collect the native abort stack.
+    # No failed graphical check is converted into a successful build.
+    local diagnostics="$ROOT/build/vst3-diagnostics-$arch"
+    mkdir -p "$diagnostics"
+    /usr/bin/xcrun lldb --batch --arch "$arch" \
+      -o 'settings set target.disable-aslr false' \
+      -o run -o 'thread backtrace all' -o 'image list' \
+      -- "$vst3_host_test" "$vst3_bundle" \
+      > "$diagnostics/lldb.txt" 2>&1 || true
+    cat "$diagnostics/lldb.txt"
+    for report in "$HOME"/Library/Logs/DiagnosticReports/*; do
+      [[ -f "$report" ]] || continue
+      case "$(basename "$report")" in
+        *ClassicPlayer*|*vst3*) cp "$report" "$diagnostics/" ;;
+      esac
+    done
+    return "$host_status"
   fi
 }
 
