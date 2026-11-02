@@ -88,6 +88,14 @@ jobs:
           test -f "outputs/installers/Classic-Player-${DOWNLOAD_VERSION}-macOS-High-Sierra-a-Tahoe-Universal.pkg"
           test -f "outputs/installers/Classic-Player-${DOWNLOAD_VERSION}-macOS-High-Sierra-a-Tahoe-Universal-App.zip"
 
+      - name: Preserve VST3 graphical test image
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vst3-editor-snapshot-${{ runner.os }}
+          path: '**/vst3-host-editor.png'
+          if-no-files-found: ignore
+
       - name: Upload macOS installer
         uses: actions/upload-artifact@v4
         with:

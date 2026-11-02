@@ -150,6 +150,14 @@ jobs:
           if (-not (Test-Path $installer)) { throw "Instalador não foi criado." }
           Get-FileHash -Algorithm SHA256 $installer
 
+      - name: Preserve VST3 graphical test image
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vst3-editor-snapshot-${{ runner.os }}
+          path: '**/vst3-host-editor.png'
+          if-no-files-found: ignore
+
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:

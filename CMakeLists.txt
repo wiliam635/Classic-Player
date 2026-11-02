@@ -304,7 +304,14 @@ if(CLASSIC_PLAYER_BUILD_TESTS)
     add_test(NAME nord-sample-regression COMMAND ClassicPlayerNordSampleTest)
     if(TARGET ClassicPlayer_VST3)
         juce_add_console_app(ClassicPlayerVst3HostSmokeTest PRODUCT_NAME "Classic Player VST3 Host Smoke Test")
-        target_sources(ClassicPlayerVst3HostSmokeTest PRIVATE tools/vst3_host_smoke_test.cpp)
+        if(APPLE)
+            enable_language(OBJCXX)
+            set_target_properties(ClassicPlayerVst3HostSmokeTest PROPERTIES
+                OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED YES)
+            target_sources(ClassicPlayerVst3HostSmokeTest PRIVATE tools/vst3_host_smoke_test.mm)
+        else()
+            target_sources(ClassicPlayerVst3HostSmokeTest PRIVATE tools/vst3_host_smoke_test.cpp)
+        endif()
         target_compile_definitions(ClassicPlayerVst3HostSmokeTest PRIVATE
             JUCE_PLUGINHOST_VST3=1 JUCE_VST3_CAN_REPLACE_VST2=0)
         target_link_libraries(ClassicPlayerVst3HostSmokeTest PRIVATE
