@@ -645,6 +645,14 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 releasePianoVoice(voice, routing.release, routing.pianoSoftRelease);
     }
 
+    const auto startReleaseReflection = [&] (int note, int channel, float velocity)
+    {
+        if (!layer.pianoLoaded || !routing.pianoPedalResonance || velocity <= 0.0f) return;
+        const auto stroke = findPianoStroke(layer, note, velocity, 2);
+        if (stroke >= 0)
+            startPianoVoice(layer, stroke, note, channel, velocity * 0.5f, routing);
+    };
+
     const auto processEvent = [&] (const juce::MidiMessage& message)
     {
         if (routing.midiChannel > 0 && message.getChannel() != routing.midiChannel)
@@ -678,9 +686,17 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             const auto isDown = routing.sustainEnabled && message.getControllerValue() >= 64;
             layer.sustainDown[(size_t) channel - 1] = isDown;
             if (wasDown && !isDown)
+            {
+                std::array<float, 128> releasedVelocities {};
                 for (auto& voice : layer.voices)
                     if (voice.active && voice.waitingForSustain && voice.channel == channel)
+                    {
+                        releasedVelocities[(size_t) voice.note] = voice.velocity;
                         releasePianoVoice(voice, routing.release, routing.pianoSoftRelease);
+                    }
+                for (int note = 0; note < 128; ++note)
+                    startReleaseReflection(note, channel, releasedVelocities[(size_t) note]);
+            }
             return;
         }
 
@@ -690,12 +706,13 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             const auto inputNote = message.getNoteNumber();
             if (inputNote < routing.lowNote || inputNote > routing.highNote) return;
             const auto note = juce::jlimit(0, 127, inputNote + routing.octave * 12);
-            auto velocity = juce::jlimit(0.0f, 1.0f, message.getFloatVelocity());
-            if (routing.velocityCurve == 3 && routing.velocityCalibrationEnabled)
+            auto velocity = routing.velocitySensitivityOff ? (100.0f / 127.0f)
+                : juce::jlimit(0.0f, 1.0f, message.getFloatVelocity());
+            if (!routing.velocitySensitivityOff && routing.velocityCurve == 3 && routing.velocityCalibrationEnabled)
                 velocity = calibratedVelocity(velocity, routing);
-            else if (routing.velocityCurve == 1) velocity = std::sqrt(velocity);
-            else if (routing.velocityCurve == 2) velocity *= velocity;
-            else if (routing.velocityCurve == 4)
+            else if (!routing.velocitySensitivityOff && routing.velocityCurve == 1) velocity = std::sqrt(velocity);
+            else if (!routing.velocitySensitivityOff && routing.velocityCurve == 2) velocity *= velocity;
+            else if (!routing.velocitySensitivityOff && routing.velocityCurve == 4)
                 velocity = routing.velocityTable[(size_t) message.getVelocity()] / 127.0f;
             if (layer.pianoLoaded)
             {
@@ -731,10 +748,15 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 }
                 else
                 {
+                    float releasedVelocity = 0.0f;
                     for (auto& voice : layer.voices)
                         if (voice.active && voice.sampleIndex >= 0 && !voice.pianoRelease
                             && voice.note == note && voice.channel == channel)
+                        {
+                            releasedVelocity = voice.velocity;
                             releasePianoVoice(voice, routing.release, routing.pianoSoftRelease);
+                        }
+                    startReleaseReflection(note, channel, releasedVelocity);
                 }
             }
             else
