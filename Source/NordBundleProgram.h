@@ -82,12 +82,15 @@ inline void routing(const NordProgram::Program& p, const std::string& prefix,
         boundaries[i+1] = points[juce::jlimit(0, 10, int(p.get(std::string("common.splitPos") + suffix[i], 4)))];
     // Physical split points retain their positions even when one split is off;
     // zoneMask already merges inactive zones.
-    if (!(boundaries[1] <= boundaries[2] && boundaries[2] <= boundaries[3]))
-    { warnings.addIfNotAlreadyThere("Pontos de split fora de ordem: zona expandida para o teclado inteiro."); return; }
     int first = 0, last = 3;
     while (first < 3 && (mask & (1u << first)) == 0) ++first;
     while (last > first && (mask & (1u << last)) == 0) --last;
     c.lowNote = boundaries[first]; c.highNote = boundaries[last+1] - 1;
+    if (c.lowNote > c.highNote)
+    {
+        c.lowNote = 0; c.highNote = 127;
+        warnings.addIfNotAlreadyThere("Pontos de split fora de ordem: zona expandida para o teclado inteiro.");
+    }
     for (const auto* s : suffix)
         if (p.get(std::string("common.splitWidth") + s) != 0)
             warnings.addIfNotAlreadyThere("Crossfade de split adaptado para limites de notas da Classic.");
@@ -195,6 +198,11 @@ inline juce::Result build(const juce::File& folder, const juce::String& path, Pr
             Part part; part.name = juce::String(section) + " " + juce::String::charToString(letter);
             routing(p, prefix, part.routing, out.warnings);
             part.routing.gain = percent(p.get(section + ".layerLevel" + token + letter, 100)) / 100.0f;
+            if (part.routing.gain <= 0.0f)
+            {
+                out.warnings.addIfNotAlreadyThere("Partes com volume zero nao carregadas; morphs de volume nao sao aplicados.");
+                continue;
+            }
             if (group == 1)
             {
                 const auto sound = prefix + "Sound";
@@ -229,6 +237,7 @@ inline juce::Result build(const juce::File& folder, const juce::String& path, Pr
             else if (group == 1)
             {
                 part.source = Source::analog;
+                part.routing.polyphony = 64;
                 out.warnings.addIfNotAlreadyThere("Sintetizadores Nord adaptados ao motor Moog da Classic (aproximacao sonora).");
                 auto& a = part.analog;
                 const auto sound = prefix + "Sound";
@@ -261,6 +270,7 @@ inline juce::Result build(const juce::File& folder, const juce::String& path, Pr
             }
             else
             {
+                part.routing.polyphony = 64;
                 const auto model = juce::jlimit(0, 5, int(p.get(prefix + ".model")));
                 part.source = model == 0 || model == 5 ? Source::hammond : Source::organ;
                 part.organ.model = static_cast<NordOrganEngine::Model>(model);

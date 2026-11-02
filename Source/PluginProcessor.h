@@ -263,6 +263,7 @@ public:
     juce::MidiKeyboardState keyboardState;
 
 private:
+    mutable juce::CriticalSection nordBundleImportLock;
     juce::ThreadPool nordBundlePool { 1 };
     std::shared_ptr<std::atomic<bool>> nordBundleAlive = std::make_shared<std::atomic<bool>>(true);
     std::atomic<bool> nordBundleLoading { false };

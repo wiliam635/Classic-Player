@@ -2862,6 +2862,7 @@ juce::Result ClassicPlayerAudioProcessor::importNordPiano(const juce::File& sour
 juce::Result ClassicPlayerAudioProcessor::importNordBundle(const juce::File& source,
                                                             juce::File& importedFolder) const
 {
+    const juce::ScopedLock importLock(nordBundleImportLock);
     if (!source.existsAsFile() || !source.hasFileExtension(".ns4pbundle"))
         return juce::Result::fail("Selecione um banco Nord .ns4pbundle.");
 
@@ -2886,7 +2887,7 @@ juce::Result ClassicPlayerAudioProcessor::importNordBundle(const juce::File& sou
     }
     if (destination.exists()) destination = root.getNonexistentChildFile(name, "", true);
 
-    const auto temporary = root.getNonexistentChildFile(name + "-importando", "", true);
+    const auto temporary = root.getNonexistentChildFile(".importando-" + name, "", true);
     if (auto result = temporary.createDirectory(); result.failed()) return result;
     juce::int64 totalBytes = 0;
     int programCount = 0;
@@ -3090,7 +3091,7 @@ juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordBundles() const
         result, juce::File::findDirectories, false);
     result.removeIf([](const juce::File& folder)
     {
-        return !folder.getChildFile("meta.xml").existsAsFile();
+        return folder.getFileName().startsWithChar('.') || !folder.getChildFile("meta.xml").existsAsFile();
     });
     std::sort(result.begin(), result.end(), [](const auto& a, const auto& b)
     {
