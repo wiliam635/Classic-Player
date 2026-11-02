@@ -285,11 +285,12 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
     {
         const auto cc = message.getControllerNumber();
         const auto value = message.getControllerValue();
-        // A learned Mute CC belongs to the mixer. In particular, CC7/CC11
-        // must not also silence FluidSynth's channel volume/expression.
-        for (const auto& target : layers)
-            if (cc == target.config.muteCC
-                && (target.config.muteCCChannel < 0 || channel == target.config.muteCCChannel)) return;
+        // Mixer faders own channel volume and expression. Forwarding CC7/CC11
+        // to FluidSynth lets one physical fader silence unrelated SF2 layers
+        // that happen to listen on the same MIDI channel.
+        if (cc == 7 || cc == 11) return;
+        if (cc == layer.config.muteCC
+            && (layer.config.muteCCChannel < 0 || channel == layer.config.muteCCChannel)) return;
         if (cc == 64)
         {
             if (!layer.config.sustainEnabled) return;
@@ -354,10 +355,11 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
     if (message.isNoteOn())
     {
         if (!layer.config.acceptsVelocity((int) message.getVelocity())) return;
-        auto velocity = juce::jlimit(0.0f, 1.0f, message.getFloatVelocity());
-        if (layer.config.velocityCurve == 1) velocity = std::sqrt(velocity);
-        else if (layer.config.velocityCurve == 2) velocity *= velocity;
-        else if (layer.config.velocityCurve == 4)
+        auto velocity = layer.config.velocitySensitivityOff ? (100.0f / 127.0f)
+            : juce::jlimit(0.0f, 1.0f, message.getFloatVelocity());
+        if (!layer.config.velocitySensitivityOff && layer.config.velocityCurve == 1) velocity = std::sqrt(velocity);
+        else if (!layer.config.velocitySensitivityOff && layer.config.velocityCurve == 2) velocity *= velocity;
+        else if (!layer.config.velocitySensitivityOff && layer.config.velocityCurve == 4)
             velocity = layer.config.velocityTable[(size_t) message.getVelocity()] / 127.0f;
 
         if (!monoMode)
