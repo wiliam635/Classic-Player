@@ -365,6 +365,7 @@ bool Dx7Engine::accepts(const Sf2Engine::LayerConfig& config, const juce::MidiMe
 
 float Dx7Engine::shapedVelocity(const Sf2Engine::LayerConfig& config, float velocity)
 {
+    if (config.velocitySensitivityOff) return 100.0f / 127.0f;
     if (config.velocityCurve == 1) velocity = std::sqrt(velocity);
     else if (config.velocityCurve == 2) velocity *= velocity;
     else if (config.velocityCurve == 4)
