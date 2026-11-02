@@ -5420,7 +5420,7 @@ private:
         config.lowVelocity = juce::jlimit(1, 127, velocityLowBox.getSelectedId());
         config.highVelocity = juce::jlimit(config.lowVelocity, 127, velocityHighBox.getSelectedId());
         velocityHighBox.setSelectedId(config.highVelocity, juce::dontSendNotification);
-        if (!velocityHandledExternally && !velocityDisabled)
+        if (!velocityHandledExternally && !config.velocitySensitivityOff)
             config.velocityCurve = juce::jlimit(0, 4,
                                                 velocityBox.getSelectedId() - 1);
         processor.setLayerConfig(index, config);
