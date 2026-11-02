@@ -55,12 +55,13 @@ configure_and_build() {
     ClassicPlayerVst3HostSmokeTest ClassicPlayerChordDetectorTest
     ClassicPlayerUpdateCheckerTest ClassicPlayerHammondTest
     ClassicPlayerAudioRegressionTest ClassicPlayerSampleEngineTest
+    ClassicPlayerNordSampleTest ClassicPlayerMasterMidiTest
   )
   if [[ "$arch" == "arm64" ]]; then
     targets+=(ClassicPlayerAuHostSmokeTest)
   fi
   "$CMAKE" --build "$build" --target "${targets[@]}" --parallel 4
-  for test_name in ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest ClassicPlayerAudioRegressionTest ClassicPlayerSampleEngineTest; do
+  for test_name in ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest ClassicPlayerAudioRegressionTest ClassicPlayerSampleEngineTest ClassicPlayerNordSampleTest ClassicPlayerMasterMidiTest; do
     local test_executable="$build/${test_name}_artefacts/Release/$test_name"
     if [[ "$arch" == "x86_64" ]]; then
       arch -x86_64 "$test_executable"

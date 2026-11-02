@@ -29,6 +29,10 @@ public:
         int midiChannel = 0; // New layers default to OMNI; Drum Pads override to channel 10.
         int muteCC = -1;
         int muteCCChannel = -1;
+        // Learned layer controls belong to the Classic mixer, not to every
+        // SoundFont listening on the same MIDI channel.
+        std::array<int, 6> learnedControlCCs { -1, -1, -1, -1, -1, -1 };
+        std::array<int, 6> learnedControlChannels { -1, -1, -1, -1, -1, -1 };
         int lowNote = 0;
         int highNote = 127;
         int lowVelocity = 1;

@@ -137,8 +137,8 @@ private:
         std::array<juce::Slider, 12> padVolumes;
         juce::TextButton stopButton{"STOP"};
         MidiLearnButton stopLearn{"LEARN STOP"}, volumeLearnButton{"LEARN VOLUME"},
-                        muteLearnButton{"LEARN MUTE"};
-        juce::Slider fadeSlider;
+                        cutoffLearnButton{"LEARN CUTOFF"}, muteLearnButton{"LEARN MUTE"};
+        juce::Slider fadeSlider, cutoffSlider;
         std::unique_ptr<juce::FileChooser> fileChooser;
         bool controlsVisible = true;
     };

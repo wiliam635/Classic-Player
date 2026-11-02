@@ -164,6 +164,7 @@ void HammondEngine::message(int index,const juce::MidiMessage& m,Config& c)
     if(chosen->active)transition.retarget(sampleRate);else transition={};
     *chosen=Voice{};auto& v=*chosen;v.transition=transition;
     v.active=v.down=true;v.note=m.getNoteNumber();v.channel=ch;
+    v.velocity=c.routing.velocitySensitivityOff ? (100.0f/127.0f) : m.getFloatVelocity();
     const double base=hz(juce::jlimit(0,127,v.note+c.routing.octave*12));
     for(size_t i=0;i<ratios.size();++i){
         double f=base*ratios[i];const double high=std::min(hz(114),sampleRate*.45);
@@ -198,7 +199,7 @@ float HammondEngine::renderVoice(Voice& v,Layer& l,const Config& c,const std::ar
         sum+=((float)(l.noise>>8)/8388608.f-1)*v.click;
         v.click *= clickDecay;
     }
-    return v.transition.process(sum*v.envelope);
+    return v.transition.process(sum*v.envelope*v.velocity);
 }
 void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer& host,
     std::array<Config,layerCount>& configs,const std::array<juce::MidiBuffer,layerCount>* routed)

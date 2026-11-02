@@ -149,7 +149,7 @@ public:
         const float step=(float)(1.0/(sampleRate*seconds));
         volume.setTargetValue(gain);
         float blockPeak=0;
-        highPassHz=juce::jlimit(20.f,1000.f,highPassHz);lowPassHz=juce::jlimit(1000.f,20000.f,lowPassHz);
+        highPassHz=juce::jlimit(20.f,1000.f,highPassHz);lowPassHz=juce::jlimit(80.f,20000.f,lowPassHz);
         const bool highPassEnabled=highPassHz>20.5f,lowPassEnabled=lowPassHz<19950.f;
         const float highPassCoefficient=std::exp(-juce::MathConstants<float>::twoPi*highPassHz/(float)sampleRate);
         const float lowPassCoefficient=std::exp(-juce::MathConstants<float>::twoPi*lowPassHz/(float)sampleRate);

@@ -403,6 +403,25 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
     const juce::ScopedLock guard(lock);
     output.clear();
     scratch.setSize(2, output.getNumSamples(), false, false, true);
+    std::array<std::array<bool, 128>, 16> layerControlControllers {};
+    for (const auto& target : layers)
+        for (size_t control = 0; control < target.config.learnedControlCCs.size(); ++control)
+        {
+            const auto cc = target.config.learnedControlCCs[control];
+            const auto channel = target.config.learnedControlChannels[control];
+            if (!juce::isPositiveAndBelow(cc, 128)) continue;
+            if (channel < 1 || channel > 16)
+                for (auto& channelControllers : layerControlControllers)
+                    channelControllers[(size_t) cc] = true;
+            else
+                layerControlControllers[(size_t) channel - 1][(size_t) cc] = true;
+        }
+    const auto isLayerControl = [&layerControlControllers](const juce::MidiMessage& message)
+    {
+        return message.isController() && message.getControllerNumber() != 64
+            && layerControlControllers[(size_t) message.getChannel() - 1]
+                                       [(size_t) message.getControllerNumber()];
+    };
     std::array<unsigned int, 2> muteVolumeChannels {};
     for (const auto& target : layers)
         if (target.config.muteCC == 7 || target.config.muteCC == 11)
@@ -568,12 +587,14 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         bool startedVoice = false;
         for (const auto metadata : midi)
         {
+            if (isLayerControl(metadata.getMessage())) continue;
             startedVoice |= metadata.getMessage().isNoteOn();
             dispatchMidi(layer, metadata.getMessage());
         }
         if (routedMidi != nullptr)
             for (const auto metadata : (*routedMidi)[static_cast<size_t>(&layer - layers.data())])
             {
+                if (isLayerControl(metadata.getMessage())) continue;
                 startedVoice |= metadata.getMessage().isNoteOn();
                 dispatchMidi(layer, metadata.getMessage());
             }

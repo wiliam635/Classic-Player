@@ -59,13 +59,29 @@ int main(int argc, char** argv)
         hostWindow.setContentNonOwned(editor, true);
         hostWindow.centreWithSize(1000, 650);
         hostWindow.setVisible(true);
-        const auto snapshot = editor->createComponentSnapshot(editor->getLocalBounds());
+        // Render the full component tree synchronously. A host window can be
+        // visible before its first asynchronous repaint, so checking only that
+        // a snapshot exists can pass while the editor is still all black.
+        juce::Image snapshot(juce::Image::ARGB, editor->getWidth(), editor->getHeight(), true);
+        juce::Graphics snapshotGraphics(snapshot);
+        editor->paintEntireComponent(snapshotGraphics, true);
         hostWindow.setVisible(false);
         hostWindow.clearContentComponent();
         if (!snapshot.isValid())
         {
             std::cerr << "Editor VST3 nao produziu imagem\n";
             return 7;
+        }
+        const auto backgroundPixel = snapshot.getPixelAt(0, 0).getARGB();
+        int paintedSamples = 0;
+        for (int y = 8; y < snapshot.getHeight(); y += 17)
+            for (int x = 8; x < snapshot.getWidth(); x += 17)
+                if (snapshot.getPixelAt(x, y).getARGB() != backgroundPixel)
+                    ++paintedSamples;
+        if (paintedSamples < 12)
+        {
+            std::cerr << "Editor VST3 criou uma imagem, mas nao desenhou o conteudo da interface\n";
+            return 8;
         }
         std::cout << "Host abriu, redimensionou e desenhou: "
                   << description->name.toStdString() << "\n";

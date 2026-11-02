@@ -649,8 +649,10 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
         else if (message.isNoteOn())
         {
             if (!config.routing.acceptsVelocity((int) message.getVelocity())) return;
+            const auto velocity = config.routing.velocitySensitivityOff
+                ? (100.0f / 127.0f) : message.getFloatVelocity();
             noteOn(layerIndex, message.getChannel(), message.getNoteNumber(),
-                   message.getFloatVelocity(), config);
+                   velocity, config);
         }
         else if (message.isNoteOff())
         {

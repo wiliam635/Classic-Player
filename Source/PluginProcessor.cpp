@@ -770,6 +770,13 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             layerGain *= juce::Decibels::decibelsToGain(
                 realtime.PreGainDb->load(std::memory_order_relaxed));
         config.gain = layerGain;
+        for (int target = 0; target < learnTargetCount; ++target)
+        {
+            config.learnedControlCCs[(size_t) target] = learnedCCs[(size_t) i][(size_t) target]
+                .load(std::memory_order_relaxed);
+            config.learnedControlChannels[(size_t) target] = learnedChannels[(size_t) i][(size_t) target]
+                .load(std::memory_order_relaxed);
+        }
         config.muteCC = learnedCCs[(size_t) i][(size_t) LearnTarget::mute].load(std::memory_order_relaxed);
         config.muteCCChannel = learnedChannels[(size_t) i][(size_t) LearnTarget::mute].load(std::memory_order_relaxed);
         config.attack = realtime.Attack->load(std::memory_order_relaxed);
@@ -851,9 +858,11 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
          if(bank.learningTarget()>=0||config.midiChannel==0||message.getChannel()==config.midiChannel)
              bank.midi(message);}};
         inspect(midi);inspect(routedMidiBuffers[(size_t)layer]);
+        const auto cutoffFrequency = 80.0f * std::pow(250.0f,
+            juce::jlimit(0.0f, 100.0f, config.cutoff) / 100.0f);
         bank.render(buffer,config.enabled && !isLayerMuted(layer)
                     ? parameters.getRawParameterValue("layer"+juce::String(layer+1)+"Gain")->load()/100.f:0.f,
-                    config.highPassHz,config.lowPassHz,
+                    config.highPassHz,juce::jmin(config.lowPassHz, cutoffFrequency),
                     {config.eqLow,config.eqMid,config.eqHigh,
                      config.eqLowFrequency,config.eqMidFrequency,config.eqHighFrequency,
                      config.eqLowQ,config.eqMidQ,config.eqHighQ});
@@ -1405,7 +1414,7 @@ juce::Result ClassicPlayerAudioProcessor::loadNordSample(int layer, const juce::
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
         return juce::Result::fail(juce::String::fromUTF8("Layer inválida."));
     if (layerType(layer) != LayerType::nordSample)
-        return juce::Result::fail("Adicione uma layer Nord NSMP4 antes de carregar o arquivo.");
+        return juce::Result::fail("Adicione uma layer Nord Sample (NSMP, NSMP3 ou NSMP4) antes de carregar o arquivo.");
 
     // Decode the potentially large compressed sample away from the processor
     // callback lock. The new instrument is swapped atomically by the sampler.

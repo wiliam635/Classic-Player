@@ -2935,7 +2935,7 @@ public:
 
         flatButton(importBundleButton);
         importBundleButton.setButtonText("IMPORTAR BUNDLE");
-        importBundleButton.setTooltip("Importar pianos, amostras e índice de programas de um .ns4pbundle");
+        importBundleButton.setTooltip("Importa o .ns4pbundle para a biblioteca do usuario. Depois, abra BANCOS IMPORTADOS > banco > programa > som.");
         importBundleButton.onClick = [this]
         {
             chooser = std::make_unique<juce::FileChooser>("Escolha um bundle Nord",
@@ -2954,7 +2954,7 @@ public:
                         if (safe == nullptr) return;
                         juce::File folder;
                         const auto result = safe->processor.importNordBundle(source, folder);
-                        juce::MessageManager::callAsync([safe, result]
+                        juce::MessageManager::callAsync([safe, result, folder]
                         {
                             if (safe == nullptr) return;
                             safe->importBundleButton.setEnabled(true);
@@ -2963,7 +2963,14 @@ public:
                                     juce::MessageBoxIconType::WarningIcon,
                                     "Falha ao importar bundle Nord", result.getErrorMessage());
                             else
+                            {
                                 safe->rebuildLibrary();
+                                juce::AlertWindow::showMessageBoxAsync(
+                                    juce::MessageBoxIconType::InfoIcon,
+                                    "Bundle Nord importado",
+                                    "Banco disponivel em BANCOS IMPORTADOS > banco > programa > som.\n\nPasta: "
+                                        + folder.getFullPathName());
+                            }
                         });
                     });
                 });
@@ -2971,6 +2978,7 @@ public:
         addAndMakeVisible(importBundleButton);
         flatButton(bundleMenuButton);
         bundleMenuButton.setButtonText("BANCOS IMPORTADOS");
+        bundleMenuButton.setTooltip("Abre os sons dos bundles importados em banco > programa > som e carrega a escolha nesta layer.");
         bundleMenuButton.onClick = [this] { showBundleMenu(); };
         addAndMakeVisible(bundleMenuButton);
 
@@ -3229,7 +3237,7 @@ public:
             refreshToggleLabels(config);
         };
         setupToggle(pedalResonanceLabel, pedalResonanceButton, "REFLEXOES",
-                    "Usa as amostras pedal-down presentes no NPNO para notas iniciadas com sustain pressionado. Desligado por padrao.");
+                    "SIM ativa as amostras de reflexao do NPNO: Bank 1 com sustain pressionado e Bank 2 ao soltar a tecla. Requer que o arquivo contenha essas amostras.");
         pedalResonanceButton.onClick = [this]
         {
             auto config = processor.layerConfig(index);
@@ -4840,6 +4848,7 @@ public:
         deviceBox.addItem("TODOS OS CONTROLADORES", 1);
         for (const auto& device : processor.availableMidiDevices())
             deviceBox.addItem(device.name, deviceBox.getNumItems() + 1);
+        deviceBox.setTooltip("Standalone: selecione a porta MIDI que envia as notas. No VST, escolha a porta CONTROLLER do Numa como entrada MIDI da faixa no Ableton/DAW e ajuste aqui o canal da zona.");
         deviceBox.onChange = [this]
         {
             const auto selected = deviceBox.getSelectedId() - 2;
@@ -4849,7 +4858,7 @@ public:
         };
         flatButton(numaButton);
         numaButton.setButtonText("NUMA");
-        numaButton.setTooltip("Escolha a porta CONTROLLER do Numa Compact 2 para Zone A/B; ajuste o canal MIDI da zona ao lado.");
+        numaButton.setTooltip("Escolha a entrada MIDI CONTROLLER do Numa Compact 2 (ou a porta equivalente mostrada pelo sistema) para Zone A/B; ajuste o canal MIDI da zona ao lado.");
         numaButton.onClick = [this] { chooseNumaController(); };
         addAndMakeVisible(numaButton);
         numaButton.setVisible(processor.wrapperType == juce::AudioProcessor::wrapperType_Standalone);
@@ -4911,12 +4920,11 @@ private:
         const auto devices = processor.availableMidiDevices();
         juce::PopupMenu menu;
         for (int i = 0; i < devices.size(); ++i)
-            if (devices.getReference(i).name.containsIgnoreCase("numa"))
-                menu.addItem(i + 1, devices.getReference(i).name);
+            menu.addItem(i + 1, devices.getReference(i).name);
         if (menu.getNumItems() == 0)
         {
             juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
-                "Numa Compact 2", "Conecte o teclado por USB. Selecione a porta CONTROLLER para as zonas MIDI A/B.");
+                "Numa Compact 2", "Nenhuma entrada MIDI esta disponivel. No standalone, conecte o teclado por USB. No VST, selecione a porta CONTROLLER do Numa na faixa MIDI do DAW.");
             return;
         }
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&numaButton),
@@ -5053,7 +5061,6 @@ public:
         velocityHandledExternally = layerType == ClassicPlayerAudioProcessor::LayerType::nord
             || layerType == ClassicPlayerAudioProcessor::LayerType::nordSample
             || layerType == ClassicPlayerAudioProcessor::LayerType::dx7;
-        velocityDisabled = layerType == ClassicPlayerAudioProcessor::LayerType::hammond;
         addAndMakeVisible(splitControls);
         deviceBox.getProperties().set("uiDataItems", true);
         const std::array<std::pair<juce::Label*, const char*>, 9> fields {{
@@ -5080,7 +5087,7 @@ public:
         }
         lowNoteBox.setVisible(false);
         highNoteBox.setVisible(false);
-        if (velocityHandledExternally || velocityDisabled)
+        if (velocityHandledExternally)
         {
             velocityLabel.setVisible(false);
             velocityBox.setVisible(false);
@@ -5096,7 +5103,7 @@ public:
         };
         flatButton(sensitivityButton);
         addAndMakeVisible(sensitivityButton);
-        sensitivityButton.setVisible(!velocityDisabled);
+        sensitivityButton.setVisible(true);
         modeBox.addItem("POLI", 1); modeBox.addItem("MONO / LEGATO", 2); modeBox.addItem("PORTAMENTO", 3);
         sustainBox.addItem("SUSTAIN ON", 1); sustainBox.addItem("SUSTAIN OFF", 2);
         channelBox.addItem("MIDI OMNI", 1);
@@ -5105,6 +5112,7 @@ public:
         deviceBox.addItem("TODOS OS CONTROLADORES", 1);
         for (const auto& device : processor.availableMidiDevices())
             deviceBox.addItem(device.name, deviceBox.getNumItems() + 1);
+        deviceBox.setTooltip("Standalone: selecione a porta MIDI que envia as notas. No VST, escolha a porta CONTROLLER do Numa como entrada MIDI da faixa no Ableton/DAW e ajuste aqui o canal da zona.");
         for (int value = -4; value <= 4; ++value)
             octaveBox.addItem((value > 0 ? "+" : "") + juce::String(value) + " OIT", value + 5);
         for (int note = 0; note < 128; ++note)
@@ -5135,7 +5143,7 @@ public:
         };
         flatButton(numaButton);
         numaButton.setButtonText("NUMA");
-        numaButton.setTooltip("Escolha a porta CONTROLLER do Numa Compact 2 para Zone A/B; configure o canal MIDI da zona.");
+        numaButton.setTooltip("Escolha a entrada MIDI CONTROLLER do Numa Compact 2 (ou a porta equivalente mostrada pelo sistema) para Zone A/B; ajuste o canal MIDI da zona ao lado.");
         numaButton.onClick = [this] { chooseNumaController(); };
         addAndMakeVisible(numaButton);
         numaButton.setVisible(processor.wrapperType == juce::AudioProcessor::wrapperType_Standalone);
@@ -5156,10 +5164,6 @@ public:
         calibrationStatus.setColour(juce::Label::textColourId, juce::Colour(mutedText));
         calibrationStatus.setFont(juce::FontOptions(10.0f));
         refresh();
-        if(velocityDisabled){
-            modeBox.setSelectedId(1,juce::dontSendNotification);modeBox.setEnabled(false);
-            velocityBox.setEnabled(false);
-        }
         setSize(700, isNord ? 186 : 160);
         if (isNord) startTimerHz(8);
     }
@@ -5183,28 +5187,6 @@ public:
         };
         const auto calibrationRowHeight = calibrationButton.isVisible() ? 28 : 0;
         auto calibrationRow = area.removeFromBottom(calibrationRowHeight);
-        if (getHeight() < 140 && velocityDisabled)
-        {
-            auto compactPlace = [](juce::Rectangle<int> cell, juce::Label& label, juce::ComboBox& box)
-            {
-                label.setBounds(cell.removeFromTop(12));
-                box.setBounds(cell.reduced(2, 0));
-            };
-            auto first = area.removeFromTop(28);
-            compactPlace(first.removeFromLeft(cellWidth), modeLabel, modeBox);
-            compactPlace(first.removeFromLeft(cellWidth), sustainLabel, sustainBox);
-            compactPlace(first.removeFromLeft(cellWidth), channelLabel, channelBox);
-            compactPlace(first, deviceLabel, deviceBox);
-            auto second = area.removeFromTop(32);
-            compactPlace(second.removeFromLeft(cellWidth), octaveLabel, octaveBox);
-            splitControls.setBounds(second.reduced(2, 0));
-            auto third = area;
-            velocityLabel.setBounds({}); velocityBox.setBounds({}); sensitivityButton.setBounds({});
-            compactPlace(third.removeFromLeft(cellWidth), polyphonyLabel, polyphonyBox);
-            compactPlace(third.removeFromLeft(cellWidth), velocityLowLabel, velocityLowBox);
-            compactPlace(third, velocityHighLabel, velocityHighBox);
-            return;
-        }
         auto modeRow = area.removeFromTop(42);
         place(modeRow.removeFromLeft(cellWidth), modeLabel, modeBox);
         place(modeRow.removeFromLeft(cellWidth), sustainLabel, sustainBox);
@@ -5222,11 +5204,8 @@ public:
         auto splitArea = splitRow.removeFromLeft(cellWidth * 3);
         splitControls.setBounds(splitArea.reduced(1, 0));
         auto velocityRow = area;
-        if (!velocityDisabled)
-        {
-            auto sensitivityArea = velocityRow.removeFromLeft(cellWidth);
-            sensitivityButton.setBounds(sensitivityArea.reduced(2, 2));
-        }
+        auto sensitivityArea = velocityRow.removeFromLeft(cellWidth);
+        sensitivityButton.setBounds(sensitivityArea.reduced(2, 2));
         velocityLabel.setBounds({});
         velocityBox.setBounds({});
         place(velocityRow.removeFromLeft(cellWidth), polyphonyLabel, polyphonyBox);
@@ -5246,12 +5225,11 @@ private:
         const auto devices = processor.availableMidiDevices();
         juce::PopupMenu menu;
         for (int i = 0; i < devices.size(); ++i)
-            if (devices.getReference(i).name.containsIgnoreCase("numa"))
-                menu.addItem(i + 1, devices.getReference(i).name);
+            menu.addItem(i + 1, devices.getReference(i).name);
         if (menu.getNumItems() == 0)
         {
             juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
-                "Numa Compact 2", "Conecte o teclado por USB. Selecione a porta CONTROLLER para as zonas MIDI A/B.");
+                "Numa Compact 2", "Nenhuma entrada MIDI esta disponivel. No standalone, conecte o teclado por USB. No VST, selecione a porta CONTROLLER do Numa na faixa MIDI do DAW.");
             return;
         }
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&numaButton),
@@ -5373,7 +5351,6 @@ private:
     ClassicPlayerAudioProcessor& processor;
     int index = 0;
     bool velocityHandledExternally = false;
-    bool velocityDisabled = false;
     juce::Label modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel,
                 velocityLabel, polyphonyLabel, velocityLowLabel, velocityHighLabel;
     juce::TextButton sensitivityButton, numaButton;
@@ -5890,16 +5867,34 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
         addAndMakeVisible(padVolume);
     }
     flatButton(stopButton);addAndMakeVisible(stopButton);
-    for(auto* button:{&stopLearn,&volumeLearnButton,&muteLearnButton}){flatButton(*button);addAndMakeVisible(*button);}
+    for(auto* button:{&stopLearn,&volumeLearnButton,&cutoffLearnButton,&muteLearnButton}){flatButton(*button);addAndMakeVisible(*button);}
     stopButton.onClick=[this]{processor.continuousPads(layerIndex).stop();};
     stopLearn.onClick=[this]{processor.continuousPads(layerIndex).learn(12);refresh();};
     stopLearn.setTooltip(juce::String::fromUTF8("Clique novamente para cancelar; botão direito para excluir o mapeamento do STOP."));
     stopLearn.onClearMapping=[this]{processor.continuousPads(layerIndex).clearMapping(12);refresh();};
     volumeLearnButton.onClick=[this]{processor.beginMidiLearn(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume);refresh();};
     volumeLearnButton.onClearMapping=[this]{processor.clearMidiLearn(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume);refresh();};
+    cutoffLearnButton.onClick=[this]{processor.beginMidiLearn(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::cutoff);refresh();};
+    cutoffLearnButton.onClearMapping=[this]{processor.clearMidiLearn(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::cutoff);refresh();};
     muteLearnButton.setTooltip("Aprender um CC para alternar o mute desta layer");
     muteLearnButton.onClick=[this]{processor.beginMidiLearn(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::mute);refresh();};
     muteLearnButton.onClearMapping=[this]{processor.clearMidiLearn(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::mute);refresh();};
+    cutoffSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    cutoffSlider.setRange(0.0, 100.0, 1.0);
+    cutoffSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 48, 18);
+    cutoffSlider.setTextValueSuffix("% cutoff");
+    cutoffSlider.setTooltip("Cutoff da layer Pad Contínuo; também pode ser controlado por MIDI Learn.");
+    if (const auto* value = processor.parameters.getRawParameterValue(
+            "layer" + juce::String(layerIndex + 1) + "Cutoff"))
+        cutoffSlider.setValue(value->load(), juce::dontSendNotification);
+    cutoffSlider.onValueChange=[this]
+    {
+        const auto id = "layer" + juce::String(layerIndex + 1) + "Cutoff";
+        if (auto* parameter = processor.parameters.getParameter(id))
+            parameter->setValueNotifyingHost(parameter->convertTo0to1(
+                static_cast<float>(cutoffSlider.getValue())));
+    };
+    addAndMakeVisible(cutoffSlider);
     fadeSlider.setRange(.02,10.0,.01);fadeSlider.setTextValueSuffix(" s crossfade");
     fadeSlider.setValue(processor.continuousPads(layerIndex).fadeSeconds(),juce::dontSendNotification);
     fadeSlider.onValueChange=[this]{processor.continuousPads(layerIndex).setFadeSeconds(fadeSlider.getValue());};
@@ -5918,7 +5913,9 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::setControlsVisible(bool sh
         padVolumes[(size_t) pad].setVisible(controlsVisible && !continuous() && pad<padCount());
     }
     stopButton.setVisible(continuous());stopLearn.setVisible(controlsVisible&&continuous());
-    fadeSlider.setVisible(controlsVisible&&continuous());volumeLearnButton.setVisible(controlsVisible);
+    fadeSlider.setVisible(controlsVisible&&continuous());cutoffLearnButton.setVisible(controlsVisible&&continuous());
+    cutoffSlider.setVisible(controlsVisible&&continuous());
+    volumeLearnButton.setVisible(controlsVisible);
     muteLearnButton.setVisible(controlsVisible);
     resized();
 }
@@ -5955,6 +5952,16 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
     setButtonTextIfChanged(muteLearnButton, localizedUiText(
         processor.isMidiLearning(layerIndex, muteTarget) ? "MUTE: MOVA O CC"
             : muteCC >= 0 ? "MUTE: CC " + juce::String(muteCC) : "LEARN MUTE",
+        activeUiLanguage.load()));
+    const auto cutoffTarget = ClassicPlayerAudioProcessor::LearnTarget::cutoff;
+    const auto cutoffCC = processor.midiLearnCC(layerIndex, cutoffTarget);
+    if (continuous() && !cutoffSlider.isMouseButtonDown())
+        if (const auto* value = processor.parameters.getRawParameterValue(
+                "layer" + juce::String(layerIndex + 1) + "Cutoff"))
+            cutoffSlider.setValue(value->load(), juce::dontSendNotification);
+    setButtonTextIfChanged(cutoffLearnButton, localizedUiText(
+        processor.isMidiLearning(layerIndex, cutoffTarget) ? "CUTOFF: MOVA O CC"
+            : cutoffCC >= 0 ? "CUTOFF: CC " + juce::String(cutoffCC) : "LEARN CUTOFF",
         activeUiLanguage.load()));
     if(continuous())
     {
@@ -5993,10 +6000,26 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
     auto available=getLocalBounds();
     if(controlsVisible)
     {
-        muteLearnButton.setBounds(available.removeFromBottom(28).reduced(3));
-        volumeLearnButton.setBounds(available.removeFromBottom(28).reduced(3));
+        if (continuous())
+        {
+            auto learnRow = available.removeFromBottom(30).reduced(2, 1);
+            const auto third = learnRow.getWidth() / 3;
+            volumeLearnButton.setBounds(learnRow.removeFromLeft(third).reduced(1));
+            cutoffLearnButton.setBounds(learnRow.removeFromLeft(third).reduced(1));
+            muteLearnButton.setBounds(learnRow.reduced(1));
+        }
+        else
+        {
+            cutoffLearnButton.setBounds({});
+            muteLearnButton.setBounds(available.removeFromBottom(28).reduced(3));
+            volumeLearnButton.setBounds(available.removeFromBottom(28).reduced(3));
+        }
         if(continuous())
-        {fadeSlider.setBounds(available.removeFromBottom(32));stopLearn.setBounds(available.removeFromBottom(28).reduced(3));}
+        {
+            cutoffSlider.setBounds(available.removeFromBottom(30).reduced(3, 1));
+            fadeSlider.setBounds(available.removeFromBottom(32));
+            stopLearn.setBounds(available.removeFromBottom(28).reduced(3));
+        }
     }
     if(continuous())stopButton.setBounds(available.removeFromBottom(30).reduced(3));
     const int columns = continuous()?3:2;
@@ -9362,6 +9385,10 @@ void ClassicPlayerAudioProcessorEditor::showMasterLimiterEditor()
 }
 void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
 {
+    // Paint the host-provided editor bounds before applying interface scaling.
+    // Some DAW hosts invalidate only the newly exposed area after resize; the
+    // unscaled fill prevents those areas from retaining the host's black clear.
+    g.fillAll(juce::Colour(background));
     g.addTransform(juce::AffineTransform::scale(interfaceScale));
     if (activeUiPalette == 5 || activeUiPalette == 6)
         paintBrushedSteel(g, interfaceCanvas.getLocalBounds().toFloat());

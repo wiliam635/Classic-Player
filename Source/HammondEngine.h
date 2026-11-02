@@ -38,7 +38,7 @@ private:
     {
         bool active = false, down = false, releasing = false;
         int note = 0, channel = 0, age = 0, releaseAge = 0;
-        float envelope = 0, releaseStart = 0, percussion = 0, click = 0;
+        float envelope = 0, releaseStart = 0, percussion = 0, click = 0, velocity = 1.0f;
         double perPhase = 0, perStep = 0;
         std::array<double,13> phase {}, step {};
         AudioTransition transition;
