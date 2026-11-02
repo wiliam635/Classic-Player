@@ -59,7 +59,6 @@ int main(int argc, char** argv)
         hostWindow.setContentNonOwned(editor, true);
         hostWindow.centreWithSize(1000, 650);
         hostWindow.setVisible(true);
-        juce::MessageManager::getInstance()->runDispatchLoopUntil(1500);
         const auto snapshot = editor->createComponentSnapshot(editor->getLocalBounds());
         hostWindow.setVisible(false);
         hostWindow.clearContentComponent();
