@@ -92,7 +92,9 @@ configure_and_build() {
     mkdir -p "$diagnostics"
     /usr/bin/xcrun lldb --batch --arch "$arch" \
       -o 'settings set target.disable-aslr false' \
+      -o 'breakpoint set --name malloc_error_break' \
       -o run -o 'thread backtrace all' -o 'image list' \
+      -k 'thread backtrace all' -k 'image list' \
       -- "$vst3_host_test" "$vst3_bundle" \
       > "$diagnostics/lldb.txt" 2>&1 || true
     cat "$diagnostics/lldb.txt"

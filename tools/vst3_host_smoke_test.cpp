@@ -3,7 +3,12 @@
 #include <cstring>
 #include <memory>
 #if JUCE_MAC
-#import <Cocoa/Cocoa.h>
+#include <execinfo.h>
+#include <csignal>
+#include <unistd.h>
+// Keep the host in C++; only AppKit calls live in the Objective-C++ bridge.
+void flushClassicNativeEvents();
+juce::Image captureClassicNativeEditor(juce::DocumentWindow&, juce::Component&);
 #elif JUCE_WINDOWS
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -11,13 +16,12 @@
 #include <windows.h>
 #endif
 
-
 // The hosted VST3 editor owns a native NSView/HWND in another module.
 // JUCE paintEntireComponent on the HOST wrapper cannot rasterise that view.
 static void flushNativeEvents()
 {
    #if JUCE_MAC
-    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.5]];
+    flushClassicNativeEvents();
    #elif JUCE_WINDOWS
     const auto end = GetTickCount64() + 500;
     do
@@ -44,17 +48,7 @@ static juce::Image captureNativeEditor(juce::DocumentWindow& host, juce::Compone
     auto* peer = host.getPeer();
     if (peer == nullptr) return {};
    #if JUCE_MAC
-    NSView* view = static_cast<NSView*>(peer->getNativeHandle());
-    if (view == nil) return {};
-    [view displayIfNeeded];
-    const auto area = host.getLocalArea(&editor, editor.getLocalBounds());
-    const NSRect rect = NSMakeRect(area.getX(), area.getY(), area.getWidth(), area.getHeight());
-    NSBitmapImageRep* bitmap = [view bitmapImageRepForCachingDisplayInRect:rect];
-    if (bitmap == nil) return {};
-    [view cacheDisplayInRect:rect toBitmapImageRep:bitmap];
-    NSData* png = [bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
-    if (png == nil) return {};
-    return juce::ImageFileFormat::loadFrom([png bytes], static_cast<size_t>([png length]));
+    return captureClassicNativeEditor(host, editor);
    #elif JUCE_WINDOWS
     struct Search { HWND window = nullptr; long long area = 0; } search;
     EnumChildWindows(static_cast<HWND>(peer->getNativeHandle()),
@@ -123,6 +117,16 @@ int main(int argc, char** argv)
         return 64;
     }
 
+   #if JUCE_MAC
+    // Report an abort even if the CI debugger cannot continue its command list.
+    std::signal(SIGABRT, [](int signal)
+    {
+        void* frames[96];
+        const int count = backtrace(frames, 96);
+        backtrace_symbols_fd(frames, count, STDERR_FILENO);
+        _exit(128 + signal);
+    });
+   #endif
     juce::ScopedJuceInitialiser_GUI initialiseJuce;
     const juce::File bundle(juce::String::fromUTF8(argv[1]));
     if (!bundle.isDirectory())
