@@ -2725,6 +2725,9 @@ void ClassicPlayerAudioProcessor::refreshStandaloneMidiInputs(
 
 juce::Array<juce::MidiDeviceInfo> ClassicPlayerAudioProcessor::availableMidiDevices() const
 {
+    // A plug-in receives its MIDI from the host. Enumerating CoreMIDI from
+    // its editor can stall Ableton's message thread during a repaint.
+    if (wrapperType != wrapperType_Standalone) return {};
     return juce::MidiInput::getAvailableDevices();
 }
 
@@ -2844,6 +2847,99 @@ juce::Result ClassicPlayerAudioProcessor::importNordPiano(const juce::File& sour
     return juce::Result::ok();
 }
 
+juce::Result ClassicPlayerAudioProcessor::importNordBundle(const juce::File& source,
+                                                            juce::File& importedFolder) const
+{
+    if (!source.existsAsFile() || !source.hasFileExtension(".ns4pbundle"))
+        return juce::Result::fail("Selecione um banco Nord .ns4pbundle.");
+
+    juce::ZipFile archive(source);
+    if (archive.getNumEntries() < 1 || archive.getNumEntries() > 2048
+        || archive.getIndexOfFileName("meta.xml") < 0)
+        return juce::Result::fail("O bundle Nord não contém um índice meta.xml válido.");
+
+    const auto root = programStorageDirectory().getChildFile("Nord Bundles");
+    if (auto result = root.createDirectory(); result.failed()) return result;
+    auto name = source.getFileNameWithoutExtension().retainCharacters(
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_()").trim();
+    if (name.isEmpty()) name = "Banco Nord";
+    const auto destination = root.getChildFile(name);
+    if (destination.getChildFile("meta.xml").existsAsFile())
+    {
+        importedFolder = destination;
+        return juce::Result::ok();
+    }
+    if (destination.exists())
+        return juce::Result::fail("Já existe uma pasta com este nome de banco Nord.");
+
+    const auto temporary = root.getNonexistentChildFile(name + "-importando", "", true);
+    if (auto result = temporary.createDirectory(); result.failed()) return result;
+    juce::int64 totalBytes = 0;
+    int soundCount = 0;
+    juce::Result outcome = juce::Result::ok();
+    for (int index = 0; index < archive.getNumEntries(); ++index)
+    {
+        const auto* entry = archive.getEntry(index);
+        if (entry == nullptr || entry->isSymbolicLink) { outcome = juce::Result::fail("Entrada inválida no bundle Nord."); break; }
+        const auto path = entry->filename.replaceCharacter('\\', '/');
+        if (path.endsWithChar('/')) continue;
+        const auto segments = juce::StringArray::fromTokens(path, "/", "");
+        if (path.startsWithChar('/') || path.containsChar(':') || segments.contains("..")
+            || segments.contains(".") || path.isEmpty())
+        { outcome = juce::Result::fail("Caminho inseguro no bundle Nord."); break; }
+        const bool sound = path.endsWithIgnoreCase(".npno")
+                        || path.endsWithIgnoreCase(".nsmp")
+                        || path.endsWithIgnoreCase(".nsmp3")
+                        || path.endsWithIgnoreCase(".nsmp4");
+        if (!sound && !path.endsWithIgnoreCase(".ns4p") && path != "meta.xml") continue;
+        if (entry->uncompressedSize < 0 || entry->uncompressedSize > 1'500'000'000LL
+            || totalBytes > 4'000'000'000LL - entry->uncompressedSize)
+        { outcome = juce::Result::fail("Bundle Nord excede o limite seguro de extração."); break; }
+        totalBytes += entry->uncompressedSize;
+        const auto outputFile = temporary.getChildFile(path);
+        if (auto result = outputFile.getParentDirectory().createDirectory(); result.failed())
+        { outcome = result; break; }
+        std::unique_ptr<juce::InputStream> input(archive.createStreamForEntry(index));
+        std::unique_ptr<juce::FileOutputStream> output(outputFile.createOutputStream());
+        if (input == nullptr || output == nullptr
+            || output->writeFromInputStream(*input, entry->uncompressedSize) != entry->uncompressedSize)
+        { outcome = juce::Result::fail("Falha ao extrair um arquivo do bundle Nord."); break; }
+        output->flush();
+        if (output->getStatus().failed())
+        { outcome = juce::Result::fail("Falha ao gravar um arquivo do bundle Nord."); break; }
+        if (sound) ++soundCount;
+    }
+    if (outcome.wasOk() && soundCount == 0)
+        outcome = juce::Result::fail("Este bundle Nord não contém pianos nem amostras compatíveis.");
+    if (outcome.wasOk())
+    {
+        const auto meta = juce::XmlDocument::parse(temporary.getChildFile("meta.xml"));
+        if (meta == nullptr || !meta->hasTagName("bundle"))
+            outcome = juce::Result::fail("O índice meta.xml do bundle Nord é inválido.");
+    }
+    if (outcome.wasOk() && !temporary.moveFileTo(destination))
+        outcome = juce::Result::fail("Não foi possível guardar o bundle Nord na biblioteca.");
+    if (outcome.failed()) temporary.deleteRecursively();
+    else importedFolder = destination;
+    return outcome;
+}
+
+juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordBundles() const
+{
+    juce::Array<juce::File> result;
+    programStorageDirectory().getChildFile("Nord Bundles").findChildFiles(
+        result, juce::File::findDirectories, false);
+    result.removeIf([](const juce::File& folder)
+    {
+        return !folder.getChildFile("meta.xml").existsAsFile();
+    });
+    std::sort(result.begin(), result.end(), [](const auto& a, const auto& b)
+    {
+        return a.getFileName().compareNatural(b.getFileName()) < 0;
+    });
+    return result;
+}
+
 juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordPianos(
     const juce::String& category) const
 {
@@ -2852,6 +2948,26 @@ juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordPianos(
     const auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                             .getChildFile("Classic Player").getChildFile("NordPianos").getChildFile(category);
     folder.findChildFiles(result, juce::File::findFiles, false, "*.npno;*.NPNO");
+    for (const auto& bundle : libraryNordBundles())
+    {
+        juce::Array<juce::File> files;
+        bundle.getChildFile("Piano").findChildFiles(files, juce::File::findFiles, true,
+                                                     "*.npno;*.NPNO");
+        for (const auto& file : files)
+        {
+            const auto path = file.getRelativePathFrom(bundle).replaceCharacter('\\', '/');
+            const bool upright = path.startsWithIgnoreCase("Piano/Upright/");
+            const bool grand = path.startsWithIgnoreCase("Piano/Grand/");
+            const bool electric = path.startsWithIgnoreCase("Piano/Electric/");
+            const bool digital = path.startsWithIgnoreCase("Piano/Digital/");
+            const bool dx = digital && file.getFileName().containsIgnoreCase("DX");
+            if ((category == "Upright Piano" && upright)
+                || (category == "Piano Acustico" && grand)
+                || (category == "Piano Eletrico" && (electric || (digital && !dx)))
+                || (category == "Piano DX" && dx))
+                result.add(file);
+        }
+    }
     std::sort(result.begin(), result.end(), [](const auto& a, const auto& b)
     {
         return a.getFileName().compareNatural(b.getFileName()) < 0;
@@ -2911,6 +3027,9 @@ juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordSamples() const
                             .getChildFile("Classic Player").getChildFile("Nord Samples");
     folder.findChildFiles(result, juce::File::findFiles, false,
                           "*.nsmp;*.NSMP;*.nsmp3;*.NSMP3;*.nsmp4;*.NSMP4");
+    for (const auto& bundle : libraryNordBundles())
+        bundle.getChildFile("Samp Lib").findChildFiles(result, juce::File::findFiles, true,
+            "*.nsmp;*.NSMP;*.nsmp3;*.NSMP3;*.nsmp4;*.NSMP4");
     std::sort(result.begin(), result.end(), [](const auto& a, const auto& b)
     {
         return a.getFileName().compareNatural(b.getFileName()) < 0;
@@ -3607,7 +3726,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
         destinationState.setProperty("pianoTimbre" + destinationOne, 1, nullptr);
     const juce::StringArray zeroBased {
         "midiChannel", "low", "high", "velocityLow", "velocityHigh", "octave", "polyphony",
-        "velocityCurve", "velocityCalibrated", "velocityEditorMode", "velocityOutputMin",
+        "velocityCurve", "velocitySensitivityOff", "velocityCalibrated", "velocityEditorMode", "velocityOutputMin",
         "velocityOutputMax", "velocitySlope", "velocityTable",
         "velocitySoftInput", "velocityMidInput", "velocityHardInput", "mono", "portamento",
         "sustain", "highPassHz", "lowPassHz", "midiDevice"
@@ -3766,6 +3885,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("octave" + juce::String(i), config.octave, nullptr);
         state.setProperty("polyphony" + juce::String(i), config.polyphony, nullptr);
         state.setProperty("velocityCurve" + juce::String(i), config.velocityCurve, nullptr);
+        state.setProperty("velocitySensitivityOff" + juce::String(i), config.velocitySensitivityOff, nullptr);
         state.setProperty("velocityEditorMode" + juce::String(i), config.velocityEditorMode, nullptr);
         state.setProperty("velocityOutputMin" + juce::String(i), config.velocityOutputMin, nullptr);
         state.setProperty("velocityOutputMax" + juce::String(i), config.velocityOutputMax, nullptr);
@@ -4294,6 +4414,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.velocityCurve = juce::jlimit(0,
                     4,
                     config.velocityCurve);
+                config.velocitySensitivityOff = static_cast<bool>(state.getProperty(
+                    "velocitySensitivityOff" + juce::String(i), false));
                 config.pianoTimbre = juce::jlimit(-1, 2, static_cast<int>(state.getProperty(
                     "pianoTimbre" + juce::String(i + 1), config.pianoTimbre)));
                 // Version 172 and earlier defaulted a new NPNO layer to
