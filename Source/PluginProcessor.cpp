@@ -2965,7 +2965,8 @@ void ClassicPlayerAudioProcessor::loadNordBundleProgram(const juce::File& folder
         result = NordBundleProgram::build(folder, programPath, *prepared);
         std::map<std::string, std::shared_ptr<NordPianoDecoder::Instrument>> pianos;
         std::map<std::string, std::shared_ptr<NordSampleDecoder::Instrument>> samples;
-        size_t decodedBytes = 0;
+        uint64_t decodedBytes = 0;
+        const auto memoryBudget = NordBundlePolicy::decodedBudgetBytes(juce::SystemStats::getMemorySizeInMegabytes());
         if (result.wasOk())
         {
             for (auto& part : prepared->parts)
@@ -2979,7 +2980,7 @@ void ClassicPlayerAudioProcessor::loadNordBundleProgram(const juce::File& folder
                     {
                         result = sampleEngine.prepareSample(part.file, instrument);
                         if (result.wasOk()) for (const auto& stroke : instrument->strokes)
-                            decodedBytes += stroke.interleavedPcm.size() * sizeof(int16_t);
+                            decodedBytes += stroke.interleavedPcm.capacity() * sizeof(int16_t);
                     }
                     part.piano = instrument;
                 }
@@ -2990,15 +2991,18 @@ void ClassicPlayerAudioProcessor::loadNordBundleProgram(const juce::File& folder
                     {
                         result = nordSampleEngine.prepareSample(part.file, instrument);
                         if (result.wasOk()) for (const auto& zone : instrument->zones)
-                            decodedBytes += zone.pcm.size() * sizeof(float);
+                            decodedBytes += zone.pcm.capacity() * sizeof(float);
                     }
                     part.sample = instrument;
                 }
                 if (result.failed())
                 { result = juce::Result::fail(part.name + ": " + result.getErrorMessage()); break; }
-                if (decodedBytes > 768u * 1024u * 1024u)
+                if (decodedBytes > memoryBudget)
                 {
-                    result = juce::Result::fail("Este preset excede 768 MB de audio decodificado. Use um banco com pianos menores.");
+                    result = juce::Result::fail("O preset precisa de " + juce::String((juce::int64)((decodedBytes + 1048575) / 1048576))
+                        + " MiB de amostras; o limite para este computador e "
+                        + juce::String((juce::int64)(memoryBudget / 1048576))
+                        + " MiB. O programa atual foi mantido.");
                     break;
                 }
             }
@@ -3865,7 +3869,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
         "layerType", "dx7Layer", "dx7Patch", "sf2Layer", "sf2Bank", "sf2Program", "pianoTimbre", "pianoDecaySeconds",
         "pianoSoftRelease", "pianoDynamicCompression", "pianoPedalResonance",
         "nordTremoloMix", "nordTremoloRate", "nordFlangerMix", "nordFlangerRate",
-        "nordChorusMix", "nordChorusRate", "nordDelayMix", "nordDelayBpm", "nordDelayFeedback",
+        "nordChorusMix", "nordChorusRate", "nordChorusDepth", "nordDelayMix", "nordDelayBpm", "nordDelayFeedback",
         "externalInstrument", "externalInstrumentState", "analogOsc1Wave", "analogOsc2Wave",
         "analogOsc3Wave", "analogOsc1Level", "analogOsc2Level", "analogOsc3Level",
         "analogOsc1Semitones", "analogOsc2Semitones", "analogOsc3Semitones",
@@ -4069,6 +4073,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("nordFlangerRate" + fxKey, config.nordFx.flangerRate, nullptr);
         state.setProperty("nordChorusMix" + fxKey, config.nordFx.chorusMix, nullptr);
         state.setProperty("nordChorusRate" + fxKey, config.nordFx.chorusRate, nullptr);
+        state.setProperty("nordChorusDepth" + fxKey, config.nordFx.chorusDepth, nullptr);
         state.setProperty("nordDelayMix" + fxKey, config.nordFx.delayMix, nullptr);
         state.setProperty("nordDelayBpm" + fxKey, config.nordFx.delayBpm, nullptr);
         state.setProperty("nordDelayFeedback" + fxKey, config.nordFx.delayFeedback, nullptr);
@@ -4601,6 +4606,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.nordFx.flangerRate = juce::jlimit(0.05f, 5.0f, (float) state.getProperty("nordFlangerRate" + fxKey, 0.35f));
                 config.nordFx.chorusMix = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordChorusMix" + fxKey, 0.0f));
                 config.nordFx.chorusRate = juce::jlimit(0.05f, 5.0f, (float) state.getProperty("nordChorusRate" + fxKey, 0.8f));
+                config.nordFx.chorusDepth = juce::jlimit(0.0f, 20.0f, (float) state.getProperty("nordChorusDepth" + fxKey, 8.0f));
                 config.nordFx.delayMix = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordDelayMix" + fxKey, 0.0f));
                 config.nordFx.delayBpm = juce::jlimit(40.0f, 240.0f, (float) state.getProperty("nordDelayBpm" + fxKey, 120.0f));
                 config.nordFx.delayFeedback = juce::jlimit(0.0f, 80.0f, (float) state.getProperty("nordDelayFeedback" + fxKey, 30.0f));

@@ -143,6 +143,7 @@ private:
         float modWheel = 0.0f;
         float pitchBendSemitones = 0.0f;
         LayerReverb reverb;
+        NordLayerEffects nordEffects;
         std::array<float, 2> compressorEnvelope {};
         std::array<float, 2> filterState {};
         LayerEqState eq;

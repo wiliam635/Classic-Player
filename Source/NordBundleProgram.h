@@ -1,5 +1,6 @@
 #pragma once
 #include "NordProgram.h"
+#include "NordBundlePolicy.h"
 #include "NordPianoDecoder.h"
 #include "NordSampleDecoder.h"
 #include "AnalogSynthEngine.h"
@@ -101,16 +102,29 @@ inline void effects(const NordProgram::Program& p, const std::string& prefix,
     const auto get = [&](const char* key, int64_t fallback = 0) { return p.get(prefix + "." + key, fallback); };
     if (get("fx1Enable"))
     {
-        if (get("fx1Type") == 0)
+        if (NordBundlePolicy::isTremolo(get("fx1Type")))
         { c.nordFx.tremoloMix = percent(get("fx1Amt")); c.nordFx.tremoloRate = 0.1f + percent(get("fx1RateClkDiv")) * 0.12f; }
         else warnings.addIfNotAlreadyThere("Modulacao 1 diferente de tremolo: ajuste manual necessario.");
     }
     if (get("fx2Enable"))
     {
-        const auto type = get("fx2Type");
-        if (type == 0) c.nordFx.chorusMix = percent(get("fx2Amt"));
-        else if (type == 1) c.nordFx.flangerMix = percent(get("fx2Amt"));
-        else warnings.addIfNotAlreadyThere("Modulacao 2 sem equivalente direto: ajuste manual necessario.");
+        const auto type = NordBundlePolicy::modulation2(get("fx2Type"));
+        if (type == NordBundlePolicy::Modulation2::chorus)
+        {
+            c.nordFx.chorusMix = percent(get("fx2Amt"));
+            c.nordFx.chorusDepth = NordBundlePolicy::secondVariant(get("fx2Type")) ? 10.0f : 6.0f;
+        }
+        else if (type == NordBundlePolicy::Modulation2::flanger)
+            c.nordFx.flangerMix = percent(get("fx2Amt"));
+        else
+        {
+            const char* name = type == NordBundlePolicy::Modulation2::phaser ? "Phaser"
+                : type == NordBundlePolicy::Modulation2::vibe ? "Vibe"
+                : type == NordBundlePolicy::Modulation2::ensemble ? "Ensemble"
+                : type == NordBundlePolicy::Modulation2::spin ? "Spin" : "desconhecida";
+            warnings.addIfNotAlreadyThere(juce::String("Modulacao 2 (") + name
+                + "): efeito ainda sem equivalente na Classic.");
+        }
         c.nordFx.chorusRate = c.nordFx.flangerRate = 0.05f + percent(get("fx2Rate")) * 0.05f;
     }
     if (get("dlyEnable"))
@@ -123,14 +137,14 @@ inline void effects(const NordProgram::Program& p, const std::string& prefix,
     if (get("rvbEnable"))
     {
         c.reverb = percent(get("rvbAmt"));
-        c.reverbSize = juce::jlimit(15.0f, 95.0f, 25.0f + 12.0f * float(get("rvbType")));
+        c.reverbSize = juce::jlimit(15.0f, 95.0f, 25.0f + 12.0f * float(juce::jlimit<int64_t>(0, 11, get("rvbType")) / 2));
     }
     if (get("cmpEnable")) c.compressor = percent(get("cmpAmt"));
     if (get("ampEnable"))
     {
-        c.eqLow = juce::jlimit(-15.0f, 15.0f, float(get("ampBass")));
-        c.eqMid = juce::jlimit(-15.0f, 15.0f, float(get("ampMid")));
-        c.eqHigh = juce::jlimit(-15.0f, 15.0f, float(get("ampTreble")));
+        c.eqLow = NordBundlePolicy::eqDecibels(get("ampBass"));
+        c.eqMid = NordBundlePolicy::eqDecibels(get("ampMid"));
+        c.eqHigh = NordBundlePolicy::eqDecibels(get("ampTreble"));
         if (get("ampDrive")) warnings.addIfNotAlreadyThere("Simulacao de amplificador adaptada aos motores da Classic.");
     }
 }

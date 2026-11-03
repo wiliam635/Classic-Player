@@ -102,6 +102,8 @@ private:
     static constexpr size_t decodedCacheLimitBytes = 256u * 1024u * 1024u;
     std::mutex instrumentCacheMutex;
     std::unordered_map<std::string, CachedInstrument> instrumentCache;
+    // Weak index reuses instruments held by live layers after LRU eviction.
+    std::unordered_map<std::string, std::weak_ptr<NordSampleDecoder::Instrument>> instrumentCacheLive;
     size_t instrumentCacheBytes = 0;
     std::uint64_t instrumentCacheClock = 0;
 };

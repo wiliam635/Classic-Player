@@ -127,7 +127,11 @@ std::shared_ptr<NordSampleDecoder::Instrument> NordSampleEngine::findCachedInstr
                    + juce::String(file.getLastModificationTime().toMilliseconds());
     const std::lock_guard<std::mutex> guard(instrumentCacheMutex);
     const auto found = instrumentCache.find(key.toStdString());
-    if (found == instrumentCache.end()) return {};
+    if (found == instrumentCache.end())
+    {
+        const auto live = instrumentCacheLive.find(key.toStdString());
+        return live != instrumentCacheLive.end() ? live->second.lock() : std::shared_ptr<NordSampleDecoder::Instrument>{};
+    }
     found->second.lastUse = ++instrumentCacheClock;
     return found->second.instrument;
 }
@@ -141,10 +145,14 @@ std::shared_ptr<NordSampleDecoder::Instrument> NordSampleEngine::cacheInstrument
     size_t bytes = sizeof(NordSampleDecoder::Instrument);
     for (const auto& zone : decoded->zones)
         bytes += sizeof(NordSampleDecoder::Zone) + zone.pcm.size() * sizeof(float);
-    if (bytes > decodedCacheLimitBytes) return decoded;
-
     const std::lock_guard<std::mutex> guard(instrumentCacheMutex);
     const auto keyString = key.toStdString();
+    if (const auto existing = instrumentCacheLive.find(keyString); existing != instrumentCacheLive.end())
+        if (auto shared = existing->second.lock()) return shared;
+    for (auto entry = instrumentCacheLive.begin(); entry != instrumentCacheLive.end();)
+        if (entry->second.expired()) entry = instrumentCacheLive.erase(entry); else ++entry;
+    instrumentCacheLive[keyString] = decoded;
+    if (bytes > decodedCacheLimitBytes) return decoded;
     if (const auto found = instrumentCache.find(keyString); found != instrumentCache.end())
     {
         found->second.lastUse = ++instrumentCacheClock;

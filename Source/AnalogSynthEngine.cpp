@@ -49,8 +49,10 @@ void AnalogSynthEngine::prepare(double newSampleRate, int maximumBlockSize)
     reset();
     for (auto& layer : layers)
     {
+        layer.nordEffects.prepare(sampleRate);
         layer.reverb.setSampleRate(sampleRate);
         layer.reverb.reset();
+        layer.nordEffects.reset();
         layer.gain.reset(sampleRate, 0.02);
         layer.gain.setCurrentAndTargetValue(0.0f);
     }
@@ -69,6 +71,7 @@ void AnalogSynthEngine::reset()
         layer.modWheel = 0.0f;
         layer.pitchBendSemitones = 0.0f;
         layer.reverb.reset();
+        layer.nordEffects.reset();
         layer.compressorEnvelope = {};
         layer.filterState = {};
         layer.eq.reset();
@@ -102,6 +105,7 @@ void AnalogSynthEngine::unload(int layerIndex)
     layer.modWheel = 0.0f;
     layer.pitchBendSemitones = 0.0f;
     layer.reverb.reset();
+    layer.nordEffects.reset();
     layer.compressorEnvelope = {};
     layer.filterState = {};
     layer.eq.reset();
@@ -746,6 +750,7 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
                 renderScratch.setSample(channel, sampleIndex, state);
             }
 
+        layer.nordEffects.process(renderScratch, config.routing.nordFx);
         juce::Reverb::Parameters parameters;
         parameters.roomSize = juce::jlimit(0.0f, 1.0f, config.routing.reverbSize / 100.0f);
         parameters.damping = juce::jlimit(0.0f, 1.0f, config.routing.reverbDamping / 100.0f);

@@ -15,13 +15,15 @@ float drawbarGain(int value) noexcept
 }
 }
 
-void NordOrganEngine::prepare(double rate, int)
+void NordOrganEngine::prepare(double rate, int maximumBlockSize)
 {
     sampleRate = juce::jmax(8000.0, rate);
+    renderScratch.setSize(2, juce::jmax(1, maximumBlockSize), false, true, true);
     for (size_t i = 0; i < sineTable.size(); ++i)
         sineTable[i] = (float) std::sin(twoPi * (double)i / (double)(sineTable.size() - 1));
     for (auto& layer : layers)
     {
+        layer.nordEffects.prepare(sampleRate);
         layer.reverb.setSampleRate(sampleRate);
         layer.reverb.reset();
         layer.eq.reset();
@@ -46,6 +48,7 @@ void NordOrganEngine::unload(int index)
     for (auto& voice : layer.voices) voice = {};
     layer.sustain.fill(false);
     layer.reverb.reset();
+    layer.nordEffects.reset();
     layer.eq.reset();
     layer.cutoffState.fill(0.0f);
     layer.rotaryPhase = 0.0;
@@ -221,6 +224,8 @@ void NordOrganEngine::process(juce::AudioBuffer<float>& output, const juce::Midi
         }
         auto hostEvent = host.cbegin();
         auto localEvent = local.cbegin();
+        renderScratch.setSize(2, output.getNumSamples(), false, false, true);
+        renderScratch.clear();
         const auto reverbAmount = juce::jlimit(0.0f, 1.0f, config.routing.reverb / 100.0f);
         const auto compressorMix = juce::jlimit(0.0f, 1.0f, config.routing.compressor / 100.0f);
         const auto compressorThreshold = juce::Decibels::decibelsToGain(
@@ -363,8 +368,14 @@ void NordOrganEngine::process(juce::AudioBuffer<float>& output, const juce::Midi
                 right *= 1.0f + compressorMix * (wetGain - 1.0f);
             }
             peak = juce::jmax(peak, juce::jmax(std::abs(left), std::abs(right)));
-            if (output.getNumChannels() > 0) output.addSample(0, sample, left);
-            if (output.getNumChannels() > 1) output.addSample(1, sample, right);
+            renderScratch.setSample(0, sample, left);
+            renderScratch.setSample(1, sample, right);
+        }
+        layer.nordEffects.process(renderScratch, config.routing.nordFx);
+        for (int channel = 0; channel < juce::jmin(2, output.getNumChannels()); ++channel)
+        {
+            peak = juce::jmax(peak, renderScratch.getMagnitude(channel, 0, output.getNumSamples()));
+            output.addFrom(channel, 0, renderScratch, channel, 0, output.getNumSamples());
         }
         peaks[(size_t)index].store(peak, std::memory_order_relaxed);
         const auto voicesRemaining = std::any_of(layer.voices.begin(), layer.voices.end(),

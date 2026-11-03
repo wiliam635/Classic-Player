@@ -1,4 +1,5 @@
 #include "NordProgram.h"
+#include "NordBundlePolicy.h"
 #include <iostream>
 #include <stdexcept>
 static void require(bool ok, const char* why) { if (!ok) throw std::runtime_error(why); }
@@ -24,6 +25,20 @@ int main()
 {
     try
     {
+        using namespace NordBundlePolicy;
+        require(isTremolo(2) && isTremolo(3) && !isTremolo(0) && !isTremolo(1), "pan imported as tremolo");
+        require(modulation2(0) == Modulation2::phaser && modulation2(1) == Modulation2::phaser, "phaser pair wrong");
+        require(modulation2(2) == Modulation2::flanger && modulation2(3) == Modulation2::flanger, "flanger pair wrong");
+        require(modulation2(4) == Modulation2::chorus && modulation2(5) == Modulation2::chorus, "chorus pair wrong");
+        require(modulation2(6) == Modulation2::vibe && modulation2(8) == Modulation2::ensemble
+            && modulation2(10) == Modulation2::spin && modulation2(12) == Modulation2::unknown
+            && modulation2(-1) == Modulation2::unknown, "unsupported type misidentified");
+        require(eqDecibels(-60) == -15.0f && eqDecibels(60) == 15.0f
+            && eqDecibels(12) == 3.0f && eqDecibels(0) == 0.0f, "quarter dB EQ scale wrong");
+        constexpr std::uint64_t MiB = 1024u * 1024u;
+        require(decodedBudgetBytes(0) == 768 * MiB && decodedBudgetBytes(4096) == 1024 * MiB
+            && decodedBudgetBytes(8192) == 2048 * MiB && decodedBudgetBytes(65536) == 3072 * MiB
+            && decodedBudgetBytes(512) == 256 * MiB, "decoded memory policy wrong");
         auto b = fixture();
         // Independent format coordinates exercise bit crossings, signed values,
         // 32-bit resource IDs and the length-prefixed block boundaries.

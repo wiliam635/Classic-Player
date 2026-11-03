@@ -143,6 +143,8 @@ private:
     static constexpr size_t decodedCacheLimitBytes = 1024u * 1024u * 1024u;
     std::mutex pianoCacheMutex;
     std::unordered_map<std::string, CachedPiano> pianoCache;
+    // Weak index reuses instruments held by live layers after LRU eviction.
+    std::unordered_map<std::string, std::weak_ptr<NordPianoDecoder::Instrument>> pianoCacheLive;
     size_t pianoCacheBytes = 0;
     std::uint64_t pianoCacheClock = 0;
 };

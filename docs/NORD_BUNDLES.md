@@ -17,3 +17,20 @@ Nao ha promessa de equivalencia sonora com o teclado: envelopes, filtros, efeito
 ## Verificacao
 
 O teste NordProgramRegression usa um arquivo sintetico, sem samples comerciais, para cobrir IDs de 32 bits, sinal, campos que atravessam bytes, tempo, selecao de cena e arquivos truncados/com numero incorreto de blocos. O workflow Validate Nord bundle reader executa no Linux, macOS e Windows.
+
+## Revisão de 03/11/2026 (sem compilação)
+
+NS4P Mod1 usa pares: 0/1 A-Pan, 2/3 Trem. Mod2: 0/1 Phaser,
+2/3 Flanger, 4/5 Chorus, 6/7 Vibe, 8/9 Ensemble, 10/11 Spin.
+A Classic aplica Trem/Flanger/Chorus e informa os demais como não suportados.
+O EQ usa passos de 0,25 dB; valores -60..60 correspondem a -15..15 dB.
+As variantes de chorus usam profundidades próprias da Classic (6/10 ms),
+não medidas do DSP do WX. Efeitos e envelopes continuam aproximações.
+
+O orçamento de PCM do novo preset passa a 25% da RAM física, com mínimo
+256 MiB, máximo 3072 MiB e fallback 768 MiB quando a RAM é desconhecida.
+Instrumentos iguais são contados uma vez por caminho dentro do preset.
+A contagem usa a capacidade dos vetores PCM. Falhas na preparação mantêm
+o programa atual. Um índice de weak_ptr permite reutilizar instrumentos
+retidos pelas layers mesmo quando o LRU os remove, sem mantê-los vivos
+indefinidamente. Não foi implementado streaming nesta revisão.

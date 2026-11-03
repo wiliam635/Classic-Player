@@ -193,7 +193,11 @@ std::shared_ptr<NordPianoDecoder::Instrument> SampleEngine::findCachedPiano(
                    + juce::String(file.getLastModificationTime().toMilliseconds());
     const std::lock_guard<std::mutex> guard(pianoCacheMutex);
     const auto found = pianoCache.find(key.toStdString());
-    if (found == pianoCache.end()) return {};
+    if (found == pianoCache.end())
+    {
+        const auto live = pianoCacheLive.find(key.toStdString());
+        return live != pianoCacheLive.end() ? live->second.lock() : std::shared_ptr<NordPianoDecoder::Instrument>{};
+    }
     found->second.lastUse = ++pianoCacheClock;
     return found->second.instrument;
 }
@@ -208,10 +212,14 @@ std::shared_ptr<NordPianoDecoder::Instrument> SampleEngine::cachePiano(
     for (const auto& stroke : decoded->strokes)
         bytes += sizeof(NordPianoDecoder::Stroke)
                + stroke.interleavedPcm.size() * sizeof(std::int16_t);
-    if (bytes > decodedCacheLimitBytes) return decoded;
-
     const std::lock_guard<std::mutex> guard(pianoCacheMutex);
     const auto keyString = key.toStdString();
+    if (const auto existing = pianoCacheLive.find(keyString); existing != pianoCacheLive.end())
+        if (auto shared = existing->second.lock()) return shared;
+    for (auto entry = pianoCacheLive.begin(); entry != pianoCacheLive.end();)
+        if (entry->second.expired()) entry = pianoCacheLive.erase(entry); else ++entry;
+    pianoCacheLive[keyString] = decoded;
+    if (bytes > decodedCacheLimitBytes) return decoded;
     if (const auto found = pianoCache.find(keyString); found != pianoCache.end())
     {
         found->second.lastUse = ++pianoCacheClock;

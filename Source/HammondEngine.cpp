@@ -322,10 +322,13 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
             ++l.clock;
         }
 
-        NordEffectSettings organFx;
-        organFx.chorusMix = c.routing.sf2Chorus;
-        organFx.chorusRate = c.routing.sf2ChorusRate;
-        organFx.chorusDepth = c.routing.sf2ChorusDepth;
+        auto organFx = c.routing.nordFx;
+        if (organFx.chorusMix <= 0.0f)
+        {
+            organFx.chorusMix = c.routing.sf2Chorus;
+            organFx.chorusRate = c.routing.sf2ChorusRate;
+            organFx.chorusDepth = c.routing.sf2ChorusDepth;
+        }
         l.organEffects.process(scratch, organFx);
         if(l.reverb.shouldProcess())
             l.reverb.processStereo(scratch.getWritePointer(0),scratch.getWritePointer(1),out.getNumSamples());

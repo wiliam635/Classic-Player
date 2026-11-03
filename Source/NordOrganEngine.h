@@ -46,6 +46,7 @@ private:
         std::array<Voice, Sf2Engine::maxPolyphonyPerLayer> voices {};
         std::array<bool, 16> sustain {};
         LayerReverb reverb;
+        NordLayerEffects nordEffects;
         LayerEqState eq;
         std::array<float, 2> cutoffState {};
         double rotaryPhase = 0.0, vibratoPhase = 0.0;
@@ -61,5 +62,6 @@ private:
     std::array<Layer, layerCount> layers;
     std::array<std::atomic<float>, layerCount> peaks {};
     std::array<float, 2049> sineTable {};
+    juce::AudioBuffer<float> renderScratch;
     double sampleRate = 48000.0;
 };
