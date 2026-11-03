@@ -45,6 +45,13 @@ else()
     message(FATAL_ERROR "Set JUCE_DIR or enable CLASSIC_PLAYER_FETCH_JUCE")
 endif()
 
+# ZIP64 backups: pinned miniz 3.1.0 (MIT), no platform zip executable required.
+add_library(ClassicBackupZip STATIC
+    third_party/miniz/miniz.c third_party/miniz/miniz_zip.c
+    third_party/miniz/miniz_tdef.c third_party/miniz/miniz_tinfl.c)
+target_include_directories(ClassicBackupZip PUBLIC third_party/miniz)
+target_compile_definitions(ClassicBackupZip PUBLIC MINIZ_NO_ZLIB_COMPATIBLE_NAMES MINIZ_NO_STDIO MINIZ_NO_TIME)
+
 find_package(FluidSynth CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 
@@ -214,6 +221,7 @@ if(WIN32)
 endif()
 
 target_link_libraries(ClassicPlayer PRIVATE
+    ClassicBackupZip
     ClassicPlayerAssets
     ${CLASSIC_PLAYER_FLUID_TARGET}
     OpenSSL::Crypto
@@ -284,6 +292,7 @@ if(CLASSIC_PLAYER_BUILD_WEBUI_APP)
         JUCE_USE_CURL=0
         CLASSIC_PLAYER_VERSION="${PROJECT_VERSION}")
     target_link_libraries(ClassicPlayerApp PRIVATE
+        ClassicBackupZip
         juce::juce_audio_devices
         juce::juce_gui_extra
         PUBLIC
@@ -356,8 +365,9 @@ if(CLASSIC_PLAYER_BUILD_TESTS)
     juce_add_console_app(ClassicPlayerMasterMidiTest PRODUCT_NAME "Classic Player Master MIDI Test")
     target_sources(ClassicPlayerMasterMidiTest PRIVATE Source/MasterMidiRegressionTest.cpp)
     target_include_directories(ClassicPlayerMasterMidiTest PRIVATE third_party/msfa)
-    target_link_libraries(ClassicPlayerMasterMidiTest PRIVATE ClassicPlayer ${CLASSIC_PLAYER_FLUID_TARGET}
+    target_link_libraries(ClassicPlayerMasterMidiTest PRIVATE ClassicPlayer ClassicBackupZip ${CLASSIC_PLAYER_FLUID_TARGET}
         juce::juce_audio_utils juce::juce_dsp)
+    add_test(NAME backup COMMAND ClassicPlayerMasterMidiTest --backup)
     add_test(NAME master-midi COMMAND ClassicPlayerMasterMidiTest)
     juce_add_console_app(ClassicPlayerUpdateCheckerTest PRODUCT_NAME "Classic Player Update Checker Test")
     target_sources(ClassicPlayerUpdateCheckerTest PRIVATE

@@ -69,8 +69,14 @@ configure_and_build() {
       "$test_executable"
     fi
   done
+  local backup_test="$build/ClassicPlayerMasterMidiTest_artefacts/Release/ClassicPlayerMasterMidiTest"
+  if [[ "$arch" == "x86_64" ]]; then
+    arch -x86_64 "$backup_test" --backup
+  else
+    "$backup_test" --backup
+  fi
   local ui_test="$build/ClassicPlayerHammondTest_artefacts/Release/ClassicPlayerHammondTest"
-  for skin_option in --performance-effects --silver-ui --dark-steel-ui --responsive-ui --live-layout; do
+  for skin_option in --ui-preferences --performance-effects --silver-ui --dark-steel-ui --responsive-ui --live-layout; do
     if [[ "$arch" == "x86_64" ]]; then
       arch -x86_64 "$ui_test" "$skin_option"
     else

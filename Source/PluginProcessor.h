@@ -262,6 +262,8 @@ public:
     juce::AudioProcessorValueTreeState parameters;
     juce::MidiKeyboardState keyboardState;
 
+juce::File backupDataDirectory() const { return programStorageDirectory(); }
+
 private:
     mutable juce::CriticalSection nordBundleImportLock;
     juce::ThreadPool nordBundlePool { 1 };

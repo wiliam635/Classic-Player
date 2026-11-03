@@ -130,7 +130,7 @@ jobs:
       - name: Run NPNO, NSMP and MIDI regressions
         shell: pwsh
         run: |
-          ctest --test-dir build\windows-x64 -C Release -R "^(npno-regression|nord-sample-regression|master-midi)$" --output-on-failure
+          ctest --test-dir build\windows-x64 -C Release -R "^(npno-regression|nord-sample-regression|master-midi|backup)$" --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw "Uma regressão de piano Nord, NSMP ou MIDI falhou." }
 
       - name: Install Inno Setup

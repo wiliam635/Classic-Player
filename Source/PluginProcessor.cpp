@@ -3885,10 +3885,6 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
     };
     for (const auto& prefix : oneBased)
         copyProperty(prefix + sourceOne, prefix + destinationOne);
-    if (savedType == static_cast<int>(LayerType::nord)
-        && (int) sourceState.getProperty("stateVersion", 0) < 173
-        && (int) sourceState.getProperty("pianoTimbre" + sourceOne, 1) < 0)
-        destinationState.setProperty("pianoTimbre" + destinationOne, 1, nullptr);
     const juce::StringArray zeroBased {
         "midiChannel", "low", "high", "velocityLow", "velocityHigh", "octave", "polyphony",
         "velocityCurve", "velocitySensitivityOff", "velocityCalibrated", "velocityEditorMode", "velocityOutputMin",
@@ -4585,12 +4581,6 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     "velocitySensitivityOff" + juce::String(i), false));
                 config.pianoTimbre = juce::jlimit(-1, 2, static_cast<int>(state.getProperty(
                     "pianoTimbre" + juce::String(i + 1), config.pianoTimbre)));
-                // Version 172 and earlier defaulted a new NPNO layer to
-                // neutral/off. Restore the 3.0 MID sound for those states,
-                // while preserving intentional OFF in newly saved states.
-                if (savedType == static_cast<int>(LayerType::nord)
-                    && savedStateVersion < 173 && config.pianoTimbre < 0)
-                    config.pianoTimbre = 1;
                 config.pianoDecaySeconds = juce::jlimit(3.0f, 15.0f, static_cast<float>(
                     state.getProperty("pianoDecaySeconds" + juce::String(i + 1), 15.0f)));
                 config.pianoSoftRelease = static_cast<bool>(state.getProperty(

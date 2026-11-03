@@ -139,6 +139,7 @@ private:
         MidiLearnButton stopLearn{"LEARN STOP"}, volumeLearnButton{"LEARN VOLUME"},
                         cutoffLearnButton{"LEARN CUTOFF"}, muteLearnButton{"LEARN MUTE"};
         juce::Slider fadeSlider, cutoffSlider;
+        juce::Label cutoffLabel;
         std::unique_ptr<juce::FileChooser> fileChooser;
         bool controlsVisible = true;
     };
@@ -315,6 +316,8 @@ private:
     unsigned nordBundleRevisionSeen = 0;
     void showLiveSet(bool show);
     void showAudioMidiSettings();
+    void showBackupMenu();
+    void chooseBackupFile(bool importing);
     void setUiLanguage(int language);
     void setUiSkin(int skin, bool savePreference = true);
     void applyUiLanguage();
@@ -383,6 +386,10 @@ private:
     LevelMeter masterMeter;
     CpuMeter cpuMeter;
     juce::TextButton updateButton { "ATUALIZACOES" };
+    juce::TextButton backupButton { "BACKUP" };
+    std::unique_ptr<juce::FileChooser> backupChooser;
+    juce::ThreadPool backupJobs { 1 };
+    bool backupBusy = false;
     ClassicPlayerUpdateChecker updateChecker;
     ClassicPlayerUpdateChecker::Result latestUpdate;
     double nextUpdateCheckMs = 0.0;

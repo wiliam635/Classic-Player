@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "ClassicBackup.h"
 #include "AnalogEditorPanel.h"
 #include "AnalogBrowserPresets.h"
 #include "HammondEditorPanel.h"
@@ -1072,6 +1073,18 @@ void writeUiLanguagePreference(int language)
 {
     juce::PropertiesFile settings(uiLanguageFileOptions());
     settings.setValue("uiLanguage", juce::jlimit(0, 2, language));
+    settings.saveIfNeeded();
+}
+
+bool readUiDisplayPreference(const char* key, bool fallback)
+{
+    juce::PropertiesFile settings(uiLanguageFileOptions());
+    return settings.getBoolValue(key, fallback);
+}
+void writeUiDisplayPreference(const char* key, bool value)
+{
+    juce::PropertiesFile settings(uiLanguageFileOptions());
+    settings.setValue(key, value);
     settings.saveIfNeeded();
 }
 
@@ -5236,14 +5249,14 @@ public:
         addAndMakeVisible(calibrationButton);
         addAndMakeVisible(calibrationCancelButton);
         addAndMakeVisible(calibrationStatus);
-        calibrationButton.setVisible(isNord);
+        calibrationButton.setVisible(false);
         calibrationCancelButton.setVisible(false);
-        calibrationStatus.setVisible(isNord);
+        calibrationStatus.setVisible(false);
         calibrationStatus.setColour(juce::Label::textColourId, juce::Colour(mutedText));
         calibrationStatus.setFont(juce::FontOptions(10.0f));
         refresh();
         setSize(700, isNord ? 186 : 160);
-        if (isNord) startTimerHz(8);
+        // Legacy calibration is no longer exposed in the NPNO routing panel.
     }
 
     ~LayerRoutingEditorPanel() override
@@ -5960,7 +5973,9 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
     cutoffSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     cutoffSlider.setRange(0.0, 100.0, 1.0);
     cutoffSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 48, 18);
-    cutoffSlider.setTextValueSuffix("% cutoff");
+    cutoffSlider.setTextValueSuffix("%");
+    cutoffLabel.setText("CUTOFF", juce::dontSendNotification);
+    addAndMakeVisible(cutoffLabel);
     cutoffSlider.setTooltip("Cutoff da layer Pad Contínuo; também pode ser controlado por MIDI Learn.");
     if (const auto* value = processor.parameters.getRawParameterValue(
             "layer" + juce::String(layerIndex + 1) + "Cutoff"))
@@ -5991,8 +6006,9 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::setControlsVisible(bool sh
         padVolumes[(size_t) pad].setVisible(controlsVisible && !continuous() && pad<padCount());
     }
     stopButton.setVisible(continuous());stopLearn.setVisible(controlsVisible&&continuous());
-    fadeSlider.setVisible(controlsVisible&&continuous());cutoffLearnButton.setVisible(controlsVisible&&continuous());
-    cutoffSlider.setVisible(controlsVisible&&continuous());
+    fadeSlider.setVisible(controlsVisible&&continuous());cutoffLearnButton.setVisible(continuous());
+    cutoffSlider.setVisible(continuous());
+    cutoffLabel.setVisible(continuous());
     volumeLearnButton.setVisible(controlsVisible);
     muteLearnButton.setVisible(controlsVisible);
     resized();
@@ -6076,14 +6092,20 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
 void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
 {
     auto available=getLocalBounds();
+    if (continuous())
+    {
+        auto cutoffRow = available.removeFromBottom(34).reduced(3, 1);
+        cutoffLearnButton.setBounds(cutoffRow.removeFromRight(118).reduced(2, 0));
+        cutoffLabel.setBounds(cutoffRow.removeFromLeft(66));
+        cutoffSlider.setBounds(cutoffRow);
+    }
     if(controlsVisible)
     {
         if (continuous())
         {
             auto learnRow = available.removeFromBottom(30).reduced(2, 1);
-            const auto third = learnRow.getWidth() / 3;
-            volumeLearnButton.setBounds(learnRow.removeFromLeft(third).reduced(1));
-            cutoffLearnButton.setBounds(learnRow.removeFromLeft(third).reduced(1));
+            const auto half = learnRow.getWidth() / 2;
+            volumeLearnButton.setBounds(learnRow.removeFromLeft(half).reduced(1));
             muteLearnButton.setBounds(learnRow.reduced(1));
         }
         else
@@ -6094,7 +6116,6 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
         }
         if(continuous())
         {
-            cutoffSlider.setBounds(available.removeFromBottom(30).reduced(3, 1));
             fadeSlider.setBounds(available.removeFromBottom(32));
             stopLearn.setBounds(available.removeFromBottom(28).reduced(3));
         }
@@ -8613,8 +8634,10 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
                             keyboard.findColour(juce::MidiKeyboardComponent::keyDownOverlayColourId)
                                 .toString()).toString());
     keyboard.setActiveColour(savedKeyColour);
-    virtualKeyboardVisible = static_cast<bool>(
-        uiState.getProperty("uiVirtualKeyboardVisible", true));
+    virtualKeyboardVisible = classicProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone
+        ? readUiDisplayPreference("uiVirtualKeyboardVisible", true)
+        : static_cast<bool>(uiState.getProperty("uiVirtualKeyboardVisible",
+            readUiDisplayPreference("uiVirtualKeyboardVisible", true)));
 
     appIcon.setImage(embeddedImage("classicplayerappicon_png"), juce::RectanglePlacement::centred);
     appIcon.setInterceptsMouseClicks(false, false);
@@ -8639,7 +8662,10 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     chordLabel.setColour(juce::Label::backgroundColourId, juce::Colours::black);
     chordLabel.setColour(juce::Label::textColourId, chordColour);
     addAndMakeVisible(chordLabel);
-    chordLabel.spectrumMode = static_cast<bool>(uiState.getProperty("uiDisplaySpectrum", false));
+    chordLabel.spectrumMode = classicProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone
+        ? readUiDisplayPreference("uiDisplaySpectrum", false)
+        : static_cast<bool>(uiState.getProperty("uiDisplaySpectrum",
+            readUiDisplayPreference("uiDisplaySpectrum", false)));
     classicProcessor.setSpectrumCaptureEnabled(chordLabel.spectrumMode);
     chordLabel.setTooltip(localizedUiText("Botao direito: acordes ou espectro", uiLanguage));
     chordLabel.onContextMenu = [this]
@@ -8722,6 +8748,10 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
             loadSelectedProgram();
     };
     addAndMakeVisible(programBox);
+    flatButton(backupButton);
+    backupButton.onClick = [this] { showBackupMenu(); };
+    backupButton.setTooltip("Fazer ou importar um backup completo das bibliotecas e configuracoes");
+    addAndMakeVisible(backupButton);
     flatButton(newProgramButton);
     flatButton(saveProgramButton);
     flatButton(exportProgramButton);
@@ -8840,6 +8870,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
         keyboard.setVisible(virtualKeyboardVisible && !showingLiveSet);
         classicProcessor.parameters.state.setProperty(
             "uiVirtualKeyboardVisible", virtualKeyboardVisible, nullptr);
+        writeUiDisplayPreference("uiVirtualKeyboardVisible", virtualKeyboardVisible);
         resized();
     };
     addAndMakeVisible(keyboardVisibilityButton);
@@ -9053,6 +9084,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     }
     addLayerButton.setEnabled(visibleLayerCount < Sf2Engine::layerCount);
     addAndMakeVisible(keyboard);
+    keyboard.setVisible(virtualKeyboardVisible);
     classicProcessor.keyboardState.addListener(this);
 
     addAndMakeVisible(activationPanel);
@@ -9126,6 +9158,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
 
 ClassicPlayerAudioProcessorEditor::~ClassicPlayerAudioProcessorEditor()
 {
+    backupJobs.removeAllJobs(true, -1);
     classicProcessor.setSpectrumCaptureEnabled(false);
     ++liveSetSwitchGeneration;
     classicProcessor.cancelLiveSetFade();
@@ -9598,6 +9631,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
     auto footer = area.removeFromBottom(54);
     cpuMeter.setBounds(footer.getX(), footer.getY() + 29, 138, 22);
     updateButton.setBounds(footer.getX() + 148, footer.getY() + 29, 140, 22);
+    backupButton.setBounds(footer.getX() + 298, footer.getY() + 29, 110, 22);
     auto panicArea = footer.removeFromRight(166).removeFromBottom(28);
     panicLearnButton.setBounds(panicArea.removeFromRight(78).reduced(1, 0));
     panicButton.setBounds(panicArea.reduced(1, 0));
@@ -9901,11 +9935,108 @@ void ClassicPlayerAudioProcessorEditor::handleNoteOff(juce::MidiKeyboardState*, 
     triggerAsyncUpdate();
 }
 
+void ClassicPlayerAudioProcessorEditor::showBackupMenu()
+{
+    if (backupBusy) return;
+    juce::PopupMenu menu;
+    menu.addItem(1, "Importar Backup");
+    menu.addItem(2, "Fazer Backup");
+    const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&backupButton), [safe](int result)
+    {
+        if (safe != nullptr && result != 0) safe->chooseBackupFile(result == 1);
+    });
+}
+
+void ClassicPlayerAudioProcessorEditor::chooseBackupFile(bool importing)
+{
+    if (backupBusy) return;
+    const auto initial = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+        .getChildFile("Classic-Player-Backup-" + juce::Time::getCurrentTime().formatted("%Y-%m-%d-%H%M%S") + ".zip");
+    backupChooser = std::make_unique<juce::FileChooser>(importing ? "Importar Backup" : "Fazer Backup", initial, "*.zip");
+    const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
+    backupChooser->launchAsync((importing ? juce::FileBrowserComponent::openMode : juce::FileBrowserComponent::saveMode)
+        | juce::FileBrowserComponent::canSelectFiles
+        | (importing ? 0 : juce::FileBrowserComponent::warnAboutOverwriting),
+        [safe, importing](const juce::FileChooser& chooser)
+    {
+        if (safe == nullptr || chooser.getResult() == juce::File{}) return;
+        const auto selected = importing ? chooser.getResult() : chooser.getResult().withFileExtension(".zip");
+        const auto begin = [safe, importing, selected]
+        {
+            if (safe == nullptr || safe->backupBusy) return;
+            auto& processor = safe->classicProcessor;
+           #if JucePlugin_Build_Standalone
+            if (auto* holder = juce::StandalonePluginHolder::getInstance())
+            {
+                holder->saveAudioDeviceState(); holder->savePluginState();
+                if (auto* settings = dynamic_cast<juce::PropertiesFile*>(holder->settings.get())) settings->saveIfNeeded();
+            }
+           #endif
+            juce::MemoryBlock state;
+            processor.getStateInformation(state);
+            const auto root = processor.backupDataDirectory();
+            juce::PropertiesFile settings(uiLanguageFileOptions()); settings.saveIfNeeded();
+            const auto uiSettings = settings.getFile();
+            safe->backupBusy = true;
+            safe->interfaceCanvas.setEnabled(false);
+            safe->backupButton.setEnabled(false); safe->backupButton.setButtonText("BACKUP...");
+            safe->backupJobs.addJob([safe, importing, selected, root, uiSettings, state]
+            {
+                juce::File session;
+                auto result = juce::Result::ok();
+                try { result = importing ? ClassicBackup::restore(selected, root, uiSettings, session)
+                                         : ClassicBackup::create(root, uiSettings, state, selected); }
+                catch (...) { result = juce::Result::fail("Falha ao processar backup. Verifique os arquivos e o espaco em disco."); }
+                juce::MessageManager::callAsync([safe, importing, selected, root, session, result]() mutable
+                {
+                    if (safe == nullptr) return;
+                    safe->backupBusy = false;
+                    safe->interfaceCanvas.setEnabled(true);
+                    safe->backupButton.setEnabled(true); safe->backupButton.setButtonText("BACKUP");
+                    if (result.wasOk() && importing)
+                    {
+                        result = safe->classicProcessor.loadProgram(session);
+                        safe->refreshAfterProgramLoad();
+                        safe->virtualKeyboardVisible = readUiDisplayPreference("uiVirtualKeyboardVisible", true);
+                        safe->keyboard.setVisible(safe->virtualKeyboardVisible && !safe->showingLiveSet);
+                        safe->keyboardVisibilityButton.setButtonText(safe->virtualKeyboardVisible ? "OCULTAR TECLADO" : "MOSTRAR TECLADO");
+                        safe->setDisplaySpectrumMode(readUiDisplayPreference("uiDisplaySpectrum", false));
+                       #if JucePlugin_Build_Standalone
+                        if (auto* holder = juce::StandalonePluginHolder::getInstance())
+                            if (auto deviceState = juce::XmlDocument::parse(root.getChildFile("Restored Device Settings.xml")))
+                                if (holder->settings != nullptr)
+                                {
+                                    holder->settings->restoreFromXml(*deviceState);
+                                    holder->reloadAudioDeviceState(false, {}, nullptr);
+                                    holder->savePluginState();
+                                }
+                       #endif
+                        safe->setUiSkin(readUiSkinPreference(), false);
+                        safe->setUiLanguage(readUiLanguagePreference());
+                        safe->resized();
+                    }
+                    juce::AlertWindow::showMessageBoxAsync(result.wasOk() ? juce::MessageBoxIconType::InfoIcon
+                                                                                       : juce::MessageBoxIconType::WarningIcon,
+                        "Backup Classic Player", result.failed() ? result.getErrorMessage()
+                        : importing ? "Backup restaurado. A biblioteca anterior foi preservada na pasta ao lado. Confira os dispositivos de audio/MIDI neste computador."
+                                    : "Backup completo salvo em: " + selected.getFullPathName());
+                });
+            });
+        };
+        if (!importing) { begin(); return; }
+        juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon, "Importar Backup",
+            "A biblioteca e as configuracoes atuais serao substituidas. Uma copia da biblioteca anterior sera preservada. Continuar?",
+            "IMPORTAR", "CANCELAR", nullptr, juce::ModalCallbackFunction::create([begin](int answer) { if (answer != 0) begin(); }));
+    });
+}
+
 void ClassicPlayerAudioProcessorEditor::setDisplaySpectrumMode(bool enabled)
 {
     chordLabel.spectrumMode = enabled;
     classicProcessor.setSpectrumCaptureEnabled(enabled);
     classicProcessor.parameters.state.setProperty("uiDisplaySpectrum", enabled, nullptr);
+    writeUiDisplayPreference("uiDisplaySpectrum", enabled);
     chordLabel.repaint();
     if (!enabled) handleAsyncUpdate();
 }

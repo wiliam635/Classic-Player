@@ -341,6 +341,53 @@ struct LiveSetLayoutRegressionAccess
         std::cout << "Independent channel/outline colours, preset persistence and layer removal passed\n";
     }
 
+    static void displayPreferences()
+    {
+        juce::PropertiesFile::Options options;
+        options.applicationName = "Classic Player";
+        options.filenameSuffix = "ui-settings";
+        options.osxLibrarySubFolder = "Application Support";
+        juce::PropertiesFile preferences(options);
+        const auto preferenceFile = preferences.getFile();
+        struct RestorePreferenceFile
+        {
+            juce::File file;
+            bool existed;
+            juce::String original;
+            ~RestorePreferenceFile() { if (existed) file.replaceWithText(original); else file.deleteFile(); }
+        } restore { preferenceFile, preferenceFile.existsAsFile(), preferenceFile.loadFileAsString() };
+        preferences.setValue("uiVirtualKeyboardVisible", true);
+        preferences.setValue("uiDisplaySpectrum", false);
+        preferences.saveIfNeeded();
+        const auto root = juce::File::getSpecialLocation(juce::File::tempDirectory)
+            .getChildFile("classic-display-" + juce::Uuid().toString());
+        juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
+        auto processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
+        auto editor = std::make_unique<ClassicPlayerAudioProcessorEditor>(*processor, false);
+        check(editor->virtualKeyboardVisible, "initial keyboard visibility");
+        editor->keyboardVisibilityButton.onClick();
+        editor->setDisplaySpectrumMode(true);
+        check(!editor->virtualKeyboardVisible && editor->chordLabel.spectrumMode, "display toggle");
+        editor.reset(); processor.reset();
+        juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
+        processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
+        processor->parameters.state.setProperty("uiVirtualKeyboardVisible", true, nullptr);
+        processor->parameters.state.setProperty("uiDisplaySpectrum", false, nullptr);
+        editor = std::make_unique<ClassicPlayerAudioProcessorEditor>(*processor, false);
+        check(!editor->virtualKeyboardVisible && !editor->keyboard.isVisible()
+              && editor->chordLabel.spectrumMode, "fresh standalone lost saved display preferences");
+        editor.reset(); processor.reset();
+        juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_VST3);
+        processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
+        processor->parameters.state.setProperty("uiVirtualKeyboardVisible", true, nullptr);
+        processor->parameters.state.setProperty("uiDisplaySpectrum", false, nullptr);
+        editor = std::make_unique<ClassicPlayerAudioProcessorEditor>(*processor, false);
+        check(editor->virtualKeyboardVisible && !editor->chordLabel.spectrumMode,
+              "VST session state must take precedence over global preferences");
+        editor.reset(); processor.reset(); root.deleteRecursively();
+        std::cout << "Standalone display preferences survive restart; VST session state remains independent\n";
+    }
+
     static void display(const char* screenshot)
     {
         auto processor = std::make_unique<ClassicPlayerAudioProcessor>();
@@ -1032,6 +1079,7 @@ int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
     try{
+        if (argc > 1 && juce::String(argv[1]) == "--ui-preferences") { LiveSetLayoutRegressionAccess::displayPreferences(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--benchmark-idle-hammond")
         {
             benchmarkIdleHammond();

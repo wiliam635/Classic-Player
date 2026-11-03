@@ -1,3 +1,4 @@
+#include "ClassicBackupRegression.h"
 #include "PluginProcessor.h"
 #include <iostream>
 #include <stdexcept>
@@ -507,6 +508,7 @@ int main(int argc, char** argv)
     juce::ScopedJuceInitialiser_GUI initialise;
     try
     {
+        if (argc > 1 && juce::String(argv[1]) == "--backup") { runClassicBackupRegression(); return 0; }
         if (argc == 3 && juce::String(argv[1]) == "--sf2-mute")
         {
             MidiRecordingRegressionAccess::sf2Mute(juce::File(juce::String::fromUTF8(argv[2])));

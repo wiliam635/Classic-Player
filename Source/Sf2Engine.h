@@ -57,7 +57,7 @@ public:
         int velocitySoftInput = 20;
         int velocityMidInput = 64;
         int velocityHardInput = 108;
-        int pianoTimbre = 1; // NPNO piano EQ: keep the 3.0 default (MID); -1 remains optional neutral/off
+        int pianoTimbre = -1; // Neutral/OFF until the user explicitly selects Soft/Mid/Bright.
         float pianoDecaySeconds = 15.0f; // NPNO sustained tail; old performances stay unchanged
         bool pianoSoftRelease = false; // optional gentler NPNO key-up, independent of sustain
         int pianoDynamicCompression = 0; // 0 off, 1-3 lift quiet notes without changing sample layer
