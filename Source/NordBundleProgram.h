@@ -214,8 +214,14 @@ inline juce::Result build(const juce::File& folder, const juce::String& path, Pr
             part.routing.gain = percent(p.get(section + ".layerLevel" + token + letter, 100)) / 100.0f;
             if (part.routing.gain <= 0.0f)
             {
-                out.warnings.addIfNotAlreadyThere("Partes com volume zero nao carregadas; morphs de volume nao sao aplicados.");
-                continue;
+                const auto levelKey = section + ".layerLevel" + token + letter;
+                const bool hasVolumeMorph = p.get(levelKey + ".morphWheel") != 0
+                    || p.get(levelKey + ".morphAfterTouch") != 0
+                    || p.get(levelKey + ".morphCtrlPedal") != 0;
+                if (!hasVolumeMorph) continue;
+                // Keep the source instead of discarding a layer whose morph can
+                // make it audible. Its MIDI modulation still needs implementing.
+                out.warnings.addIfNotAlreadyThere("Parte com volume inicial zero preservada; morph de volume ainda nao aplicado.");
             }
             if (group == 1)
             {
