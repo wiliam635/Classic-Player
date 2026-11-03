@@ -353,7 +353,7 @@ SampleEngine::Voice& SampleEngine::allocateVoice(Layer& layer, int polyphony)
 }
 
 void SampleEngine::startVoice(Layer& layer, int note, int channel, float velocity,
-                              const Sf2Engine::LayerConfig& routing)
+                              const Sf2Engine::LayerConfig& routing, int inputNote)
 {
     auto* candidate = &allocateVoice(layer, routing.polyphony);
 
@@ -373,7 +373,7 @@ void SampleEngine::startVoice(Layer& layer, int note, int channel, float velocit
     candidate->position = static_cast<double>(startSample);
     candidate->increment = std::pow(2.0, semitones / 12.0)
                          * layer.sourceSampleRate / currentSampleRate;
-    candidate->level = velocity;
+    candidate->level = velocity * routing.nordSplit.gain(inputNote < 0 ? note - routing.octave*12 : inputNote);
     candidate->velocity = velocity;
     const auto attackSamples = juce::jmax(1.0, layerAttackSeconds(routing.attack) * currentSampleRate);
     candidate->attackGain = routing.attack <= 0.0f ? 1.0f : 0.0f;
@@ -490,7 +490,7 @@ void SampleEngine::preparePianoLoops(NordPianoDecoder::Instrument& piano)
 }
 
 void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int channel,
-                                  float velocity, const Sf2Engine::LayerConfig& routing)
+                                  float velocity, const Sf2Engine::LayerConfig& routing, int inputNote)
 {
     if (!juce::isPositiveAndBelow(sampleIndex, static_cast<int>(layer.piano->strokes.size())))
         return;
@@ -521,7 +521,8 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     // Dynamic compression lifts the quietest keystrokes but preserves the
     // original velocity used above to select the sample/timbre layer.
     const auto dynamicLift = 0.10f * juce::jlimit(0, 3, routing.pianoDynamicCompression);
-    candidate->level = (velocity + (1.0f - velocity) * dynamicLift) * strokeGain;
+    candidate->level = (velocity + (1.0f - velocity) * dynamicLift) * strokeGain
+        * routing.nordSplit.gain(inputNote < 0 ? note - routing.octave*12 : inputNote);
     candidate->velocity = velocity;
     const auto attackSamples = juce::jmax(1.0, layerAttackSeconds(routing.attack) * currentSampleRate);
     candidate->attackGain = routing.attack <= 0.0f ? 1.0f : 0.0f;
@@ -679,6 +680,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
         if (message.isController() && message.getControllerNumber() == 1)
         {
             layer.modulationAmount = routing.modulationEnabled
+                && routing.nordMorph.volume.wheel == 0 && routing.nordMorph.cutoff.wheel == 0
                 ? message.getControllerValue() / 127.0f : 0.0f;
             return;
         }
@@ -730,10 +732,10 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 if (stroke < 0)
                     stroke = findPianoStroke(layer, note, velocity, 0);
                 if (stroke >= 0)
-                    startPianoVoice(layer, stroke, note, channel, velocity, routing);
+                    startPianoVoice(layer, stroke, note, channel, velocity, routing, inputNote);
             }
             else
-                startVoice(layer, note, message.getChannel(), velocity, routing);
+                startVoice(layer, note, message.getChannel(), velocity, routing, inputNote);
         }
         else if (message.isNoteOff())
         {

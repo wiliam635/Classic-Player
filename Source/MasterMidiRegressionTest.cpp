@@ -510,6 +510,7 @@ static void bundleSettingsRoundTrip()
     auto config = processor->layerConfig(0);
     config.nordMorph.volume = {1.0f, -0.5f, 0.25f};
     config.nordMorph.cutoff = {-0.75f, 0.3f, 0.6f};
+    config.nordSplit = {48, 72, 6, 12};
     config.nordFx.modulationType = 4;
     config.nordFx.modulationMix = 63;
     config.nordFx.modulationRate = 1.7f;
@@ -519,6 +520,8 @@ static void bundleSettingsRoundTrip()
     processor->setLayerConfig(0, Sf2Engine::LayerConfig{});
     processor->setStateInformation(data.getData(), int(data.getSize()));
     const auto restored = processor->layerConfig(0);
+    check(restored.nordSplit.lowPoint == 48 && restored.nordSplit.highPoint == 72
+        && restored.nordSplit.lowWidth == 6 && restored.nordSplit.highWidth == 12, "bundle split persistence");
     check(restored.nordMorph.volume.wheel == 1.0f && restored.nordMorph.volume.pressure == -0.5f
         && restored.nordMorph.volume.pedal == 0.25f, "bundle volume morph persistence");
     check(restored.nordMorph.cutoff.wheel == -0.75f

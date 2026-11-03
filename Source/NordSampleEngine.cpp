@@ -327,7 +327,7 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
             if (layer.heldNotes[(size_t) note]) return note;
         return -1;
     };
-    const auto startVoice = [&](int note, int midiChannel, float shapedVelocity, bool legato) -> bool
+    const auto startVoice = [&](int note, int midiChannel, float shapedVelocity, bool legato, float splitGain) -> bool
     {
         const auto velocity = juce::jlimit(1, 127, juce::roundToInt(shapedVelocity * 127.0f));
         const auto zoneIndex = findZone(*layer.instrument, note, velocity);
@@ -357,7 +357,8 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
         voice.increment = std::pow(2.0, (note - zone.root + cents / 100.0) / 12.0)
                         * NordSampleDecoder::sampleRate / currentSampleRate;
         const auto noteGain = layer.instrument->gain[(size_t) note];
-        voice.amplitude = shapedVelocity * zone.gain * juce::jmax(0.0f, noteGain);
+        voice.amplitude = shapedVelocity * zone.gain * juce::jmax(0.0f, noteGain)
+            * splitGain;
         voice.attack = routing.attack <= 0.0f ? 1.0f : 0.0f;
         voice.attackStep = routing.attack <= 0.0f ? 1.0f
             : (float) (1.0 / juce::jmax(1.0, layerAttackSeconds(routing.attack) * currentSampleRate));
@@ -405,7 +406,7 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
             const auto fallback = highestHeld();
             if (fallback >= 0 && fallback != layer.monoNote)
                 startVoice(fallback, layer.heldChannels[(size_t) fallback],
-                           layer.heldVelocities[(size_t) fallback], true);
+                           layer.heldVelocities[(size_t) fallback], true, layer.heldSplitGains[(size_t) fallback]);
             else if (fallback < 0)
             {
                 for (auto& voice : layer.voices)
@@ -446,11 +447,12 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
         const auto shapedVelocity = velocity / 127.0f;
         const auto previousNote = highestHeld();
         const auto legato = routing.mono && previousNote >= 0 && previousNote != note;
-        if (!startVoice(note, channel, shapedVelocity, legato)) return;
+        if (!startVoice(note, channel, shapedVelocity, legato, routing.nordSplit.gain(inputNote))) return;
         if (routing.mono)
         {
             layer.heldNotes[(size_t) note] = true;
             layer.heldVelocities[(size_t) note] = shapedVelocity;
+            layer.heldSplitGains[(size_t) note] = routing.nordSplit.gain(inputNote);
             layer.heldChannels[(size_t) note] = channel;
         }
         return;
@@ -478,7 +480,7 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
             if (fallback >= 0)
             {
                 startVoice(fallback, layer.heldChannels[(size_t) fallback],
-                           layer.heldVelocities[(size_t) fallback], true);
+                           layer.heldVelocities[(size_t) fallback], true, layer.heldSplitGains[(size_t) fallback]);
                 return;
             }
             for (auto& voice : layer.voices)

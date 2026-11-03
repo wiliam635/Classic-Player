@@ -1,11 +1,24 @@
 #include "../../Source/NordModulation.h"
 #include <iostream>
 #include "../../Source/NordMorph.h"
+#include "../../Source/NordSplit.h"
 #include <stdexcept>
 int main()
 {
     try
     {
+        for (int width : {6, 12})
+        {
+            NordSplit lower, upper;
+            lower.highPoint = upper.lowPoint = 60;
+            lower.highWidth = upper.lowWidth = width;
+            for (int note = 0; note < 128; ++note)
+                if (std::abs(lower.gain(note) + upper.gain(note) - 1) > 1.e-6f)
+                    throw std::runtime_error("split overlap has a hole or double gain");
+            if (lower.gain(60-width) != 1 || lower.gain(60+width) != 0
+                || upper.gain(60-width) != 0 || upper.gain(60+width) != 1)
+                throw std::runtime_error("split width mismatch");
+        }
         NordMorphState morph;
         NordMorphDepth positive {1, 0, 0}, negative {-1, 0, 0};
         if (morph.apply(0, positive, 1) != 0) throw std::runtime_error("morph initial value");

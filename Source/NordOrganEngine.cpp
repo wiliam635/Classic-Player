@@ -326,7 +326,7 @@ void NordOrganEngine::process(juce::AudioBuffer<float>& output, const juce::Midi
                     voice.percussionPhase -= std::floor(voice.percussionPhase);
                     voice.percussionEnvelope *= percussionDecay;
                 }
-                mono += voiceSample * voice.envelope * 0.62f;
+                mono += voiceSample * voice.envelope * 0.62f * config.routing.nordSplit.gain(voice.note);
             }
 
             mono = (1.0f - drive) * mono + drive * std::tanh(mono * (1.0f + drive * 5.0f));

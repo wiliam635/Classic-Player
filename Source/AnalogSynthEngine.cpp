@@ -595,6 +595,7 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
         sample = processLadder(voice, sample, cutoffHz, config.resonance, config.filterDrive);
         sample *= amp * voice.velocity;
     }
+    sample *= config.routing.nordSplit.gain(voice.note);
     ++voice.age;
     sample = voice.transition.process(sample);
 

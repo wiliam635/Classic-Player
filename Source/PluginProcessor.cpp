@@ -213,6 +213,7 @@ void ClassicPlayerAudioProcessor::resetLayerSplit(int layer)
     auto config = layerConfig(layer);
     config.lowNote = 0;
     config.highNote = 127;
+    config.nordSplit = {};
     setLayerConfig(layer, config);
 }
 
@@ -2375,6 +2376,7 @@ void ClassicPlayerAudioProcessor::consumeMidiControlUpdates()
         {
             auto config = layerConfig(layer);
             const auto note = split % 128;
+            config.nordSplit = {};
             if ((target & 1) != 0)
             {
                 config.highNote = note;
@@ -3893,6 +3895,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
         "layerType", "dx7Layer", "dx7Patch", "sf2Layer", "sf2Bank", "sf2Program", "pianoTimbre", "pianoDecaySeconds",
         "pianoSoftRelease", "pianoDynamicCompression", "pianoPedalResonance",
         "nordTremoloMix", "nordTremoloRate", "nordFlangerMix", "nordFlangerRate",
+        "nordSplitLowPoint", "nordSplitHighPoint", "nordSplitLowWidth", "nordSplitHighWidth",
         "nordMorphVolumeWheel", "nordMorphVolumePressure", "nordMorphVolumePedal",
         "nordMorphCutoffWheel", "nordMorphCutoffPressure", "nordMorphCutoffPedal",
         "nordModulationType", "nordModulationMix", "nordModulationRate",
@@ -4094,6 +4097,10 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("nordTremoloRate" + fxKey, config.nordFx.tremoloRate, nullptr);
         state.setProperty("nordFlangerMix" + fxKey, config.nordFx.flangerMix, nullptr);
         state.setProperty("nordFlangerRate" + fxKey, config.nordFx.flangerRate, nullptr);
+        state.setProperty("nordSplitLowPoint" + fxKey, config.nordSplit.lowPoint, nullptr);
+        state.setProperty("nordSplitHighPoint" + fxKey, config.nordSplit.highPoint, nullptr);
+        state.setProperty("nordSplitLowWidth" + fxKey, config.nordSplit.lowWidth, nullptr);
+        state.setProperty("nordSplitHighWidth" + fxKey, config.nordSplit.highWidth, nullptr);
         state.setProperty("nordMorphVolumeWheel" + fxKey, config.nordMorph.volume.wheel, nullptr);
         state.setProperty("nordMorphVolumePressure" + fxKey, config.nordMorph.volume.pressure, nullptr);
         state.setProperty("nordMorphVolumePedal" + fxKey, config.nordMorph.volume.pedal, nullptr);
@@ -4630,6 +4637,10 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.nordFx.tremoloRate = juce::jlimit(0.2f, 12.0f, (float) state.getProperty("nordTremoloRate" + fxKey, 4.0f));
                 config.nordFx.flangerMix = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordFlangerMix" + fxKey, 0.0f));
                 config.nordFx.flangerRate = juce::jlimit(0.05f, 5.0f, (float) state.getProperty("nordFlangerRate" + fxKey, 0.35f));
+                config.nordSplit.lowPoint = juce::jlimit(-1, 127, (int) state.getProperty("nordSplitLowPoint" + fxKey, -1));
+                config.nordSplit.highPoint = juce::jlimit(-1, 127, (int) state.getProperty("nordSplitHighPoint" + fxKey, -1));
+                config.nordSplit.lowWidth = juce::jlimit(0, 12, (int) state.getProperty("nordSplitLowWidth" + fxKey, 0));
+                config.nordSplit.highWidth = juce::jlimit(0, 12, (int) state.getProperty("nordSplitHighWidth" + fxKey, 0));
                 config.nordMorph.volume.wheel = juce::jlimit(-1.0f, 1.0f, (float) state.getProperty("nordMorphVolumeWheel" + fxKey, 0.0f));
                 config.nordMorph.volume.pressure = juce::jlimit(-1.0f, 1.0f, (float) state.getProperty("nordMorphVolumePressure" + fxKey, 0.0f));
                 config.nordMorph.volume.pedal = juce::jlimit(-1.0f, 1.0f, (float) state.getProperty("nordMorphVolumePedal" + fxKey, 0.0f));

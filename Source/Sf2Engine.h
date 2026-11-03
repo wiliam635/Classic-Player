@@ -10,6 +10,7 @@
 #include "LayerEffects.h"
 #include "VelocityCurve.h"
 #include "NordMorph.h"
+#include "NordSplit.h"
 
 class Sf2Engine
 {
@@ -34,6 +35,7 @@ public:
         // SoundFont listening on the same MIDI channel.
         std::array<int, 6> learnedControlCCs { -1, -1, -1, -1, -1, -1 };
         std::array<int, 6> learnedControlChannels { -1, -1, -1, -1, -1, -1 };
+        NordSplit nordSplit;
         int lowNote = 0;
         int highNote = 127;
         int lowVelocity = 1;

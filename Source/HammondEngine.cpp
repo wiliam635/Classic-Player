@@ -119,6 +119,9 @@ void HammondEngine::message(int index,const juce::MidiMessage& m,Config& c)
         }
         // CC1 is dedicated to Leslie performance control on the layer's MIDI
         // channel, even when an older program assigned CC1 to another target.
+        const bool wheelMorph = c.routing.nordMorph.volume.wheel != 0 || c.routing.nordMorph.cutoff.wheel != 0;
+        const bool pedalMorph = c.routing.nordMorph.volume.pedal != 0 || c.routing.nordMorph.cutoff.pedal != 0;
+        if ((cc == 1 && wheelMorph) || (cc == 11 && pedalMorph)) return;
         if(cc==1){
             if(c.learning==9){c.cc[9]=1;c.channel[9]=ch+1;c.learning=-1;}
             c.leslie=value>=64?2:1;return;
@@ -165,6 +168,7 @@ void HammondEngine::message(int index,const juce::MidiMessage& m,Config& c)
     *chosen=Voice{};auto& v=*chosen;v.transition=transition;
     v.active=v.down=true;v.note=m.getNoteNumber();v.channel=ch;
     v.velocity=c.routing.velocitySensitivityOff ? (100.0f/127.0f) : m.getFloatVelocity();
+    v.velocity *= c.routing.nordSplit.gain(v.note);
     const double base=hz(juce::jlimit(0,127,v.note+c.routing.octave*12));
     for(size_t i=0;i<ratios.size();++i){
         double f=base*ratios[i];const double high=std::min(hz(114),sampleRate*.45);

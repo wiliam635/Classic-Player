@@ -73,6 +73,7 @@ inline void routing(const NordProgram::Program& p, const std::string& prefix,
                     Sf2Engine::LayerConfig& c, juce::StringArray& warnings)
 {
     c.polyphony = 128; c.midiChannel = 0; c.pianoTimbre = -1;
+    c.nordSplit = {};
     c.octave = juce::jlimit(-6, 6, int(p.get(prefix + ".octaveShift")));
     c.sustainEnabled = p.get(prefix + ".sustainEnable", 1) != 0;
     if (!p.get("common.splitEnabled")) return;
@@ -92,10 +93,25 @@ inline void routing(const NordProgram::Program& p, const std::string& prefix,
     {
         c.lowNote = 0; c.highNote = 127;
         warnings.addIfNotAlreadyThere("Pontos de split fora de ordem: zona expandida para o teclado inteiro.");
+        return;
     }
-    for (const auto* s : suffix)
-        if (p.get(std::string("common.splitWidth") + s) != 0)
-            warnings.addIfNotAlreadyThere("Crossfade de split adaptado para limites de notas da Classic.");
+    const auto width = [&](int boundary)
+    {
+        const auto raw = p.get(std::string("common.splitWidth") + suffix[boundary]);
+        return raw == 1 ? 6 : raw == 2 ? 12 : 0;
+    };
+    if (first > 0)
+    {
+        c.nordSplit.lowPoint = boundaries[first];
+        c.nordSplit.lowWidth = width(first-1);
+        c.lowNote = juce::jmax(0, c.lowNote - c.nordSplit.lowWidth);
+    }
+    if (last < 3)
+    {
+        c.nordSplit.highPoint = boundaries[last+1];
+        c.nordSplit.highWidth = width(last);
+        c.highNote = juce::jmin(127, c.highNote + c.nordSplit.highWidth);
+    }
 }
 inline void effects(const NordProgram::Program& p, const std::string& prefix,
                     Sf2Engine::LayerConfig& c, juce::StringArray& warnings)

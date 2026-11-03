@@ -102,9 +102,9 @@ private:
     };
 
     void startVoice(Layer&, int note, int channel, float velocity,
-                    const Sf2Engine::LayerConfig& routing);
+                    const Sf2Engine::LayerConfig& routing, int inputNote = -1);
     void startPianoVoice(Layer&, int sampleIndex, int note, int channel, float velocity,
-                         const Sf2Engine::LayerConfig& routing);
+                         const Sf2Engine::LayerConfig& routing, int inputNote = -1);
     Voice& allocateVoice(Layer&, int polyphony);
     static void preparePianoLoops(NordPianoDecoder::Instrument&);
     std::shared_ptr<NordPianoDecoder::Instrument> findCachedPiano(const juce::File&);
