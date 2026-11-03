@@ -3869,6 +3869,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
         "layerType", "dx7Layer", "dx7Patch", "sf2Layer", "sf2Bank", "sf2Program", "pianoTimbre", "pianoDecaySeconds",
         "pianoSoftRelease", "pianoDynamicCompression", "pianoPedalResonance",
         "nordTremoloMix", "nordTremoloRate", "nordFlangerMix", "nordFlangerRate",
+        "nordModulationType", "nordModulationMix", "nordModulationRate",
         "nordChorusMix", "nordChorusRate", "nordChorusDepth", "nordDelayMix", "nordDelayBpm", "nordDelayFeedback",
         "externalInstrument", "externalInstrumentState", "analogOsc1Wave", "analogOsc2Wave",
         "analogOsc3Wave", "analogOsc1Level", "analogOsc2Level", "analogOsc3Level",
@@ -4067,6 +4068,9 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("nordTremoloRate" + fxKey, config.nordFx.tremoloRate, nullptr);
         state.setProperty("nordFlangerMix" + fxKey, config.nordFx.flangerMix, nullptr);
         state.setProperty("nordFlangerRate" + fxKey, config.nordFx.flangerRate, nullptr);
+        state.setProperty("nordModulationType" + fxKey, config.nordFx.modulationType, nullptr);
+        state.setProperty("nordModulationMix" + fxKey, config.nordFx.modulationMix, nullptr);
+        state.setProperty("nordModulationRate" + fxKey, config.nordFx.modulationRate, nullptr);
         state.setProperty("nordChorusMix" + fxKey, config.nordFx.chorusMix, nullptr);
         state.setProperty("nordChorusRate" + fxKey, config.nordFx.chorusRate, nullptr);
         state.setProperty("nordChorusDepth" + fxKey, config.nordFx.chorusDepth, nullptr);
@@ -4594,6 +4598,9 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.nordFx.tremoloRate = juce::jlimit(0.2f, 12.0f, (float) state.getProperty("nordTremoloRate" + fxKey, 4.0f));
                 config.nordFx.flangerMix = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordFlangerMix" + fxKey, 0.0f));
                 config.nordFx.flangerRate = juce::jlimit(0.05f, 5.0f, (float) state.getProperty("nordFlangerRate" + fxKey, 0.35f));
+                config.nordFx.modulationType = juce::jlimit(0, 4, (int) state.getProperty("nordModulationType" + fxKey, 0));
+                config.nordFx.modulationMix = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordModulationMix" + fxKey, 0.0f));
+                config.nordFx.modulationRate = juce::jlimit(0.05f, 12.0f, (float) state.getProperty("nordModulationRate" + fxKey, 0.8f));
                 config.nordFx.chorusMix = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordChorusMix" + fxKey, 0.0f));
                 config.nordFx.chorusRate = juce::jlimit(0.05f, 5.0f, (float) state.getProperty("nordChorusRate" + fxKey, 0.8f));
                 config.nordFx.chorusDepth = juce::jlimit(0.0f, 20.0f, (float) state.getProperty("nordChorusDepth" + fxKey, 8.0f));

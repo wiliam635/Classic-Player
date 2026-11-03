@@ -2,7 +2,7 @@ name: Validate Nord bundle reader
 on:
   workflow_dispatch:
   push:
-    branches: [codex/nord-bundle-loader-20261102]
+    branches: [codex/nord-bundle-loader-20261102, codex/nord-morph-investigation-20261103]
     paths: ['Source/**', 'tests/nord-program/**', '.github/workflows/test-nord-program.yml']
 permissions:
   contents: read

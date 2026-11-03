@@ -118,12 +118,14 @@ inline void effects(const NordProgram::Program& p, const std::string& prefix,
             c.nordFx.flangerMix = percent(get("fx2Amt"));
         else
         {
-            const char* name = type == NordBundlePolicy::Modulation2::phaser ? "Phaser"
-                : type == NordBundlePolicy::Modulation2::vibe ? "Vibe"
-                : type == NordBundlePolicy::Modulation2::ensemble ? "Ensemble"
-                : type == NordBundlePolicy::Modulation2::spin ? "Spin" : "desconhecida";
-            warnings.addIfNotAlreadyThere(juce::String("Modulacao 2 (") + name
-                + "): efeito ainda sem equivalente na Classic.");
+            c.nordFx.modulationType = type == NordBundlePolicy::Modulation2::phaser ? 1
+                : type == NordBundlePolicy::Modulation2::vibe ? 2
+                : type == NordBundlePolicy::Modulation2::ensemble ? 3
+                : type == NordBundlePolicy::Modulation2::spin ? 4 : 0;
+            c.nordFx.modulationMix = percent(get("fx2Amt"));
+            c.nordFx.modulationRate = 0.05f + percent(get("fx2Rate")) * 0.05f;
+            if (c.nordFx.modulationType == 0)
+                warnings.addIfNotAlreadyThere("Tipo de modulacao 2 desconhecido.");
         }
         c.nordFx.chorusRate = c.nordFx.flangerRate = 0.05f + percent(get("fx2Rate")) * 0.05f;
     }

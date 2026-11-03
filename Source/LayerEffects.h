@@ -7,6 +7,7 @@
 #include <vector>
 #include <algorithm>
 #include <cstdint>
+#include "NordModulation.h"
 
 struct NordEffectSettings
 {
@@ -14,6 +15,8 @@ struct NordEffectSettings
     float flangerMix = 0.0f, flangerRate = 0.35f;
     float chorusMix = 0.0f, chorusRate = 0.8f, chorusDepth = 8.0f;
     float delayMix = 0.0f, delayBpm = 120.0f, delayFeedback = 30.0f;
+    int modulationType = 0; // 0 off, 1 phaser, 2 vibe, 3 ensemble, 4 spin
+    float modulationMix = 0.0f, modulationRate = 0.8f;
 };
 
 // Shared layer Attack scale. Preserve the existing 0..50 ms range for old
@@ -162,6 +165,7 @@ struct NordLayerEffects
         for (auto& channel : delay) std::fill(channel.begin(), channel.end(), 0.0f);
         modulationPosition = delayPosition = 0;
         tremoloPhase = flangerPhase = chorusPhase = 0.0;
+        extendedModulation.reset();
     }
 
     void process(juce::AudioBuffer<float>& buffer, const NordEffectSettings& settings) noexcept
@@ -172,7 +176,8 @@ struct NordLayerEffects
         const auto chorus = juce::jlimit(0.0f, 1.0f, settings.chorusMix * 0.01f);
         const auto chorusDepthMs = juce::jlimit(0.0f, 20.0f, settings.chorusDepth);
         const auto delayMix = juce::jlimit(0.0f, 1.0f, settings.delayMix * 0.01f);
-        if (tremolo + flanger + chorus + delayMix <= 0.0f) return;
+        const auto extendedMix = juce::jlimit(0.0f, 1.0f, settings.modulationMix * 0.01f);
+        if (tremolo + flanger + chorus + delayMix + extendedMix <= 0.0f) return;
         const auto feedback = juce::jlimit(0.0f, 0.8f, settings.delayFeedback * 0.01f);
         const auto tempoSamples = juce::jlimit(1, (int) delay[0].size() - 2,
             juce::roundToInt(sampleRate * 60.0 / juce::jlimit(40.0f, 240.0f, settings.delayBpm)));
@@ -182,9 +187,36 @@ struct NordLayerEffects
             const auto tremoloLfo = tremolo > 0.0f ? (float) (0.5 + 0.5 * std::sin(tremoloPhase)) : 1.0f;
             const auto flangerLfo = flanger > 0.0f ? (float) (0.5 + 0.5 * std::sin(flangerPhase)) : 0.0f;
             const auto chorusLfo = chorus > 0.0f ? (float) (0.5 + 0.5 * std::sin(chorusPhase)) : 0.0f;
+            const auto dryLeft = buffer.getSample(0, frame);
+            const auto dryRight = buffer.getNumChannels() > 1 ? buffer.getSample(1, frame) : dryLeft;
+            auto modulated = extendedModulation.process({dryLeft, dryRight},
+                settings.modulationType >= 3 ? 0 : settings.modulationType,
+                extendedMix, settings.modulationRate, sampleRate);
             for (int channel = 0; channel < juce::jmin(2, buffer.getNumChannels()); ++channel)
             {
-                auto value = buffer.getSample(channel, frame);
+                auto value = modulated[(size_t) channel];
+                if (settings.modulationType == 4 && extendedMix > 0)
+                {
+                    // Stereo rotating-speaker approximation: moving delay
+                    // supplies Doppler modulation, opposite gains supply pan.
+                    const auto angle = chorusPhase + channel * twopi * 0.5;
+                    const auto rotated = read(modulation[(size_t)channel], modulationPosition,
+                        sampleRate * (0.004 + 0.0015 * std::sin(angle)));
+                    const auto amplitude = float(0.75 + 0.25 * std::cos(angle));
+                    value = value * (1.0f - extendedMix) + rotated * amplitude * extendedMix;
+                }
+                if (settings.modulationType == 3 && extendedMix > 0)
+                {
+                    float voices = 0;
+                    for (int voice = 0; voice < 3; ++voice)
+                    {
+                        const double offset = twopi * (double(voice) / 3.0 + channel * 0.17);
+                        const auto lfo = std::sin(chorusPhase + offset);
+                        voices += read(modulation[(size_t)channel], modulationPosition,
+                            sampleRate * (0.018 + 0.004 * lfo));
+                    }
+                    value = value * (1.0f - 0.5f*extendedMix) + voices*(extendedMix/6.0f);
+                }
                 if (tremolo > 0.0f) value *= 1.0f - tremolo + tremolo * tremoloLfo;
                 auto& modLine = modulation[(size_t) channel];
                 if (flanger > 0.0f)
@@ -199,7 +231,8 @@ struct NordLayerEffects
                                           sampleRate * (0.016 + 0.001 * chorusDepthMs * phase));
                     value = value * (1.0f - 0.35f * chorus) + tap * (0.35f * chorus);
                 }
-                modLine[modulationPosition] = value;
+                modLine[modulationPosition] = settings.modulationType >= 3
+                    ? modulated[(size_t) channel] : value;
                 auto& delayLine = delay[(size_t) channel];
                 const auto readPosition = (delayPosition + delayLine.size() - (size_t) tempoSamples) % delayLine.size();
                 const auto echo = delayLine[readPosition];
@@ -216,8 +249,9 @@ struct NordLayerEffects
                 tremoloPhase = wrap(tremoloPhase + twopi * juce::jlimit(0.2f, 12.0f, settings.tremoloRate) / sampleRate);
             if (flanger > 0.0f)
                 flangerPhase = wrap(flangerPhase + twopi * juce::jlimit(0.05f, 5.0f, settings.flangerRate) / sampleRate);
-            if (chorus > 0.0f)
-                chorusPhase = wrap(chorusPhase + twopi * juce::jlimit(0.05f, 5.0f, settings.chorusRate) / sampleRate);
+            if (chorus > 0.0f || (settings.modulationType >= 3 && extendedMix > 0))
+                chorusPhase = wrap(chorusPhase + twopi * juce::jlimit(0.05f, 5.0f,
+                    settings.modulationType >= 3 ? settings.modulationRate : settings.chorusRate) / sampleRate);
         }
     }
 
@@ -234,6 +268,7 @@ private:
         const auto fraction = (float) (position - std::floor(position));
         return line[whole] + (line[next] - line[whole]) * fraction;
     }
+    NordModulation extendedModulation;
     std::array<std::vector<float>, 2> modulation, delay;
     size_t modulationPosition = 0, delayPosition = 0;
     double sampleRate = 44100.0, tremoloPhase = 0.0, flangerPhase = 0.0, chorusPhase = 0.0;
