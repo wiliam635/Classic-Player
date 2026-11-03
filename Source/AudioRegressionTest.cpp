@@ -396,6 +396,49 @@ static void browserRegression()
     std::cout<<"32 browser presets, 44.1/48 kHz, velocity, legato/release and block-size checks passed\n";
 }
 
+static void bundleModulationRegression()
+{
+    for (const double rate : {44100.0, 48000.0})
+        for (int type = 1; type <= 4; ++type)
+        {
+            const auto render = [&](int block)
+            {
+                NordLayerEffects effect; effect.prepare(rate);
+                NordEffectSettings settings;
+                settings.modulationType = type;
+                settings.modulationMix = 100;
+                settings.modulationRate = 1.3f;
+                std::vector<float> result;
+                for (int start = 0; start < 12000; start += block)
+                {
+                    const int count = std::min(block, 12000-start);
+                    juce::AudioBuffer<float> audio(2, count);
+                    for (int i = 0; i < count; ++i)
+                        for (int c = 0; c < 2; ++c)
+                            audio.setSample(c, i, float(0.2*std::sin((start+i)*0.057)));
+                    effect.process(audio, settings);
+                    for (int i = 0; i < count; ++i)
+                        for (int c = 0; c < 2; ++c)
+                        {
+                            const auto v = audio.getSample(c, i);
+                            require(std::isfinite(v) && std::abs(v)<1, "Bundle modulation unstable");
+                            result.push_back(v);
+                        }
+                }
+                return result;
+            };
+            const auto a = render(512), b = render(127);
+            double energy = 0, change = 0;
+            for (size_t i = 0; i < a.size(); ++i)
+            {
+                require(std::abs(a[i]-b[i]) < 1.e-6f, "Bundle effect depends on block size");
+                energy += a[i]*a[i];
+                change += std::abs(a[i]-float(0.2*std::sin((i/2)*0.057)));
+            }
+            require(energy > 1 && change > 1, "Bundle modulation silent or bypassed");
+        }
+}
+
 int main()
 {
     try
@@ -418,6 +461,7 @@ int main()
         int sum = 0; for (int i = 0; i < 155; ++i) sum += patch[i];
         bytes[161] = static_cast<uint8_t>((128 - (sum & 127)) & 127); bytes[162] = 0xf7;
         require(fixture.getFile().replaceWithData(bytes.data(), bytes.size()), "fixture write");
+        bundleModulationRegression();
         outputCeilingRegression();
         reverbMixDoesNotAddLayerGain();
         cachedLayerEq();

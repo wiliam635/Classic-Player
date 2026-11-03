@@ -614,6 +614,7 @@ void ClassicPlayerAudioProcessor::releaseResources()
 {
     liveSetFadingOut = liveSetFadingIn = false;
     for(auto& bank:continuousBanks)bank->stopImmediately();
+    for (auto& state : nordMorphStates) state.reset();
     for(auto& peak:drumPeaks)peak.store(0.f);
     engine.reset();
     nordSampleEngine.stopAllSounds();
@@ -760,6 +761,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         }
         const auto& realtime = realtimeLayerParameters[(size_t) i];
         auto layerGain = realtime.Gain->load(std::memory_order_relaxed) / 100.0f;
+        layerGain = nordMorphStates[(size_t)i].apply(layerGain, config.nordMorph.volume, 1.0f);
         if (isLayerMuted(i)) layerGain = 0.0f;
         // Keep the DX7 6 dB lower than the previous approved trim.
         // Keep Analog and all other sources at their approved levels.
@@ -786,7 +788,8 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         config.decayMs = realtime.Decay->load(std::memory_order_relaxed);
         config.sustainLevel = realtime.SustainLevel->load(std::memory_order_relaxed);
         config.release = realtime.Release->load(std::memory_order_relaxed);
-        config.cutoff = realtime.Cutoff->load(std::memory_order_relaxed);
+        config.cutoff = nordMorphStates[(size_t)i].apply(
+            realtime.Cutoff->load(std::memory_order_relaxed), config.nordMorph.cutoff, 100.0f);
         config.eqLow = realtime.EqLow->load(std::memory_order_relaxed);
         config.eqMid = realtime.EqMid->load(std::memory_order_relaxed);
         config.eqHigh = realtime.EqHigh->load(std::memory_order_relaxed);
@@ -851,6 +854,25 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     analogSynthEngine.process(buffer, midi, analogLayerConfigs, &routedMidiBuffers);
     hammondEngine.process(buffer, midi, hammondLayerConfigs, &routedMidiBuffers);
     nordOrganEngine.process(buffer, midi, nordOrganRouting, &routedMidiBuffers);
+    // MIDI morphs take effect on the next render block, never before their
+    // event timestamp. Engine gain/filter smoothing prevents controller steps.
+    for (int i = 0; i < activeLayers; ++i)
+    {
+        const auto config = engine.getConfig(i);
+        if (!config.nordMorph.volume.active() && !config.nordMorph.cutoff.active()) continue;
+        auto& state = nordMorphStates[(size_t)i];
+        const auto consume = [&](const juce::MidiBuffer& events)
+        {
+            for (const auto event : events)
+            {
+                const auto m = event.getMessage();
+                if (config.midiChannel != 0 && m.getChannel() != config.midiChannel) continue;
+                if (m.isController()) state.controller(m.getControllerNumber(), m.getControllerValue());
+                else if (m.isChannelPressure()) state.pressure(m.getChannelPressureValue());
+            }
+        };
+        consume(midi); consume(routedMidiBuffers[(size_t)i]);
+    }
     processDrumPads(buffer, midi);
     for(int layer=0;layer<activeLayerCount();++layer)
     {
@@ -2948,7 +2970,7 @@ juce::Result ClassicPlayerAudioProcessor::importNordBundle(const juce::File& sou
 }
 
 void ClassicPlayerAudioProcessor::loadNordBundleProgram(const juce::File& folder,
-    const juce::String& programPath, std::function<void(juce::Result, juce::String)> completion)
+    const juce::String& programPath, std::function<void(juce::Result, juce::String)> completion, int scene)
 {
     if (nordBundleLoading.exchange(true))
     {
@@ -2956,13 +2978,13 @@ void ClassicPlayerAudioProcessor::loadNordBundleProgram(const juce::File& folder
         return;
     }
     const auto alive = nordBundleAlive;
-    nordBundlePool.addJob([this, alive, folder, programPath, completion = std::move(completion)]() mutable
+    nordBundlePool.addJob([this, alive, folder, programPath, scene, completion = std::move(completion)]() mutable
     {
         auto prepared = std::make_shared<NordBundleProgram::Prepared>();
         auto result = juce::Result::ok();
         try
         {
-        result = NordBundleProgram::build(folder, programPath, *prepared);
+        result = NordBundleProgram::build(folder, programPath, *prepared, scene);
         std::map<std::string, std::shared_ptr<NordPianoDecoder::Instrument>> pianos;
         std::map<std::string, std::shared_ptr<NordSampleDecoder::Instrument>> samples;
         uint64_t decodedBytes = 0;
@@ -3076,6 +3098,7 @@ void ClassicPlayerAudioProcessor::loadNordBundleProgram(const juce::File& folder
                     set("Comp", c.compressor); set("EqLow", c.eqLow); set("EqMid", c.eqMid); set("EqHigh", c.eqHigh);
                     parameters.state.setProperty("nordBundlePart" + juce::String(index+1), part.name, nullptr);
                 }
+                parameters.state.setProperty("nordBundleScene", prepared->scene, nullptr);
                 parameters.state.setProperty("nordBundleBank", prepared->bank, nullptr);
                 parameters.state.setProperty("nordBundleProgram", prepared->name, nullptr);
                 parameters.state.setProperty("nordBundleProgramPath", programPath, nullptr);
@@ -3661,6 +3684,7 @@ void ClassicPlayerAudioProcessor::stopAllSoundsBeforeProgramChange()
     pendingSplitNote.store(-1);
     const juce::ScopedLock callbackLock(getCallbackLock());
     for(auto& bank:continuousBanks)bank->stopImmediately();
+    for (auto& state : nordMorphStates) state.reset();
     engine.stopAllSounds();
     sampleEngine.stopAllSounds();
     nordSampleEngine.stopAllSounds();
@@ -3869,6 +3893,8 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
         "layerType", "dx7Layer", "dx7Patch", "sf2Layer", "sf2Bank", "sf2Program", "pianoTimbre", "pianoDecaySeconds",
         "pianoSoftRelease", "pianoDynamicCompression", "pianoPedalResonance",
         "nordTremoloMix", "nordTremoloRate", "nordFlangerMix", "nordFlangerRate",
+        "nordMorphVolumeWheel", "nordMorphVolumePressure", "nordMorphVolumePedal",
+        "nordMorphCutoffWheel", "nordMorphCutoffPressure", "nordMorphCutoffPedal",
         "nordModulationType", "nordModulationMix", "nordModulationRate",
         "nordChorusMix", "nordChorusRate", "nordChorusDepth", "nordDelayMix", "nordDelayBpm", "nordDelayFeedback",
         "externalInstrument", "externalInstrumentState", "analogOsc1Wave", "analogOsc2Wave",
@@ -4068,6 +4094,12 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("nordTremoloRate" + fxKey, config.nordFx.tremoloRate, nullptr);
         state.setProperty("nordFlangerMix" + fxKey, config.nordFx.flangerMix, nullptr);
         state.setProperty("nordFlangerRate" + fxKey, config.nordFx.flangerRate, nullptr);
+        state.setProperty("nordMorphVolumeWheel" + fxKey, config.nordMorph.volume.wheel, nullptr);
+        state.setProperty("nordMorphVolumePressure" + fxKey, config.nordMorph.volume.pressure, nullptr);
+        state.setProperty("nordMorphVolumePedal" + fxKey, config.nordMorph.volume.pedal, nullptr);
+        state.setProperty("nordMorphCutoffWheel" + fxKey, config.nordMorph.cutoff.wheel, nullptr);
+        state.setProperty("nordMorphCutoffPressure" + fxKey, config.nordMorph.cutoff.pressure, nullptr);
+        state.setProperty("nordMorphCutoffPedal" + fxKey, config.nordMorph.cutoff.pedal, nullptr);
         state.setProperty("nordModulationType" + fxKey, config.nordFx.modulationType, nullptr);
         state.setProperty("nordModulationMix" + fxKey, config.nordFx.modulationMix, nullptr);
         state.setProperty("nordModulationRate" + fxKey, config.nordFx.modulationRate, nullptr);
@@ -4598,6 +4630,12 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.nordFx.tremoloRate = juce::jlimit(0.2f, 12.0f, (float) state.getProperty("nordTremoloRate" + fxKey, 4.0f));
                 config.nordFx.flangerMix = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordFlangerMix" + fxKey, 0.0f));
                 config.nordFx.flangerRate = juce::jlimit(0.05f, 5.0f, (float) state.getProperty("nordFlangerRate" + fxKey, 0.35f));
+                config.nordMorph.volume.wheel = juce::jlimit(-1.0f, 1.0f, (float) state.getProperty("nordMorphVolumeWheel" + fxKey, 0.0f));
+                config.nordMorph.volume.pressure = juce::jlimit(-1.0f, 1.0f, (float) state.getProperty("nordMorphVolumePressure" + fxKey, 0.0f));
+                config.nordMorph.volume.pedal = juce::jlimit(-1.0f, 1.0f, (float) state.getProperty("nordMorphVolumePedal" + fxKey, 0.0f));
+                config.nordMorph.cutoff.wheel = juce::jlimit(-1.0f, 1.0f, (float) state.getProperty("nordMorphCutoffWheel" + fxKey, 0.0f));
+                config.nordMorph.cutoff.pressure = juce::jlimit(-1.0f, 1.0f, (float) state.getProperty("nordMorphCutoffPressure" + fxKey, 0.0f));
+                config.nordMorph.cutoff.pedal = juce::jlimit(-1.0f, 1.0f, (float) state.getProperty("nordMorphCutoffPedal" + fxKey, 0.0f));
                 config.nordFx.modulationType = juce::jlimit(0, 4, (int) state.getProperty("nordModulationType" + fxKey, 0));
                 config.nordFx.modulationMix = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordModulationMix" + fxKey, 0.0f));
                 config.nordFx.modulationRate = juce::jlimit(0.05f, 12.0f, (float) state.getProperty("nordModulationRate" + fxKey, 0.8f));

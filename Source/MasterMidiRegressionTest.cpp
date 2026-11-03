@@ -503,11 +503,37 @@ struct MidiRecordingRegressionAccess
     }
 };
 
+static void bundleSettingsRoundTrip()
+{
+    auto processor = std::make_unique<ClassicPlayerAudioProcessor>();
+    processor->prepareToPlay(48000, 128);
+    auto config = processor->layerConfig(0);
+    config.nordMorph.volume = {1.0f, -0.5f, 0.25f};
+    config.nordMorph.cutoff = {-0.75f, 0.3f, 0.6f};
+    config.nordFx.modulationType = 4;
+    config.nordFx.modulationMix = 63;
+    config.nordFx.modulationRate = 1.7f;
+    processor->setLayerConfig(0, config);
+    juce::MemoryBlock data;
+    processor->getStateInformation(data);
+    processor->setLayerConfig(0, Sf2Engine::LayerConfig{});
+    processor->setStateInformation(data.getData(), int(data.getSize()));
+    const auto restored = processor->layerConfig(0);
+    check(restored.nordMorph.volume.wheel == 1.0f && restored.nordMorph.volume.pressure == -0.5f
+        && restored.nordMorph.volume.pedal == 0.25f, "bundle volume morph persistence");
+    check(restored.nordMorph.cutoff.wheel == -0.75f
+        && std::abs(restored.nordMorph.cutoff.pressure - 0.3f) < 1.e-6f
+        && std::abs(restored.nordMorph.cutoff.pedal - 0.6f) < 1.e-6f, "bundle filter morph persistence");
+    check(restored.nordFx.modulationType == 4 && restored.nordFx.modulationMix == 63
+        && std::abs(restored.nordFx.modulationRate - 1.7f) < 1.e-6f, "bundle modulation persistence");
+}
+
 int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI initialise;
     try
     {
+        bundleSettingsRoundTrip();
         if (argc > 1 && juce::String(argv[1]) == "--backup") { runClassicBackupRegression(); return 0; }
         if (argc == 3 && juce::String(argv[1]) == "--sf2-mute")
         {

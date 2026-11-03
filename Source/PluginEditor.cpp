@@ -2870,6 +2870,11 @@ public:
         for (auto* box : { &bankBox, &programBox }) addAndMakeVisible(box);
         bankBox.setTextWhenNothingSelected("NENHUM BANCO IMPORTADO");
         programBox.setTextWhenNothingSelected("ESCOLHA UM PRESET");
+        addAndMakeVisible(sceneBox);
+        sceneBox.addItem("CENA ORIGINAL DO PRESET", 1);
+        sceneBox.addItem("CENA I", 2);
+        sceneBox.addItem("CENA II", 3);
+        sceneBox.setSelectedId(1, juce::dontSendNotification);
         bankBox.onChange = [this] { refreshPrograms(); };
         programBox.onChange = [this] { loadButton.setEnabled(programBox.getSelectedId() > 0 && !processor.isNordBundleProgramLoading()); };
         flatButton(importButton); flatButton(loadButton);
@@ -2877,7 +2882,7 @@ public:
         addAndMakeVisible(importButton); addAndMakeVisible(loadButton);
         importButton.onClick = [this] { chooseBundle(); };
         loadButton.onClick = [this] { confirmLoad(); };
-        refreshBanks({}); setSize(640, 290);
+        refreshBanks({}); setSize(640, 334);
     }
     ~NordBundleLibraryPanel() override { imports.removeAllJobs(true, -1); }
     void paint(juce::Graphics& g) override { g.fillAll(juce::Colour(0xff15232b)); }
@@ -2887,6 +2892,7 @@ public:
         bankLabel.setBounds(area.removeFromTop(22)); bankBox.setBounds(area.removeFromTop(30));
         area.removeFromTop(10); programLabel.setBounds(area.removeFromTop(22));
         programBox.setBounds(area.removeFromTop(30)); area.removeFromTop(12);
+        sceneBox.setBounds(area.removeFromTop(30)); area.removeFromTop(12);
         auto buttons = area.removeFromTop(34);
         importButton.setBounds(buttons.removeFromLeft(210)); buttons.removeFromLeft(10); loadButton.setBounds(buttons);
         area.removeFromTop(12); status.setBounds(area);
@@ -2956,10 +2962,11 @@ private:
         const int bank = bankBox.getSelectedItemIndex(), program = programBox.getSelectedItemIndex();
         if (!juce::isPositiveAndBelow(bank, banks.size()) || !juce::isPositiveAndBelow(program, programPaths.size())) return;
         const auto folder = banks[bank]; const auto path = programPaths[program];
+        const int scene = sceneBox.getSelectedId() - 2;
         juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::QuestionIcon, "Carregar preset Nord",
             "O preset completo substitui as layers atuais. Salve sua performance antes de continuar.\n\nCarregar "
                 + programBox.getText() + "?", "Carregar", "Cancelar", this,
-            juce::ModalCallbackFunction::create([safe = juce::Component::SafePointer<NordBundleLibraryPanel>(this), folder, path](int answer)
+            juce::ModalCallbackFunction::create([safe = juce::Component::SafePointer<NordBundleLibraryPanel>(this), folder, path, scene](int answer)
             {
                 if (safe == nullptr || answer == 0) return;
                 safe->loadButton.setEnabled(false); safe->importButton.setEnabled(false);
@@ -2973,11 +2980,11 @@ private:
                     if (result.wasOk() && warnings.isNotEmpty())
                         juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
                             "Adaptacoes do preset Nord", warnings);
-                });
+                }, scene);
             }));
     }
     ClassicPlayerAudioProcessor& processor;
-    juce::ComboBox bankBox, programBox;
+    juce::ComboBox bankBox, programBox, sceneBox;
     juce::Label bankLabel, programLabel, status;
     juce::TextButton importButton, loadButton;
     juce::Array<juce::File> banks;

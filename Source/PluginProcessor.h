@@ -190,7 +190,7 @@ public:
     juce::Array<juce::File> libraryNordBundles() const;
     // Prepares only the selected program off-thread, then commits on the message thread.
     void loadNordBundleProgram(const juce::File& folder, const juce::String& programPath,
-        std::function<void(juce::Result, juce::String)> completion);
+        std::function<void(juce::Result, juce::String)> completion, int scene = -1);
     bool isNordBundleProgramLoading() const noexcept { return nordBundleLoading.load(); }
     unsigned nordBundleProgramRevision() const noexcept { return nordBundleRevision.load(); }
     juce::Array<juce::File> libraryNordPianos(const juce::String& category) const;
@@ -458,6 +458,7 @@ private:
     std::atomic<bool> liveSetSlotMidiLearnChanged { false };
     std::array<juce::MidiMessageCollector, Sf2Engine::layerCount> routedMidiCollectors;
     std::array<juce::MidiBuffer, Sf2Engine::layerCount> routedMidiBuffers;
+    std::array<NordMorphState, Sf2Engine::layerCount> nordMorphStates;
     juce::MidiMessageCollector visualMidiCollector;
     juce::MidiBuffer visualMidiBuffer;
     std::array<juce::String, Sf2Engine::layerCount> layerMidiDeviceIds;

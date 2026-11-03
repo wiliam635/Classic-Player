@@ -9,6 +9,7 @@
 #include <vector>
 #include "LayerEffects.h"
 #include "VelocityCurve.h"
+#include "NordMorph.h"
 
 class Sf2Engine
 {
@@ -63,6 +64,7 @@ public:
         int pianoDynamicCompression = 0; // 0 off, 1-3 lift quiet notes without changing sample layer
         bool pianoPedalResonance = false; // opt-in NPNO pedal-down bank; disabled for existing performances
         NordEffectSettings nordFx;
+        NordMorphSettings nordMorph;
         float gain = 0.8f;
         float pan = 0.0f;
         float attack = 5.0f;

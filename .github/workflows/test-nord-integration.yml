@@ -1,0 +1,41 @@
+name: Validate Nord bundle integration
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/nord-morph-investigation-20261103]
+    paths: ['Source/**', '.github/workflows/test-nord-integration.yml']
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            preset: macos-arm64
+            flags: -DVCPKG_TARGET_TRIPLET=arm64-osx
+          - os: windows-2022
+            preset: windows-x64
+            flags: -DVCPKG_TARGET_TRIPLET=x64-windows-static
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lukka/get-cmake@latest
+      - uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 39344dff01c5a5a0134caf2624cdd492f05d30ea
+          runVcpkgInstall: false
+      - name: Configure regression build
+        shell: bash
+        run: |
+          if [[ '${{ runner.os }}' == 'Windows' ]]; then
+            cmake --preset '${{ matrix.preset }}' ${{ matrix.flags }} '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>'
+          else
+            cmake --preset '${{ matrix.preset }}' ${{ matrix.flags }}
+          fi
+      - name: Compile actual engines and processor
+        run: cmake --build build/${{ matrix.preset }} --config Release --target ClassicPlayerMasterMidiTest ClassicPlayerAudioRegressionTest --parallel 2
+      - name: Run audio and state regressions
+        run: ctest --test-dir build/${{ matrix.preset }} -C Release -R "^(audio-regression|master-midi)$" --output-on-failure

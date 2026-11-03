@@ -26,6 +26,7 @@ struct Part
 struct Prepared
 {
     juce::String name, bank;
+    int scene = 0;
     juce::StringArray warnings;
     std::vector<Part> parts;
 };
@@ -151,7 +152,7 @@ inline void effects(const NordProgram::Program& p, const std::string& prefix,
     }
 }
 
-inline juce::Result build(const juce::File& folder, const juce::String& path, Prepared& out)
+inline juce::Result build(const juce::File& folder, const juce::String& path, Prepared& out, int requestedScene = -1)
 {
     out = {};
     const auto file = child(folder, path);
@@ -195,8 +196,8 @@ inline juce::Result build(const juce::File& folder, const juce::String& path, Pr
         return juce::File{};
     };
     out.name = file.getFileNameWithoutExtension(); out.bank = folder.getFileName();
-    const std::string scene = p.get("common.layerScene") ? "_II" : "_I";
-    if (scene == "_II") out.warnings.add("Cena II selecionada; a Classic carrega apenas a cena ativa.");
+    out.scene = requestedScene < 0 ? int(p.get("common.layerScene") != 0) : juce::jlimit(0, 1, requestedScene);
+    const std::string scene = out.scene ? "_II" : "_I";
     if (p.get("common.transposeEnable") && p.get("common.transposeValue"))
         out.warnings.add("Transposicao global nao aplicada: ajuste as oitavas/notas na Classic.");
     out.warnings.add("Efeitos e envelopes adaptados; morphs, arpejador e modulacoes complexas nao sao reproduzidos integralmente.");
@@ -214,6 +215,16 @@ inline juce::Result build(const juce::File& folder, const juce::String& path, Pr
             Part part; part.name = juce::String(section) + " " + juce::String::charToString(letter);
             routing(p, prefix, part.routing, out.warnings);
             part.routing.gain = percent(p.get(section + ".layerLevel" + token + letter, 100)) / 100.0f;
+            const auto readMorph = [&](const std::string& key)
+            {
+                NordMorphDepth depth;
+                depth.wheel = juce::jlimit(-127.0f, 127.0f, float(p.get(key + ".morphWheel"))) / 127.0f;
+                depth.pressure = juce::jlimit(-127.0f, 127.0f, float(p.get(key + ".morphAfterTouch"))) / 127.0f;
+                depth.pedal = juce::jlimit(-127.0f, 127.0f, float(p.get(key + ".morphCtrlPedal"))) / 127.0f;
+                return depth;
+            };
+            part.routing.nordMorph.volume = readMorph(section + ".layerLevel" + token + letter);
+            if (group == 1) part.routing.nordMorph.cutoff = readMorph(prefix + "Sound.fltFreq");
             if (part.routing.gain <= 0.0f)
             {
                 const auto levelKey = section + ".layerLevel" + token + letter;
@@ -221,9 +232,7 @@ inline juce::Result build(const juce::File& folder, const juce::String& path, Pr
                     || p.get(levelKey + ".morphAfterTouch") != 0
                     || p.get(levelKey + ".morphCtrlPedal") != 0;
                 if (!hasVolumeMorph) continue;
-                // Keep the source instead of discarding a layer whose morph can
-                // make it audible. Its MIDI modulation still needs implementing.
-                out.warnings.addIfNotAlreadyThere("Parte com volume inicial zero preservada; morph de volume ainda nao aplicado.");
+                // Keep zero-level sources: volume morph can make them audible.
             }
             if (group == 1)
             {
