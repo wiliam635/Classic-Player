@@ -741,10 +741,10 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     if (auto* playHead = getPlayHead())
     {
         const auto position = playHead->getPosition();
-        if (position.has_value())
+        if (position.hasValue())
         {
             const auto bpm = position->getBpm();
-            if (bpm.has_value() && std::isfinite(*bpm) && *bpm >= 30.0 && *bpm <= 300.0)
+            if (bpm.hasValue() && std::isfinite(*bpm) && *bpm >= 30.0 && *bpm <= 300.0)
                 hostBpm = (float) *bpm;
         }
     }
