@@ -5,6 +5,7 @@
 #include <fluidsynth.h>
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <vector>
 #include "LayerEffects.h"
@@ -160,9 +161,11 @@ private:
         int selectedProgram = 0;
         int monoNote = -1;
         int monoChannel = 1;
-        bool sustainDown = false;
-        std::array<bool, 128> heldNotes {};
-        std::array<float, 128> heldVelocities {};
+        std::array<bool, 16> sustainDown {};
+        std::array<bool, 16 * 128> heldNotes {};
+        std::array<float, 16 * 128> heldVelocities {};
+        std::array<uint64_t, 16 * 128> heldNoteOrder {};
+        uint64_t heldNoteSequence = 0;
         int lastCutoff = -1;
         int lastReverb = -1;
         int lastPortamento = -1;

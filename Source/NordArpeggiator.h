@@ -353,10 +353,17 @@ private:
         }
         if (settings.direction == 2)
         {
-            const int result = stepIndex;
-            stepIndex += directionSign;
-            if (stepIndex >= count) { directionSign = -1; stepIndex = count - 2; }
-            else if (stepIndex < 0) { directionSign = 1; stepIndex = 1; }
+            const int result = std::clamp(stepIndex, 0, count - 1);
+            if (directionSign > 0)
+            {
+                if (result >= count - 1) { directionSign = -1; stepIndex = count - 2; }
+                else stepIndex = result + 1;
+            }
+            else
+            {
+                if (result <= 0) { directionSign = 1; stepIndex = 1; }
+                else stepIndex = result - 1;
+            }
             return result;
         }
         const int result = stepIndex % count;

@@ -6,11 +6,16 @@
 namespace NordBundlePolicy
 {
 // NS4P stores pairs of variants. WX importProgram maps raw/2 through
-// {0,1,3,2,4,5} into Phaser/Flanger/Chorus/Vibe/Ensemble/Spin.
+// {0,1,3,2,4,5}: raw 4/5 is Vibe, raw 6/7 is Chorus.
 enum class Modulation2 { phaser, flanger, chorus, vibe, ensemble, spin, unknown };
 inline Modulation2 modulation2(std::int64_t raw) noexcept
 {
-    return raw >= 0 && raw < 12 ? static_cast<Modulation2>(raw / 2) : Modulation2::unknown;
+    if (raw < 0 || raw >= 12) return Modulation2::unknown;
+    static constexpr Modulation2 wxFamilies[] {
+        Modulation2::phaser, Modulation2::flanger, Modulation2::vibe,
+        Modulation2::chorus, Modulation2::ensemble, Modulation2::spin
+    };
+    return wxFamilies[static_cast<std::size_t>(raw / 2)];
 }
 inline bool isTremolo(std::int64_t raw) noexcept { return raw == 2 || raw == 3; }
 inline bool secondVariant(std::int64_t raw) noexcept { return (raw & 1) != 0; }

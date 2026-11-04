@@ -72,7 +72,7 @@ void AnalogSynthEngine::reset()
         layer.heldVelocities.fill(0.0f);
         layer.noteOrder.fill(0);
         layer.noteSequence = 0;
-        layer.sustainPedal = false;
+        layer.sustainPedal.fill(false);
         layer.modWheel = 0.0f;
         layer.pitchBendSemitones = 0.0f;
         layer.reverb.reset();
@@ -108,7 +108,7 @@ void AnalogSynthEngine::unload(int layerIndex)
     layer.heldVelocities.fill(0.0f);
     layer.noteOrder.fill(0);
     layer.noteSequence = 0;
-    layer.sustainPedal = false;
+    layer.sustainPedal.fill(false);
     layer.modWheel = 0.0f;
     layer.pitchBendSemitones = 0.0f;
     layer.reverb.reset();
@@ -266,9 +266,10 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
 
     if (mono)
     {
-        layer.heldNotes[static_cast<size_t>(note)] = true;
-        layer.heldVelocities[static_cast<size_t>(note)] = juce::jlimit(0.0f, 1.0f, velocity);
-        layer.noteOrder[static_cast<size_t>(note)] = ++layer.noteSequence;
+        const auto heldIndex = (static_cast<size_t>(midiChannel - 1) * 128u) + static_cast<size_t>(note);
+        layer.heldNotes[heldIndex] = true;
+        layer.heldVelocities[heldIndex] = juce::jlimit(0.0f, 1.0f, velocity);
+        layer.noteOrder[heldIndex] = ++layer.noteSequence;
         voice = &layer.voices.front();
     }
     else
@@ -357,30 +358,34 @@ void AnalogSynthEngine::noteOff(int layerIndex, int midiChannel, int note, const
 
     if (mono)
     {
-        layer.heldNotes[static_cast<size_t>(note)] = false;
+        const auto releasedIndex = static_cast<size_t>(midiChannel - 1) * 128u + static_cast<size_t>(note);
+        if (!layer.heldNotes[releasedIndex]) return;
+        layer.heldNotes[releasedIndex] = false;
 
-        int replacement = -1;
+        size_t replacementIndex = layer.heldNotes.size();
         uint64_t newest = 0;
-        for (int candidate = 0; candidate < 128; ++candidate)
+        for (size_t candidate = 0; candidate < layer.heldNotes.size(); ++candidate)
         {
-            if (layer.heldNotes[static_cast<size_t>(candidate)]
-                && layer.noteOrder[static_cast<size_t>(candidate)] >= newest)
+            if (layer.heldNotes[candidate] && layer.noteOrder[candidate] >= newest)
             {
-                newest = layer.noteOrder[static_cast<size_t>(candidate)];
-                replacement = candidate;
+                newest = layer.noteOrder[candidate];
+                replacementIndex = candidate;
             }
         }
 
         auto& voice = layer.voices.front();
-        if (replacement >= 0)
+        if (replacementIndex < layer.heldNotes.size())
         {
-            if (voice.note == replacement) return;
+            const auto replacement = static_cast<int>(replacementIndex % 128u);
+            const auto replacementChannel = static_cast<int>(replacementIndex / 128u) + 1;
+            if (voice.note == replacement && voice.midiChannel == replacementChannel) return;
             voice.transition.retarget(sampleRate);
             voice.active = true;
             voice.keyDown = true;
             voice.note = replacement;
-            voice.midiChannel = midiChannel;
-            voice.velocity = layer.heldVelocities[static_cast<size_t>(replacement)];
+            voice.midiChannel = replacementChannel;
+            voice.velocity = layer.heldVelocities[replacementIndex];
+            voice.splitGain = config.routing.nordSplit.gain(replacement);
             voice.targetFrequency = midiNoteToFrequency(replacement + config.routing.octave * 12);
             if (config.browserCompatible)
                 voice.amp.stage = EnvelopeStage::legato;
@@ -390,7 +395,7 @@ void AnalogSynthEngine::noteOff(int layerIndex, int midiChannel, int note, const
         if (voice.active)
         {
             voice.keyDown = false;
-            if (!layer.sustainPedal)
+            if (!layer.sustainPedal[static_cast<size_t>(midiChannel - 1)])
             {
                 voice.amp.releaseStart = voice.amp.value;
                 voice.filter.releaseStart = voice.filter.value;
@@ -407,7 +412,7 @@ void AnalogSynthEngine::noteOff(int layerIndex, int midiChannel, int note, const
         if (voice.active && voice.note == note && voice.midiChannel == midiChannel)
         {
             voice.keyDown = false;
-            if (!layer.sustainPedal)
+            if (!layer.sustainPedal[static_cast<size_t>(midiChannel - 1)])
             {
                 voice.amp.releaseStart = voice.amp.value;
                 voice.filter.releaseStart = voice.filter.value;
@@ -673,12 +678,13 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
             if (!config.routing.sustainEnabled)
                 return;
 
+            const auto channelIndex = static_cast<size_t>(message.getChannel() - 1);
             const auto sustainDown = message.getControllerValue() >= 64;
-            if (layer.sustainPedal && !sustainDown)
+            if (layer.sustainPedal[channelIndex] && !sustainDown)
             {
                 for (auto& voice : layer.voices)
                 {
-                    if (voice.active && !voice.keyDown)
+                    if (voice.active && !voice.keyDown && voice.midiChannel == message.getChannel())
                     {
                         voice.amp.releaseStart = voice.amp.value;
                         voice.filter.releaseStart = voice.filter.value;
@@ -689,7 +695,7 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
                 }
             }
 
-            layer.sustainPedal = sustainDown;
+            layer.sustainPedal[channelIndex] = sustainDown;
         }
         else if (message.isAllSoundOff() || message.isAllNotesOff())
         {
@@ -710,8 +716,50 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
                     voice.filter.stage = EnvelopeStage::release;
                 }
             }
-            layer.heldNotes.fill(false);
-            layer.sustainPedal = false;
+            const auto channelIndex = static_cast<size_t>(message.getChannel() - 1);
+            const auto firstHeld = channelIndex * 128u;
+            for (size_t note = firstHeld; note < firstHeld + 128u; ++note)
+                layer.heldNotes[note] = false;
+            layer.sustainPedal[channelIndex] = false;
+
+            const auto mono = (config.monophonic || config.routing.mono)
+                && !(config.routing.nordArp.enabled && config.routing.nordArp.mode == 1);
+            if (mono)
+            {
+                size_t replacementIndex = layer.heldNotes.size();
+                uint64_t newest = 0;
+                for (size_t candidate = 0; candidate < layer.heldNotes.size(); ++candidate)
+                    if (layer.heldNotes[candidate] && layer.noteOrder[candidate] >= newest)
+                    {
+                        newest = layer.noteOrder[candidate];
+                        replacementIndex = candidate;
+                    }
+                if (replacementIndex < layer.heldNotes.size())
+                {
+                    const auto replacement = static_cast<int>(replacementIndex % 128u);
+                    const auto replacementChannel = static_cast<int>(replacementIndex / 128u) + 1;
+                    auto& voice = layer.voices.front();
+                    if (!voice.active || voice.note != replacement || voice.midiChannel != replacementChannel)
+                    {
+                        if (message.isAllSoundOff() || !voice.active)
+                            noteOn(layerIndex, replacementChannel, replacement,
+                                   layer.heldVelocities[replacementIndex], config);
+                        else
+                        {
+                            voice.transition.retarget(sampleRate);
+                            voice.active = true;
+                            voice.keyDown = true;
+                            voice.note = replacement;
+                            voice.midiChannel = replacementChannel;
+                            voice.velocity = layer.heldVelocities[replacementIndex];
+                            voice.splitGain = config.routing.nordSplit.gain(replacement);
+                            voice.targetFrequency = midiNoteToFrequency(replacement + config.routing.octave * 12);
+                            if (config.browserCompatible)
+                                voice.amp.stage = EnvelopeStage::legato;
+                        }
+                    }
+                }
+            }
         }
         else if (message.isNoteOn())
         {

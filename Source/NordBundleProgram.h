@@ -235,7 +235,9 @@ inline void arpeggiator(const NordProgram::Program& p, const std::string& prefix
     const auto pans = p.get(prefix + ".arpPtnPan");
     for (int step = 0; step < 16; ++step)
     {
-        arp.patternAccent[(size_t) step] = arpPatternPair(accents, step) != 0 ? 1 : 0;
+        // WX tests only bit 0 of each packed accent value. Values 2 and 3
+        // must not be treated as accented merely because they are nonzero.
+        arp.patternAccent[(size_t) step] = (arpPatternPair(accents, step) & 1u) != 0 ? 1 : 0;
         arp.patternDuration[(size_t) step] = arpPatternPair(durations, step);
         const auto pan = arpPatternPair(pans, step);
         // NS4P stores each pan as a signed two-bit value; WX pattern text

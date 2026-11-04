@@ -135,9 +135,11 @@ private:
     {
         std::array<Voice, voicesPerLayer> voices {};
         NordArpeggiator arpeggiator;
-        std::array<bool, 128> heldNotes {};
-        std::array<float, 128> heldVelocities {};
-        std::array<uint64_t, 128> noteOrder {};
+        // Mono note priority is tracked per MIDI channel so a Note Off or
+        // All Notes Off on one Numa keyboard part cannot clear another part.
+        std::array<bool, 16 * 128> heldNotes {};
+        std::array<float, 16 * 128> heldVelocities {};
+        std::array<uint64_t, 16 * 128> noteOrder {};
         uint64_t noteSequence = 0;
         float lfoPhase = 0.0f;
         juce::SmoothedValue<float> gain;
@@ -145,7 +147,7 @@ private:
         bool gainReady = false;
         bool effectTailPending = false;
         uint64_t effectQuietSamples = 0;
-        bool sustainPedal = false;
+        std::array<bool, 16> sustainPedal {};
         float modWheel = 0.0f;
         float pitchBendSemitones = 0.0f;
         LayerReverb reverb;

@@ -86,7 +86,10 @@ juce::Result NordSampleEngine::loadSample(int layerIndex, const juce::File& file
     layer.sustainDown.fill(false);
     layer.heldNotes.fill(false);
     layer.heldVelocities.fill(0.0f);
+    layer.heldSplitGains.fill(0.0f);
     layer.heldChannels.fill(0);
+    layer.heldNoteOrder.fill(0);
+    layer.heldNoteSequence = 0;
     layer.monoNote = -1;
     layer.monoChannel = 1;
     layer.lastMonoMode = false;
@@ -189,7 +192,10 @@ void NordSampleEngine::unload(int layerIndex)
     layer.sustainDown.fill(false);
     layer.heldNotes.fill(false);
     layer.heldVelocities.fill(0.0f);
+    layer.heldSplitGains.fill(0.0f);
     layer.heldChannels.fill(0);
+    layer.heldNoteOrder.fill(0);
+    layer.heldNoteSequence = 0;
     layer.monoNote = -1;
     layer.monoChannel = 1;
     layer.lastMonoMode = false;
@@ -212,7 +218,10 @@ void NordSampleEngine::stopAllSounds()
         layer.sustainDown.fill(false);
         layer.heldNotes.fill(false);
         layer.heldVelocities.fill(0.0f);
+        layer.heldSplitGains.fill(0.0f);
         layer.heldChannels.fill(0);
+        layer.heldNoteOrder.fill(0);
+        layer.heldNoteSequence = 0;
         layer.monoNote = -1;
         layer.monoChannel = 1;
         layer.nordFx.reset();
@@ -333,11 +342,21 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
     const auto channel = juce::jlimit(1, 16, message.getChannel());
     const bool monoMode = routing.mono
         && !(routing.nordArp.enabled && routing.nordArp.mode == 1);
+    const auto heldIndex = [] (int midiChannel, int note)
+    {
+        return (size_t) (midiChannel - 1) * 128u + (size_t) note;
+    };
     const auto highestHeld = [&layer]()
     {
-        for (int note = 127; note >= 0; --note)
-            if (layer.heldNotes[(size_t) note]) return note;
-        return -1;
+        size_t best = layer.heldNotes.size();
+        uint64_t newest = 0;
+        for (size_t i = 0; i < layer.heldNotes.size(); ++i)
+            if (layer.heldNotes[i] && layer.heldNoteOrder[i] >= newest)
+            {
+                best = i;
+                newest = layer.heldNoteOrder[i];
+            }
+        return best;
     };
     const auto emitArp = [&](const NordArpeggiator::Event& event)
     {
@@ -402,17 +421,16 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
         if (!generated && routing.nordArp.enabled)
             layer.arpeggiator.controller(channel,
                 message.isAllSoundOff() ? 120 : 123, 0, emitArp);
-        layer.sustainDown[(size_t) channel - 1] = false;
-        if (monoMode)
-        {
-            layer.sustainDown.fill(false);
-            layer.heldNotes.fill(false);
-            layer.heldVelocities.fill(0.0f);
-            layer.heldChannels.fill(0);
-            layer.monoNote = -1;
-        }
+        const auto channelIndex = (size_t) (channel - 1);
+        layer.sustainDown[channelIndex] = false;
+        const auto first = channelIndex * 128u;
+        std::fill(layer.heldNotes.begin() + first, layer.heldNotes.begin() + first + 128, false);
+        std::fill(layer.heldVelocities.begin() + first, layer.heldVelocities.begin() + first + 128, 0.0f);
+        std::fill(layer.heldSplitGains.begin() + first, layer.heldSplitGains.begin() + first + 128, 0.0f);
+        std::fill(layer.heldChannels.begin() + first, layer.heldChannels.begin() + first + 128, 0);
+        std::fill(layer.heldNoteOrder.begin() + first, layer.heldNoteOrder.begin() + first + 128, 0);
         for (auto& voice : layer.voices)
-            if (voice.active && (monoMode || voice.channel == channel))
+            if (voice.active && voice.channel == channel)
             {
                 if (message.isAllSoundOff()) voice = {};
                 else
@@ -423,6 +441,16 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
                     voice.releaseCoefficient = releaseCoefficientFor(routing.release, currentSampleRate);
                 }
             }
+        if (monoMode && layer.monoChannel == channel)
+        {
+            const auto fallback = highestHeld();
+            if (fallback < layer.heldNotes.size())
+                startVoice((int) (fallback % 128u), layer.heldChannels[fallback],
+                           layer.heldVelocities[fallback], true,
+                           layer.heldSplitGains[fallback], 0);
+            else
+                layer.monoNote = -1;
+        }
         return;
     }
     if (message.isController() && message.getControllerNumber() == 64)
@@ -433,14 +461,19 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
         const auto wasDown = layer.sustainDown[(size_t) channel - 1];
         const auto isDown = routing.sustainEnabled && message.getControllerValue() >= 64;
         layer.sustainDown[(size_t) channel - 1] = isDown;
-        if (wasDown && !isDown && monoMode && layer.monoNote >= 0)
+        if (wasDown && !isDown && monoMode && layer.monoNote >= 0
+            && layer.monoChannel == channel)
         {
             const auto fallback = highestHeld();
-            if (fallback >= 0 && fallback != layer.monoNote)
-                startVoice(fallback, layer.heldChannels[(size_t) fallback],
-                           layer.heldVelocities[(size_t) fallback], true,
-                           layer.heldSplitGains[(size_t) fallback], 0);
-            else if (fallback < 0)
+            if (fallback < layer.heldNotes.size())
+            {
+                const auto fallbackNote = (int) (fallback % 128u);
+                const auto fallbackChannel = layer.heldChannels[fallback];
+                if (fallbackNote != layer.monoNote || fallbackChannel != layer.monoChannel)
+                    startVoice(fallbackNote, fallbackChannel, layer.heldVelocities[fallback], true,
+                               layer.heldSplitGains[fallback], 0);
+            }
+            else
             {
                 for (auto& voice : layer.voices)
                     if (voice.active && voice.waitingForSustain)
@@ -486,16 +519,19 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
             if (routing.nordArp.mode != 2) return;
         }
         const auto previousNote = highestHeld();
-        const auto legato = monoMode && previousNote >= 0 && previousNote != note;
+        const auto legato = monoMode && previousNote < layer.heldNotes.size()
+            && (int) (previousNote % 128u) != note;
         const auto splitSource = generated && sourceNote >= 0 ? sourceNote : inputNote;
         if (!startVoice(note, channel, shapedVelocity, legato,
                         routing.nordSplit.gain(splitSource), generated ? patternPan : 0)) return;
         if (monoMode && !generated)
         {
-            layer.heldNotes[(size_t) note] = true;
-            layer.heldVelocities[(size_t) note] = shapedVelocity;
-            layer.heldSplitGains[(size_t) note] = routing.nordSplit.gain(splitSource);
-            layer.heldChannels[(size_t) note] = channel;
+            const auto index = heldIndex(channel, note);
+            layer.heldNotes[index] = true;
+            layer.heldVelocities[index] = shapedVelocity;
+            layer.heldSplitGains[index] = routing.nordSplit.gain(splitSource);
+            layer.heldChannels[index] = channel;
+            layer.heldNoteOrder[index] = ++layer.heldNoteSequence;
         }
         return;
     }
@@ -511,7 +547,7 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
         const auto note = juce::jlimit(0, 127, inputNote + routing.octave * 12);
         if (monoMode && generated)
         {
-            if (layer.monoNote == note) layer.monoNote = -1;
+            if (layer.monoNote == note && layer.monoChannel == channel) layer.monoNote = -1;
             for (auto& voice : layer.voices)
                 if (voice.active && voice.note == note && voice.channel == channel)
                 {
@@ -528,8 +564,10 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
         }
         if (monoMode)
         {
-            layer.heldNotes[(size_t) note] = false;
-            if (note != layer.monoNote) return;
+            const auto index = heldIndex(channel, note);
+            if (!layer.heldNotes[index]) return;
+            layer.heldNotes[index] = false;
+            if (note != layer.monoNote || channel != layer.monoChannel) return;
             if (layer.sustainDown[(size_t) channel - 1])
             {
                 for (auto& voice : layer.voices)
@@ -541,11 +579,11 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
                 return;
             }
             const auto fallback = highestHeld();
-            if (fallback >= 0)
+            if (fallback < layer.heldNotes.size())
             {
-                startVoice(fallback, layer.heldChannels[(size_t) fallback],
-                           layer.heldVelocities[(size_t) fallback], true,
-                           layer.heldSplitGains[(size_t) fallback], 0);
+                startVoice((int) (fallback % 128u), layer.heldChannels[fallback],
+                           layer.heldVelocities[fallback], true,
+                           layer.heldSplitGains[fallback], 0);
                 return;
             }
             for (auto& voice : layer.voices)
@@ -641,7 +679,10 @@ void NordSampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& outpu
         layer.lastMonoMode = monoMode;
         layer.heldNotes.fill(false);
         layer.heldVelocities.fill(0.0f);
+        layer.heldSplitGains.fill(0.0f);
         layer.heldChannels.fill(0);
+        layer.heldNoteOrder.fill(0);
+        layer.heldNoteSequence = 0;
         layer.sustainDown.fill(false);
         layer.monoNote = -1;
         layer.monoChannel = 1;

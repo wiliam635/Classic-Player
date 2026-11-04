@@ -1,5 +1,6 @@
 #include "Sf2Engine.h"
 #include "LayerEffects.h"
+#include <algorithm>
 #include <cmath>
 
 #if JUCE_MAC
@@ -43,9 +44,11 @@ void Sf2Engine::createSynth(Layer& layer)
     layer.soundFontId = -1;
     layer.monoNote = -1;
     layer.monoChannel = 1;
-    layer.sustainDown = false;
+    layer.sustainDown.fill(false);
     layer.heldNotes.fill(false);
     layer.heldVelocities.fill(0.0f);
+    layer.heldNoteOrder.fill(0);
+    layer.heldNoteSequence = 0;
     layer.modulationAmount = 0.0f;
     layer.modulationPhase = 0.0;
     layer.effectTailPending = false;
@@ -153,6 +156,13 @@ void Sf2Engine::reset()
             layer.highPassInput = { 0.0f, 0.0f };
             layer.highPassOutput = { 0.0f, 0.0f };
             layer.lowPassState = { 0.0f, 0.0f };
+            layer.monoNote = -1;
+            layer.monoChannel = 1;
+            layer.sustainDown.fill(false);
+            layer.heldNotes.fill(false);
+            layer.heldVelocities.fill(0.0f);
+            layer.heldNoteOrder.fill(0);
+            layer.heldNoteSequence = 0;
         }
 }
 
@@ -194,6 +204,13 @@ juce::Result Sf2Engine::loadSoundFont(int index, const juce::File& file)
     layer.soundFontPath = file.getFullPathName();
     layer.selectedBank = 0;
     layer.selectedProgram = 0;
+    layer.monoNote = -1;
+    layer.monoChannel = 1;
+    layer.sustainDown.fill(false);
+    layer.heldNotes.fill(false);
+    layer.heldVelocities.fill(0.0f);
+    layer.heldNoteOrder.fill(0);
+    layer.heldNoteSequence = 0;
     layer.filterState = { 0.0f, 0.0f };
     layer.highPassInput = { 0.0f, 0.0f };
     layer.highPassOutput = { 0.0f, 0.0f };
@@ -218,6 +235,12 @@ void Sf2Engine::stopAllSounds()
             fluid_synth_all_sounds_off(layer.synth.get(), channel);
         }
         layer.monoNote = -1;
+        layer.monoChannel = 1;
+        layer.sustainDown.fill(false);
+        layer.heldNotes.fill(false);
+        layer.heldVelocities.fill(0.0f);
+        layer.heldNoteOrder.fill(0);
+        layer.heldNoteSequence = 0;
     }
 }
 
@@ -241,6 +264,13 @@ void Sf2Engine::unloadSoundFont(int index)
     layer.soundFontPath.clear();
     layer.selectedBank = 0;
     layer.selectedProgram = 0;
+    layer.monoNote = -1;
+    layer.monoChannel = 1;
+    layer.sustainDown.fill(false);
+    layer.heldNotes.fill(false);
+    layer.heldVelocities.fill(0.0f);
+    layer.heldNoteOrder.fill(0);
+    layer.heldNoteSequence = 0;
     layer.modulationAmount = 0.0f;
     layer.modulationPhase = 0.0;
     layer.effectTailPending = false;
@@ -254,11 +284,21 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
         return;
 
     const auto monoMode = layer.config.mono || layer.config.portamento;
+    const auto heldIndex = [] (int midiChannel, int note)
+    {
+        return (size_t) (midiChannel - 1) * 128u + (size_t) note;
+    };
     const auto highestHeld = [&layer] ()
     {
-        for (int note = 127; note >= 0; --note)
-            if (layer.heldNotes[(size_t) note]) return note;
-        return -1;
+        size_t best = layer.heldNotes.size();
+        uint64_t newest = 0;
+        for (size_t i = 0; i < layer.heldNotes.size(); ++i)
+            if (layer.heldNotes[i] && layer.heldNoteOrder[i] >= newest)
+            {
+                best = i;
+                newest = layer.heldNoteOrder[i];
+            }
+        return best;
     };
     const auto startMonoNote = [&layer] (int midiChannel, int note, float velocity)
     {
@@ -294,7 +334,10 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
         if (cc == 64)
         {
             if (!layer.config.sustainEnabled) return;
-            layer.sustainDown = value >= 64;
+            const auto channelIndex = (size_t) (channel - 1);
+            const auto wasDown = layer.sustainDown[channelIndex];
+            const auto isDown = value >= 64;
+            layer.sustainDown[channelIndex] = isDown;
             // In mono/legato mode sustain is controlled exclusively by the
             // note stack below. Always neutralize FluidSynth's own CC64 state:
             // it may have been left down before the layer entered legato mode.
@@ -302,12 +345,18 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
                 fluid_synth_cc(layer.synth.get(), channel - 1, cc, value);
             else
                 fluid_synth_cc(layer.synth.get(), channel - 1, 64, 0);
-            if (!layer.sustainDown && monoMode && layer.monoNote >= 0)
+            if (wasDown && !isDown && monoMode && layer.monoNote >= 0
+                && layer.monoChannel == channel)
             {
                 const auto fallback = highestHeld();
-                if (fallback >= 0 && fallback != layer.monoNote)
-                    startMonoNote(channel, fallback, layer.heldVelocities[(size_t) fallback]);
-                else if (fallback < 0)
+                if (fallback < layer.heldNotes.size())
+                {
+                    const auto fallbackNote = (int) (fallback % 128u);
+                    const auto fallbackChannel = (int) (fallback / 128u) + 1;
+                    if (fallbackNote != layer.monoNote || fallbackChannel != layer.monoChannel)
+                        startMonoNote(fallbackChannel, fallbackNote, layer.heldVelocities[fallback]);
+                }
+                else
                 {
                     fluid_synth_noteoff(layer.synth.get(), layer.monoChannel - 1, layer.monoNote);
                     layer.monoNote = -1;
@@ -324,17 +373,42 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
 
     if (message.isAllSoundOff())
     {
-        layer.heldNotes.fill(false);
-        layer.sustainDown = false;
-        layer.monoNote = -1;
+        const auto first = (size_t) (channel - 1) * 128u;
+        std::fill(layer.heldNotes.begin() + first, layer.heldNotes.begin() + first + 128, false);
+        std::fill(layer.heldVelocities.begin() + first, layer.heldVelocities.begin() + first + 128, 0.0f);
+        std::fill(layer.heldNoteOrder.begin() + first, layer.heldNoteOrder.begin() + first + 128, 0);
+        layer.sustainDown[(size_t) (channel - 1)] = false;
+        fluid_synth_cc(layer.synth.get(), channel - 1, 64, 0);
         fluid_synth_all_sounds_off(layer.synth.get(), channel - 1);
+        if (monoMode && layer.monoChannel == channel)
+        {
+            const auto fallback = highestHeld();
+            if (fallback < layer.heldNotes.size())
+                startMonoNote((int) (fallback / 128u) + 1, (int) (fallback % 128u),
+                              layer.heldVelocities[fallback]);
+            else
+                layer.monoNote = -1;
+        }
         return;
     }
     if (message.isAllNotesOff())
     {
-        layer.heldNotes.fill(false);
-        if (monoMode) layer.monoNote = -1;
+        const auto first = (size_t) (channel - 1) * 128u;
+        std::fill(layer.heldNotes.begin() + first, layer.heldNotes.begin() + first + 128, false);
+        std::fill(layer.heldVelocities.begin() + first, layer.heldVelocities.begin() + first + 128, 0.0f);
+        std::fill(layer.heldNoteOrder.begin() + first, layer.heldNoteOrder.begin() + first + 128, 0);
+        layer.sustainDown[(size_t) (channel - 1)] = false;
+        fluid_synth_cc(layer.synth.get(), channel - 1, 64, 0);
         fluid_synth_all_notes_off(layer.synth.get(), channel - 1);
+        if (monoMode && layer.monoChannel == channel)
+        {
+            const auto fallback = highestHeld();
+            if (fallback < layer.heldNotes.size())
+                startMonoNote((int) (fallback / 128u) + 1, (int) (fallback % 128u),
+                              layer.heldVelocities[fallback]);
+            else
+                layer.monoNote = -1;
+        }
         return;
     }
 
@@ -369,8 +443,10 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
             return;
         }
 
-        layer.heldNotes[(size_t) note] = true;
-        layer.heldVelocities[(size_t) note] = velocity;
+        const auto index = heldIndex(channel, note);
+        layer.heldNotes[index] = true;
+        layer.heldVelocities[index] = velocity;
+        layer.heldNoteOrder[index] = ++layer.heldNoteSequence;
         // The next note starts before the old one is released, producing a
         // continuous legato change rather than a silent gap.
         startMonoNote(channel, note, velocity);
@@ -383,13 +459,16 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
         return;
     }
 
-    layer.heldNotes[(size_t) note] = false;
-    if (note != layer.monoNote) return;
-    if (layer.sustainDown) return;
+    const auto index = heldIndex(channel, note);
+    if (!layer.heldNotes[index]) return;
+    layer.heldNotes[index] = false;
+    if (note != layer.monoNote || channel != layer.monoChannel) return;
+    if (layer.sustainDown[(size_t) (channel - 1)]) return;
 
     const auto fallback = highestHeld();
-    if (fallback >= 0)
-        startMonoNote(channel, fallback, layer.heldVelocities[(size_t) fallback]);
+    if (fallback < layer.heldNotes.size())
+        startMonoNote((int) (fallback / 128u) + 1, (int) (fallback % 128u),
+                      layer.heldVelocities[fallback]);
     else
     {
         fluid_synth_noteoff(layer.synth.get(), layer.monoChannel - 1, layer.monoNote);
@@ -481,8 +560,11 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
                     fluid_synth_cc(layer.synth.get(), channel, 64, 0);
                     layer.heldNotes.fill(false);
                     layer.heldVelocities.fill(0.0f);
+                    layer.heldNoteOrder.fill(0);
+                    layer.heldNoteSequence = 0;
                     layer.monoNote = -1;
-                    layer.sustainDown = false;
+                    layer.monoChannel = 1;
+                    layer.sustainDown.fill(false);
                 }
             }
             layer.lastCutoff = cutoff;

@@ -185,6 +185,8 @@ struct NordLayerEffects
         for (auto& channel : modulation) std::fill(channel.begin(), channel.end(), 0.0f);
         for (auto& channel : delay) std::fill(channel.begin(), channel.end(), 0.0f);
         modulationPosition = delayPosition = 0;
+        delayValidSamples = 0;
+        delayWasActive = false;
         tremoloPhase = flangerPhase = chorusPhase = 0.0;
         for (auto& filter : feedbackFilterState) filter = {};
         tremoloMixSmoother.setCurrentAndTargetValue(0.0f);
@@ -217,7 +219,13 @@ struct NordLayerEffects
         if (tremoloTarget + flangerTarget + chorusTarget + delayMixTarget + extendedMixTarget + drive <= 0.0f
             && !tremoloMixSmoother.isSmoothing() && !flangerMixSmoother.isSmoothing()
             && !chorusMixSmoother.isSmoothing() && !extendedMixSmoother.isSmoothing()
-            && !delayMixSmoother.isSmoothing() && !driveSmoother.isSmoothing()) return;
+            && !delayMixSmoother.isSmoothing() && !driveSmoother.isSmoothing())
+        {
+            delayValidSamples = 0;
+            delayWasActive = false;
+            for (auto& filter : feedbackFilterState) filter = {};
+            return;
+        }
         const auto delaySeconds = delayTimeSeconds(settings);
         const auto tempoSamples = juce::jlimit(2, (int) delay[0].size() - 2,
             juce::roundToInt(sampleRate * delaySeconds));
@@ -240,12 +248,21 @@ struct NordLayerEffects
                 extendedMix, settings.modulationRate, sampleRate);
             const auto feedback = delayFeedbackSmoother.getNextValue();
             const auto driveAmount = driveSmoother.getNextValue();
+            if (delayMix > 0.0f && !delayWasActive)
+            {
+                delayValidSamples = 0;
+                for (auto& filter : feedbackFilterState) filter = {};
+            }
+            delayWasActive = delayMix > 0.0f;
             float echoes[2] {};
             for (int channel = 0; channel < channels; ++channel)
             {
-                const auto readPosition = (delayPosition + delay[(size_t) channel].size()
-                                           - (size_t) tempoSamples) % delay[(size_t) channel].size();
-                echoes[channel] = delay[(size_t) channel][readPosition];
+                if (delayValidSamples >= tempoSamples)
+                {
+                    const auto readPosition = (delayPosition + delay[(size_t) channel].size()
+                                               - (size_t) tempoSamples) % delay[(size_t) channel].size();
+                    echoes[channel] = delay[(size_t) channel][readPosition];
+                }
             }
             for (int channel = 0; channel < channels; ++channel)
             {
@@ -303,6 +320,13 @@ struct NordLayerEffects
                     value += delayMix * echoes[channel];
                 }
                 buffer.setSample(channel, frame, value);
+            }
+            if (delayMix > 0.0f)
+                delayValidSamples = juce::jmin((int) delay[0].size(), delayValidSamples + 1);
+            else
+            {
+                delayValidSamples = 0;
+                for (auto& filter : feedbackFilterState) filter = {};
             }
             modulationPosition = (modulationPosition + 1) % modulation[0].size();
             delayPosition = (delayPosition + 1) % delay[0].size();
@@ -380,6 +404,8 @@ private:
     juce::SmoothedValue<float> chorusMixSmoother, extendedMixSmoother, delayMixSmoother;
     juce::SmoothedValue<float> delayFeedbackSmoother, driveSmoother;
     size_t modulationPosition = 0, delayPosition = 0;
+    int delayValidSamples = 0;
+    bool delayWasActive = false;
     double sampleRate = 44100.0, tremoloPhase = 0.0, flangerPhase = 0.0, chorusPhase = 0.0;
 };
 

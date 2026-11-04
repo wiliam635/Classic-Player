@@ -29,8 +29,9 @@ int main()
         require(isTremolo(2) && isTremolo(3) && !isTremolo(0) && !isTremolo(1), "pan imported as tremolo");
         require(modulation2(0) == Modulation2::phaser && modulation2(1) == Modulation2::phaser, "phaser pair wrong");
         require(modulation2(2) == Modulation2::flanger && modulation2(3) == Modulation2::flanger, "flanger pair wrong");
-        require(modulation2(4) == Modulation2::chorus && modulation2(5) == Modulation2::chorus, "chorus pair wrong");
-        require(modulation2(6) == Modulation2::vibe && modulation2(8) == Modulation2::ensemble
+        require(modulation2(4) == Modulation2::vibe && modulation2(5) == Modulation2::vibe, "vibe pair wrong");
+        require(modulation2(6) == Modulation2::chorus && modulation2(7) == Modulation2::chorus, "chorus pair wrong");
+        require(modulation2(8) == Modulation2::ensemble
             && modulation2(10) == Modulation2::spin && modulation2(12) == Modulation2::unknown
             && modulation2(-1) == Modulation2::unknown, "unsupported type misidentified");
         require(eqDecibels(-60) == -15.0f && eqDecibels(60) == 15.0f

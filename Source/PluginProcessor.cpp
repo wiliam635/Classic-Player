@@ -3979,14 +3979,6 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
         "nordSplitLowPoint", "nordSplitHighPoint", "nordSplitLowWidth", "nordSplitHighWidth",
         "nordMorphVolumeWheel", "nordMorphVolumePressure", "nordMorphVolumePedal",
         "nordMorphCutoffWheel", "nordMorphCutoffPressure", "nordMorphCutoffPedal",
-        "nordMorphTremoloAmount", "nordMorphTremoloRate", "nordMorphFlangerAmount", "nordMorphFlangerRate",
-        "nordMorphChorusAmount", "nordMorphChorusRate", "nordMorphModulationAmount", "nordMorphModulationRate",
-        "nordMorphDelayMix", "nordMorphDelayFeedback", "nordMorphDelayRate", "nordMorphAmpDrive", "nordMorphAmpMidFrequency", "nordMorphReverb",
-        "nordMorphSynthResonance", "nordMorphSynthFilterEnvelope", "nordMorphSynthLfoAmount", "nordMorphSynthLfoRate",
-        "nordMorphSynthOscControl", "nordMorphSynthOscEnvelope",
-        "nordMorphArpRate", "nordMorphArpRange", "nordMorphLeslieSpeed",
-        "nordMorphDrawbar1", "nordMorphDrawbar2", "nordMorphDrawbar3", "nordMorphDrawbar4", "nordMorphDrawbar5",
-        "nordMorphDrawbar6", "nordMorphDrawbar7", "nordMorphDrawbar8", "nordMorphDrawbar9",
         "nordDelayRate", "nordDelaySync", "nordDelayPingPong", "nordDelayAnalog", "nordDelayFeedbackFilter",
         "nordAmpEnabled", "nordAmpModel", "nordAmpDrive",
         "nordModulationType", "nordModulationMix", "nordModulationRate",
@@ -4011,6 +4003,21 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
     };
     for (const auto& prefix : oneBased)
         copyProperty(prefix + sourceOne, prefix + destinationOne);
+    // Morph depths are stored as separate Wheel/Pressure/Pedal properties;
+    // copying the unsuffixed names above cannot preserve a layer preset.
+    const juce::StringArray morphDepthNames {
+        "nordMorphTremoloAmount", "nordMorphTremoloRate", "nordMorphFlangerAmount", "nordMorphFlangerRate",
+        "nordMorphChorusAmount", "nordMorphChorusRate", "nordMorphModulationAmount", "nordMorphModulationRate",
+        "nordMorphDelayMix", "nordMorphDelayFeedback", "nordMorphDelayRate", "nordMorphAmpDrive",
+        "nordMorphAmpMidFrequency", "nordMorphReverb", "nordMorphSynthResonance", "nordMorphSynthFilterEnvelope",
+        "nordMorphSynthLfoAmount", "nordMorphSynthLfoRate", "nordMorphSynthOscControl", "nordMorphSynthOscEnvelope",
+        "nordMorphArpRate", "nordMorphArpRange", "nordMorphLeslieSpeed", "nordMorphDrawbar1",
+        "nordMorphDrawbar2", "nordMorphDrawbar3", "nordMorphDrawbar4", "nordMorphDrawbar5",
+        "nordMorphDrawbar6", "nordMorphDrawbar7", "nordMorphDrawbar8", "nordMorphDrawbar9"
+    };
+    for (const auto& prefix : morphDepthNames)
+        for (const auto* axis : { "Wheel", "Pressure", "Pedal" })
+            copyProperty(prefix + axis + sourceOne, prefix + axis + destinationOne);
     const juce::StringArray zeroBased {
         "midiChannel", "low", "high", "velocityLow", "velocityHigh", "octave", "polyphony",
         "velocityCurve", "velocitySensitivityOff", "velocityCalibrated", "velocityEditorMode", "velocityOutputMin",
@@ -4037,6 +4044,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
         copyProperty("learnChannel" + sourceZero + "_" + juce::String(target),
                      "learnChannel" + destinationZero + "_" + juce::String(target));
     }
+    copyProperty("learnMuteMode" + sourceZero, "learnMuteMode" + destinationZero);
 
     const auto sourceParameterPrefix = "layer" + sourceOne;
     const auto destinationParameterPrefix = "layer" + destinationOne;

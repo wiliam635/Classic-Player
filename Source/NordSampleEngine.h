@@ -56,9 +56,11 @@ private:
         NordArpeggiator arpeggiator;
         std::array<Voice, voicesPerLayer> voices {};
         std::array<bool, 16> sustainDown {};
-        std::array<bool, 128> heldNotes {};
-        std::array<float, 128> heldVelocities {}, heldSplitGains {};
-        std::array<int, 128> heldChannels {};
+        std::array<bool, 16 * 128> heldNotes {};
+        std::array<float, 16 * 128> heldVelocities {}, heldSplitGains {};
+        std::array<int, 16 * 128> heldChannels {};
+        std::array<uint64_t, 16 * 128> heldNoteOrder {};
+        uint64_t heldNoteSequence = 0;
         int monoNote = -1, monoChannel = 1;
         bool lastMonoMode = false;
         std::array<float, 2> cutoffState {}, compressorEnvelope {};
