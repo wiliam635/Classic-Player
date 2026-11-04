@@ -387,7 +387,7 @@ struct NordSampleRegressionTests
         midi.addEvent(juce::MidiMessage::noteOn(2, 67, 0.8f), 0);
         render(*engine, midi, config, rms);
         require(engine->layers[0].monoNote == 67 && engine->layers[0].heldNotes[60]
-                    && engine->layers[0].heldNotes[67],
+                    && engine->layers[0].heldNotes[128 + 67],
                 "NSMP4 mono mode allowed an Omni-channel chord instead of a legato note");
         current = std::find_if(engine->layers[0].voices.begin(), engine->layers[0].voices.end(),
                                 [](const auto& voice) { return voice.active && voice.keyDown; });
