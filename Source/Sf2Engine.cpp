@@ -414,7 +414,7 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
 
     if (!message.isNoteOnOrOff())
     {
-        if (message.isPitchWheel())
+        if (message.isPitchWheel() && layer.config.pitchBendEnabled)
             fluid_synth_pitch_bend(layer.synth.get(), channel - 1, message.getPitchWheelValue());
         else if (message.isProgramChange())
             fluid_synth_program_change(layer.synth.get(), channel - 1, message.getProgramChangeNumber());

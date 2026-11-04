@@ -2875,14 +2875,16 @@ public:
         sceneBox.addItem("CENA I", 2);
         sceneBox.addItem("CENA II", 3);
         sceneBox.setSelectedId(1, juce::dontSendNotification);
-        bankBox.onChange = [this] { refreshPrograms(); };
+        bankBox.onChange = [this] { refreshPrograms(); deleteButton.setEnabled(bankBox.getSelectedId() > 0); };
         programBox.onChange = [this] { loadButton.setEnabled(programBox.getSelectedId() > 0 && !processor.isNordBundleProgramLoading()); };
         flatButton(importButton); flatButton(loadButton);
         importButton.setButtonText("IMPORTAR BUNDLE"); loadButton.setButtonText("CARREGAR PRESET COMPLETO");
-        addAndMakeVisible(importButton); addAndMakeVisible(loadButton);
+        flatButton(deleteButton); deleteButton.setButtonText("EXCLUIR BUNDLE");
+        addAndMakeVisible(importButton); addAndMakeVisible(loadButton); addAndMakeVisible(deleteButton);
         importButton.onClick = [this] { chooseBundle(); };
         loadButton.onClick = [this] { confirmLoad(); };
-        refreshBanks({}); setSize(640, 334);
+        deleteButton.onClick = [this] { confirmDelete(); };
+        refreshBanks({}); setSize(640, 390);
     }
     ~NordBundleLibraryPanel() override { imports.removeAllJobs(true, -1); }
     void paint(juce::Graphics& g) override { g.fillAll(juce::Colour(0xff15232b)); }
@@ -2895,7 +2897,8 @@ public:
         sceneBox.setBounds(area.removeFromTop(30)); area.removeFromTop(12);
         auto buttons = area.removeFromTop(34);
         importButton.setBounds(buttons.removeFromLeft(210)); buttons.removeFromLeft(10); loadButton.setBounds(buttons);
-        area.removeFromTop(12); status.setBounds(area);
+        area.removeFromTop(10); status.setBounds(area.removeFromTop(68));
+        area.removeFromTop(8); deleteButton.setBounds(area.removeFromTop(32).removeFromLeft(220));
     }
 private:
     void refreshBanks(const juce::File& selected)
@@ -2909,7 +2912,9 @@ private:
                 && banks[i].getFileName() == processor.parameters.state.getProperty("nordBundleBank").toString())) selection = i+1;
         }
         if (selection == 0 && !banks.isEmpty()) selection = 1;
-        bankBox.setSelectedId(selection, juce::dontSendNotification); refreshPrograms();
+        bankBox.setSelectedId(selection, juce::dontSendNotification);
+        deleteButton.setEnabled(selection > 0);
+        refreshPrograms();
     }
     void refreshPrograms()
     {
@@ -2938,7 +2943,8 @@ private:
             {
                 if (safe == nullptr || !c.getResult().existsAsFile()) return;
                 const auto source = c.getResult(); auto* processor = &safe->processor;
-                safe->importButton.setEnabled(false);
+                safe->importButton.setEnabled(false); safe->loadButton.setEnabled(false);
+                safe->deleteButton.setEnabled(false);
                 safe->status.setText("Importando banco...", juce::dontSendNotification);
                 safe->imports.addJob([safe, processor, source]
                 {
@@ -2953,6 +2959,9 @@ private:
                             safe->refreshBanks(folder);
                             safe->status.setText("Banco importado. Escolha um preset para carregar.", juce::dontSendNotification);
                         }
+                        if (result.failed()) safe->refreshPrograms();
+                        safe->deleteButton.setEnabled(safe->bankBox.getSelectedId() > 0);
+                        safe->loadButton.setEnabled(safe->programBox.getSelectedId() > 0);
                     });
                 });
             });
@@ -2971,22 +2980,59 @@ private:
                 if (safe == nullptr || answer == 0) return;
                 safe->loadButton.setEnabled(false); safe->importButton.setEnabled(false);
                 safe->status.setText("Preparando os timbres do preset...", juce::dontSendNotification);
-                safe->processor.loadNordBundleProgram(folder, path, [safe](juce::Result result, juce::String warnings)
+                safe->processor.loadNordBundleProgram(folder, path, [safe](juce::Result result, juce::String)
                 {
                     if (safe == nullptr) return;
-                    safe->importButton.setEnabled(true); safe->loadButton.setEnabled(true);
+                    safe->importButton.setEnabled(true); safe->deleteButton.setEnabled(safe->bankBox.getSelectedId() > 0);
+                    safe->loadButton.setEnabled(safe->programBox.getSelectedId() > 0);
                     safe->status.setText(result.wasOk() ? "Preset carregado. Salve como uma performance da Classic."
                         : result.getErrorMessage(), juce::dontSendNotification);
-                    if (result.wasOk() && warnings.isNotEmpty())
-                        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
-                            "Adaptacoes do preset Nord", warnings);
                 }, scene);
             }));
+    }
+    void confirmDelete()
+    {
+        const int bank = bankBox.getSelectedItemIndex();
+        if (!juce::isPositiveAndBelow(bank, banks.size())) return;
+        const auto folder = banks[bank];
+        juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon,
+            "Excluir banco Nord", "Excluir " + folder.getFileName()
+                + " da biblioteca? Performances salvas que usam este banco deixarão de encontrar seus arquivos.",
+            "Excluir", "Cancelar", this,
+            juce::ModalCallbackFunction::create(
+                [safe = juce::Component::SafePointer<NordBundleLibraryPanel>(this), folder](int answer)
+                {
+                    if (safe == nullptr || answer == 0) return;
+                    safe->importButton.setEnabled(false); safe->loadButton.setEnabled(false);
+                    safe->deleteButton.setEnabled(false);
+                    safe->status.setText("Excluindo banco...", juce::dontSendNotification);
+                    auto* processor = &safe->processor;
+                    safe->imports.addJob([safe, processor, folder]
+                    {
+                        const auto result = processor->deleteNordBundle(folder);
+                        juce::MessageManager::callAsync([safe, result]
+                        {
+                            if (safe == nullptr) return;
+                            safe->importButton.setEnabled(true);
+                            if (result.wasOk())
+                            {
+                                safe->refreshBanks({});
+                                safe->status.setText("Banco excluído da biblioteca.", juce::dontSendNotification);
+                            }
+                            else
+                            {
+                                safe->deleteButton.setEnabled(safe->bankBox.getSelectedId() > 0);
+                                safe->loadButton.setEnabled(safe->programBox.getSelectedId() > 0);
+                                safe->status.setText(result.getErrorMessage(), juce::dontSendNotification);
+                            }
+                        });
+                    });
+                }));
     }
     ClassicPlayerAudioProcessor& processor;
     juce::ComboBox bankBox, programBox, sceneBox;
     juce::Label bankLabel, programLabel, status;
-    juce::TextButton importButton, loadButton;
+    juce::TextButton importButton, loadButton, deleteButton;
     juce::Array<juce::File> banks;
     juce::StringArray programPaths;
     std::unique_ptr<juce::FileChooser> chooser;
@@ -4203,47 +4249,74 @@ private:
     juce::TextButton highPass, lowPass;
 };
 
-class ModulationTogglePanel final : public juce::Component
+class LayerInputOptionsPanel final : public juce::Component
 {
 public:
-    ModulationTogglePanel(ClassicPlayerAudioProcessor& p, int layer)
+    LayerInputOptionsPanel(ClassicPlayerAudioProcessor& p, int layer)
         : processor(p), index(layer)
+    {
+        setupToggle(modulationButton, "ModulationEnabled", "MODULATION DO TECLADO");
+        setupToggle(pitchBendButton, "PitchBendEnabled", "PITCH BEND");
+        refresh();
+        setSize(620, 32);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(2, 1);
+        const auto half = area.getWidth() / 2;
+        modulationButton.setBounds(area.removeFromLeft(half).reduced(2, 0));
+        pitchBendButton.setBounds(area.reduced(2, 0));
+    }
+
+private:
+    void setupToggle(juce::TextButton& button, const juce::String& parameterName,
+                     const juce::String& label)
     {
         flatButton(button);
         button.setClickingTogglesState(true);
-        button.setTooltip(juce::String::fromUTF8("Ativa ou desativa a modulação recebida pelo teclado"));
-        button.onClick = [this]
-        {
-            if (auto* parameter = processor.parameters.getParameter(
-                    "layer" + juce::String(index + 1) + "ModulationEnabled"))
-                parameter->setValueNotifyingHost(parameter->convertTo0to1(
-                    button.getToggleState() ? 1.0f : 0.0f));
-            refresh();
-        };
+        button.setTooltip(parameterName == "PitchBendEnabled"
+            ? "Ativa ou bloqueia as mensagens MIDI de pitch bend nesta layer"
+            : "Ativa ou desativa a modulação recebida pelo teclado");
+        auto* target = &button;
+        button.onClick = [this, target, parameterName] { apply(parameterName, *target); };
+        button.setName(label);
         addAndMakeVisible(button);
-        refresh();
-        setSize(700, 36);
     }
 
-    void resized() override { button.setBounds(getLocalBounds().withSizeKeepingCentre(260, juce::jmin(30, getHeight()))); }
+    void apply(const juce::String& parameterName, juce::TextButton& button)
+    {
+        if (auto* parameter = processor.parameters.getParameter(
+                "layer" + juce::String(index + 1) + parameterName))
+            parameter->setValueNotifyingHost(parameter->convertTo0to1(
+                button.getToggleState() ? 1.0f : 0.0f));
+        refresh();
+    }
 
-private:
     void refresh()
     {
+        refreshToggle(modulationButton, "ModulationEnabled", "MODULATION DO TECLADO");
+        refreshToggle(pitchBendButton, "PitchBendEnabled", "PITCH BEND");
+    }
+
+    void refreshToggle(juce::TextButton& button, const juce::String& parameterName,
+                       const juce::String& label)
+    {
         const auto* value = processor.parameters.getRawParameterValue(
-            "layer" + juce::String(index + 1) + "ModulationEnabled");
-        const auto enabled = value == nullptr || value->load() >= 0.5f;
+            "layer" + juce::String(index + 1) + parameterName);
+        const auto enabled = value != nullptr && value->load() >= 0.5f;
         button.setToggleState(enabled, juce::dontSendNotification);
-        button.setButtonText(localizedUiText(enabled ? "MODULATION DO TECLADO: ON"
-                                                     : "MODULATION DO TECLADO: OFF",
-                                             activeUiLanguage.load()));
+        auto text = label + (enabled ? ": ON" : ": OFF");
+        if (parameterName == "ModulationEnabled")
+            text = localizedUiText(text, activeUiLanguage.load());
+        button.setButtonText(text);
         button.setColour(juce::TextButton::buttonColourId,
                          enabled ? juce::Colour(0xff1b554e) : juce::Colour(panelLight));
     }
 
     ClassicPlayerAudioProcessor& processor;
     int index;
-    juce::TextButton button;
+    juce::TextButton modulationButton, pitchBendButton;
 };
 
 static void showParametricLayerEqEditor(
@@ -6664,7 +6737,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
         [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 620, 28));
-    dialog->addCustomComponent(new CenteredPanel(new ModulationTogglePanel(processor, index), 620, 28));
+    dialog->addCustomComponent(new CenteredPanel(new LayerInputOptionsPanel(processor, index), 620, 32));
     dialog->addCustomComponent(new CenteredPanel(knobs, 620, 128));
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
     const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect(getScreenBounds());
@@ -7172,6 +7245,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
     // dialog shown by the reference layout.
     pads->setSize(560, 430);
     dialog->addCustomComponent(pads);
+    auto* inputOptions = new LayerInputOptionsPanel(processor, index);
+    inputOptions->setSize(560, 32);
+    dialog->addCustomComponent(inputOptions);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::continuousPads)
     {
@@ -7181,7 +7257,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
         eqButton->onClick = [safe] { if (safe != nullptr) safe->showEqEditor(); };
         dialog->addCustomComponent(eqButton);
     }
-    dialog->setSize(678, processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::continuousPads ? 580 : 560);
+    dialog->setSize(678, processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::continuousPads ? 616 : 596);
     dialog->fitWithinApp(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->drumPadPanel.refresh(); }), true);
@@ -9229,6 +9305,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
         [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 600, 38));
     dialog->addCustomComponent(new CenteredPanel(routing, 600, 160));
+    dialog->addCustomComponent(new CenteredPanel(new LayerInputOptionsPanel(processor, index), 600, 34));
     dialog->addCustomComponent(new CenteredPanel(common, 600, 100));
     const auto actionWidth = editorContentWidth(this, 930);
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
@@ -9247,7 +9324,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
             safe->processor.setAnalogSynthConfig(safe->index, factoryConfig);
         }
     };
-    dialog->setSize(actionWidth + 52, 570);
+    dialog->setSize(actionWidth + 52, 606);
     dialog->fitWithinApp(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int)
@@ -9350,7 +9427,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         set("Dx7Chorus", common->value(6));
         set("PreGainDb", common->value(7));
     });
-    dialog->addCustomComponent(new CenteredPanel(new ModulationTogglePanel(processor, index), 600, 28));
+    dialog->addCustomComponent(new CenteredPanel(new LayerInputOptionsPanel(processor, index), 600, 32));
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.
@@ -10952,13 +11029,14 @@ class NordOrganEditorPanel final : public juce::Component
 {
 public:
     NordOrganEditorPanel(ClassicPlayerAudioProcessor& owner, int layer)
-        : processor(owner), index(layer)
+        : processor(owner), index(layer), inputOptions(owner, layer)
     {
         heading.setText(juce::String::fromUTF8("NORD ORGAN · TONEWHEEL / TRANSISTOR"),
                         juce::dontSendNotification);
         heading.setJustificationType(juce::Justification::centred);
         heading.setFont(juce::FontOptions(15.0f, juce::Font::bold));
         addAndMakeVisible(heading);
+        addAndMakeVisible(inputOptions);
 
         const std::array<juce::String, 4> labels { "MODEL", "PERCUSSION", "VIBRATO / CHORUS", "ROTARY" };
         for (size_t i = 0; i < selectors.size(); ++i)
@@ -11025,7 +11103,7 @@ public:
         };
         applyTheme();
         refresh();
-        setSize(760, 386);
+        setSize(760, 422);
     }
 
     void resized() override
@@ -11049,6 +11127,7 @@ public:
         }
         driveLabel.setBounds(22, 332, 66, 22);
         drive.setBounds(86, 329, getWidth() - 108, 28);
+        inputOptions.setBounds(12, 370, getWidth() - 24, 34);
     }
 
     void lookAndFeelChanged() override { applyTheme(); repaint(); }
@@ -11100,6 +11179,7 @@ private:
 
     ClassicPlayerAudioProcessor& processor;
     int index;
+    LayerInputOptionsPanel inputOptions;
     juce::Label heading, driveLabel;
     std::array<juce::Label, 4> selectorLabels;
     std::array<juce::ComboBox, 4> selectors;
@@ -11173,6 +11253,7 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
     // This layout follows the available height, including each numeric field.
     common->useCompactGrid(true);
     content->add(common,55);
+    content->add(new LayerInputOptionsPanel(processor,index),32);
     common->setOnValueChange([&processor,common,prefix]{
         const std::array<const char*,7> names {"Gain","Attack","Release","Cutoff","Reverb","Comp","PreGainDb"};
         for(int i=0;i<7;++i)if(auto* p=processor.parameters.getParameter(prefix+names[(size_t)i]))
@@ -11182,7 +11263,7 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
         new LayerEffectButtons(std::move(reverbCallback), std::move(compressorCallback),
                                {}, std::move(eqCallback)),
         new LayerMidiLearnPanel(processor,index), 1032, 45), 45);
-    content->setSize(1060,600);
+    content->setSize(1060,636);
     return content;
 }
 
@@ -11227,12 +11308,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showHammondEditor()
                 const auto availableWidth = juce::jmax(1, getWidth() - 12);
                 const auto availableHeight = juce::jmax(1, getHeight() - 32);
                 const auto scale = juce::jmin((float) availableWidth / 1060.0f,
-                                              (float) availableHeight / 600.0f);
+                                              (float) availableHeight / 636.0f);
                 content->setTransform({});
-                content->setBounds(0, 0, 1060, 600);
+                content->setBounds(0, 0, 1060, 636);
                 content->setTransform(juce::AffineTransform::scale(scale).translated(
                     ((float)availableWidth - 1060.0f * scale) * 0.5f,
-                    ((float)availableHeight - 600.0f * scale) * 0.5f));
+                    ((float)availableHeight - 636.0f * scale) * 0.5f));
             }
         }
         void closeButtonPressed() override { exitModalState(0); }
@@ -11269,7 +11350,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordOrganEditor()
                                                     : juce::Rectangle<int>(0, 0, 1280, 800);
             const auto usable = screen.reduced(8);
             const auto width = juce::jmin(790, usable.getWidth());
-            const auto height = juce::jmin(430, usable.getHeight());
+            const auto height = juce::jmin(466, usable.getHeight());
             const auto centre = appBounds.isEmpty() ? screen.getCentre() : appBounds.getIntersection(screen).getCentre();
             setBounds(juce::jlimit(usable.getX(), usable.getRight() - width, centre.x - width / 2),
                       juce::jlimit(usable.getY(), usable.getBottom() - height, centre.y - height / 2),

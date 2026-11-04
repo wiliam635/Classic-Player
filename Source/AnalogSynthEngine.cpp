@@ -661,7 +661,7 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
         {
             layer.modWheel = static_cast<float>(message.getControllerValue()) / 127.0f;
         }
-        else if (message.isPitchWheel())
+        else if (message.isPitchWheel() && config.routing.pitchBendEnabled)
         {
             // Standard MIDI pitch-bend range is ±2 semitones. Apply it to all
             // active voices in the layer, preserving their envelopes and

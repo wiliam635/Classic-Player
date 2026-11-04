@@ -351,6 +351,8 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
         jassert(cached.Sf2ChorusDepth != nullptr);
         cached.ModulationEnabled = parameters.getRawParameterValue(prefix + "ModulationEnabled");
         jassert(cached.ModulationEnabled != nullptr);
+        cached.PitchBendEnabled = parameters.getRawParameterValue(prefix + "PitchBendEnabled");
+        jassert(cached.PitchBendEnabled != nullptr);
     }
     for(auto& bank:continuousBanks)bank=std::make_unique<ContinuousPadBank>();
     juce::Logger::writeToLog(juce::String::fromUTF8(
@@ -526,7 +528,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 20.0f));
         result.push_back(std::make_unique<juce::AudioParameterBool>(
             juce::ParameterID{"layer" + n + "ModulationEnabled", 1},
-            "Layer " + n + " Keyboard Modulation", true));
+            "Layer " + n + " Keyboard Modulation", false));
     }
     // Append new parameters after the existing layer groups so adding Mute
     // does not shift the parameter indices used by existing DAW automation.
@@ -554,6 +556,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
     // Append to preserve parameter indices in existing DAW projects.
     result.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"limiterEnabled", 1}, "Master Limiter Enabled", true));
+    // Append new controls so existing DAW automation indices remain stable.
+    for (int i = 0; i < Sf2Engine::layerCount; ++i)
+    {
+        const auto n = juce::String(i + 1);
+        result.push_back(std::make_unique<juce::AudioParameterBool>(
+            juce::ParameterID{"layer" + n + "PitchBendEnabled", 1},
+            "Layer " + n + " Pitch Bend Enabled", true));
+    }
     return { result.begin(), result.end() };
 }
 
@@ -868,6 +878,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         config.sf2ChorusRate = realtime.Sf2ChorusRate->load(std::memory_order_relaxed);
         config.sf2ChorusDepth = realtime.Sf2ChorusDepth->load(std::memory_order_relaxed);
         config.modulationEnabled = realtime.ModulationEnabled->load(std::memory_order_relaxed) >= 0.5f;
+        config.pitchBendEnabled = realtime.PitchBendEnabled->load(std::memory_order_relaxed) >= 0.5f;
         config.reverb = morphState.apply(config.reverb, config.nordMorph.reverb, 100.0f);
         config.nordArp.rate = morphState.apply(config.nordArp.rate, config.nordMorph.arpRate, 1.0f);
         config.nordArp.rangeSemitones = juce::jlimit(0, 48, juce::roundToInt(morphState.apply(
@@ -1862,6 +1873,17 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
 
     const juce::ScopedLock callbackLock(getCallbackLock());
     const auto previousType = layerType(layer);
+    if (type == LayerType::hammond && previousType != LayerType::hammond)
+    {
+        const auto id = "layer" + juce::String(layer + 1) + "ModulationEnabled";
+        if (auto* parameter = parameters.getParameter(id))
+        {
+            const auto enabled = parameter->convertTo0to1(1.0f);
+            parameter->setValueNotifyingHost(enabled);
+            if (auto* raw = parameters.getRawParameterValue(id))
+                raw->store(parameter->convertFrom0to1(enabled));
+        }
+    }
     if (type != LayerType::nordOrgan) nordOrganEngine.unload(layer);
     if (type != LayerType::nordSample) nordSampleEngine.unload(layer);
     if (previousType == LayerType::nordSample && type != LayerType::nordSample)
@@ -2199,12 +2221,12 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     }
     for (int position = visualPosition; position < Sf2Engine::layerCount; ++position)
         visualLayerOrder[(size_t) position].store(position, std::memory_order_relaxed);
-    static constexpr std::array<const char*, 33> parameterSuffixes {
+    static constexpr std::array<const char*, 34> parameterSuffixes {
         "Gain", "PreGainDb", "Muted", "Attack", "Decay", "SustainLevel", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh",
         "EqLowFrequency", "EqMidFrequency", "EqHighFrequency", "EqLowQ", "EqMidQ", "EqHighQ",
         "Reverb", "ReverbSize", "ReverbDamping",
         "ReverbWidth", "ReverbPreset", "Comp", "CompThreshold", "CompRatio", "CompAttack",
-        "CompRelease", "CompMakeup", "Dx7Chorus", "ModulationEnabled",
+        "CompRelease", "CompMakeup", "Dx7Chorus", "ModulationEnabled", "PitchBendEnabled",
         "Sf2Chorus", "Sf2ChorusRate", "Sf2ChorusDepth"
     };
 
@@ -3051,10 +3073,34 @@ juce::Result ClassicPlayerAudioProcessor::importNordBundle(const juce::File& sou
     return outcome;
 }
 
+juce::Result ClassicPlayerAudioProcessor::deleteNordBundle(const juce::File& bundleFolder)
+{
+    const juce::ScopedLock importLock(nordBundleImportLock);
+    if (nordBundleLoading.load())
+        return juce::Result::fail("Aguarde o carregamento do preset Nord antes de excluir o banco.");
+
+    const auto root = programStorageDirectory().getChildFile("Nord Bundles");
+    const auto selected = juce::File(bundleFolder.getFullPathName());
+    if (!selected.isDirectory() || selected.getParentDirectory().getFullPathName() != root.getFullPathName()
+        || !selected.getChildFile("meta.xml").existsAsFile())
+        return juce::Result::fail("Selecione um banco válido da biblioteca Nord.");
+
+    if (nordBundleLoading.load())
+        return juce::Result::fail("Aguarde o carregamento do preset Nord antes de excluir o banco.");
+    if (!selected.deleteRecursively())
+        return juce::Result::fail("Não foi possível excluir o banco Nord da biblioteca.");
+    return juce::Result::ok();
+}
+
 void ClassicPlayerAudioProcessor::loadNordBundleProgram(const juce::File& folder,
     const juce::String& programPath, std::function<void(juce::Result, juce::String)> completion, int scene)
 {
-    if (nordBundleLoading.exchange(true))
+    bool alreadyLoading = false;
+    {
+        const juce::ScopedLock importLock(nordBundleImportLock);
+        alreadyLoading = nordBundleLoading.exchange(true);
+    }
+    if (alreadyLoading)
     {
         if (completion) completion(juce::Result::fail("Aguarde o carregamento do preset Nord atual."), {});
         return;
@@ -4497,6 +4543,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             // not leak into a legacy performance.
             for (int i = 0; i < Sf2Engine::layerCount; ++i)
             {
+                const auto prefix = "layer" + juce::String(i + 1);
                 const auto muteId = "layer" + juce::String(i + 1) + "Muted";
                 if (!findParameterState(muteId).isValid())
                 {
@@ -4534,8 +4581,28 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     }
                 }
 
+                const auto type = static_cast<int>(state.getProperty(
+                    "layerType" + juce::String(i + 1), static_cast<int>(LayerType::sf2)));
+                const auto modulationId = prefix + "ModulationEnabled";
+                if (!findParameterState(modulationId).isValid())
+                {
+                    juce::ValueTree modulationState("PARAM");
+                    modulationState.setProperty("id", modulationId, nullptr);
+                    modulationState.setProperty("value", type == static_cast<int>(LayerType::hammond) ? 1.0f : 0.0f, nullptr);
+                    state.addChild(modulationState, -1, nullptr);
+                }
+
+                const auto pitchBendId = prefix + "PitchBendEnabled";
+                if (!findParameterState(pitchBendId).isValid())
+                {
+                    juce::ValueTree pitchBendState("PARAM");
+                    pitchBendState.setProperty("id", pitchBendId, nullptr);
+                    pitchBendState.setProperty("value", 1.0f, nullptr);
+                    state.addChild(pitchBendState, -1, nullptr);
+                }
+
             }
-            state.setProperty("stateVersion", 173, nullptr);
+            state.setProperty("stateVersion", 174, nullptr);
             // Older performances must restore the previously implicit ON
             // state, even after a newer performance disabled the limiter.
             if (!findParameterState("limiterEnabled").isValid())

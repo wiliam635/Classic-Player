@@ -119,10 +119,12 @@ void HammondEngine::message(int index,const juce::MidiMessage& m,Config& c)
         }
         // CC1 is dedicated to Leslie performance control on the layer's MIDI
         // channel, even when an older program assigned CC1 to another target.
-        const bool wheelMorph = c.routing.nordMorph.volume.wheel != 0 || c.routing.nordMorph.cutoff.wheel != 0;
         const bool pedalMorph = c.routing.nordMorph.volume.pedal != 0 || c.routing.nordMorph.cutoff.pedal != 0;
-        if ((cc == 1 && wheelMorph) || (cc == 11 && pedalMorph)) return;
+        // CC1 is the Hammond Leslie speed control. Keep it available even
+        // when the same wheel also drives a configured Nord morph.
+        if (cc == 11 && pedalMorph) return;
         if(cc==1){
+            if (!c.routing.modulationEnabled) return;
             if(c.learning==9){c.cc[9]=1;c.channel[9]=ch+1;c.learning=-1;}
             c.leslie=value>=64?2:1;return;
         }

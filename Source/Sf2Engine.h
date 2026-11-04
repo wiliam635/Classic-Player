@@ -110,7 +110,8 @@ public:
         // preserves source-specific controls without mixing their engines.
         float dx7Chorus = 20.0f;
         // Enables the keyboard modulation source (CC1/LFO) for SF2 and DX7.
-        bool modulationEnabled = true;
+        bool modulationEnabled = false;
+        bool pitchBendEnabled = true;
     };
 
     struct Preset

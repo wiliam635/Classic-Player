@@ -460,7 +460,7 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
         return;
     }
 
-    if (message.isPitchWheel())
+    if (message.isPitchWheel() && config.pitchBendEnabled)
     {
         // MSFA/Dexed already applies the controller value to every operator
         // during compute(). Keep the wheel in the same 14-bit MIDI domain so

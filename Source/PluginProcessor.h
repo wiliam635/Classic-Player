@@ -188,6 +188,7 @@ public:
                                  juce::File& importedFile) const;
     juce::Result importNordBundle(const juce::File& source, juce::File& importedFolder) const;
     juce::Array<juce::File> libraryNordBundles() const;
+    juce::Result deleteNordBundle(const juce::File& bundleFolder);
     // Prepares only the selected program off-thread, then commits on the message thread.
     void loadNordBundleProgram(const juce::File& folder, const juce::String& programPath,
         std::function<void(juce::Result, juce::String)> completion, int scene = -1);
@@ -303,6 +304,7 @@ private:
         std::atomic<float>* Sf2ChorusRate = nullptr;
         std::atomic<float>* Sf2ChorusDepth = nullptr;
         std::atomic<float>* ModulationEnabled = nullptr;
+        std::atomic<float>* PitchBendEnabled = nullptr;
     };
     std::array<RealtimeLayerParameters, Sf2Engine::layerCount> realtimeLayerParameters;
     friend struct MidiRecordingRegressionAccess;
