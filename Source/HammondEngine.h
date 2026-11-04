@@ -52,6 +52,8 @@ private:
         std::array<juce::SmoothedValue<float>,9> bars;
         juce::SmoothedValue<float> gain, drive, leakage, level, pan, rotaryDepth;
         std::array<juce::SmoothedValue<float>,2> speed;
+        int leslie = 1;
+        int configuredLeslie = -1;
         std::array<double,2> rotorPhase {};
         std::array<std::vector<float>,2> delay;
         int delayPosition = 0;

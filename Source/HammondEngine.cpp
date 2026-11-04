@@ -80,6 +80,8 @@ void HammondEngine::unload(int index)
     for(auto& g:l.bars){g.reset(sampleRate,.015);g.setCurrentAndTargetValue(0);}
     for(auto* g:{&l.gain,&l.drive,&l.leakage,&l.level,&l.pan,&l.rotaryDepth}){
         g->reset(sampleRate,.02);g->setCurrentAndTargetValue(0);}
+    l.leslie = 1;
+    l.configuredLeslie = -1;
     for(int r=0;r<2;++r){l.speed[(size_t)r].reset(sampleRate,r==0?2.5:1.0);
         l.speed[(size_t)r].setCurrentAndTargetValue(0);
         std::fill(l.delay[(size_t)r].begin(),l.delay[(size_t)r].end(),0.f);}
@@ -126,7 +128,9 @@ void HammondEngine::message(int index,const juce::MidiMessage& m,Config& c)
         if(cc==1){
             if (!c.routing.modulationEnabled) return;
             if(c.learning==9){c.cc[9]=1;c.channel[9]=ch+1;c.learning=-1;}
-            c.leslie=value>=64?2:1;return;
+            c.leslie=value>=64?2:1;
+            l.leslie=c.leslie;
+            return;
         }
         if(c.learning>=0){
             for(size_t i=0;i<c.cc.size();++i)if(c.cc[i]==cc&&c.channel[i]==ch+1)c.cc[i]=-1;
@@ -138,7 +142,7 @@ void HammondEngine::message(int index,const juce::MidiMessage& m,Config& c)
                 const auto bar=(int)std::round(value*8.f/127);
                 if(c.bars[i]!=bar){c.bars[i]=bar;c.preset=-1;}
             }
-            else if(i==9)c.leslie=value>=64?2:1;
+            else if(i==9){c.leslie=value>=64?2:1;l.leslie=c.leslie;}
             else c.level=value/127.f;
             mapped=true;
         }
@@ -215,6 +219,15 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
         auto& c=configs[(size_t)index];auto& l=layers[(size_t)index];
         if(!c.routing.enabled){if(l.enabled)unload(index);continue;}
         l.enabled=true;
+        // MIDI changes only update the block-local Config. Keep the Leslie
+        // selection in the engine so the next audio block does not restore
+        // the preset's original speed and cancel the mod-wheel change.
+        const auto configuredLeslie = juce::jlimit(0, 2, c.leslie);
+        if (l.configuredLeslie != configuredLeslie)
+        {
+            l.leslie = configuredLeslie;
+            l.configuredLeslie = configuredLeslie;
+        }
         const juce::MidiBuffer empty;
         const auto& local=routed?(*routed)[(size_t)index]:empty;
         auto hi=host.cbegin(),li=local.cbegin();
@@ -227,9 +240,9 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
             l.gain.setTargetValue(c.routing.gain);l.level.setTargetValue(c.level);
             l.leakage.setTargetValue(c.leakage);l.drive.setTargetValue(c.drive);
             l.pan.setTargetValue(c.routing.pan);
-            l.rotaryDepth.setTargetValue(c.leslie?1.f:0.f);
-            l.speed[0].setTargetValue(c.leslie==0?0.f:c.leslie==1?.65f:5.4f);
-            l.speed[1].setTargetValue(c.leslie==0?0.f:c.leslie==1?.8f:6.2f);
+            l.rotaryDepth.setTargetValue(l.leslie?1.f:0.f);
+            l.speed[0].setTargetValue(l.leslie==0?0.f:l.leslie==1?.65f:5.4f);
+            l.speed[1].setTargetValue(l.leslie==0?0.f:l.leslie==1?.8f:6.2f);
         };
         setTargets();
         if(!c.routing.sustainEnabled)for(int ch=0;ch<16;++ch)if(l.sustain[(size_t)ch]){

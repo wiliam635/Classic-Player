@@ -1884,6 +1884,17 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
                 raw->store(parameter->convertFrom0to1(enabled));
         }
     }
+    else if (previousType == LayerType::hammond && type != LayerType::hammond)
+    {
+        const auto id = "layer" + juce::String(layer + 1) + "ModulationEnabled";
+        if (auto* parameter = parameters.getParameter(id))
+        {
+            const auto disabled = parameter->convertTo0to1(0.0f);
+            parameter->setValueNotifyingHost(disabled);
+            if (auto* raw = parameters.getRawParameterValue(id))
+                raw->store(parameter->convertFrom0to1(disabled));
+        }
+    }
     if (type != LayerType::nordOrgan) nordOrganEngine.unload(layer);
     if (type != LayerType::nordSample) nordSampleEngine.unload(layer);
     if (previousType == LayerType::nordSample && type != LayerType::nordSample)
@@ -3917,7 +3928,7 @@ void ClassicPlayerAudioProcessor::resetToNewProgram()
     if (hadUiVirtualKeyboardVisible)
         state.setProperty("uiVirtualKeyboardVisible", uiVirtualKeyboardVisible, nullptr);
     state.setProperty("uiDisplaySpectrum", uiDisplaySpectrum, nullptr);
-    state.setProperty("stateVersion", 173, nullptr);
+    state.setProperty("stateVersion", 174, nullptr);
     state.setProperty("activeLayers", 0, nullptr);
     state.setProperty("masterLearnCC", savedMasterCC, nullptr);
     state.setProperty("masterLearnChannel", savedMasterChannel, nullptr);
@@ -4196,7 +4207,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
     }
     state.setProperty("panicLearnCC", panicCC.load(), nullptr);
     state.setProperty("panicLearnChannel", panicCCChannel.load(), nullptr);
-    state.setProperty("stateVersion", 173, nullptr);
+    state.setProperty("stateVersion", 174, nullptr);
     state.setProperty("activeLayers", activeLayerCount(), nullptr);
     for (int position = 0; position < Sf2Engine::layerCount; ++position)
         state.setProperty("visualLayer" + juce::String(position), visualLayerAt(position), nullptr);
