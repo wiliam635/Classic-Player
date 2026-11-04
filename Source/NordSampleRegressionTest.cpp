@@ -499,9 +499,16 @@ struct NordSampleRegressionTests
         settings.delayMix = 0.0f;
         settings.tremoloMix = 100.0f;
         audio.clear();
-        audio.setSample(0, 0, 1.0f);
+        for (int frame = 0; frame < audio.getNumSamples(); ++frame)
+            audio.setSample(0, frame, 1.0f);
         effects.process(audio, settings);
-        require(audio.getSample(0, 0) > 0.4f && audio.getSample(0, 0) < 0.6f,
+        float minimum = 1.0f, maximum = 0.0f;
+        for (int frame = 4800; frame < audio.getNumSamples(); ++frame)
+        {
+            minimum = std::min(minimum, audio.getSample(0, frame));
+            maximum = std::max(maximum, audio.getSample(0, frame));
+        }
+        require(minimum < 0.4f && maximum > 0.6f,
                 "Nord tremolo was not applied");
     }
 
