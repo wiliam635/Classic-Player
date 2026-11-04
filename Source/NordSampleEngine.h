@@ -40,6 +40,7 @@ private:
     {
         bool active = false, released = false, keyDown = false, waitingForSustain = false;
         int note = -1, channel = 1, zone = -1;
+        int patternPan = 0;
         std::uint64_t age = 0;
         double position = 0.0, increment = 1.0;
         float amplitude = 0.0f, attack = 1.0f, attackStep = 1.0f;
@@ -52,6 +53,7 @@ private:
         std::shared_ptr<NordSampleDecoder::Instrument> instrument;
         juce::String sourcePath;
         bool loaded = false;
+        NordArpeggiator arpeggiator;
         std::array<Voice, voicesPerLayer> voices {};
         std::array<bool, 16> sustainDown {};
         std::array<bool, 128> heldNotes {};
@@ -62,6 +64,7 @@ private:
         std::array<float, 2> cutoffState {}, compressorEnvelope {};
         LayerEqState eq;
         NordLayerEffects nordFx;
+        juce::SmoothedValue<float> arpeggiatorGate;
         LayerReverb reverb;
         bool effectTailPending = false;
         uint64_t effectQuietSamples = 0;
@@ -79,7 +82,8 @@ private:
     static float readSample(const NordSampleDecoder::Zone&, int channel, double position) noexcept;
     static float releaseCoefficientFor(float control, double sampleRate) noexcept;
     void handleMidiMessage(Layer&, const juce::MidiMessage&,
-                           const Sf2Engine::LayerConfig&) noexcept;
+                           const Sf2Engine::LayerConfig&, bool generated = false,
+                           int sourceNote = -1, int patternPan = 0) noexcept;
     void renderVoices(Layer&, juce::AudioBuffer<float>&, int startSample, int endSample,
                       float& peak, const Sf2Engine::LayerConfig&) noexcept;
     void renderLayer(Layer&, juce::AudioBuffer<float>&, const juce::MidiBuffer&,

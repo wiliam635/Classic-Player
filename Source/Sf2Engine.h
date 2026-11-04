@@ -11,6 +11,7 @@
 #include "VelocityCurve.h"
 #include "NordMorph.h"
 #include "NordSplit.h"
+#include "NordArpeggiator.h"
 
 class Sf2Engine
 {
@@ -36,6 +37,7 @@ public:
         std::array<int, 6> learnedControlCCs { -1, -1, -1, -1, -1, -1 };
         std::array<int, 6> learnedControlChannels { -1, -1, -1, -1, -1, -1 };
         NordSplit nordSplit;
+        NordArpSettings nordArp;
         int lowNote = 0;
         int highNote = 127;
         int lowVelocity = 1;
@@ -131,6 +133,7 @@ public:
 
     LayerConfig getConfig(int layer) const;
     void setConfig(int layer, const LayerConfig& config);
+    void setRuntimeConfig(int layer, const LayerConfig& config);
     juce::String getSoundFontPath(int layer) const;
     std::vector<Preset> getPresets(int layer) const;
     int getSelectedBank(int layer) const;
@@ -148,6 +151,9 @@ private:
         std::unique_ptr<fluid_settings_t, SettingsDeleter> settings;
         std::unique_ptr<fluid_synth_t, SynthDeleter> synth;
         LayerConfig config;
+        // Keep the last user/state values separate from per-block render
+        // values (which can include MIDI morph offsets).
+        LayerConfig storedConfig;
         juce::String soundFontPath;
         int soundFontId = -1;
         int selectedBank = 0;

@@ -2,7 +2,7 @@ name: Build Classic Player - Windows
 
 on:
   push:
-    branches: [codex/nord-bundle-loader-20261102]
+    branches: [codex/nord-bundle-loader-20261102, codex/nord-morph-investigation-20261103]
   workflow_dispatch:
     inputs:
       approved:

@@ -823,7 +823,7 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
 Sf2Engine::LayerConfig Sf2Engine::getConfig(int index) const
 {
     const juce::ScopedLock guard(lock);
-    return juce::isPositiveAndBelow(index, layerCount) ? layers[(size_t) index].config : LayerConfig{};
+    return juce::isPositiveAndBelow(index, layerCount) ? layers[(size_t) index].storedConfig : LayerConfig{};
 }
 
 void Sf2Engine::setConfig(int index, const LayerConfig& config)
@@ -834,6 +834,35 @@ void Sf2Engine::setConfig(int index, const LayerConfig& config)
 
     // Muting/soloing or replacing a performance must never leave a sustained
     // pad running in a disabled layer. Explicitly cancel sustain and voices.
+    if (layer.config.enabled && !config.enabled && layer.synth != nullptr)
+    {
+        for (int channel = 0; channel < 16; ++channel)
+        {
+            fluid_synth_cc(layer.synth.get(), channel, 64, 0);
+            fluid_synth_all_notes_off(layer.synth.get(), channel);
+            fluid_synth_all_sounds_off(layer.synth.get(), channel);
+        }
+        layer.monoNote = -1;
+    }
+    if (layer.config.modulationEnabled && !config.modulationEnabled && layer.synth != nullptr)
+        for (int channel = 0; channel < 16; ++channel)
+            fluid_synth_cc(layer.synth.get(), channel, 1, 0);
+    if (!config.modulationEnabled)
+        layer.modulationAmount = 0.0f;
+    const auto newPolyphony = juce::jlimit(64, maxPolyphonyPerLayer, config.polyphony);
+    if (layer.synth != nullptr && layer.config.polyphony != newPolyphony)
+        fluid_synth_set_polyphony(layer.synth.get(), newPolyphony);
+    layer.config = config;
+    layer.config.polyphony = newPolyphony;
+    layer.storedConfig = layer.config;
+}
+
+void Sf2Engine::setRuntimeConfig(int index, const LayerConfig& config)
+{
+    if (!juce::isPositiveAndBelow(index, layerCount)) return;
+    const juce::ScopedLock guard(lock);
+    auto& layer = layers[(size_t) index];
+
     if (layer.config.enabled && !config.enabled && layer.synth != nullptr)
     {
         for (int channel = 0; channel < 16; ++channel)

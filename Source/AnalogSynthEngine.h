@@ -69,6 +69,8 @@ public:
         // Nord Stage 4 FM/WAVE programs use a bounded native approximation.
         int nordSynthType = 0; // 0 analog, 1 FM-H, 2 FM-I, 3 WAVE
         int nordTimbre = 0;
+        float nordOscControl = 64.0f;
+        float nordOscEnvelopeAmount = 0.0f;
         // Nord program layers retrigger one voice per pitch while sustain is held.
         // Keep the original Analog behavior for existing Classic performances.
         bool nordRetriggerSameNote = false;
@@ -106,7 +108,9 @@ private:
         bool keyDown = false;
         int note = -1;
         int midiChannel = 1;
+        int patternPan = 0;
         float velocity = 0.0f;
+        float splitGain = 1.0f;
         float phase1 = 0.0f;
         float phase2 = 0.0f;
         float phase3 = 0.0f;
@@ -130,12 +134,14 @@ private:
     struct Layer
     {
         std::array<Voice, voicesPerLayer> voices {};
+        NordArpeggiator arpeggiator;
         std::array<bool, 128> heldNotes {};
         std::array<float, 128> heldVelocities {};
         std::array<uint64_t, 128> noteOrder {};
         uint64_t noteSequence = 0;
         float lfoPhase = 0.0f;
         juce::SmoothedValue<float> gain;
+        juce::SmoothedValue<float> arpeggiatorGate;
         bool gainReady = false;
         bool effectTailPending = false;
         uint64_t effectQuietSamples = 0;
@@ -159,7 +165,8 @@ private:
     float nextBrowserEnvelope(Voice&, const Config&);
     float processBrowserFilter(Voice&, float input, float cutoffHz, float resonanceDb);
 
-    void noteOn(int layer, int midiChannel, int note, float velocity, const Config& config);
+    void noteOn(int layer, int midiChannel, int note, float velocity, const Config& config,
+                int splitSourceNote = -1, int patternPan = 0);
     void noteOff(int layer, int midiChannel, int note, const Config& config);
     float processLadder(Voice& voice, float input, float cutoffHz, float resonance,
                         float drive) noexcept;

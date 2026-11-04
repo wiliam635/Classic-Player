@@ -737,10 +737,26 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         return;
     }
 
+    float hostBpm = 0.0f;
+    if (auto* playHead = getPlayHead())
+    {
+        const auto position = playHead->getPosition();
+        if (position.has_value())
+        {
+            const auto bpm = position->getBpm();
+            if (bpm.has_value() && std::isfinite(*bpm) && *bpm >= 30.0 && *bpm <= 300.0)
+                hostBpm = (float) *bpm;
+        }
+    }
+
     std::array<Sf2Engine::LayerConfig, Sf2Engine::layerCount> nordRouting;
     std::array<Sf2Engine::LayerConfig, Sf2Engine::layerCount> nordSampleRouting;
     std::array<NordOrganEngine::Config, Sf2Engine::layerCount> nordOrganRouting;
+    std::array<AnalogSynthEngine::Config, Sf2Engine::layerCount> analogRouting;
+    std::array<HammondEngine::Config, Sf2Engine::layerCount> hammondRouting;
     const auto activeLayers = activeLayerCount();
+    for (int i = 0; i < activeLayers; ++i)
+        nordMorphStates[(size_t) i].advance(buffer.getNumSamples(), getSampleRate());
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
         auto config = engine.getConfig(i);
@@ -758,6 +774,10 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             hammondLayerConfigs[(size_t) i].routing.enabled = false;
             nordOrganLayerConfigs[(size_t) i].routing.enabled = false;
             nordOrganRouting[(size_t) i] = nordOrganLayerConfigs[(size_t) i];
+            hammondRouting[(size_t) i] = hammondLayerConfigs[(size_t) i];
+            hammondRouting[(size_t) i].routing.enabled = false;
+            analogRouting[(size_t) i] = analogLayerConfigs[(size_t) i];
+            analogRouting[(size_t) i].routing.enabled = false;
             continue;
         }
         const auto& realtime = realtimeLayerParameters[(size_t) i];
@@ -791,11 +811,44 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         config.release = realtime.Release->load(std::memory_order_relaxed);
         config.cutoff = nordMorphStates[(size_t)i].apply(
             realtime.Cutoff->load(std::memory_order_relaxed), config.nordMorph.cutoff, 100.0f);
+        auto& morphState = nordMorphStates[(size_t) i];
+        config.nordFx.tremoloMix = morphState.apply(config.nordFx.tremoloMix,
+            config.nordMorph.tremoloAmount, 100.0f);
+        config.nordFx.tremoloRate = juce::jlimit(0.2f, 12.0f, morphState.apply(
+            config.nordFx.tremoloRate, config.nordMorph.tremoloRate, 12.0f));
+        config.nordFx.flangerMix = morphState.apply(config.nordFx.flangerMix,
+            config.nordMorph.flangerAmount, 100.0f);
+        config.nordFx.flangerRate = juce::jlimit(0.05f, 5.0f, morphState.apply(
+            config.nordFx.flangerRate, config.nordMorph.flangerRate, 5.0f));
+        config.nordFx.chorusMix = morphState.apply(config.nordFx.chorusMix,
+            config.nordMorph.chorusAmount, 100.0f);
+        config.nordFx.chorusRate = juce::jlimit(0.05f, 5.0f, morphState.apply(
+            config.nordFx.chorusRate, config.nordMorph.chorusRate, 5.0f));
+        config.nordFx.modulationMix = morphState.apply(config.nordFx.modulationMix,
+            config.nordMorph.modulationAmount, 100.0f);
+        config.nordFx.modulationRate = juce::jlimit(0.05f, 12.0f, morphState.apply(
+            config.nordFx.modulationRate, config.nordMorph.modulationRate, 12.0f));
+        config.nordFx.delayMix = morphState.apply(config.nordFx.delayMix, config.nordMorph.delayMix, 100.0f);
+        config.nordFx.delayFeedback = morphState.apply(config.nordFx.delayFeedback,
+            config.nordMorph.delayFeedback, 95.0f);
+        config.nordFx.delayRate = morphState.apply(config.nordFx.delayRate, config.nordMorph.delayRate, 1.0f);
+        config.nordFx.ampDrive = morphState.apply(config.nordFx.ampDrive, config.nordMorph.ampDrive, 100.0f);
+        if (config.nordArp.syncToClock && hostBpm > 0.0f)
+            config.nordArp.bpm = hostBpm;
+        if (config.nordFx.delaySync && hostBpm > 0.0f)
+            config.nordFx.delayBpm = hostBpm;
         config.eqLow = realtime.EqLow->load(std::memory_order_relaxed);
         config.eqMid = realtime.EqMid->load(std::memory_order_relaxed);
         config.eqHigh = realtime.EqHigh->load(std::memory_order_relaxed);
         config.eqLowFrequency = realtime.EqLowFrequency->load(std::memory_order_relaxed);
         config.eqMidFrequency = realtime.EqMidFrequency->load(std::memory_order_relaxed);
+        if (config.nordMorph.ampMidFrequency.active())
+        {
+            const auto normalizedFrequency = std::log(
+                juce::jlimit(250.0f, 6000.0f, config.eqMidFrequency) / 250.0f) / std::log(24.0f);
+            config.eqMidFrequency = 250.0f * std::pow(24.0f,
+                morphState.apply(normalizedFrequency, config.nordMorph.ampMidFrequency, 1.0f));
+        }
         config.eqHighFrequency = realtime.EqHighFrequency->load(std::memory_order_relaxed);
         config.eqLowQ = realtime.EqLowQ->load(std::memory_order_relaxed);
         config.eqMidQ = realtime.EqMidQ->load(std::memory_order_relaxed);
@@ -815,7 +868,11 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         config.sf2ChorusRate = realtime.Sf2ChorusRate->load(std::memory_order_relaxed);
         config.sf2ChorusDepth = realtime.Sf2ChorusDepth->load(std::memory_order_relaxed);
         config.modulationEnabled = realtime.ModulationEnabled->load(std::memory_order_relaxed) >= 0.5f;
-        engine.setConfig(i, config);
+        config.reverb = morphState.apply(config.reverb, config.nordMorph.reverb, 100.0f);
+        config.nordArp.rate = morphState.apply(config.nordArp.rate, config.nordMorph.arpRate, 1.0f);
+        config.nordArp.rangeSemitones = juce::jlimit(0, 48, juce::roundToInt(morphState.apply(
+            (float) config.nordArp.rangeSemitones, config.nordMorph.arpRange, 48.0f)));
+        engine.setRuntimeConfig(i, config);
         nordRouting[(size_t) i] = config;
         nordRouting[(size_t) i].enabled = config.enabled
             && type == LayerType::nord
@@ -832,19 +889,42 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         // that parameter into the Analog config every audio block so the
         // mixer cutoff knob has an audible effect on Analog layers too.
         analogConfig.cutoff = config.cutoff;
+        analogConfig.resonance = morphState.apply(analogConfig.resonance,
+            config.nordMorph.synthResonance, 1.0f);
+        analogConfig.filterEnvelopeAmount = morphState.apply(analogConfig.filterEnvelopeAmount,
+            config.nordMorph.synthFilterEnvelope, 1.0f);
+        analogConfig.lfoToFilter = morphState.apply(analogConfig.lfoToFilter,
+            config.nordMorph.synthLfoAmount, 1.0f);
+        analogConfig.lfoRateHz = juce::jlimit(0.05f, 12.0f, morphState.apply(
+            analogConfig.lfoRateHz, config.nordMorph.synthLfoRate, 12.0f));
+        analogConfig.nordOscControl = morphState.apply(analogConfig.nordOscControl,
+            config.nordMorph.synthOscControl, 127.0f);
+        analogConfig.nordOscEnvelopeAmount = morphState.applySigned(analogConfig.nordOscEnvelopeAmount,
+            config.nordMorph.synthOscEnvelope, 1.0f);
         analogConfig.ampAttackMs = static_cast<float>(layerAttackSeconds(config.attack) * 1000.0);
         analogConfig.ampReleaseMs = juce::jmax(15.0f, config.release * 10.0f);
         // Analog Mono/Legato intentionally has no portamento mode.  Older
         // saved programs may still carry the shared layer flag; do not let it
         // turn every lead preset into a continuous theremin glide.
         analogConfig.routing.portamento = false;
-        analogLayerConfigs[(size_t) i] = analogConfig;
-        auto& hammond = hammondLayerConfigs[(size_t)i];
+        analogRouting[(size_t) i] = analogConfig;
+        auto hammond = hammondLayerConfigs[(size_t)i];
         hammond.routing = config;
         hammond.routing.enabled = config.enabled && type == LayerType::hammond;
-        auto& nordOrgan = nordOrganLayerConfigs[(size_t)i];
+        for (size_t bar = 0; bar < hammond.bars.size(); ++bar)
+            hammond.bars[bar] = juce::jlimit(0, 8, juce::roundToInt(morphState.apply(
+                (float) hammond.bars[bar], config.nordMorph.drawbars[bar], 8.0f)));
+        hammond.leslie = juce::jlimit(0, 2, juce::roundToInt(morphState.apply(
+            (float) hammond.leslie, config.nordMorph.leslieSpeed, 2.0f)));
+        hammondRouting[(size_t) i] = hammond;
+        auto nordOrgan = nordOrganLayerConfigs[(size_t)i];
         nordOrgan.routing = config;
         nordOrgan.routing.enabled = config.enabled && type == LayerType::nordOrgan;
+        for (size_t bar = 0; bar < nordOrgan.drawbars.size(); ++bar)
+            nordOrgan.drawbars[bar] = juce::jlimit(0, 8, juce::roundToInt(morphState.apply(
+                (float) nordOrgan.drawbars[bar], config.nordMorph.drawbars[bar], 8.0f)));
+        nordOrgan.rotary = juce::jlimit(0, 2, juce::roundToInt(morphState.apply(
+            (float) nordOrgan.rotary, config.nordMorph.leslieSpeed, 2.0f)));
         nordOrganRouting[(size_t)i] = nordOrgan;
     }
     engine.process(buffer, midi, &routedMidiBuffers);
@@ -852,15 +932,15 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     nordSampleEngine.process(buffer, midi, routedMidiBuffers, nordSampleRouting);
     renderExternalInstruments(buffer, midi);
     dx7Engine.process(buffer, midi, &routedMidiBuffers, dx7LayerConfigs);
-    analogSynthEngine.process(buffer, midi, analogLayerConfigs, &routedMidiBuffers);
-    hammondEngine.process(buffer, midi, hammondLayerConfigs, &routedMidiBuffers);
+    analogSynthEngine.process(buffer, midi, analogRouting, &routedMidiBuffers);
+    hammondEngine.process(buffer, midi, hammondRouting, &routedMidiBuffers);
     nordOrganEngine.process(buffer, midi, nordOrganRouting, &routedMidiBuffers);
     // MIDI morphs take effect on the next render block, never before their
     // event timestamp. Engine gain/filter smoothing prevents controller steps.
     for (int i = 0; i < activeLayers; ++i)
     {
         const auto config = engine.getConfig(i);
-        if (!config.nordMorph.volume.active() && !config.nordMorph.cutoff.active()) continue;
+        if (!config.nordMorph.active()) continue;
         auto& state = nordMorphStates[(size_t)i];
         const auto consume = [&](const juce::MidiBuffer& events)
         {
@@ -3095,6 +3175,7 @@ void ClassicPlayerAudioProcessor::loadNordBundleProgram(const juce::File& folder
                     const auto& c = part.routing;
                     set("Gain", c.gain * 100.0f); set("Attack", c.attack); set("Release", c.release);
                     set("Decay", c.decayMs); set("SustainLevel", c.sustainLevel); set("Cutoff", c.cutoff);
+                    set("EqMidFrequency", c.eqMidFrequency);
                     set("Reverb", c.reverb); set("ReverbSize", c.reverbSize);
                     set("ReverbDamping", c.reverbDamping); set("ReverbWidth", c.reverbWidth);
                     set("Comp", c.compressor); set("EqLow", c.eqLow); set("EqMid", c.eqMid); set("EqHigh", c.eqHigh);
@@ -3898,8 +3979,22 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
         "nordSplitLowPoint", "nordSplitHighPoint", "nordSplitLowWidth", "nordSplitHighWidth",
         "nordMorphVolumeWheel", "nordMorphVolumePressure", "nordMorphVolumePedal",
         "nordMorphCutoffWheel", "nordMorphCutoffPressure", "nordMorphCutoffPedal",
+        "nordMorphTremoloAmount", "nordMorphTremoloRate", "nordMorphFlangerAmount", "nordMorphFlangerRate",
+        "nordMorphChorusAmount", "nordMorphChorusRate", "nordMorphModulationAmount", "nordMorphModulationRate",
+        "nordMorphDelayMix", "nordMorphDelayFeedback", "nordMorphDelayRate", "nordMorphAmpDrive", "nordMorphAmpMidFrequency", "nordMorphReverb",
+        "nordMorphSynthResonance", "nordMorphSynthFilterEnvelope", "nordMorphSynthLfoAmount", "nordMorphSynthLfoRate",
+        "nordMorphSynthOscControl", "nordMorphSynthOscEnvelope",
+        "nordMorphArpRate", "nordMorphArpRange", "nordMorphLeslieSpeed",
+        "nordMorphDrawbar1", "nordMorphDrawbar2", "nordMorphDrawbar3", "nordMorphDrawbar4", "nordMorphDrawbar5",
+        "nordMorphDrawbar6", "nordMorphDrawbar7", "nordMorphDrawbar8", "nordMorphDrawbar9",
+        "nordDelayRate", "nordDelaySync", "nordDelayPingPong", "nordDelayAnalog", "nordDelayFeedbackFilter",
+        "nordAmpEnabled", "nordAmpModel", "nordAmpDrive",
         "nordModulationType", "nordModulationMix", "nordModulationRate",
         "nordChorusMix", "nordChorusRate", "nordChorusDepth", "nordDelayMix", "nordDelayBpm", "nordDelayFeedback",
+        "nordArpEnabled", "nordArpMode", "nordArpDirection", "nordArpZigZag", "nordArpSync",
+        "nordArpKeyboardSync", "nordArpRate", "nordArpBpm", "nordArpRange", "nordArpGate",
+        "nordArpPatternEnabled", "nordArpPatternLength", "nordArpPatternDuration",
+        "nordArpPatternAccent", "nordArpPatternPan",
         "externalInstrument", "externalInstrumentState", "analogOsc1Wave", "analogOsc2Wave",
         "analogOsc3Wave", "analogOsc1Level", "analogOsc2Level", "analogOsc3Level",
         "analogOsc1Semitones", "analogOsc2Semitones", "analogOsc3Semitones",
@@ -3911,7 +4006,8 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
         "analogLfoRate", "analogLfoPitch", "analogLfoFilter", "analogGlideMs",
         "analogMonophonic", "analogMixerDrive", "analogKeyTrack", "analogModWheelPitch",
         "analogModWheelFilter", "analogAmpDecaySwitch", "analogBrowserCompatible",
-        "analogNordSynthType", "analogNordTimbre", "analogNordRetriggerSameNote"
+        "analogNordSynthType", "analogNordTimbre", "analogNordRetriggerSameNote",
+        "analogNordOscControl", "analogNordOscEnvelopeAmount"
     };
     for (const auto& prefix : oneBased)
         copyProperty(prefix + sourceOne, prefix + destinationOne);
@@ -4107,6 +4203,47 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("nordMorphCutoffWheel" + fxKey, config.nordMorph.cutoff.wheel, nullptr);
         state.setProperty("nordMorphCutoffPressure" + fxKey, config.nordMorph.cutoff.pressure, nullptr);
         state.setProperty("nordMorphCutoffPedal" + fxKey, config.nordMorph.cutoff.pedal, nullptr);
+        const std::array<std::pair<const char*, const NordMorphDepth*>, 32> morphDepths {{
+            { "nordMorphTremoloAmount", &config.nordMorph.tremoloAmount },
+            { "nordMorphTremoloRate", &config.nordMorph.tremoloRate },
+            { "nordMorphFlangerAmount", &config.nordMorph.flangerAmount },
+            { "nordMorphFlangerRate", &config.nordMorph.flangerRate },
+            { "nordMorphChorusAmount", &config.nordMorph.chorusAmount },
+            { "nordMorphChorusRate", &config.nordMorph.chorusRate },
+            { "nordMorphModulationAmount", &config.nordMorph.modulationAmount },
+            { "nordMorphModulationRate", &config.nordMorph.modulationRate },
+            { "nordMorphDelayMix", &config.nordMorph.delayMix },
+            { "nordMorphDelayFeedback", &config.nordMorph.delayFeedback },
+            { "nordMorphDelayRate", &config.nordMorph.delayRate },
+            { "nordMorphAmpDrive", &config.nordMorph.ampDrive },
+            { "nordMorphAmpMidFrequency", &config.nordMorph.ampMidFrequency },
+            { "nordMorphReverb", &config.nordMorph.reverb },
+            { "nordMorphSynthResonance", &config.nordMorph.synthResonance },
+            { "nordMorphSynthFilterEnvelope", &config.nordMorph.synthFilterEnvelope },
+            { "nordMorphSynthLfoAmount", &config.nordMorph.synthLfoAmount },
+            { "nordMorphSynthLfoRate", &config.nordMorph.synthLfoRate },
+            { "nordMorphSynthOscControl", &config.nordMorph.synthOscControl },
+            { "nordMorphSynthOscEnvelope", &config.nordMorph.synthOscEnvelope },
+            { "nordMorphArpRate", &config.nordMorph.arpRate },
+            { "nordMorphArpRange", &config.nordMorph.arpRange },
+            { "nordMorphLeslieSpeed", &config.nordMorph.leslieSpeed },
+            { "nordMorphDrawbar1", &config.nordMorph.drawbars[0] },
+            { "nordMorphDrawbar2", &config.nordMorph.drawbars[1] },
+            { "nordMorphDrawbar3", &config.nordMorph.drawbars[2] },
+            { "nordMorphDrawbar4", &config.nordMorph.drawbars[3] },
+            { "nordMorphDrawbar5", &config.nordMorph.drawbars[4] },
+            { "nordMorphDrawbar6", &config.nordMorph.drawbars[5] },
+            { "nordMorphDrawbar7", &config.nordMorph.drawbars[6] },
+            { "nordMorphDrawbar8", &config.nordMorph.drawbars[7] },
+            { "nordMorphDrawbar9", &config.nordMorph.drawbars[8] }
+        }};
+        for (const auto& item : morphDepths)
+        {
+            const auto prefix = juce::String(item.first);
+            state.setProperty(prefix + "Wheel" + fxKey, item.second->wheel, nullptr);
+            state.setProperty(prefix + "Pressure" + fxKey, item.second->pressure, nullptr);
+            state.setProperty(prefix + "Pedal" + fxKey, item.second->pedal, nullptr);
+        }
         state.setProperty("nordModulationType" + fxKey, config.nordFx.modulationType, nullptr);
         state.setProperty("nordModulationMix" + fxKey, config.nordFx.modulationMix, nullptr);
         state.setProperty("nordModulationRate" + fxKey, config.nordFx.modulationRate, nullptr);
@@ -4116,6 +4253,32 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("nordDelayMix" + fxKey, config.nordFx.delayMix, nullptr);
         state.setProperty("nordDelayBpm" + fxKey, config.nordFx.delayBpm, nullptr);
         state.setProperty("nordDelayFeedback" + fxKey, config.nordFx.delayFeedback, nullptr);
+        state.setProperty("nordDelayRate" + fxKey, config.nordFx.delayRate, nullptr);
+        state.setProperty("nordDelaySync" + fxKey, config.nordFx.delaySync, nullptr);
+        state.setProperty("nordDelayPingPong" + fxKey, config.nordFx.delayPingPong, nullptr);
+        state.setProperty("nordDelayAnalog" + fxKey, config.nordFx.delayAnalog, nullptr);
+        state.setProperty("nordDelayFeedbackFilter" + fxKey, config.nordFx.delayFeedbackFilter, nullptr);
+        state.setProperty("nordAmpEnabled" + fxKey, config.nordFx.ampEnabled, nullptr);
+        state.setProperty("nordAmpModel" + fxKey, config.nordFx.ampModel, nullptr);
+        state.setProperty("nordAmpDrive" + fxKey, config.nordFx.ampDrive, nullptr);
+        state.setProperty("nordArpEnabled" + fxKey, config.nordArp.enabled, nullptr);
+        state.setProperty("nordArpMode" + fxKey, config.nordArp.mode, nullptr);
+        state.setProperty("nordArpDirection" + fxKey, config.nordArp.direction, nullptr);
+        state.setProperty("nordArpZigZag" + fxKey, config.nordArp.zigZag, nullptr);
+        state.setProperty("nordArpSync" + fxKey, config.nordArp.syncToClock, nullptr);
+        state.setProperty("nordArpKeyboardSync" + fxKey, config.nordArp.keyboardSync, nullptr);
+        state.setProperty("nordArpRate" + fxKey, config.nordArp.rate, nullptr);
+        state.setProperty("nordArpBpm" + fxKey, config.nordArp.bpm, nullptr);
+        state.setProperty("nordArpRange" + fxKey, config.nordArp.rangeSemitones, nullptr);
+        state.setProperty("nordArpGate" + fxKey, config.nordArp.gate, nullptr);
+        state.setProperty("nordArpPatternEnabled" + fxKey, config.nordArp.patternEnabled, nullptr);
+        state.setProperty("nordArpPatternLength" + fxKey, config.nordArp.patternLength, nullptr);
+        state.setProperty("nordArpPatternDuration" + fxKey,
+            juce::MemoryBlock(config.nordArp.patternDuration.data(), config.nordArp.patternDuration.size()).toBase64Encoding(), nullptr);
+        state.setProperty("nordArpPatternAccent" + fxKey,
+            juce::MemoryBlock(config.nordArp.patternAccent.data(), config.nordArp.patternAccent.size()).toBase64Encoding(), nullptr);
+        state.setProperty("nordArpPatternPan" + fxKey,
+            juce::MemoryBlock(config.nordArp.patternPan.data(), config.nordArp.patternPan.size()).toBase64Encoding(), nullptr);
         // Mono Legato and Portamento are distinct layer modes and must remain
         // distinct when a performance is saved and restored.
         state.setProperty("mono" + juce::String(i), config.mono, nullptr);
@@ -4173,6 +4336,8 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("analogBrowserCompatible" + juce::String(i + 1), analog.browserCompatible, nullptr);
         state.setProperty("analogNordSynthType" + juce::String(i + 1), analog.nordSynthType, nullptr);
         state.setProperty("analogNordTimbre" + juce::String(i + 1), analog.nordTimbre, nullptr);
+        state.setProperty("analogNordOscControl" + juce::String(i + 1), analog.nordOscControl, nullptr);
+        state.setProperty("analogNordOscEnvelopeAmount" + juce::String(i + 1), analog.nordOscEnvelopeAmount, nullptr);
         state.setProperty("analogNordRetriggerSameNote" + juce::String(i + 1), analog.nordRetriggerSameNote, nullptr);
         state.setProperty("learnMuteMode" + juce::String(i),
                           learnedMuteCCModes[(size_t) i].load(std::memory_order_relaxed), nullptr);
@@ -4573,6 +4738,10 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 analog.browserCompatible = state.getProperty("analogBrowserCompatible" + analogKey, false);
                 analog.nordSynthType = juce::jlimit(0, 3, (int)state.getProperty("analogNordSynthType" + analogKey, 0));
                 analog.nordTimbre = (int)state.getProperty("analogNordTimbre" + analogKey, 0);
+                analog.nordOscControl = juce::jlimit(0.0f, 127.0f,
+                    (float) state.getProperty("analogNordOscControl" + analogKey, 64.0f));
+                analog.nordOscEnvelopeAmount = juce::jlimit(-1.0f, 1.0f,
+                    (float) state.getProperty("analogNordOscEnvelopeAmount" + analogKey, 0.0f));
                 analog.nordRetriggerSameNote = state.getProperty("analogNordRetriggerSameNote" + analogKey, false);
 
                 auto config = engine.getConfig(i);
@@ -4647,6 +4816,38 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.nordMorph.cutoff.wheel = juce::jlimit(-1.0f, 1.0f, (float) state.getProperty("nordMorphCutoffWheel" + fxKey, 0.0f));
                 config.nordMorph.cutoff.pressure = juce::jlimit(-1.0f, 1.0f, (float) state.getProperty("nordMorphCutoffPressure" + fxKey, 0.0f));
                 config.nordMorph.cutoff.pedal = juce::jlimit(-1.0f, 1.0f, (float) state.getProperty("nordMorphCutoffPedal" + fxKey, 0.0f));
+                const auto restoreMorphDepths = [&state, &fxKey](NordMorphSettings& morph)
+                {
+                const std::array<std::pair<const char*, NordMorphDepth*>, 32> depths {{
+                        { "nordMorphTremoloAmount", &morph.tremoloAmount }, { "nordMorphTremoloRate", &morph.tremoloRate },
+                        { "nordMorphFlangerAmount", &morph.flangerAmount }, { "nordMorphFlangerRate", &morph.flangerRate },
+                        { "nordMorphChorusAmount", &morph.chorusAmount }, { "nordMorphChorusRate", &morph.chorusRate },
+                        { "nordMorphModulationAmount", &morph.modulationAmount }, { "nordMorphModulationRate", &morph.modulationRate },
+                        { "nordMorphDelayMix", &morph.delayMix }, { "nordMorphDelayFeedback", &morph.delayFeedback },
+                        { "nordMorphDelayRate", &morph.delayRate }, { "nordMorphAmpDrive", &morph.ampDrive },
+                        { "nordMorphAmpMidFrequency", &morph.ampMidFrequency },
+                        { "nordMorphReverb", &morph.reverb }, { "nordMorphSynthResonance", &morph.synthResonance },
+                        { "nordMorphSynthFilterEnvelope", &morph.synthFilterEnvelope }, { "nordMorphSynthLfoAmount", &morph.synthLfoAmount },
+                        { "nordMorphSynthLfoRate", &morph.synthLfoRate },
+                        { "nordMorphSynthOscControl", &morph.synthOscControl },
+                        { "nordMorphSynthOscEnvelope", &morph.synthOscEnvelope },
+                        { "nordMorphArpRate", &morph.arpRate }, { "nordMorphArpRange", &morph.arpRange },
+                        { "nordMorphLeslieSpeed", &morph.leslieSpeed },
+                        { "nordMorphDrawbar1", &morph.drawbars[0] }, { "nordMorphDrawbar2", &morph.drawbars[1] },
+                        { "nordMorphDrawbar3", &morph.drawbars[2] }, { "nordMorphDrawbar4", &morph.drawbars[3] },
+                        { "nordMorphDrawbar5", &morph.drawbars[4] }, { "nordMorphDrawbar6", &morph.drawbars[5] },
+                        { "nordMorphDrawbar7", &morph.drawbars[6] }, { "nordMorphDrawbar8", &morph.drawbars[7] },
+                        { "nordMorphDrawbar9", &morph.drawbars[8] }
+                    }};
+                    for (const auto& item : depths)
+                    {
+                        const auto prefix = juce::String(item.first);
+                        item.second->wheel = juce::jlimit(-1.0f, 1.0f, (float) state.getProperty(prefix + "Wheel" + fxKey, 0.0f));
+                        item.second->pressure = juce::jlimit(-1.0f, 1.0f, (float) state.getProperty(prefix + "Pressure" + fxKey, 0.0f));
+                        item.second->pedal = juce::jlimit(-1.0f, 1.0f, (float) state.getProperty(prefix + "Pedal" + fxKey, 0.0f));
+                    }
+                };
+                restoreMorphDepths(config.nordMorph);
                 config.nordFx.modulationType = juce::jlimit(0, 4, (int) state.getProperty("nordModulationType" + fxKey, 0));
                 config.nordFx.modulationMix = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordModulationMix" + fxKey, 0.0f));
                 config.nordFx.modulationRate = juce::jlimit(0.05f, 12.0f, (float) state.getProperty("nordModulationRate" + fxKey, 0.8f));
@@ -4656,6 +4857,39 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.nordFx.delayMix = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordDelayMix" + fxKey, 0.0f));
                 config.nordFx.delayBpm = juce::jlimit(40.0f, 240.0f, (float) state.getProperty("nordDelayBpm" + fxKey, 120.0f));
                 config.nordFx.delayFeedback = juce::jlimit(0.0f, 80.0f, (float) state.getProperty("nordDelayFeedback" + fxKey, 30.0f));
+                config.nordFx.delayRate = juce::jlimit(0.0f, 1.0f, (float) state.getProperty("nordDelayRate" + fxKey, 0.0f));
+                config.nordFx.delaySync = static_cast<bool>(state.getProperty("nordDelaySync" + fxKey, false));
+                config.nordFx.delayPingPong = static_cast<bool>(state.getProperty("nordDelayPingPong" + fxKey, false));
+                config.nordFx.delayAnalog = static_cast<bool>(state.getProperty("nordDelayAnalog" + fxKey, false));
+                config.nordFx.delayFeedbackFilter = juce::jlimit(0, 3, (int) state.getProperty("nordDelayFeedbackFilter" + fxKey, 0));
+                config.nordFx.ampEnabled = static_cast<bool>(state.getProperty("nordAmpEnabled" + fxKey, false));
+                config.nordFx.ampModel = juce::jlimit(0, 2, (int) state.getProperty("nordAmpModel" + fxKey, 0));
+                config.nordFx.ampDrive = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordAmpDrive" + fxKey, 0.0f));
+                config.nordArp.enabled = static_cast<bool>(state.getProperty("nordArpEnabled" + fxKey, false));
+                config.nordArp.mode = juce::jlimit(0, 2, (int) state.getProperty("nordArpMode" + fxKey, 0));
+                config.nordArp.direction = juce::jlimit(0, 3, (int) state.getProperty("nordArpDirection" + fxKey, 0));
+                config.nordArp.zigZag = static_cast<bool>(state.getProperty("nordArpZigZag" + fxKey, false));
+                config.nordArp.syncToClock = static_cast<bool>(state.getProperty("nordArpSync" + fxKey, false));
+                config.nordArp.keyboardSync = static_cast<bool>(state.getProperty("nordArpKeyboardSync" + fxKey, false));
+                config.nordArp.rate = juce::jlimit(0.0f, 1.0f, (float) state.getProperty("nordArpRate" + fxKey, 0.0f));
+                config.nordArp.bpm = juce::jlimit(30.0f, 300.0f, (float) state.getProperty("nordArpBpm" + fxKey, 120.0f));
+                config.nordArp.rangeSemitones = juce::jlimit(0, 48, (int) state.getProperty("nordArpRange" + fxKey, 0));
+                config.nordArp.gate = juce::jlimit(0.0f, 1.0f, (float) state.getProperty("nordArpGate" + fxKey, 0.75f));
+                config.nordArp.patternEnabled = static_cast<bool>(state.getProperty("nordArpPatternEnabled" + fxKey, false));
+                config.nordArp.patternLength = juce::jlimit(1, 16, (int) state.getProperty("nordArpPatternLength" + fxKey, 16));
+                const auto restoreArpArray = [&state, &fxKey](const juce::String& name, void* destination, size_t length)
+                {
+                    juce::MemoryBlock bytes;
+                    if (bytes.fromBase64Encoding(state.getProperty(name + fxKey).toString())
+                        && bytes.getSize() == length)
+                        std::memcpy(destination, bytes.getData(), length);
+                };
+                config.nordArp.patternDuration.fill(0);
+                config.nordArp.patternAccent.fill(0);
+                config.nordArp.patternPan.fill(0);
+                restoreArpArray("nordArpPatternDuration", config.nordArp.patternDuration.data(), config.nordArp.patternDuration.size());
+                restoreArpArray("nordArpPatternAccent", config.nordArp.patternAccent.data(), config.nordArp.patternAccent.size());
+                restoreArpArray("nordArpPatternPan", config.nordArp.patternPan.data(), config.nordArp.patternPan.size());
                 // State created before the separate Portamento mode used the
                 // legacy "mono" property. Preserve it as Mono Legato rather
                 // than silently changing the player's selected mode.

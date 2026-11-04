@@ -15,6 +15,12 @@ struct NordEffectSettings
     float flangerMix = 0.0f, flangerRate = 0.35f;
     float chorusMix = 0.0f, chorusRate = 0.8f, chorusDepth = 8.0f;
     float delayMix = 0.0f, delayBpm = 120.0f, delayFeedback = 30.0f;
+    float delayRate = 0.0f; // NS4P dlyRateClkDiv, normalized from 14 bits
+    bool delaySync = false, delayPingPong = false, delayAnalog = false;
+    int delayFeedbackFilter = 0; // 0 off; remaining modes are adapted filters
+    bool ampEnabled = false;
+    int ampModel = 0; // Known WX labels: Twin, Small, JC; exact enum mapping inferred
+    float ampDrive = 0.0f;
     int modulationType = 0; // 0 off, 1 phaser, 2 vibe, 3 ensemble, 4 spin
     float modulationMix = 0.0f, modulationRate = 0.8f;
 };
@@ -153,9 +159,24 @@ struct NordLayerEffects
     {
         sampleRate = juce::jmax(1.0, rate);
         const auto modulationLength = (size_t) juce::jmax(64, juce::roundToInt(sampleRate * 0.06));
-        const auto delayLength = (size_t) juce::jmax(64, juce::roundToInt(sampleRate * 1.6));
+        const auto delayLength = (size_t) juce::jmax(64, juce::roundToInt(sampleRate * 2.5));
         for (auto& channel : modulation) channel.assign(modulationLength, 0.0f);
         for (auto& channel : delay) channel.assign(delayLength, 0.0f);
+        for (auto& filter : feedbackFilterState) filter = {};
+        tremoloMixSmoother.reset(sampleRate, 0.01);
+        flangerMixSmoother.reset(sampleRate, 0.01);
+        chorusMixSmoother.reset(sampleRate, 0.01);
+        extendedMixSmoother.reset(sampleRate, 0.01);
+        delayMixSmoother.reset(sampleRate, 0.01);
+        delayFeedbackSmoother.reset(sampleRate, 0.02);
+        driveSmoother.reset(sampleRate, 0.02);
+        tremoloMixSmoother.setCurrentAndTargetValue(0.0f);
+        flangerMixSmoother.setCurrentAndTargetValue(0.0f);
+        chorusMixSmoother.setCurrentAndTargetValue(0.0f);
+        extendedMixSmoother.setCurrentAndTargetValue(0.0f);
+        delayMixSmoother.setCurrentAndTargetValue(0.0f);
+        delayFeedbackSmoother.setCurrentAndTargetValue(0.0f);
+        driveSmoother.setCurrentAndTargetValue(0.0f);
         reset();
     }
 
@@ -165,25 +186,50 @@ struct NordLayerEffects
         for (auto& channel : delay) std::fill(channel.begin(), channel.end(), 0.0f);
         modulationPosition = delayPosition = 0;
         tremoloPhase = flangerPhase = chorusPhase = 0.0;
+        for (auto& filter : feedbackFilterState) filter = {};
+        tremoloMixSmoother.setCurrentAndTargetValue(0.0f);
+        flangerMixSmoother.setCurrentAndTargetValue(0.0f);
+        chorusMixSmoother.setCurrentAndTargetValue(0.0f);
+        extendedMixSmoother.setCurrentAndTargetValue(0.0f);
+        delayMixSmoother.setCurrentAndTargetValue(0.0f);
+        delayFeedbackSmoother.setCurrentAndTargetValue(0.0f);
+        driveSmoother.setCurrentAndTargetValue(0.0f);
         extendedModulation.reset();
     }
 
     void process(juce::AudioBuffer<float>& buffer, const NordEffectSettings& settings) noexcept
     {
         if (buffer.getNumChannels() < 1 || modulation[0].empty() || delay[0].empty()) return;
-        const auto tremolo = juce::jlimit(0.0f, 1.0f, settings.tremoloMix * 0.01f);
-        const auto flanger = juce::jlimit(0.0f, 1.0f, settings.flangerMix * 0.01f);
-        const auto chorus = juce::jlimit(0.0f, 1.0f, settings.chorusMix * 0.01f);
+        const auto tremoloTarget = juce::jlimit(0.0f, 1.0f, settings.tremoloMix * 0.01f);
+        const auto flangerTarget = juce::jlimit(0.0f, 1.0f, settings.flangerMix * 0.01f);
+        const auto chorusTarget = juce::jlimit(0.0f, 1.0f, settings.chorusMix * 0.01f);
         const auto chorusDepthMs = juce::jlimit(0.0f, 20.0f, settings.chorusDepth);
-        const auto delayMix = juce::jlimit(0.0f, 1.0f, settings.delayMix * 0.01f);
-        const auto extendedMix = juce::jlimit(0.0f, 1.0f, settings.modulationMix * 0.01f);
-        if (tremolo + flanger + chorus + delayMix + extendedMix <= 0.0f) return;
-        const auto feedback = juce::jlimit(0.0f, 0.8f, settings.delayFeedback * 0.01f);
-        const auto tempoSamples = juce::jlimit(1, (int) delay[0].size() - 2,
-            juce::roundToInt(sampleRate * 60.0 / juce::jlimit(40.0f, 240.0f, settings.delayBpm)));
+        const auto delayMixTarget = juce::jlimit(0.0f, 1.0f, settings.delayMix * 0.01f);
+        const auto extendedMixTarget = juce::jlimit(0.0f, 1.0f, settings.modulationMix * 0.01f);
+        const auto drive = settings.ampEnabled ? juce::jlimit(0.0f, 1.0f, settings.ampDrive * 0.01f) : 0.0f;
+        tremoloMixSmoother.setTargetValue(tremoloTarget);
+        flangerMixSmoother.setTargetValue(flangerTarget);
+        chorusMixSmoother.setTargetValue(chorusTarget);
+        extendedMixSmoother.setTargetValue(extendedMixTarget);
+        delayMixSmoother.setTargetValue(delayMixTarget);
+        delayFeedbackSmoother.setTargetValue(juce::jlimit(0.0f, 0.95f, settings.delayFeedback * 0.0095f));
+        driveSmoother.setTargetValue(drive);
+        if (tremoloTarget + flangerTarget + chorusTarget + delayMixTarget + extendedMixTarget + drive <= 0.0f
+            && !tremoloMixSmoother.isSmoothing() && !flangerMixSmoother.isSmoothing()
+            && !chorusMixSmoother.isSmoothing() && !extendedMixSmoother.isSmoothing()
+            && !delayMixSmoother.isSmoothing() && !driveSmoother.isSmoothing()) return;
+        const auto delaySeconds = delayTimeSeconds(settings);
+        const auto tempoSamples = juce::jlimit(2, (int) delay[0].size() - 2,
+            juce::roundToInt(sampleRate * delaySeconds));
         const auto twopi = juce::MathConstants<double>::twoPi;
+        const auto channels = juce::jmin(2, buffer.getNumChannels());
         for (int frame = 0; frame < buffer.getNumSamples(); ++frame)
         {
+            const auto tremolo = tremoloMixSmoother.getNextValue();
+            const auto flanger = flangerMixSmoother.getNextValue();
+            const auto chorus = chorusMixSmoother.getNextValue();
+            const auto delayMix = delayMixSmoother.getNextValue();
+            const auto extendedMix = extendedMixSmoother.getNextValue();
             const auto tremoloLfo = tremolo > 0.0f ? (float) (0.5 + 0.5 * std::sin(tremoloPhase)) : 1.0f;
             const auto flangerLfo = flanger > 0.0f ? (float) (0.5 + 0.5 * std::sin(flangerPhase)) : 0.0f;
             const auto chorusLfo = chorus > 0.0f ? (float) (0.5 + 0.5 * std::sin(chorusPhase)) : 0.0f;
@@ -192,7 +238,16 @@ struct NordLayerEffects
             auto modulated = extendedModulation.process({dryLeft, dryRight},
                 settings.modulationType >= 3 ? 0 : settings.modulationType,
                 extendedMix, settings.modulationRate, sampleRate);
-            for (int channel = 0; channel < juce::jmin(2, buffer.getNumChannels()); ++channel)
+            const auto feedback = delayFeedbackSmoother.getNextValue();
+            const auto driveAmount = driveSmoother.getNextValue();
+            float echoes[2] {};
+            for (int channel = 0; channel < channels; ++channel)
+            {
+                const auto readPosition = (delayPosition + delay[(size_t) channel].size()
+                                           - (size_t) tempoSamples) % delay[(size_t) channel].size();
+                echoes[channel] = delay[(size_t) channel][readPosition];
+            }
+            for (int channel = 0; channel < channels; ++channel)
             {
                 auto value = modulated[(size_t) channel];
                 if (settings.modulationType == 4 && extendedMix > 0)
@@ -231,15 +286,21 @@ struct NordLayerEffects
                                           sampleRate * (0.016 + 0.001 * chorusDepthMs * phase));
                     value = value * (1.0f - 0.35f * chorus) + tap * (0.35f * chorus);
                 }
+                if (driveAmount > 0.0001f)
+                    value = applyAmp(value, driveAmount, settings.ampModel);
                 modLine[modulationPosition] = settings.modulationType >= 3
                     ? modulated[(size_t) channel] : value;
                 auto& delayLine = delay[(size_t) channel];
-                const auto readPosition = (delayPosition + delayLine.size() - (size_t) tempoSamples) % delayLine.size();
-                const auto echo = delayLine[readPosition];
                 if (delayMix > 0.0f)
                 {
-                    delayLine[delayPosition] = value + echo * feedback;
-                    value += delayMix * echo;
+                    const auto feedbackSource = settings.delayPingPong && channels > 1
+                        ? echoes[1 - channel] : echoes[channel];
+                    const auto filtered = filterFeedback(feedbackSource, channel,
+                                                         settings.delayFeedbackFilter);
+                    const auto feedbackInput = settings.delayAnalog
+                        ? std::tanh(filtered * (1.0f + feedback * 1.4f)) : filtered;
+                    delayLine[delayPosition] = value + feedbackInput * feedback;
+                    value += delayMix * echoes[channel];
                 }
                 buffer.setSample(channel, frame, value);
             }
@@ -268,8 +329,56 @@ private:
         const auto fraction = (float) (position - std::floor(position));
         return line[whole] + (line[next] - line[whole]) * fraction;
     }
+    double delayTimeSeconds(const NordEffectSettings& settings) const noexcept
+    {
+        const auto rate = (double) juce::jlimit(0.0f, 1.0f, settings.delayRate);
+        double seconds = 0.02 * std::pow(100.0, rate); // REA-derived unsynced WX curve
+        if (settings.delaySync)
+        {
+            // Exact DelayDivisions table read from the WX Stage-IV binary.
+            static constexpr double divisions[13] { 2.0, 1.5, 1.0, 2.0 / 3.0,
+                0.75, 0.5, 7.0 / 12.0, 1.0 / 3.0, 3.0 / 8.0, 0.25,
+                1.0 / 6.0, 3.0 / 16.0, 0.125 };
+            const auto index = juce::jlimit(0, 12, juce::roundToInt(rate * 12.0));
+            seconds = divisions[index] * 60.0 / juce::jlimit(30.0f, 300.0f, settings.delayBpm);
+        }
+        return juce::jlimit(2.0 / sampleRate, 2.5, seconds);
+    }
+    float filterFeedback(float input, int channel, int mode) noexcept
+    {
+        auto& state = feedbackFilterState[(size_t) juce::jlimit(0, 1, channel)];
+        const auto low = state.low += 0.22f * (input - state.low);
+        const auto high = input - state.dc;
+        state.dc = input * 0.995f + state.dc * 0.005f;
+        switch (juce::jlimit(0, 3, mode))
+        {
+            case 1: return low;
+            case 2: return high;
+            case 3:
+                state.bandDc += 0.22f * (high - state.bandDc);
+                return state.bandDc;
+            default: return input;
+        }
+    }
+    static float applyAmp(float input, float amount, int model) noexcept
+    {
+        const auto gain = 1.0f + 11.0f * amount;
+        const auto drive = input * gain;
+        const auto shaped = model == 1 ? std::atan(drive) * (2.0f / juce::MathConstants<float>::pi)
+            : model == 2 ? drive / (1.0f + std::abs(drive))
+            : std::tanh(drive);
+        const auto norm = model == 1 ? std::atan(gain) * (2.0f / juce::MathConstants<float>::pi)
+            : model == 2 ? gain / (1.0f + gain) : std::tanh(gain);
+        const auto saturated = shaped / juce::jmax(0.1f, norm);
+        return input * (1.0f - amount) + saturated * amount;
+    }
+    struct FeedbackFilterState { float low = 0.0f, dc = 0.0f, bandDc = 0.0f; };
     NordModulation extendedModulation;
     std::array<std::vector<float>, 2> modulation, delay;
+    std::array<FeedbackFilterState, 2> feedbackFilterState {};
+    juce::SmoothedValue<float> tremoloMixSmoother, flangerMixSmoother;
+    juce::SmoothedValue<float> chorusMixSmoother, extendedMixSmoother, delayMixSmoother;
+    juce::SmoothedValue<float> delayFeedbackSmoother, driveSmoother;
     size_t modulationPosition = 0, delayPosition = 0;
     double sampleRate = 44100.0, tremoloPhase = 0.0, flangerPhase = 0.0, chorusPhase = 0.0;
 };

@@ -117,6 +117,29 @@ inline void effects(const NordProgram::Program& p, const std::string& prefix,
                     Sf2Engine::LayerConfig& c, juce::StringArray& warnings)
 {
     const auto get = [&](const char* key, int64_t fallback = 0) { return p.get(prefix + "." + key, fallback); };
+    const auto morph = [&](const char* key, float signedScale = 127.0f)
+    {
+        NordMorphDepth depth;
+        const auto name = prefix + "." + key;
+        depth.wheel = juce::jlimit(-signedScale, signedScale, float(p.get(name + ".morphWheel"))) / signedScale;
+        depth.pressure = juce::jlimit(-signedScale, signedScale, float(p.get(name + ".morphAfterTouch"))) / signedScale;
+        depth.pedal = juce::jlimit(-signedScale, signedScale, float(p.get(name + ".morphCtrlPedal"))) / signedScale;
+        return depth;
+    };
+    c.nordMorph.tremoloAmount = morph("fx1Amt");
+    c.nordMorph.tremoloRate = morph("fx1RateClkDiv");
+    c.nordMorph.flangerAmount = morph("fx2Amt");
+    c.nordMorph.flangerRate = morph("fx2Rate");
+    c.nordMorph.chorusAmount = morph("fx2Amt");
+    c.nordMorph.chorusRate = morph("fx2Rate");
+    c.nordMorph.modulationAmount = morph("fx2Amt");
+    c.nordMorph.modulationRate = morph("fx2Rate");
+    c.nordMorph.delayMix = morph("dlyMix");
+    c.nordMorph.delayFeedback = morph("dlyFbkAmt");
+    c.nordMorph.delayRate = morph("dlyRateClkDiv", 16383.0f);
+    c.nordMorph.ampDrive = morph("ampDrive");
+    c.nordMorph.ampMidFrequency = morph("ampMidFreq");
+    c.nordMorph.reverb = morph("rvbAmt");
     if (get("fx1Enable"))
     {
         if (NordBundlePolicy::isTremolo(get("fx1Type")))
@@ -151,7 +174,14 @@ inline void effects(const NordProgram::Program& p, const std::string& prefix,
         c.nordFx.delayMix = percent(get("dlyMix"));
         c.nordFx.delayFeedback = juce::jmin(90.0f, percent(get("dlyFbkAmt")));
         c.nordFx.delayBpm = juce::jlimit(30.0f, 300.0f, float(p.get("common.masterClockRate", 120)));
-        warnings.addIfNotAlreadyThere("Delay adaptado para o tempo da Classic; filtros, ping-pong e divisoes podem diferir.");
+        c.nordFx.delayRate = juce::jlimit(0.0f, 1.0f, float(get("dlyRateClkDiv")) / 16383.0f);
+        c.nordFx.delaySync = get("dlyClkEnable") != 0;
+        c.nordFx.delayPingPong = get("dlyFbkPingPong") != 0;
+        c.nordFx.delayFeedbackFilter = juce::jlimit(0, 3, int(get("dlyFbkFilt")));
+        c.nordFx.delayAnalog = get("dlyMode") != 0;
+        if (get("dlyFbFxType") != 0)
+            warnings.addIfNotAlreadyThere("Efeito adicional no feedback do delay não tem equivalente direto.");
+        warnings.addIfNotAlreadyThere("Delay adaptado: sincronismo, ping-pong e filtros são aproximações da WX.");
     }
     if (get("rvbEnable"))
     {
@@ -161,10 +191,56 @@ inline void effects(const NordProgram::Program& p, const std::string& prefix,
     if (get("cmpEnable")) c.compressor = percent(get("cmpAmt"));
     if (get("ampEnable"))
     {
+        c.nordFx.ampEnabled = true;
+        c.nordFx.ampModel = juce::jlimit(0, 2, int(get("ampTypeNew")));
+        c.nordFx.ampDrive = percent(get("ampDrive"));
         c.eqLow = NordBundlePolicy::eqDecibels(get("ampBass"));
         c.eqMid = NordBundlePolicy::eqDecibels(get("ampMid"));
         c.eqHigh = NordBundlePolicy::eqDecibels(get("ampTreble"));
-        if (get("ampDrive")) warnings.addIfNotAlreadyThere("Simulacao de amplificador adaptada aos motores da Classic.");
+        c.eqMidFrequency = 250.0f * std::pow(24.0f, float(get("ampMidFreq")) / 127.0f);
+        warnings.addIfNotAlreadyThere("Simulação de amplificador aproximada; modelos e resposta não são idênticos à WX/Nord.");
+    }
+}
+
+inline std::uint8_t arpPatternPair(std::int64_t packed, int step) noexcept
+{
+    const auto bits = static_cast<std::uint32_t>(packed);
+    return static_cast<std::uint8_t>((bits >> (30 - 2 * juce::jlimit(0, 15, step))) & 0x3u);
+}
+
+inline void arpeggiator(const NordProgram::Program& p, const std::string& prefix,
+                        Sf2Engine::LayerConfig& routing)
+{
+    auto& arp = routing.nordArp;
+    arp = {};
+    arp.enabled = p.get(prefix + ".arpRun") != 0;
+    if (!arp.enabled) return;
+
+    arp.mode = juce::jlimit(0, 2, static_cast<int>(p.get(prefix + ".arpMode")));
+    arp.direction = juce::jlimit(0, 3, static_cast<int>(p.get(prefix + ".arpDir")));
+    arp.zigZag = p.get(prefix + ".arpZigZag") != 0;
+    arp.keyboardSync = p.get(prefix + ".arpKbdSync") != 0;
+    arp.syncToClock = p.get(prefix + ".arpClkEnable") != 0;
+    arp.rate = juce::jlimit(0.0f, 1.0f,
+        static_cast<float>(p.get(prefix + ".arpRateClkDiv")) / 127.0f);
+    arp.bpm = juce::jlimit(30.0f, 300.0f, static_cast<float>(p.get("common.masterClockRate", 120)));
+    arp.rangeSemitones = juce::jlimit(0, 48, juce::roundToInt(
+        static_cast<float>(p.get(prefix + ".arpRange")) * 48.0f / 127.0f));
+    arp.patternEnabled = p.get(prefix + ".arpPtnEnable") != 0;
+    arp.patternLength = juce::jlimit(1, 16, static_cast<int>(p.get(prefix + ".arpPtnLen", 16)));
+    if (!arp.patternEnabled) return;
+
+    const auto accents = p.get(prefix + ".arpPtnAcc");
+    const auto durations = p.get(prefix + ".arpPtnDur");
+    const auto pans = p.get(prefix + ".arpPtnPan");
+    for (int step = 0; step < 16; ++step)
+    {
+        arp.patternAccent[(size_t) step] = arpPatternPair(accents, step) != 0 ? 1 : 0;
+        arp.patternDuration[(size_t) step] = arpPatternPair(durations, step);
+        const auto pan = arpPatternPair(pans, step);
+        // NS4P stores each pan as a signed two-bit value; WX pattern text
+        // serializes negative values as L, positive as R, and zero as C.
+        arp.patternPan[(size_t) step] = pan == 0 ? 0 : pan == 1 ? 1 : -1;
     }
 }
 
@@ -216,7 +292,7 @@ inline juce::Result build(const juce::File& folder, const juce::String& path, Pr
     const std::string scene = out.scene ? "_II" : "_I";
     if (p.get("common.transposeEnable") && p.get("common.transposeValue"))
         out.warnings.add("Transposicao global nao aplicada: ajuste as oitavas/notas na Classic.");
-    out.warnings.add("Efeitos e envelopes adaptados; morphs, arpejador e modulacoes complexas nao sao reproduzidos integralmente.");
+    out.warnings.add("Morphs de volume, filtro, efeitos, LFO, arpejador e drawbars adaptados; destinos discretos continuam aproximados.");
     for (int group = 0; group < 3; ++group)
     {
         const std::string section = group == 0 ? "piano" : group == 1 ? "synth" : "organ";
@@ -253,13 +329,33 @@ inline juce::Result build(const juce::File& folder, const juce::String& path, Pr
             if (group == 1)
             {
                 const auto sound = prefix + "Sound";
+                part.routing.nordMorph.synthOscControl = readMorph(sound + ".oscCtrl");
+                part.routing.nordMorph.synthOscEnvelope = readMorph(sound + ".oscEnvAmt");
+                arpeggiator(p, prefix, part.routing);
+                part.routing.nordMorph.synthResonance = readMorph(sound + ".fltRes");
+                part.routing.nordMorph.synthFilterEnvelope = readMorph(sound + ".fltEnvAmt");
+                part.routing.nordMorph.synthLfoAmount = readMorph(sound + ".lfoAmt");
+                part.routing.nordMorph.synthLfoRate = readMorph(sound + ".lfoRateClkDiv");
+                part.routing.nordMorph.arpRate = readMorph(prefix + ".arpRateClkDiv");
+                part.routing.nordMorph.arpRange = readMorph(prefix + ".arpRange");
+                for (int external = 1; external <= 2; ++external)
+                {
+                    const auto externalPrefix = prefix + ".externCCValue" + std::to_string(external);
+                    if (p.get(externalPrefix + ".morphWheel") != 0
+                        || p.get(externalPrefix + ".morphAfterTouch") != 0
+                        || p.get(externalPrefix + ".morphCtrlPedal") != 0)
+                    {
+                        out.warnings.addIfNotAlreadyThere(
+                            "Morph de CC externo reconhecido, mas o Classic ainda nao transmite MIDI CC de saida.");
+                        break;
+                    }
+                }
                 part.routing.mono = p.get(prefix + ".voiceMode") != 0;
                 part.routing.attack = attackControl(envelopeMs(p.get(sound + ".ampEnvAtk")));
                 part.routing.release = releaseControl(envelopeMs(p.get(sound + ".ampEnvRls")));
                 part.routing.cutoff = p.get(sound + ".fltEnable") ? percent(p.get(sound + ".fltFreq", 127)) : 100.0f;
                 part.routing.decayMs = p.get(sound + ".ampEnvDcy") >= 127 ? 0.0f : envelopeMs(p.get(sound + ".ampEnvDcy"));
                 part.routing.sustainLevel = part.routing.decayMs > 0 ? 70.0f : 100.0f;
-                if (p.get(prefix + ".arpRun")) out.warnings.addIfNotAlreadyThere("Arpejador do preset nao aplicado: a layer toca as notas recebidas.");
             }
             const auto fxPrefix = group == 2 ? "organFx" : prefix + "Fx";
             effects(p, fxPrefix, part.routing, out.warnings);
@@ -291,6 +387,9 @@ inline juce::Result build(const juce::File& folder, const juce::String& path, Pr
                 const auto bank = int(p.get(sound + ".oscBank"));
                 a.nordSynthType = bank == 0 ? 0 : bank == 1 ? 3 : 1;
                 a.nordTimbre = int(p.get(sound + ".oscWave")); a.nordRetriggerSameNote = true;
+                a.nordOscControl = juce::jlimit(0.0f, 127.0f, float(p.get(sound + ".oscCtrl", 64)));
+                a.nordOscEnvelopeAmount = juce::jlimit(-1.0f, 1.0f,
+                    float(p.get(sound + ".oscEnvAmt")) / 60.0f);
                 a.oscillator1Wave = a.oscillator2Wave = static_cast<AnalogSynthEngine::Waveform>(juce::jlimit(0, 4, int(p.get(sound + ".oscCat"))));
                 a.oscillator3Enabled = false; a.oscillator2Level = p.get(prefix + ".oscUnison") ? 0.3f : 0.0f;
                 a.oscillator1Semitones = float(p.get(sound + ".oscTuneCoarse"));
@@ -313,7 +412,6 @@ inline juce::Result build(const juce::File& folder, const juce::String& path, Pr
                 part.routing.attack = attackControl(a.ampAttackMs);
                 part.routing.release = juce::jlimit(0.0f, 100.0f, a.ampReleaseMs / 10.0f);
                 part.routing.cutoff = a.cutoff;
-                if (p.get(prefix + ".arpRun")) out.warnings.addIfNotAlreadyThere("Arpejador do preset nao aplicado: a layer toca as notas recebidas.");
             }
             else
             {
@@ -326,12 +424,22 @@ inline juce::Result build(const juce::File& folder, const juce::String& path, Pr
                     const auto key = prefix + "Drawbars.org_Preset_kDb" + std::to_string(bar+1);
                     const int value = juce::jlimit(0, 8, int(p.get(key)));
                     part.hammond.bars[size_t(bar)] = value; part.organ.drawbars[size_t(bar)] = value;
+                    auto& depth = part.routing.nordMorph.drawbars[(size_t) bar];
+                    depth.wheel = juce::jlimit(-8.0f, 8.0f, float(p.get(key + ".morphWheel"))) / 8.0f;
+                    depth.pressure = juce::jlimit(-8.0f, 8.0f, float(p.get(key + ".morphAfterTouch"))) / 8.0f;
+                    depth.pedal = juce::jlimit(-8.0f, 8.0f, float(p.get(key + ".morphCtrlPedal"))) / 8.0f;
                 }
                 const auto perc = prefix + "VibPerc.org_Preset_kB3Perc";
                 part.hammond.percussion = p.get(perc + "Enable") ? (p.get(perc + "Harmonic") ? 3 : 2) : 0;
                 part.organ.percussion = part.hammond.percussion;
                 part.hammond.leslie = part.organ.rotary = !p.get("organ.effectsLeslieEnable") ? 0
                     : p.get("organ.effectsLeslieSpeed") ? 2 : 1;
+                part.routing.nordMorph.leslieSpeed.wheel = juce::jlimit(-1.0f, 1.0f,
+                    float(p.get("organ.effectsLeslieSpeed.morphWheel")) / 2.0f);
+                part.routing.nordMorph.leslieSpeed.pressure = juce::jlimit(-1.0f, 1.0f,
+                    float(p.get("organ.effectsLeslieSpeed.morphAfterTouch")) / 2.0f);
+                part.routing.nordMorph.leslieSpeed.pedal = juce::jlimit(-1.0f, 1.0f,
+                    float(p.get("organ.effectsLeslieSpeed.morphCtrlPedal")) / 2.0f);
                 part.hammond.drive = part.organ.drive = percent(p.get("organ.effectsLeslieDrv")) / 100.0f;
                 if (model == 5) out.warnings.addIfNotAlreadyThere("B3 Bass adaptado ao Hammond da Classic.");
             }

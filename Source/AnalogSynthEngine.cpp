@@ -49,12 +49,15 @@ void AnalogSynthEngine::prepare(double newSampleRate, int maximumBlockSize)
     reset();
     for (auto& layer : layers)
     {
+        layer.arpeggiator.prepare(sampleRate);
         layer.nordEffects.prepare(sampleRate);
         layer.reverb.setSampleRate(sampleRate);
         layer.reverb.reset();
         layer.nordEffects.reset();
         layer.gain.reset(sampleRate, 0.02);
         layer.gain.setCurrentAndTargetValue(0.0f);
+        layer.arpeggiatorGate.reset(sampleRate, 0.003);
+        layer.arpeggiatorGate.setCurrentAndTargetValue(1.0f);
     }
 }
 
@@ -64,6 +67,8 @@ void AnalogSynthEngine::reset()
     {
         for (auto& voice : layer.voices) voice = {};
         layer.heldNotes.fill(false);
+        layer.arpeggiator.reset();
+        layer.arpeggiatorGate.setCurrentAndTargetValue(1.0f);
         layer.heldVelocities.fill(0.0f);
         layer.noteOrder.fill(0);
         layer.noteSequence = 0;
@@ -98,6 +103,8 @@ void AnalogSynthEngine::unload(int layerIndex)
     auto& layer = layers[static_cast<size_t>(layerIndex)];
     for (auto& voice : layer.voices) voice = {};
     layer.heldNotes.fill(false);
+    layer.arpeggiator.reset();
+    layer.arpeggiatorGate.setCurrentAndTargetValue(1.0f);
     layer.heldVelocities.fill(0.0f);
     layer.noteOrder.fill(0);
     layer.noteSequence = 0;
@@ -249,10 +256,12 @@ float AnalogSynthEngine::nextEnvelope(Envelope& envelope, float attackMs, float 
 }
 
 void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
-                               float velocity, const Config& config)
+                               float velocity, const Config& config, int splitSourceNote,
+                               int patternPan)
 {
     auto& layer = layers[static_cast<size_t>(layerIndex)];
-    const auto mono = config.monophonic || config.routing.mono;
+    const auto mono = (config.monophonic || config.routing.mono)
+        && !(config.routing.nordArp.enabled && config.routing.nordArp.mode == 1);
     Voice* voice = nullptr;
 
     if (mono)
@@ -290,6 +299,7 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
     }
 
     const auto frequency = midiNoteToFrequency(note + config.routing.octave * 12);
+    const auto splitGain = config.routing.nordSplit.gain(splitSourceNote >= 0 ? splitSourceNote : note);
     if (config.browserCompatible && mono && voice->active && voice->browserVoice)
     {
         // The approved lab treats the first 80 ms as a simultaneous chord.
@@ -298,6 +308,8 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
         voice->transition.retarget(sampleRate);
         voice->note = note;
         voice->midiChannel = midiChannel;
+        voice->splitGain = splitGain;
+        voice->patternPan = juce::jlimit(-1, 1, patternPan);
         voice->keyDown = true;
         voice->targetFrequency = frequency;
         voice->amp.stage = EnvelopeStage::legato;
@@ -311,6 +323,8 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
     voice->note = note;
     voice->midiChannel = midiChannel;
     voice->velocity = juce::jlimit(0.0f, 1.0f, velocity);
+    voice->splitGain = splitGain;
+    voice->patternPan = juce::jlimit(-1, 1, patternPan);
     voice->targetFrequency = frequency;
 
     // Analog uses the browser's Mono/Legato behavior: retune immediately and
@@ -338,7 +352,8 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
 void AnalogSynthEngine::noteOff(int layerIndex, int midiChannel, int note, const Config& config)
 {
     auto& layer = layers[static_cast<size_t>(layerIndex)];
-    const auto mono = config.monophonic || config.routing.mono;
+    const auto mono = (config.monophonic || config.routing.mono)
+        && !(config.routing.nordArp.enabled && config.routing.nordArp.mode == 1);
 
     if (mono)
     {
@@ -526,11 +541,22 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
     const auto increment1 = juce::jlimit(0.0f, 0.49f, base * oscillatorRatios[0] / static_cast<float>(sampleRate));
     const auto increment2 = juce::jlimit(0.0f, 0.49f, base * oscillatorRatios[1] / static_cast<float>(sampleRate));
     const auto increment3 = juce::jlimit(0.0f, 0.49f, base * oscillatorRatios[2] / static_cast<float>(sampleRate));
+    const auto nordOscControl = juce::jlimit(0.0f, 1.0f,
+        (config.nordOscControl + filterEnvelope * config.nordOscEnvelopeAmount * 127.0f) / 127.0f);
     const auto waveSample = [&](Waveform wave, float phase, float increment)
     {
         // Web Audio's saw is centred on the positive zero crossing.
         if (config.browserCompatible && wave == Waveform::saw)
             phase = wrapPhase(phase + 0.5f);
+        if (!config.browserCompatible && config.nordSynthType == 0 && wave == Waveform::pulse)
+        {
+            phase = wrapPhase(phase);
+            const auto duty = 0.1f + 0.8f * nordOscControl;
+            auto output = phase < duty ? 1.0f : -1.0f;
+            output += polyBlep(phase, increment);
+            output -= polyBlep(wrapPhase(phase - duty), increment);
+            return output;
+        }
         return waveform(wave, phase, increment);
     };
     const float p1 = voice.phase1, p2 = voice.phase2, p3 = voice.phase3;
@@ -548,7 +574,8 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
 
     if (config.nordSynthType == 1 || config.nordSynthType == 2)
     {
-        const auto depth = 0.55f + 0.12f * (float)(std::abs(config.nordTimbre) % 6);
+        const auto depth = 0.15f + 1.15f * nordOscControl
+                         + 0.12f * (float)(std::abs(config.nordTimbre) % 6);
         const auto modulator = std::sin(juce::MathConstants<float>::twoPi * p2
             * (config.nordSynthType == 1 ? 2.0f : 3.0f));
         sample = 0.68f * std::sin(juce::MathConstants<float>::twoPi * p1 + depth * modulator)
@@ -556,7 +583,7 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
     }
     else if (config.nordSynthType == 3)
     {
-        const auto harmonic = 2.0f + (float)(std::abs(config.nordTimbre) % 4);
+        const auto harmonic = 2.0f + (float)(std::abs(config.nordTimbre) % 4) + 5.0f * nordOscControl;
         sample = 0.55f * std::sin(juce::MathConstants<float>::twoPi * p1)
             + 0.25f * std::sin(juce::MathConstants<float>::twoPi * p1 * harmonic)
             + 0.12f * std::sin(juce::MathConstants<float>::twoPi * p2 * (harmonic + 1.0f));
@@ -595,12 +622,12 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
         sample = processLadder(voice, sample, cutoffHz, config.resonance, config.filterDrive);
         sample *= amp * voice.velocity;
     }
-    sample *= config.routing.nordSplit.gain(voice.note);
+    sample *= voice.splitGain;
     ++voice.age;
     sample = voice.transition.process(sample);
 
-    left += sample;
-    right += sample;
+    left += sample * (voice.patternPan > 0 ? 0.0f : 1.0f);
+    right += sample * (voice.patternPan < 0 ? 0.0f : 1.0f);
 }
 
 void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer& midi,
@@ -614,6 +641,16 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
             return;
 
         auto& layer = layers[static_cast<size_t>(layerIndex)];
+        auto emitArp = [&](const NordArpeggiator::Event& event)
+        {
+            if (event.gateEvent)
+                layer.arpeggiatorGate.setTargetValue(event.gateOpen ? 1.0f : 0.0f);
+            else if (event.noteOn)
+                noteOn(layerIndex, event.channel, event.note, event.velocity / 127.0f,
+                       config, event.sourceNote, event.pan);
+            else
+                noteOff(layerIndex, event.channel, event.note, config);
+        };
 
         if (message.isController() && message.getControllerNumber() == 1)
         {
@@ -630,6 +667,9 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
         }
         else if (message.isController() && message.getControllerNumber() == 64)
         {
+            if (config.routing.nordArp.enabled)
+                layer.arpeggiator.controller(message.getChannel(), 64,
+                    config.routing.sustainEnabled ? message.getControllerValue() : 0, emitArp);
             if (!config.routing.sustainEnabled)
                 return;
 
@@ -651,16 +691,49 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
 
             layer.sustainPedal = sustainDown;
         }
+        else if (message.isAllSoundOff() || message.isAllNotesOff())
+        {
+            if (config.routing.nordArp.enabled)
+                layer.arpeggiator.controller(message.getChannel(),
+                    message.isAllSoundOff() ? 120 : 123, 0, emitArp);
+            for (auto& voice : layer.voices)
+            {
+                if (!voice.active || voice.midiChannel != message.getChannel()) continue;
+                voice.keyDown = false;
+                if (message.isAllSoundOff()) voice = {};
+                else
+                {
+                    voice.amp.releaseStart = voice.amp.value;
+                    voice.filter.releaseStart = voice.filter.value;
+                    voice.amp.stage = EnvelopeStage::release;
+                    voice.amp.elapsed = 0;
+                    voice.filter.stage = EnvelopeStage::release;
+                }
+            }
+            layer.heldNotes.fill(false);
+            layer.sustainPedal = false;
+        }
         else if (message.isNoteOn())
         {
             if (!config.routing.acceptsVelocity((int) message.getVelocity())) return;
             const auto velocity = config.routing.velocitySensitivityOff
                 ? (100.0f / 127.0f) : message.getFloatVelocity();
-            noteOn(layerIndex, message.getChannel(), message.getNoteNumber(),
-                   velocity, config);
+            if (config.routing.nordArp.enabled)
+            {
+                layer.arpeggiator.input(message.getChannel(), message.getNoteNumber(),
+                    juce::jlimit(1, 127, juce::roundToInt(velocity * 127.0f)), true,
+                    emitArp, config.routing.nordArp.keyboardSync);
+                if (config.routing.nordArp.mode != 2) return;
+            }
+            noteOn(layerIndex, message.getChannel(), message.getNoteNumber(), velocity, config);
         }
         else if (message.isNoteOff())
         {
+            if (config.routing.nordArp.enabled)
+            {
+                layer.arpeggiator.input(message.getChannel(), message.getNoteNumber(), 0, false, emitArp);
+                if (config.routing.nordArp.mode != 2) return;
+            }
             noteOff(layerIndex, message.getChannel(), message.getNoteNumber(), config);
         }
     };
@@ -679,7 +752,8 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
         const auto& routedMessages = routedMidi != nullptr ? (*routedMidi)[(size_t) layerIndex] : empty;
         const auto hasVoices = std::any_of(layer.voices.begin(), layer.voices.end(),
             [](const auto& voice) { return voice.active; });
-        if (!hasVoices && midi.isEmpty() && routedMessages.isEmpty() && !layer.effectTailPending)
+        if (!hasVoices && midi.isEmpty() && routedMessages.isEmpty() && !layer.effectTailPending
+            && !layer.arpeggiator.busy())
         {
             layer.lfoPhase = wrapPhase(layer.lfoPhase + static_cast<float>(
                 config.lfoRateHz * output.getNumSamples() / sampleRate));
@@ -723,6 +797,20 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
                 dispatch(layerIndex, event.getMessage());
                 if (useHost) ++host; else ++routed;
             }
+            if (config.routing.nordArp.enabled || layer.arpeggiator.busy())
+            {
+                auto emitArp = [&](const NordArpeggiator::Event& event)
+                {
+                    if (event.gateEvent)
+                        layer.arpeggiatorGate.setTargetValue(event.gateOpen ? 1.0f : 0.0f);
+                    else if (event.noteOn)
+                        noteOn(layerIndex, event.channel, event.note, event.velocity / 127.0f,
+                           config, event.sourceNote, event.pan);
+                    else
+                        noteOff(layerIndex, event.channel, event.note, config);
+                };
+                layer.arpeggiator.tick(config.routing.nordArp, emitArp);
+            }
             layer.lfoPhase = wrapPhase(layer.lfoPhase
                 + config.lfoRateHz / static_cast<float>(sampleRate));
             const auto lfo = std::sin(layer.lfoPhase * twoPi);
@@ -734,8 +822,11 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
                                layer.pitchBendSemitones, oscillatorRatios, left, right);
 
             const auto gain = layer.gain.getNextValue();
-            renderScratch.setSample(0, sampleIndex, left * gain);
-            renderScratch.setSample(1, sampleIndex, right * gain);
+            const auto gate = config.routing.nordArp.mode == 2
+                ? layer.arpeggiatorGate.getNextValue()
+                : layer.arpeggiatorGate.isSmoothing() ? layer.arpeggiatorGate.getNextValue() : 1.0f;
+            renderScratch.setSample(0, sampleIndex, left * gain * gate);
+            renderScratch.setSample(1, sampleIndex, right * gain * gate);
         }
 
         const auto cutoffHz = 120.0f + juce::jlimit(0.0f, 100.0f, config.cutoff) * 180.0f;
