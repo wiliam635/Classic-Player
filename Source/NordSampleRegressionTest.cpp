@@ -490,6 +490,8 @@ struct NordSampleRegressionTests
         settings.delayMix = 100.0f;
         settings.delayFeedback = 0.0f;
         settings.delayBpm = 240.0f;
+        settings.delaySync = true;
+        settings.delayRate = 2.0f / 12.0f;
         effects.process(audio, settings);
         require(audio.getSample(0, 12000) > 0.9f && audio.getSample(1, 12000) > 0.9f,
                 "Nord delay did not follow the manually selected BPM");
