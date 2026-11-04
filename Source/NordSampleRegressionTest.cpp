@@ -203,12 +203,12 @@ struct NordSampleRegressionTests
 
     static void decodedSampleCacheSharesPcm()
     {
-        NordSampleEngine engine;
+        auto engine = std::make_unique<NordSampleEngine>();
         const auto source = juce::File::getSpecialLocation(juce::File::tempDirectory)
             .getChildFile("classic-nsmp-cache-test.nsmp4");
         auto decoded = std::make_shared<NordSampleDecoder::Instrument>();
-        const auto cached = engine.cacheInstrument(source, decoded);
-        require(cached == decoded && engine.findCachedInstrument(source) == decoded,
+        const auto cached = engine->cacheInstrument(source, decoded);
+        require(cached == decoded && engine->findCachedInstrument(source) == decoded,
                 "NSMP preload cache copied instead of sharing decoded PCM");
     }
 
