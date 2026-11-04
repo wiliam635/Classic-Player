@@ -23,11 +23,13 @@ int main()
         NordMorphDepth positive {1, 0, 0}, negative {-1, 0, 0};
         if (morph.apply(0, positive, 1) != 0) throw std::runtime_error("morph initial value");
         morph.controller(1, 127);
+        morph.advance(48000, 48000.0);
         if (morph.apply(0, positive, 1) != 1 || morph.apply(1, negative, 1) != 0)
             throw std::runtime_error("signed volume morph failed");
         morph.controller(121, 0);
         if (morph.apply(0, positive, 1) != 0) throw std::runtime_error("CC121 did not reset morph");
         morph.pressure(127); morph.controller(11, 127);
+        morph.advance(48000, 48000.0);
         if (morph.apply(0, {0, 0.25f, 0.25f}, 100) != 50)
             throw std::runtime_error("pressure/pedal morph failed");
         if (morph.apply(2, {}, 1) != 2) throw std::runtime_error("inactive morph clipped legacy gain");
