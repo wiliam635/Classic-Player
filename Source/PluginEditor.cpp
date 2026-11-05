@@ -3098,25 +3098,19 @@ public:
         bankLabel.setText("BANCO IMPORTADO", juce::dontSendNotification);
         programLabel.setText("PRESET / PROGRAMA", juce::dontSendNotification);
         status.setJustificationType(juce::Justification::topLeft);
-        status.setText("Importe um .ns4pbundle, escolha o banco e depois um preset.\nO preset cria suas partes em layers separadas.", juce::dontSendNotification);
+        status.setText("Importe um .ns4pbundle, escolha o banco e depois um preset.\nAo selecionar um preset, suas partes sao carregadas em layers separadas.", juce::dontSendNotification);
         for (auto* box : { &bankBox, &programBox }) addAndMakeVisible(box);
         bankBox.setTextWhenNothingSelected("NENHUM BANCO IMPORTADO");
         programBox.setTextWhenNothingSelected("ESCOLHA UM PRESET");
-        addAndMakeVisible(sceneBox);
-        sceneBox.addItem("CENA ORIGINAL DO PRESET", 1);
-        sceneBox.addItem("CENA I", 2);
-        sceneBox.addItem("CENA II", 3);
-        sceneBox.setSelectedId(1, juce::dontSendNotification);
         bankBox.onChange = [this] { refreshPrograms(); deleteButton.setEnabled(bankBox.getSelectedId() > 0); };
-        programBox.onChange = [this] { loadButton.setEnabled(programBox.getSelectedId() > 0 && !processor.isNordBundleProgramLoading()); };
-        flatButton(importButton); flatButton(loadButton);
-        importButton.setButtonText("IMPORTAR BUNDLE"); loadButton.setButtonText("CARREGAR PRESET COMPLETO");
+        programBox.onChange = [this] { loadSelectedProgram(); };
+        flatButton(importButton);
+        importButton.setButtonText("IMPORTAR BUNDLE");
         flatButton(deleteButton); deleteButton.setButtonText("EXCLUIR BUNDLE");
-        addAndMakeVisible(importButton); addAndMakeVisible(loadButton); addAndMakeVisible(deleteButton);
+        addAndMakeVisible(importButton); addAndMakeVisible(deleteButton);
         importButton.onClick = [this] { chooseBundle(); };
-        loadButton.onClick = [this] { confirmLoad(); };
         deleteButton.onClick = [this] { confirmDelete(); };
-        refreshBanks({}); setSize(640, 390);
+        refreshBanks({}); setSize(640, 300);
     }
     ~NordBundleLibraryPanel() override { imports.removeAllJobs(true, -1); }
     void paint(juce::Graphics& g) override { g.fillAll(juce::Colour(0xff15232b)); }
@@ -3126,11 +3120,9 @@ public:
         bankLabel.setBounds(area.removeFromTop(22)); bankBox.setBounds(area.removeFromTop(30));
         area.removeFromTop(10); programLabel.setBounds(area.removeFromTop(22));
         programBox.setBounds(area.removeFromTop(30)); area.removeFromTop(12);
-        sceneBox.setBounds(area.removeFromTop(30)); area.removeFromTop(12);
         auto buttons = area.removeFromTop(34);
-        importButton.setBounds(buttons.removeFromLeft(210)); buttons.removeFromLeft(10); loadButton.setBounds(buttons);
+        importButton.setBounds(buttons.removeFromLeft(210)); buttons.removeFromLeft(10); deleteButton.setBounds(buttons);
         area.removeFromTop(10); status.setBounds(area.removeFromTop(68));
-        area.removeFromTop(8); deleteButton.setBounds(area.removeFromTop(32).removeFromLeft(220));
     }
 private:
     void refreshBanks(const juce::File& selected)
@@ -3165,7 +3157,6 @@ private:
         const auto current = processor.parameters.state.getProperty("nordBundleProgramPath").toString();
         const int selected = programPaths.indexOf(current);
         if (selected >= 0) programBox.setSelectedId(selected+1, juce::dontSendNotification);
-        loadButton.setEnabled(selected >= 0 && !processor.isNordBundleProgramLoading());
     }
     void chooseBundle()
     {
@@ -3175,7 +3166,7 @@ private:
             {
                 if (safe == nullptr || !c.getResult().existsAsFile()) return;
                 const auto source = c.getResult(); auto* processor = &safe->processor;
-                safe->importButton.setEnabled(false); safe->loadButton.setEnabled(false);
+                safe->setBusy(true);
                 safe->deleteButton.setEnabled(false);
                 safe->status.setText("Importando banco...", juce::dontSendNotification);
                 safe->imports.addJob([safe, processor, source]
@@ -3184,7 +3175,7 @@ private:
                     juce::MessageManager::callAsync([safe, result, folder]
                     {
                         if (safe == nullptr) return;
-                        safe->importButton.setEnabled(true);
+                        safe->setBusy(false);
                         if (result.failed()) safe->status.setText(result.getErrorMessage(), juce::dontSendNotification);
                         else
                         {
@@ -3193,34 +3184,32 @@ private:
                         }
                         if (result.failed()) safe->refreshPrograms();
                         safe->deleteButton.setEnabled(safe->bankBox.getSelectedId() > 0);
-                        safe->loadButton.setEnabled(safe->programBox.getSelectedId() > 0);
                     });
                 });
             });
     }
-    void confirmLoad()
+    void setBusy(bool busy)
+    {
+        bankBox.setEnabled(!busy);
+        programBox.setEnabled(!busy);
+        importButton.setEnabled(!busy);
+        deleteButton.setEnabled(!busy && bankBox.getSelectedId() > 0);
+    }
+    void loadSelectedProgram()
     {
         const int bank = bankBox.getSelectedItemIndex(), program = programBox.getSelectedItemIndex();
         if (!juce::isPositiveAndBelow(bank, banks.size()) || !juce::isPositiveAndBelow(program, programPaths.size())) return;
         const auto folder = banks[bank]; const auto path = programPaths[program];
-        const int scene = sceneBox.getSelectedId() - 2;
-        juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::QuestionIcon, "Carregar preset Nord",
-            "O preset completo substitui as layers atuais. Salve sua performance antes de continuar.\n\nCarregar "
-                + programBox.getText() + "?", "Carregar", "Cancelar", this,
-            juce::ModalCallbackFunction::create([safe = juce::Component::SafePointer<NordBundleLibraryPanel>(this), folder, path, scene](int answer)
-            {
-                if (safe == nullptr || answer == 0) return;
-                safe->loadButton.setEnabled(false); safe->importButton.setEnabled(false);
-                safe->status.setText("Preparando os timbres do preset...", juce::dontSendNotification);
-                safe->processor.loadNordBundleProgram(folder, path, [safe](juce::Result result, juce::String)
-                {
-                    if (safe == nullptr) return;
-                    safe->importButton.setEnabled(true); safe->deleteButton.setEnabled(safe->bankBox.getSelectedId() > 0);
-                    safe->loadButton.setEnabled(safe->programBox.getSelectedId() > 0);
-                    safe->status.setText(result.wasOk() ? "Preset carregado. Salve como uma performance da Classic."
-                        : result.getErrorMessage(), juce::dontSendNotification);
-                }, scene);
-            }));
+        juce::Component::SafePointer<NordBundleLibraryPanel> safe(this);
+        setBusy(true);
+        status.setText("Preparando os timbres do preset...", juce::dontSendNotification);
+        processor.loadNordBundleProgram(folder, path, [safe](juce::Result result, juce::String)
+        {
+            if (safe == nullptr) return;
+            safe->setBusy(false);
+            safe->status.setText(result.wasOk() ? "Preset carregado. Salve como uma performance da Classic."
+                : result.getErrorMessage(), juce::dontSendNotification);
+        });
     }
     void confirmDelete()
     {
@@ -3235,7 +3224,7 @@ private:
                 [safe = juce::Component::SafePointer<NordBundleLibraryPanel>(this), folder](int answer)
                 {
                     if (safe == nullptr || answer == 0) return;
-                    safe->importButton.setEnabled(false); safe->loadButton.setEnabled(false);
+                    safe->setBusy(true);
                     safe->deleteButton.setEnabled(false);
                     safe->status.setText("Excluindo banco...", juce::dontSendNotification);
                     auto* processor = &safe->processor;
@@ -3245,7 +3234,7 @@ private:
                         juce::MessageManager::callAsync([safe, result]
                         {
                             if (safe == nullptr) return;
-                            safe->importButton.setEnabled(true);
+                            safe->setBusy(false);
                             if (result.wasOk())
                             {
                                 safe->refreshBanks({});
@@ -3254,7 +3243,6 @@ private:
                             else
                             {
                                 safe->deleteButton.setEnabled(safe->bankBox.getSelectedId() > 0);
-                                safe->loadButton.setEnabled(safe->programBox.getSelectedId() > 0);
                                 safe->status.setText(result.getErrorMessage(), juce::dontSendNotification);
                             }
                         });
@@ -3262,9 +3250,9 @@ private:
                 }));
     }
     ClassicPlayerAudioProcessor& processor;
-    juce::ComboBox bankBox, programBox, sceneBox;
+    juce::ComboBox bankBox, programBox;
     juce::Label bankLabel, programLabel, status;
-    juce::TextButton importButton, loadButton, deleteButton;
+    juce::TextButton importButton, deleteButton;
     juce::Array<juce::File> banks;
     juce::StringArray programPaths;
     std::unique_ptr<juce::FileChooser> chooser;
