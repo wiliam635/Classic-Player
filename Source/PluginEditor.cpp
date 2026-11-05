@@ -9970,18 +9970,22 @@ void ClassicPlayerAudioProcessorEditor::resized()
     area.removeFromTop(12);
     auto footer = area.removeFromBottom(54);
     cpuMeter.setBounds(footer.getX(), footer.getY() + 29, 138, 22);
-    updateButton.setBounds(footer.getX() + 148, footer.getY() + 29, 140, 22);
-    backupButton.setBounds(footer.getX() + 298, footer.getY() + 29, 110, 22);
-    auto panicArea = footer.removeFromRight(166).removeFromBottom(28);
+    auto footerRow = footer.removeFromTop(27);
+    auto panicArea = footerRow.removeFromRight(166);
     panicLearnButton.setBounds(panicArea.removeFromRight(78).reduced(1, 0));
     panicButton.setBounds(panicArea.reduced(1, 0));
-    auto recordingArea = footer.removeFromTop(27);
-    recordingButton.setBounds(recordingArea.removeFromLeft(156).reduced(1, 0));
-    recordingStatus.setBounds(recordingArea.removeFromLeft(230).reduced(6, 0));
-    keyboardVisibilityButton.setBounds(recordingArea.removeFromLeft(156).reduced(2, 0));
-    audioMidiSettingsButton.setBounds(recordingArea.removeFromLeft(140).reduced(2, 0));
-    skinCaption.setBounds(recordingArea.removeFromLeft(48).reduced(2, 0));
-    skinSelector.setBounds(recordingArea.removeFromLeft(160).reduced(2, 0));
+    recordingButton.setBounds(footerRow.removeFromLeft(156).reduced(1, 0));
+    // Keep the requested order on one row. Let the recording path use only
+    // the space left after reserving the remaining controls.
+    const auto statusWidth = juce::jlimit(140, 230, footerRow.getWidth() - 778);
+    recordingStatus.setBounds(footerRow.removeFromLeft(statusWidth).reduced(6, 0));
+    keyboardVisibilityButton.setBounds(footerRow.removeFromLeft(156).reduced(2, 0));
+    audioMidiSettingsButton.setBounds(footerRow.removeFromLeft(140).reduced(2, 0));
+    skinCaption.setBounds(footerRow.removeFromLeft(48).reduced(2, 0));
+    skinSelector.setBounds(footerRow.removeFromLeft(150).reduced(2, 0));
+    footerRow.removeFromLeft(18);
+    updateButton.setBounds(footerRow.removeFromLeft(146).reduced(2, 0));
+    backupButton.setBounds(footerRow.removeFromLeft(120).reduced(2, 0));
     skinSelector.setVisible(true);
     audioMidiSettingsButton.setVisible(!showingLiveSet
         && classicProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone);

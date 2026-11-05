@@ -620,6 +620,20 @@ struct LiveSetLayoutRegressionAccess
             check(editor->interfaceCanvas.getLocalBounds().contains(editor->audioMidiSettingsButton.getBounds()),"audio settings button clipped");
             check(!editor->audioMidiSettingsButton.getBounds().intersects(editor->keyboardVisibilityButton.getBounds()),
                   "audio settings overlaps keyboard toggle");
+            const std::array<juce::Component*,10> mixerFooter {{ &editor->recordingButton,
+                &editor->recordingStatus, &editor->keyboardVisibilityButton, &editor->audioMidiSettingsButton,
+                &editor->skinCaption, &editor->skinSelector, &editor->updateButton, &editor->backupButton,
+                &editor->panicButton, &editor->panicLearnButton }};
+            int previousRight=0;
+            for(auto* control:mixerFooter)
+            {
+                const auto bounds=control->getBounds();
+                check(editor->interfaceCanvas.getLocalBounds().contains(bounds),"mixer footer clipped");
+                check(bounds.getX()>=previousRight,"mixer footer order or overlap");
+                check(bounds.getY()==editor->recordingButton.getY(),"mixer footer not on one row");
+                check(!bounds.intersects(editor->cpuMeter.getBounds()),"CPU overlaps mixer footer");
+                previousRight=bounds.getRight();
+            }
             editor->showLiveSet(true);
             check(editor->liveSettingsButton.isVisible(),"Live Set settings entry hidden");
             check(!editor->audioMidiSettingsButton.isVisible(),"mixer audio button overlaps Live Set");
