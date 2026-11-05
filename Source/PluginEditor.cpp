@@ -5245,12 +5245,6 @@ public:
             processor.setLayerMidiDevice(index, juce::isPositiveAndBelow(selected, devices.size())
                                                    ? devices.getReference(selected).identifier : juce::String{});
         };
-        flatButton(numaButton);
-        numaButton.setButtonText("NUMA");
-        numaButton.setTooltip("Escolha a entrada MIDI CONTROLLER do Numa Compact 2 (ou a porta equivalente mostrada pelo sistema) para Zone A/B; ajuste o canal MIDI da zona ao lado.");
-        numaButton.onClick = [this] { chooseNumaController(); };
-        addAndMakeVisible(numaButton);
-        numaButton.setVisible(processor.wrapperType == juce::AudioProcessor::wrapperType_Standalone);
         refreshFromProcessor();
         setSize(700, 430);
     }
@@ -5286,11 +5280,6 @@ public:
         place(routing.removeFromLeft(cell), channelLabel, channelBox);
         place(routing.removeFromLeft(cell), deviceLabel, deviceBox);
         place(routing, octaveLabel, octaveBox);
-        if (numaButton.isVisible())
-        {
-            auto bounds = deviceBox.getBounds();
-            numaButton.setBounds(bounds.removeFromRight(48).reduced(1)); deviceBox.setBounds(bounds);
-        }
         auto split = area.removeFromTop(juce::jlimit(32, 60, area.getHeight() - 46));
         sensitivityButton.setBounds(split.removeFromLeft(area.getWidth() / 3).reduced(3, 8));
         splitControls.setBounds(split.reduced(3, 0));
@@ -5302,27 +5291,6 @@ public:
     }
 
 private:
-    void chooseNumaController()
-    {
-        const auto devices = processor.availableMidiDevices();
-        juce::PopupMenu menu;
-        for (int i = 0; i < devices.size(); ++i)
-            menu.addItem(i + 1, devices.getReference(i).name);
-        if (menu.getNumItems() == 0)
-        {
-            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
-                "Numa Compact 2", "Nenhuma entrada MIDI esta disponivel. No standalone, conecte o teclado por USB. No VST, selecione a porta CONTROLLER do Numa na faixa MIDI do DAW.");
-            return;
-        }
-        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&numaButton),
-            [safe = juce::Component::SafePointer<Sf2EditorPanel>(this), devices](int choice)
-            {
-                if (safe == nullptr || !juce::isPositiveAndBelow(choice - 1, devices.size())) return;
-                safe->processor.setLayerMidiDevice(safe->index,
-                    devices.getReference(choice - 1).identifier);
-                safe->refreshFromProcessor();
-            });
-    }
     void selectCurrentCategory()
     {
         const auto path = processor.soundFontPath(index);
@@ -5429,7 +5397,7 @@ private:
     bool compactLayout = false;
     juce::Label categoryLabel, libraryLabel, presetLabel, modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel, velocityLabel, polyphonyLabel,
                 velocityLowLabel, velocityHighLabel;
-    juce::TextButton sensitivityButton, numaButton;
+    juce::TextButton sensitivityButton;
     juce::ComboBox categoryBox, libraryBox, presetBox, modeBox, sustainBox, channelBox, deviceBox, octaveBox, lowNoteBox, highNoteBox,
                    velocityBox, polyphonyBox, velocityLowBox, velocityHighBox;
     SplitLearnControls splitControls;
@@ -5529,12 +5497,6 @@ public:
             processor.setLayerMidiDevice(index, juce::isPositiveAndBelow(selected, devices.size())
                                                    ? devices.getReference(selected).identifier : juce::String{});
         };
-        flatButton(numaButton);
-        numaButton.setButtonText("NUMA");
-        numaButton.setTooltip("Escolha a entrada MIDI CONTROLLER do Numa Compact 2 (ou a porta equivalente mostrada pelo sistema) para Zone A/B; ajuste o canal MIDI da zona ao lado.");
-        numaButton.onClick = [this] { chooseNumaController(); };
-        addAndMakeVisible(numaButton);
-        numaButton.setVisible(processor.wrapperType == juce::AudioProcessor::wrapperType_Standalone);
         const auto isNord = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord;
         calibrationButton.onClick = [this] { handleCalibrationButton(); };
         calibrationCancelButton.onClick = [this]
@@ -5585,13 +5547,7 @@ public:
             place(midi.removeFromLeft(quarter), sustainLabel, sustainBox);
             place(midi.removeFromLeft(quarter), channelLabel, channelBox);
             place(midi, deviceLabel, deviceBox);
-            if (numaButton.isVisible())
-            {
-                auto bounds = deviceBox.getBounds();
-                numaButton.setBounds(bounds.removeFromRight(44).reduced(1));
-                deviceBox.setBounds(bounds);
-            }
-            area.removeFromTop(7);
+                area.removeFromTop(7);
             auto split = area.removeFromTop(58);
             place(split.removeFromLeft(quarter), octaveLabel, octaveBox);
             splitControls.setBounds(split.reduced(3, 0));
@@ -5611,11 +5567,6 @@ public:
         place(routing.removeFromLeft(fifth), channelLabel, channelBox);
         place(routing.removeFromLeft(fifth), deviceLabel, deviceBox);
         place(routing, octaveLabel, octaveBox);
-        if (numaButton.isVisible())
-        {
-            auto bounds = deviceBox.getBounds();
-            numaButton.setBounds(bounds.removeFromRight(48).reduced(1)); deviceBox.setBounds(bounds);
-        }
         auto split = area.removeFromTop(juce::jlimit(32, 60, area.getHeight() - 46));
         sensitivityButton.setBounds(split.removeFromLeft(area.getWidth() / 3).reduced(3, 8));
         splitControls.setBounds(split.reduced(3, 0));
@@ -5644,27 +5595,6 @@ public:
 
 private:
     bool dx7Layout = false;
-    void chooseNumaController()
-    {
-        const auto devices = processor.availableMidiDevices();
-        juce::PopupMenu menu;
-        for (int i = 0; i < devices.size(); ++i)
-            menu.addItem(i + 1, devices.getReference(i).name);
-        if (menu.getNumItems() == 0)
-        {
-            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
-                "Numa Compact 2", "Nenhuma entrada MIDI esta disponivel. No standalone, conecte o teclado por USB. No VST, selecione a porta CONTROLLER do Numa na faixa MIDI do DAW.");
-            return;
-        }
-        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&numaButton),
-            [safe = juce::Component::SafePointer<LayerRoutingEditorPanel>(this), devices](int choice)
-            {
-                if (safe == nullptr || !juce::isPositiveAndBelow(choice - 1, devices.size())) return;
-                safe->processor.setLayerMidiDevice(safe->index,
-                    devices.getReference(choice - 1).identifier);
-                safe->refresh();
-            });
-    }
     void timerCallback() override { refreshCalibrationControls(); }
 
     void handleCalibrationButton()
@@ -5778,7 +5708,7 @@ private:
     bool fixedAnalogPolyphony = false;
     juce::Label modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel,
                 velocityLabel, polyphonyLabel, velocityLowLabel, velocityHighLabel;
-    juce::TextButton sensitivityButton, numaButton;
+    juce::TextButton sensitivityButton;
     juce::ComboBox modeBox, sustainBox, channelBox, deviceBox, octaveBox,
                    lowNoteBox, highNoteBox, velocityBox, polyphonyBox,
                    velocityLowBox, velocityHighBox;
