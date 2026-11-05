@@ -1,9 +1,6 @@
 {
   "version": "3.0.3",
-  "buildCommit": "44ee450f570953842a7e57f1b36e6446e1258aab",
-  "sourceCommit": "960af814b5e9d7c84ee2db6e3bab093b22a3f095",
-  "macRun": 42115363472,
-  "windowsRun": 42115363622,
-  "status": "building",
+  "sourceCommit": "fc7e70c70af02f5b5fccd7e8a33df5628eab4cc1",
+  "status": "awaiting-build-dispatch",
   "published": false
 }
