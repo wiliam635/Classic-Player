@@ -1781,33 +1781,6 @@ public:
 
 ClassicLookAndFeel classicLookAndFeel;
 
-class Dx7PatchLookAndFeel final : public ClassicLookAndFeel
-{
-public:
-    juce::Font getPopupMenuFont() override
-    {
-        return juce::Font(juce::FontOptions(22.0f));
-    }
-
-    juce::PopupMenu::Options getOptionsForComboBoxPopupMenu(juce::ComboBox& box,
-                                                            juce::Label& label) override
-    {
-        return ClassicLookAndFeel::getOptionsForComboBoxPopupMenu(box, label)
-            .withStandardItemHeight(36)
-            .withMaximumNumColumns(1);
-    }
-
-    juce::Component* getParentComponentForMenuOptions(
-        const juce::PopupMenu::Options& options) override
-    {
-        if (auto* target = options.getTopLevelTargetComponent())
-            return target->getTopLevelComponent();
-        return ClassicLookAndFeel::getParentComponentForMenuOptions(options);
-    }
-};
-
-Dx7PatchLookAndFeel dx7PatchLookAndFeel;
-
 struct KnobEditorSpec
 {
     const char* label;
@@ -5905,7 +5878,6 @@ public:
     {
         bankBox.getProperties().set("uiDataItems", true);
         patchBox.getProperties().set("uiDataItems", true);
-        patchBox.setLookAndFeel(&dx7PatchLookAndFeel);
         bankLabel.setText("BANCO DX7", juce::dontSendNotification);
         patchLabel.setText("TIMBRE DX7", juce::dontSendNotification);
         for (auto* label : { &bankLabel, &patchLabel })
@@ -5946,8 +5918,6 @@ public:
         rebuildPatches();
         setSize(560, preferredHeight);
     }
-
-    ~Dx7EditorPanel() override { patchBox.setLookAndFeel(nullptr); }
 
     void resized() override
     {
