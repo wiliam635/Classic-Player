@@ -995,8 +995,12 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
          if(bank.learningTarget()>=0||config.midiChannel==0||message.getChannel()==config.midiChannel)
              bank.midi(message);}};
         inspect(midi);inspect(routedMidiBuffers[(size_t)layer]);
+        // getConfig returns the stored routing snapshot, not the values applied
+        // by setRuntimeConfig above. Read the live parameter so both the pad
+        // slider and MIDI Learn affect the filter during playback.
+        const auto cutoff = realtimeLayerParameters[(size_t)layer].Cutoff->load(std::memory_order_relaxed);
         const auto cutoffFrequency = 80.0f * std::pow(250.0f,
-            juce::jlimit(0.0f, 100.0f, config.cutoff) / 100.0f);
+            juce::jlimit(0.0f, 100.0f, cutoff) / 100.0f);
         bank.render(buffer,config.enabled && !isLayerMuted(layer)
                     ? parameters.getRawParameterValue("layer"+juce::String(layer+1)+"Gain")->load()/100.f:0.f,
                     config.highPassHz,juce::jmin(config.lowPassHz, cutoffFrequency),

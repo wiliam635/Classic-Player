@@ -149,8 +149,60 @@ static void performanceEffectsRegression()
     std::cout << "Performance EQ, compressor, reverb and chorus restore passed\n";
 }
 
+static void continuousPadCutoffRegression()
+{
+    juce::TemporaryFile fixture(".wav");
+    {
+        juce::WavAudioFormat format;
+        auto stream = fixture.getFile().createOutputStream();
+        check(stream != nullptr, "cutoff WAV stream");
+        std::unique_ptr<juce::AudioFormatWriter> writer(format.createWriterFor(stream.release(),48000,1,24,{},0));
+        check(writer != nullptr, "cutoff WAV writer");
+        juce::AudioBuffer<float> source(1,48000);
+        for (int i=0;i<source.getNumSamples();++i)
+            source.setSample(0,i,.1f*std::sin(juce::MathConstants<float>::twoPi*6000.f*(float)i/48000.f));
+        check(writer->writeFromAudioSampleBuffer(source,0,source.getNumSamples()), "cutoff WAV write");
+    }
+    auto p=std::make_unique<ClassicPlayerAudioProcessor>();
+    p->setLayerType(0,ClassicPlayerAudioProcessor::LayerType::continuousPads);
+    p->prepareToPlay(48000,256);
+    ContinuousPadRegressionAccess::activateForTest(*p);
+    p->continuousPads(0).setFadeSeconds(.02);
+    check(p->continuousPads(0).load(0,fixture.getFile()).wasOk(), "cutoff pad load");
+    p->continuousPads(0).trigger(0);
+    juce::AudioBuffer<float> audio(2,256); juce::MidiBuffer midi;
+    const auto measure=[&]
+    {
+        double energy=0;
+        for(int block=0;block<120;++block)
+        {
+            audio.clear();p->processBlock(audio,midi);midi.clear();
+            if(block>=100)for(int i=0;i<audio.getNumSamples();++i)
+                energy+=audio.getSample(0,i)*audio.getSample(0,i);
+        }
+        return std::sqrt(energy/(20*256));
+    };
+    auto* cutoff=p->parameters.getParameter("layer1Cutoff");
+    check(cutoff != nullptr, "missing cutoff parameter");
+    cutoff->setValueNotifyingHost(cutoff->convertTo0to1(100.f));
+    const auto open=measure();
+    cutoff->setValueNotifyingHost(cutoff->convertTo0to1(0.f));
+    const auto closed=measure();
+    check(open>.001 && closed<open*.1, "continuous pad ignores live cutoff parameter");
+    p->beginMidiLearn(0,ClassicPlayerAudioProcessor::LearnTarget::cutoff);
+    midi.addEvent(juce::MidiMessage::controllerEvent(1,74,127),0);measure();
+    midi.addEvent(juce::MidiMessage::controllerEvent(1,74,127),0);
+    const auto ccOpen=measure();
+    midi.addEvent(juce::MidiMessage::controllerEvent(1,74,0),0);
+    const auto ccClosed=measure();
+    check(ccOpen>.001 && ccClosed<ccOpen*.1, "continuous pad ignores learned cutoff CC");
+    std::cout<<"Continuous pad cutoff RMS: open="<<open<<" closed="<<closed
+             <<" MIDI open="<<ccOpen<<" MIDI closed="<<ccClosed<<"\n";
+}
+
 static void continuousPadRegression()
 {
+    continuousPadCutoffRegression();
     juce::TemporaryFile fixture(".wav");
     {
         juce::WavAudioFormat format;
@@ -1233,6 +1285,7 @@ int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
     try{
+        if (argc > 1 && juce::String(argv[1]) == "--pad-cutoff") { continuousPadCutoffRegression(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--analog-polyphony") { LiveSetLayoutRegressionAccess::analogPolyphonyUi(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--hammond-level") { hammondOutputCalibrationRegression(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--layer-menu") { LiveSetLayoutRegressionAccess::layerContextMenu(); return 0; }
