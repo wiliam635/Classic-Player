@@ -122,6 +122,17 @@ public:
     {
         spectrumCaptureEnabled.store(enabled, std::memory_order_release);
     }
+    // EQ windows own independent subscriptions; changing the main display
+    // must never stop an analyser that is still open.
+    void acquireSpectrumCapture() noexcept
+    {
+        spectrumCaptureConsumers.fetch_add(1, std::memory_order_acq_rel);
+    }
+    void releaseSpectrumCapture() noexcept
+    {
+        const auto previous = spectrumCaptureConsumers.fetch_sub(1, std::memory_order_acq_rel);
+        jassert(previous > 0);
+    }
     double spectrumSampleRate() const noexcept
     {
         return analyserSampleRate.load(std::memory_order_relaxed);
@@ -402,6 +413,7 @@ private:
     };
     std::array<std::atomic<float>, spectrumSampleCount> spectrumSamples {};
     std::atomic<bool> spectrumCaptureEnabled { false };
+    std::atomic<int> spectrumCaptureConsumers { 0 };
     std::atomic<unsigned int> spectrumWritePosition { 0 };
     std::atomic<double> analyserSampleRate { 48000.0 };
     // Output ramp is applied after rendering; no old voice or pedal state is

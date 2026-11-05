@@ -3828,13 +3828,18 @@ public:
     ParametricEqGraph(ClassicPlayerAudioProcessor& p, int layerIndex, bool masterEditor = false)
         : processor(p), layer(layerIndex), master(masterEditor)
     {
+        processor.acquireSpectrumCapture();
         setSize(700, 268);
         // The analyser is visual only; 15 Hz keeps it responsive while
         // halving FFT and graph repaints during live EQ adjustments.
         startTimerHz(15);
     }
 
-    ~ParametricEqGraph() override { stopTimer(); }
+    ~ParametricEqGraph() override
+    {
+        stopTimer();
+        processor.releaseSpectrumCapture();
+    }
 
     void paint(juce::Graphics& g) override
     {

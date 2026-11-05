@@ -908,6 +908,39 @@ struct DrumPadRegressionAccess
     }
 };
 
+static void spectrumConsumerRegression()
+{
+    auto processor = std::make_unique<ClassicPlayerAudioProcessor>();
+    processor->setSpectrumCaptureEnabled(false);
+    juce::AudioBuffer<float> audio(2, ClassicPlayerAudioProcessor::spectrumSampleCount);
+    for (int ch = 0; ch < 2; ++ch)
+        for (int i = 0; i < audio.getNumSamples(); ++i) audio.setSample(ch, i, 0.25f);
+    std::array<float, ClassicPlayerAudioProcessor::spectrumSampleCount> samples {};
+    const auto capture = [&]
+    {
+        ContinuousPadRegressionAccess::captureSpectrum(*processor, audio);
+        processor->copySpectrumSamples(samples.data(), (int)samples.size());
+        return samples.back();
+    };
+    check(capture() == 0.0f, "idle spectrum capture should remain disabled");
+    processor->acquireSpectrumCapture();
+    check(capture() == 0.25f, "EQ analyser depends on the main spectrum display");
+    processor->acquireSpectrumCapture();
+    processor->releaseSpectrumCapture();
+    audio.applyGain(0.5f);
+    check(capture() == 0.125f, "closing one EQ stopped another analyser");
+    processor->setSpectrumCaptureEnabled(true);
+    processor->setSpectrumCaptureEnabled(false);
+    audio.applyGain(0.5f);
+    check(capture() == 0.0625f, "switching main display stopped an open EQ");
+    processor->releaseSpectrumCapture();
+    audio.clear();
+    check(capture() == 0.0625f, "capture remained active after the last analyser closed");
+    processor->setSpectrumCaptureEnabled(true);
+    check(capture() == 0.0f, "closing EQ prevented the main analyser from running");
+    std::cout << "Independent main/EQ spectrum capture and multiple-window lifetime passed\n";
+}
+
 static void hammondPresetAndWheel()
 {
     auto p=std::make_unique<ClassicPlayerAudioProcessor>();
@@ -1138,6 +1171,7 @@ int main(int argc, char** argv)
         nordOrganRegression();
         DrumPadRegressionAccess::run();
         continuousPadRegression();
+        spectrumConsumerRegression();
         hammondPresetAndWheel();
         hammondCompressorRegression();
         hammondIdleWakeRegression();

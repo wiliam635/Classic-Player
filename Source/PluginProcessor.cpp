@@ -1098,7 +1098,8 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
 void ClassicPlayerAudioProcessor::captureSpectrum(const juce::AudioBuffer<float>& buffer) noexcept
 {
-    if (!spectrumCaptureEnabled.load(std::memory_order_acquire)
+    if ((!spectrumCaptureEnabled.load(std::memory_order_acquire)
+         && spectrumCaptureConsumers.load(std::memory_order_acquire) <= 0)
         || buffer.getNumSamples() <= 0 || buffer.getNumChannels() <= 0) return;
     const auto* left = buffer.getReadPointer(0);
     const auto* right = buffer.getNumChannels() > 1 ? buffer.getReadPointer(1) : left;
