@@ -827,6 +827,10 @@ struct DrumPadRegressionAccess
     static void run()
     {
         auto p=std::make_unique<ClassicPlayerAudioProcessor>();
+        // This fixture renders through processBlock when exercising MIDI
+        // triggers. Use the existing test-only activation hook, as the
+        // continuous-pad fixture does, rather than relying on a CI license.
+        ContinuousPadRegressionAccess::activateForTest(*p);
         p->setLayerType(0,ClassicPlayerAudioProcessor::LayerType::drumPads);
         p->prepareToPlay(48000,128);
         auto& pad=p->drumPads[0];pad.audio.setSize(2,48000);
