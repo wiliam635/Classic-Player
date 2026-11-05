@@ -954,6 +954,7 @@ static void hammondPresetAndWheel()
     }
     auto engine=std::make_unique<HammondEngine>();engine->prepare(48000,128);
     auto c=configs();c[0]=HammondEngine::preset(1);c[0].routing.midiChannel=3;
+    c[0].routing.modulationEnabled=true; // Match the processor's Hammond layer default.
     c[0].cc[0]=1;c[0].channel[0]=3; // Legacy CC1 drawbar assignment must not steal the wheel.
     const auto bars=c[0].bars;
     const auto send=[&](int channel,int value,bool routed){
@@ -970,6 +971,9 @@ static void hammondPresetAndWheel()
         send(3,127,routed);check(c[0].leslie==2,"wheel maximum");
         send(3,0,routed);check(c[0].leslie==1,"wheel minimum stopped rotor");
     }
+    c[0].routing.modulationEnabled=false;
+    send(3,127,false);check(c[0].leslie==1,"disabled modulation changed Leslie speed");
+    send(3,127,true);check(c[0].leslie==1,"disabled routed modulation changed Leslie speed");
     check(c[0].preset==1&&c[0].bars==bars,"wheel changed registration or preset name");
     std::cout<<"Hammond preset reopen, CC1 channel/threshold and host/routed checks passed\n";
 }
