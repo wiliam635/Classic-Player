@@ -160,6 +160,10 @@ void drawCategoryArtwork(juce::Graphics& g, juce::Rectangle<int> bounds,
                          const juce::String& category, juce::Colour accent)
 {
     if (bounds.isEmpty()) return;
+    const juce::Graphics::ScopedSaveState artworkState(g);
+    // Panel dividers use translucent colours. Their drawing opacity must
+    // not carry over to the instrument photo.
+    g.setOpacity(1.0f);
     static constexpr std::array<const char*, 14> resourceNames {
         "pianoacustico_png", "pianoeletrico_png", "pianodx_jpeg",
         "strings_png", "pad_png", "synth_png", "brass_png", "organ_png",
