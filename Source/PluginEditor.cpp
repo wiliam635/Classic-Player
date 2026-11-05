@@ -1841,6 +1841,8 @@ public:
         const auto ribbonWidth = juce::jmin(150.0f, getWidth() * 0.17f);
         paintHeaderRibbon(g, { 8.0f, 8.0f, ribbonWidth, 60.0f });
         paintHeaderRibbon(g, { getWidth() - ribbonWidth - 8.0f, 8.0f, ribbonWidth, 60.0f });
+        if (sourceTitle == "DX7")
+            drawCategoryArtwork(g, { getWidth() - 160, 8, 144, 55 }, "DX7", juce::Colour(teal));
         for (int i = 0; i < getNumCustomComponents(); ++i)
             if (auto* child = getCustomComponent(i))
                 paintControlCard(g, child->getBoundsInParent().toFloat().expanded(3.0f, 2.0f));
@@ -5571,6 +5573,8 @@ public:
             processor.cancelNordVelocityCalibration(index);
     }
 
+    void useDx7Layout() { dx7Layout = true; resized(); }
+
     void resized() override
     {
         auto area = getLocalBounds().reduced(8, 4);
@@ -5580,6 +5584,33 @@ public:
             label.setBounds(r.removeFromTop(16));
             box.setBounds(r.removeFromTop(juce::jmin(34, r.getHeight())).reduced(3, 1));
         };
+        if (dx7Layout)
+        {
+            const auto quarter = area.getWidth() / 4;
+            auto midi = area.removeFromTop(48);
+            place(midi.removeFromLeft(quarter), modeLabel, modeBox);
+            place(midi.removeFromLeft(quarter), sustainLabel, sustainBox);
+            place(midi.removeFromLeft(quarter), channelLabel, channelBox);
+            place(midi, deviceLabel, deviceBox);
+            if (numaButton.isVisible())
+            {
+                auto bounds = deviceBox.getBounds();
+                numaButton.setBounds(bounds.removeFromRight(44).reduced(1));
+                deviceBox.setBounds(bounds);
+            }
+            area.removeFromTop(7);
+            auto split = area.removeFromTop(58);
+            place(split.removeFromLeft(quarter), octaveLabel, octaveBox);
+            splitControls.setBounds(split.reduced(3, 0));
+            area.removeFromTop(7);
+            auto velocity = area.removeFromTop(48);
+            sensitivityButton.setBounds(velocity.removeFromLeft(quarter).reduced(3, 8));
+            place(velocity.removeFromLeft(quarter), polyphonyLabel, polyphonyBox);
+            place(velocity.removeFromLeft(quarter), velocityLowLabel, velocityLowBox);
+            place(velocity, velocityHighLabel, velocityHighBox);
+            velocityLabel.setBounds({}); velocityBox.setBounds({});
+            return;
+        }
         auto routing = area.removeFromTop(juce::jmin(48, area.getHeight() / 3));
         const auto fifth = routing.getWidth() / 5;
         place(routing.removeFromLeft(fifth), modeLabel, modeBox);
@@ -5610,6 +5641,7 @@ public:
     }
 
 private:
+    bool dx7Layout = false;
     void chooseNumaController()
     {
         const auto devices = processor.availableMidiDevices();
@@ -5837,7 +5869,7 @@ private:
 class Dx7EditorPanel final : public juce::Component
 {
 public:
-    static constexpr int preferredHeight = 70; // Two full-height rows with compact insets.
+    static constexpr int preferredHeight = 94; // Two full-height rows with compact insets.
 
     Dx7EditorPanel(ClassicPlayerAudioProcessor& p, int layer) : processor(p), index(layer)
     {
@@ -5889,17 +5921,19 @@ public:
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced(12, 6);
-        auto row = area.removeFromTop(22);
-        bankLabel.setBounds(row.removeFromLeft(100));
-        deleteButton.setBounds(row.removeFromRight(112).reduced(1, 0));
-        importButton.setBounds(row.removeFromRight(112).reduced(1, 0));
-        bankBox.setBounds(row);
+        auto area = getLocalBounds().reduced(12, 8);
+        auto row = area.removeFromTop(34);
+        const auto labelWidth = juce::jmin(116, getWidth() / 6);
+        bankLabel.setBounds(row.removeFromLeft(labelWidth));
+        auto actions = row.removeFromRight(row.getWidth() * 2 / 5);
+        deleteButton.setBounds(actions.removeFromRight(actions.getWidth() / 2).reduced(3, 0));
+        importButton.setBounds(actions.reduced(3, 0));
+        bankBox.setBounds(row.reduced(3, 0));
         const auto bankFieldWidth = bankBox.getWidth();
         area.removeFromTop(8);
-        row = area.removeFromTop(22);
-        patchLabel.setBounds(row.removeFromLeft(100));
-        patchBox.setBounds(row.removeFromLeft(bankFieldWidth));
+        row = area.removeFromTop(34);
+        patchLabel.setBounds(row.removeFromLeft(labelWidth));
+        patchBox.setBounds(row.removeFromLeft(bankFieldWidth + 6).reduced(3, 0));
     }
 
 private:
@@ -9567,10 +9601,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     auto* dialog = new LayerEditorWindow(
         "DX7", "Selecione o banco e o timbre desta camada.", juce::MessageBoxIconType::NoIcon);
     dialog->setLookAndFeel(&classicLookAndFeel);
+    const auto actionWidth = editorContentWidth(this, 1100);
     auto* dx7Panel = new Dx7EditorPanel(processor, index);
     auto* routingPanel = new LayerRoutingEditorPanel(processor, index);
-    dx7Panel->setSize(560, Dx7EditorPanel::preferredHeight);
-    routingPanel->setSize(600, 160);
+    dx7Panel->setSize(actionWidth, Dx7EditorPanel::preferredHeight);
+    routingPanel->useDx7Layout();
     auto valueOf = [this, prefix](const juce::String& suffix, float fallback)
     {
         if (auto* value = processor.parameters.getRawParameterValue(prefix + suffix)) return value->load();
@@ -9593,7 +9628,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         common->bindParameter(control, processor.parameters,
                               prefix + commonParameterSuffixes[(size_t) control]);
     common->useDenseGrid(true);
-    common->setSize(600, 128);
+    common->setSize(400, 204);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     auto* effectButtons = new LayerEffectButtons(
         [safe] { if (safe != nullptr) safe->showReverbEditor(); },
@@ -9616,8 +9651,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         void resized() override
         {
             content->setBounds(getLocalBounds().withSizeKeepingCentre(
-                juce::jmin(width, content->getWidth()),
-                juce::jmin(getHeight(), content->getHeight())));
+                juce::jmin(width, getWidth()), getHeight()));
         }
 
     private:
@@ -9626,18 +9660,53 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         juce::OwnedArray<juce::Component> owned;
     };
 
-    dialog->addCustomComponent(new CenteredPanel(dx7Panel, 600, Dx7EditorPanel::preferredHeight));
+    dialog->addCustomComponent(new CenteredPanel(dx7Panel, actionWidth, Dx7EditorPanel::preferredHeight));
     auto* dynamicsButtons = new LayerDynamicsButtons(
         [safe] { if (safe != nullptr) safe->showAdsrEditor(); },
         [safe] { if (safe != nullptr) safe->showVelocityEditor(); });
-    dialog->addCustomComponent(new CenteredPanel(dynamicsButtons, 600, 36));
-    dialog->addCustomComponent(new CenteredPanel(new EngineProgramSavePanel(processor, index, "DX7"), 600, 30));
+    dialog->addCustomComponent(new CenteredPanel(dynamicsButtons, actionWidth, 40));
+    dialog->addCustomComponent(new CenteredPanel(new EngineProgramSavePanel(processor, index, "DX7"), actionWidth, 32));
     dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
-        [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 600, 30));
-    dialog->addCustomComponent(new CenteredPanel(routingPanel, 600, 160));
-    dialog->addCustomComponent(new CenteredPanel(common, 600, 128));
-    const auto actionWidth = editorContentWidth(this, 930);
+        [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), actionWidth, 34));
+    class ControlDeck final : public juce::Component
+    {
+    public:
+        ControlDeck(juce::Component* routing, juce::Component* controls, int width)
+            : general(routing), knobs(controls)
+        {
+            addAndMakeVisible(*general); addAndMakeVisible(*knobs);
+            for (auto* label : { &generalTitle, &controlsTitle })
+            {
+                label->setFont(juce::FontOptions(14.0f, juce::Font::bold));
+                label->setColour(juce::Label::textColourId, juce::Colour(text));
+                addAndMakeVisible(*label);
+            }
+            generalTitle.setText(localizedUiText("PARAMETROS GERAIS", activeUiLanguage.load()), juce::dontSendNotification);
+            controlsTitle.setText(localizedUiText("CONTROLES DA CAMADA", activeUiLanguage.load()), juce::dontSendNotification);
+            setSize(width, 238);
+        }
+        void resized() override
+        {
+            auto area = getLocalBounds().reduced(4);
+            left = area.removeFromLeft(area.getWidth() * 3 / 5);
+            area.removeFromLeft(10); right = area;
+            auto generalArea = left.reduced(6);
+            auto controlsArea = right.reduced(6);
+            generalTitle.setBounds(generalArea.removeFromTop(26));
+            controlsTitle.setBounds(controlsArea.removeFromTop(26));
+            general->setBounds(generalArea); knobs->setBounds(controlsArea);
+        }
+        void paint(juce::Graphics& g) override
+        {
+            paintControlCard(g, left.toFloat()); paintControlCard(g, right.toFloat());
+        }
+    private:
+        std::unique_ptr<juce::Component> general, knobs;
+        juce::Label generalTitle, controlsTitle;
+        juce::Rectangle<int> left, right;
+    };
+    dialog->addCustomComponent(new ControlDeck(routingPanel, common, actionWidth));
     common->setOnValueChange([safe = juce::Component::SafePointer<LayerStrip>(this), common, prefix]
     {
         if (safe == nullptr) return;
@@ -9652,11 +9721,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         set("Dx7Chorus", common->value(6));
         set("PreGainDb", common->value(7));
     });
-    dialog->addCustomComponent(new CenteredPanel(new LayerInputOptionsPanel(processor, index), 600, 32));
+    dialog->addCustomComponent(new CenteredPanel(new LayerInputOptionsPanel(processor, index), actionWidth, 38));
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.
-    dialog->setSize(actionWidth + 52, 580);
+    dialog->setSize(actionWidth + 52, 680);
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();
     // Use AlertWindow's footer button so JUCE reserves a dedicated row below
