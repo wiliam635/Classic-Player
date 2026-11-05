@@ -266,7 +266,26 @@ void ClassicPlayerAudioProcessor::processMasterMidiMessage(const juce::MidiMessa
         startupSettingsDirty.store(true);
     }
     if (cc == masterCC.load() && message.getChannel() == masterCCChannel.load())
-        pendingMasterValue.store(message.getControllerValue() / 127.0f);
+    {
+        // A controller assigned to a layer belongs to that layer, even when
+        // an older performance/startup setting also assigned it to master.
+        // This check is needed on both the standalone and plugin MIDI paths.
+        bool assignedToLayer = false;
+        for (int layer = 0; layer < activeLayerCount() && !assignedToLayer; ++layer)
+            for (int target = 0; target < learnTargetCount; ++target)
+                if (learnedCCs[(size_t) layer][(size_t) target].load(std::memory_order_relaxed) == cc)
+                {
+                    const auto assignedChannel = learnedChannels[(size_t) layer][(size_t) target]
+                                                     .load(std::memory_order_relaxed);
+                    if (assignedChannel < 0 || assignedChannel == message.getChannel())
+                    {
+                        assignedToLayer = true;
+                        break;
+                    }
+                }
+        if (!assignedToLayer)
+            pendingMasterValue.store(message.getControllerValue() / 127.0f);
+    }
 }
 
 void ClassicPlayerAudioProcessor::timerCallback()
@@ -3383,7 +3402,6 @@ void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* sou
 {
     const auto sourceId = source != nullptr ? source->getIdentifier() : juce::String{};
     captureSplitNote(message);
-    processMasterMidiMessage(message);
     processLiveSetSlotMidiMessage(message);
     // Capture the controller used for Learn before applying the per-layer
     // device filter.  A selected layer may be listening to a different input
@@ -3391,6 +3409,7 @@ void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* sou
     // the physical CC and only the subsequent value updates stay routed.
     if (activeMidiLearn.load(std::memory_order_relaxed) >= 0)
         processMidiControlMessage(message);
+    processMasterMidiMessage(message);
     // Continuous-pad Learn must see the physical controller before the
     // per-layer device/channel routing. Use the non-audio capture path so a
     // busy render lock cannot silently discard the Learn event.
