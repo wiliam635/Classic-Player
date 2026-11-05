@@ -39,6 +39,9 @@ void Sf2Engine::createSynth(Layer& layer)
     // calibration; the shared output limiter still prevents clipping.
     fluid_settings_setnum(layer.settings.get(), "synth.gain", 0.65);
     layer.synth.reset(new_fluid_synth(layer.settings.get()));
+    // Room processing belongs to the Classic layer reverb. Disable the unused
+    // FluidSynth return as well as CC91 sends so its DSP cannot run in parallel.
+    fluid_synth_reverb_on(layer.synth.get(), -1, 0);
     // Keep legacy SF2 patches dry until this layer explicitly requests chorus.
     fluid_synth_chorus_on(layer.synth.get(), -1, 0);
     layer.soundFontId = -1;

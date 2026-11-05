@@ -3054,7 +3054,7 @@ public:
         }
     }
 private:
-    void timerCallback() override { repaint(); }
+    void timerCallback() override { if (isShowing()) repaint(); }
     ClassicPlayerAudioProcessor& processor;
 };
 
@@ -3835,6 +3835,9 @@ public:
         : processor(p), layer(layerIndex), master(masterEditor)
     {
         processor.acquireSpectrumCapture();
+        spectrumBins.fill(-100.0f);
+        for (size_t i = 0; i < graphFrequencies.size(); ++i)
+            graphFrequencies[i] = 20.0f * std::pow(1000.0f, (float)i / 240.0f);
         setSize(700, 268);
         // The analyser is visual only; 15 Hz keeps it responsive while
         // halving FFT and graph repaints during live EQ adjustments.
@@ -3897,8 +3900,7 @@ public:
         juce::Path spectrum;
         for (int i = 0; i <= 240; ++i)
         {
-            const auto normalized = (float) i / 240.0f;
-            const auto frequency = 20.0f * std::pow(1000.0f, normalized);
+            const auto frequency = graphFrequencies[(size_t)i];
             const auto level = juce::jlimit(-18.0f, 18.0f,
                 spectrumDbAt(frequency) + 24.0f);
             const auto point = juce::Point<float>(toX(frequency), toY(level));
@@ -3936,14 +3938,24 @@ public:
             lowPassHz = config.lowPassHz;
         }
 
+        const std::array<float, 11> curveParameters {
+            lowFrequency, lowGain, midFrequency, midGain, highFrequency, highGain,
+            lowQ, midQ, highQ, highPassHz, lowPassHz
+        };
+        if (!responseCacheReady || curveParameters != cachedCurveParameters)
+        {
+            for (size_t i = 0; i < cachedResponse.size(); ++i)
+                cachedResponse[i] = responseAt(graphFrequencies[i], lowFrequency, lowGain,
+                    midFrequency, midGain, highFrequency, highGain,
+                    lowQ, midQ, highQ, highPassHz, lowPassHz);
+            cachedCurveParameters = curveParameters;
+            responseCacheReady = true;
+        }
         juce::Path curve;
         for (int i = 0; i <= 240; ++i)
         {
-            const auto normalized = (float) i / 240.0f;
-            const auto frequency = 20.0f * std::pow(1000.0f, normalized);
-            const auto response = responseAt(frequency, lowFrequency, lowGain,
-                                              midFrequency, midGain, highFrequency, highGain,
-                                              lowQ, midQ, highQ, highPassHz, lowPassHz);
+            const auto frequency = graphFrequencies[(size_t)i];
+            const auto response = cachedResponse[(size_t)i];
             const auto point = juce::Point<float>(toX(frequency), toY(response));
             if (i == 0) curve.startNewSubPath(point);
             else curve.lineTo(point);
@@ -4161,15 +4173,23 @@ private:
 
     void timerCallback() override
     {
-        processor.copySpectrumSamples(spectrumData.data(), spectrumSize);
-        spectrumWindow.multiplyWithWindowingTable(spectrumData.data(), spectrumSize);
-        std::fill(spectrumData.begin() + spectrumSize, spectrumData.end(), 0.0f);
-        spectrumFft.performFrequencyOnlyForwardTransform(spectrumData.data());
-        const auto scale = 2.0f / static_cast<float>(spectrumSize);
-        for (int bin = 0; bin <= spectrumSize / 2; ++bin)
-            spectrumBins[(size_t) bin] = juce::jlimit(-100.0f, 6.0f,
-                juce::Decibels::gainToDecibels(
-                    juce::jmax(1.0e-7f, spectrumData[(size_t) bin] * scale)));
+        if (!isShowing()) return;
+        const auto revision = processor.spectrumRevision();
+        if (revision != lastSpectrumRevision)
+        {
+            processor.copySpectrumSamples(spectrumData.data(), spectrumSize);
+            spectrumWindow.multiplyWithWindowingTable(spectrumData.data(), spectrumSize);
+            std::fill(spectrumData.begin() + spectrumSize, spectrumData.end(), 0.0f);
+            spectrumFft.performFrequencyOnlyForwardTransform(spectrumData.data());
+            const auto scale = 2.0f / static_cast<float>(spectrumSize);
+            for (int bin = 0; bin <= spectrumSize / 2; ++bin)
+                spectrumBins[(size_t) bin] = juce::jlimit(-100.0f, 6.0f,
+                    juce::Decibels::gainToDecibels(
+                        juce::jmax(1.0e-7f, spectrumData[(size_t) bin] * scale)));
+            lastSpectrumRevision = revision;
+        }
+        // Knobs can change while audio is stopped; repaint the response even
+        // when the FFT has no new input to transform.
         repaint();
     }
 
@@ -4182,6 +4202,10 @@ private:
     };
     std::array<float, spectrumSize * 2> spectrumData {};
     std::array<float, spectrumSize / 2 + 1> spectrumBins {};
+    std::array<float, 241> graphFrequencies {}, cachedResponse {};
+    std::array<float, 11> cachedCurveParameters {};
+    bool responseCacheReady = false;
+    unsigned int lastSpectrumRevision = std::numeric_limits<unsigned int>::max();
     int layer = 0;
     bool master = false;
     int selectedBand = -1;
@@ -4419,7 +4443,7 @@ private:
                    juce::Justification::centred);
     }
 
-    void timerCallback() override { repaint(); }
+    void timerCallback() override { if (isShowing()) repaint(); }
 
     ClassicPlayerAudioProcessor& processor;
     int layer = 0;
@@ -4723,6 +4747,7 @@ public:
     void setPresetOnlyMode()
     {
         presetOnly = true;
+        stopTimer(); // No oscilloscope is visible in the preset-only editor.
         for (auto* component : { static_cast<juce::Component*>(&wave1),
                                  static_cast<juce::Component*>(&wave2),
                                  static_cast<juce::Component*>(&wave3),
@@ -4857,6 +4882,7 @@ public:
 
     void timerCallback() override
     {
+        if (!isShowing() || presetOnly) return;
         scopePhase = std::fmod(scopePhase + 0.16f, juce::MathConstants<float>::twoPi);
         repaint();
     }
