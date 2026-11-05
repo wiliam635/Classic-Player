@@ -1417,8 +1417,73 @@ public:
 
     void drawButtonText(juce::Graphics& g, juce::TextButton& button, bool over, bool down) override
     {
-        if (!button.getName().startsWith("LIVE_SLOT_"))
+        if (button.getName().startsWith("LIVE_SLOT_")) return;
+        const auto caption = button.getButtonText();
+        const auto key = caption.toUpperCase();
+        const auto iconSize = juce::jmin(19.0f, button.getHeight() * 0.46f);
+        const bool roomy = button.getWidth() > 110 && button.getHeight() >= 28;
+        int icon = 0;
+        if (roomy)
+        {
+            if (key.contains("IMPORT") || key.contains("CARREGAR")) icon = 1;
+            else if (key.contains("EXPORT")) icon = 2;
+            else if (key.contains("SALVAR")) icon = 3;
+            else if (key.contains("RESET") || key.contains("LIMPAR")) icon = 4;
+            else if (key.contains("EDITAR") || key.contains("EFEITOS")) icon = 5;
+            else if (key.contains("LEARN")) icon = 6;
+            else if (key.contains("CAMADA") || key.contains("BUNDLE")) icon = 7;
+        }
+        if (icon == 0)
+        {
             juce::LookAndFeel_V4::drawButtonText(g, button, over, down);
+            return;
+        }
+        const float x = 12.0f, y = (button.getHeight() - iconSize) * 0.5f;
+        const auto u = iconSize;
+        juce::Path symbol;
+        if (icon == 1 || icon == 2)
+        {
+            symbol.startNewSubPath(x, y + u * 0.65f);
+            symbol.lineTo(x, y + u); symbol.lineTo(x + u, y + u); symbol.lineTo(x + u, y + u * 0.65f);
+            const auto tip = icon == 1 ? y + u * 0.65f : y;
+            const auto tail = icon == 1 ? y : y + u * 0.65f;
+            symbol.startNewSubPath(x + u * 0.5f, tail); symbol.lineTo(x + u * 0.5f, tip);
+            const auto wing = icon == 1 ? tip - u * 0.25f : tip + u * 0.25f;
+            symbol.startNewSubPath(x + u * 0.22f, wing); symbol.lineTo(x + u * 0.5f, tip); symbol.lineTo(x + u * 0.78f, wing);
+        }
+        else if (icon == 3)
+        {
+            symbol.addRoundedRectangle(x, y, u, u, 2.0f);
+            symbol.addRectangle(x + u * 0.25f, y, u * 0.5f, u * 0.36f);
+            symbol.addRectangle(x + u * 0.23f, y + u * 0.6f, u * 0.54f, u * 0.4f);
+        }
+        else if (icon == 4)
+        {
+            symbol.addCentredArc(x + u * 0.5f, y + u * 0.5f, u * 0.4f, u * 0.4f, 0.0f, 0.6f, 5.6f, true);
+            symbol.startNewSubPath(x + u * 0.12f, y); symbol.lineTo(x + u * 0.12f, y + u * 0.34f); symbol.lineTo(x + u * 0.45f, y + u * 0.34f);
+        }
+        else if (icon == 5)
+        {
+            for (int i = 0; i < 3; ++i)
+            {
+                const auto yy = y + u * (0.2f + i * 0.3f);
+                symbol.startNewSubPath(x, yy); symbol.lineTo(x + u, yy);
+                symbol.addEllipse(x + u * (i == 1 ? 0.6f : 0.25f), yy - 2.0f, 4.0f, 4.0f);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < 3; ++i)
+            {
+                const auto yy = y + u * i * 0.26f;
+                symbol.startNewSubPath(x, yy + u * 0.24f); symbol.lineTo(x + u * 0.5f, yy);
+                symbol.lineTo(x + u, yy + u * 0.24f); symbol.lineTo(x + u * 0.5f, yy + u * 0.48f); symbol.closeSubPath();
+            }
+        }
+        g.setColour(button.findColour(button.getToggleState() ? juce::TextButton::textColourOnId : juce::TextButton::textColourOffId));
+        g.strokePath(symbol, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setFont(juce::FontOptions(juce::jmin(15.0f, button.getHeight() * 0.4f), juce::Font::bold));
+        g.drawFittedText(caption, (int) (x + u + 9), 2, button.getWidth() - (int) (x + u + 17), button.getHeight() - 4, juce::Justification::centred, 1);
     }
 
     void drawAlertBox(juce::Graphics& g, juce::AlertWindow& alert,
@@ -1541,8 +1606,13 @@ public:
         }
         else
         {
-            g.setColour(colour);
-            g.fillRoundedRectangle(bounds, 5.0f);
+            juce::ColourGradient face(colour.brighter(0.16f), bounds.getX(), bounds.getY(),
+                                      colour.darker(0.28f), bounds.getX(), bounds.getBottom(), false);
+            face.addColour(0.48, colour);
+            g.setGradientFill(face);
+            g.fillRoundedRectangle(bounds, 7.0f);
+            g.setColour(juce::Colour(text).withAlpha(shouldDrawButtonAsDown ? 0.03f : 0.12f));
+            g.drawRoundedRectangle(bounds.reduced(2.0f), 5.0f, 0.7f);
         }
         const auto outline = isDrumPad ? colour.brighter(0.35f)
                                        : juce::Colour(teal).interpolatedWith(backgroundColour, 0.35f);
@@ -1550,6 +1620,23 @@ public:
         g.drawRoundedRectangle(bounds.reduced(1.0f), isDrumPad ? 8.0f : 5.0f, 3.0f);
         g.setColour(outline.withAlpha(0.92f));
         g.drawRoundedRectangle(bounds.reduced(0.5f), isDrumPad ? 8.0f : 5.0f, 1.2f);
+    }
+
+    void drawComboBox(juce::Graphics& g, int width, int height, bool,
+                      int, int, int, int, juce::ComboBox& box) override
+    {
+        const auto bounds = juce::Rectangle<float>(0, 0, (float) width, (float) height).reduced(0.7f);
+        const auto face = box.findColour(juce::ComboBox::backgroundColourId);
+        g.setGradientFill(juce::ColourGradient(face.brighter(0.12f), 0, 0,
+                                               face.darker(0.2f), 0, (float) height, false));
+        g.fillRoundedRectangle(bounds, 5.0f);
+        g.setColour(box.findColour(juce::ComboBox::outlineColourId));
+        g.drawRoundedRectangle(bounds, 5.0f, box.hasKeyboardFocus(true) ? 1.8f : 1.0f);
+        const float cx = width - 15.0f, cy = height * 0.5f;
+        juce::Path arrow;
+        arrow.startNewSubPath(cx - 5, cy - 2); arrow.lineTo(cx, cy + 3); arrow.lineTo(cx + 5, cy - 2);
+        g.setColour(box.findColour(juce::ComboBox::arrowColourId).withAlpha(box.isEnabled() ? 1.0f : 0.3f));
+        g.strokePath(arrow, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
     void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height,
@@ -1571,6 +1658,15 @@ public:
         g.setColour(juce::Colour(0xff88939a));
         g.drawEllipse(bounds, 1.0f);
 
+        g.setColour(juce::Colour(background).withAlpha(0.8f));
+        g.drawEllipse(bounds.reduced(2.0f), 2.0f);
+        g.setColour(juce::Colour(text).withAlpha(0.16f));
+        g.drawEllipse(bounds.reduced(3.5f), 0.7f);
+        juce::Path track;
+        track.addCentredArc(centre.x, centre.y, radius + 3.0f, radius + 3.0f,
+                           0.0f, startAngle, endAngle, true);
+        g.setColour(juce::Colour(teal).withAlpha(0.18f));
+        g.strokePath(track, juce::PathStrokeType(3.0f));
         juce::Path arc;
         arc.addCentredArc(centre.x, centre.y, radius + 3.0f, radius + 3.0f, 0.0f,
                           startAngle, angle, true);
@@ -1604,6 +1700,10 @@ public:
         g.drawVerticalLine(static_cast<int>(centreX), static_cast<float>(y + 7),
                            static_cast<float>(y + height - 7));
 
+        const auto trackBottom = static_cast<float>(y + height - 5);
+        g.setColour(juce::Colour(teal).withAlpha(slider.isEnabled() ? 0.9f : 0.25f));
+        g.fillRoundedRectangle(centreX - 2.0f, sliderPos, 4.0f,
+                               juce::jmax(0.0f, trackBottom - sliderPos), 2.0f);
         const auto compactThumb = static_cast<bool>(slider.getProperties()["compactLayerFader"]);
         const auto thumbWidth = compactThumb ? 23.0f : 30.0f;
         const auto thumbHeight = compactThumb ? 16.0f : 22.0f;
@@ -1803,6 +1903,21 @@ public:
 
         const auto rows = juce::jmax(1, (knobs.size() + columns - 1) / columns);
         setSize(columns * 126, rows * 124);
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat().reduced(0.5f);
+        g.setColour(juce::Colour(background).withAlpha(0.35f));
+        g.fillRoundedRectangle(bounds, 10.0f);
+        g.setColour(juce::Colour(teal).withAlpha(0.45f));
+        g.drawRoundedRectangle(bounds, 10.0f, 1.0f);
+        for (int column = 1; column < columns; ++column)
+        {
+            const auto x = getWidth() * column / columns;
+            g.setColour(juce::Colour(paletteLine).withAlpha(0.6f));
+            g.drawVerticalLine(x, 16.0f, (float) getHeight() - 16.0f);
+        }
     }
 
     void useAnalogHardwareLayout(bool shouldUse) { analogHardwareLayout = shouldUse; resized(); }
@@ -6629,7 +6744,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         { "EQ MID dB", valueOf(prefix + "EqMid", 0.0f), -18.0f, 18.0f, 0.1f, 1 },
         { "EQ HIGH dB", valueOf(prefix + "EqHigh", 0.0f), -18.0f, 18.0f, 0.1f, 1 },
         { "GAIN MOTOR dB", valueOf(prefix + "PreGainDb", 0.0f), -18.0f, 18.0f, 0.1f, 1 }
-    }, 5);
+    }, 10);
     const std::array<const char*, 10> editorParameterSuffixes {
         "Gain", "Attack", "Release", "Cutoff", "Reverb", "Comp",
         "EqLow", "EqMid", "EqHigh", "PreGainDb"
@@ -6647,7 +6762,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         sf2Panel->setSize(620, 236);
     }
     knobs->useDenseGrid(true);
-    knobs->setSize(620, 128);
+    knobs->setSize(actionWidth, 104);
     auto* effectButtons = new LayerEffectButtons(
         [safe] { if (safe != nullptr) safe->showReverbEditor(); },
         [safe] { if (safe != nullptr) safe->showCompressorEditor(); },
