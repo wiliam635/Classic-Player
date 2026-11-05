@@ -30,6 +30,7 @@ class HammondEditorPanel final : public juce::Component, private juce::Timer
                               float sliderPos, float, float, juce::Slider::SliderStyle,
                               juce::Slider& slider) override
         {
+            const juce::Graphics::ScopedSaveState graphicsState(g);
             const auto centre = (float) x + (float) width * 0.5f;
             g.setColour(juce::Colours::black);
             g.fillRoundedRectangle(centre - 4.0f, (float)y + 2.0f, 8.0f,
@@ -40,6 +41,9 @@ class HammondEditorPanel final : public juce::Component, private juce::Timer
             const auto index = juce::jlimit(0, 2, (int) slider.getProperties()["drawbarColour"]);
             const auto thumbWidth = juce::jmin(31.0f, (float)width * 0.65f);
             const auto thumbHeight = juce::jmin(37.0f, (float)height * 0.36f);
+            // The translucent track colour also sets Graphics' image opacity.
+            // Restore full opacity before drawing the physical drawbar cap.
+            g.setOpacity(1.0f);
             if (images[(size_t)index].isValid())
                 g.drawImage(images[(size_t)index], juce::Rectangle<float>(centre - thumbWidth * 0.5f,
                             sliderPos - thumbHeight * 0.5f, thumbWidth, thumbHeight),
