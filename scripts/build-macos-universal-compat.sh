@@ -76,7 +76,7 @@ configure_and_build() {
     "$backup_test" --backup
   fi
   local ui_test="$build/ClassicPlayerHammondTest_artefacts/Release/ClassicPlayerHammondTest"
-  for skin_option in --ui-preferences --performance-effects --silver-ui --dark-steel-ui --responsive-ui --live-layout; do
+  for skin_option in --hammond-midi --ui-preferences --performance-effects --silver-ui --dark-steel-ui --responsive-ui --live-layout; do
     if [[ "$arch" == "x86_64" ]]; then
       arch -x86_64 "$ui_test" "$skin_option"
     else
@@ -156,8 +156,8 @@ rm "$UNIVERSAL/Contents/MacOS/Classic Player"
 
 /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable ClassicPlayer" "$UNIVERSAL/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.classickeys.classicplayer.macos161" "$UNIVERSAL/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 3.0.2" "$UNIVERSAL/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 3.0.2" "$UNIVERSAL/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 3.0.3" "$UNIVERSAL/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 3.0.3" "$UNIVERSAL/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 10.13" "$UNIVERSAL/Contents/Info.plist" 2>/dev/null || \
   /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion 10.13" "$UNIVERSAL/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :NSHighResolutionCapable bool true" "$UNIVERSAL/Contents/Info.plist" 2>/dev/null || \

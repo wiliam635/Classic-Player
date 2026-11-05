@@ -945,6 +945,8 @@ static void hammondPresetAndWheel()
 {
     auto p=std::make_unique<ClassicPlayerAudioProcessor>();
     p->setLayerType(0,ClassicPlayerAudioProcessor::LayerType::hammond);
+    check(p->parameters.getRawParameterValue("layer1ModulationEnabled")->load() >= 0.5f,
+          "new Hammond layer did not enable keyboard modulation");
     auto* releaseParameter=p->parameters.getParameter("layer1Release");
     check(releaseParameter!=nullptr,"layer release parameter missing");
     check(std::abs(releaseParameter->convertFrom0to1(releaseParameter->getValue()))<0.001f,
@@ -1120,6 +1122,7 @@ int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
     try{
+        if (argc > 1 && juce::String(argv[1]) == "--hammond-midi") { hammondPresetAndWheel(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--ui-preferences") { LiveSetLayoutRegressionAccess::displayPreferences(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--benchmark-idle-hammond")
         {

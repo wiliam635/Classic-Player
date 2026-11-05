@@ -4,12 +4,6 @@ on:
   push:
     branches: [codex/nord-bundle-loader-20261102, codex/nord-morph-investigation-20261103]
   workflow_dispatch:
-    inputs:
-      approved:
-        description: "Versão 3.0.2 aprovada (remove TESTE do nome do download)"
-        required: true
-        default: false
-        type: boolean
 
 jobs:
   build-macos-universal:
@@ -23,11 +17,7 @@ jobs:
       - name: Define download version
         shell: bash
         run: |
-          if [[ "${{ inputs.approved }}" == "true" ]]; then
-            echo "DOWNLOAD_VERSION=3.0.2" >> "$GITHUB_ENV"
-          else
-            echo "DOWNLOAD_VERSION=3.0.2-teste-${{ github.run_number }}" >> "$GITHUB_ENV"
-          fi
+          echo "DOWNLOAD_VERSION=3.0.3" >> "$GITHUB_ENV"
 
       - name: Preflight native source
         run: |
@@ -84,7 +74,7 @@ jobs:
           lipo -archs "build/Classic Player 2.0 macOS Universal.vst3/Contents/MacOS/Classic Player" | grep -q x86_64
           lipo -archs "build/Classic Player 2.0 macOS Universal.component/Contents/MacOS/Classic Player" | grep -q arm64
           lipo -archs "build/Classic Player 2.0 macOS Universal.component/Contents/MacOS/Classic Player" | grep -q x86_64
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' 'build/Classic Player 2.0 macOS Universal.app/Contents/Info.plist')" = "3.0.2"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' 'build/Classic Player 2.0 macOS Universal.app/Contents/Info.plist')" = "3.0.3"
           test -f "outputs/installers/Classic-Player-${DOWNLOAD_VERSION}-macOS-High-Sierra-a-Tahoe-Universal.pkg"
           test -f "outputs/installers/Classic-Player-${DOWNLOAD_VERSION}-macOS-High-Sierra-a-Tahoe-Universal-App.zip"
 

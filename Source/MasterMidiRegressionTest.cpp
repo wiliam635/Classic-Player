@@ -397,6 +397,56 @@ static void newProgramStartsBlank()
 
 struct MidiRecordingRegressionAccess
 {
+    static void layerVolumeIsolation()
+    {
+        for (bool physicalInput : { false, true })
+            for (int controller : { 7, 11, 86 })
+            {
+                auto p = std::make_unique<ClassicPlayerAudioProcessor>();
+                p->prepareToPlay(48000, 128);
+                const auto send = [physicalInput](ClassicPlayerAudioProcessor& processor,
+                                                  int channel, int number, int value)
+                {
+                    if (!physicalInput) { cc(processor, channel, number, value); return; }
+                    processor.handleIncomingMidiMessage(nullptr,
+                        juce::MidiMessage::controllerEvent(channel, number, value));
+                    processor.consumeMidiControlUpdates();
+                };
+                p->beginMasterMidiLearn(); send(*p, 1, controller, 127);
+                p->beginMidiLearn(0, ClassicPlayerAudioProcessor::LearnTarget::volume);
+                send(*p, 1, controller, 100);
+                p->beginMidiLearn(1, ClassicPlayerAudioProcessor::LearnTarget::volume);
+                send(*p, 1, 5, 90);
+                p->beginMidiLearn(2, ClassicPlayerAudioProcessor::LearnTarget::volume);
+                send(*p, 1, 6, 80);
+                const auto gain = [](ClassicPlayerAudioProcessor& processor, int layer)
+                { return processor.parameters.getRawParameterValue("layer" + juce::String(layer) + "Gain")->load(); };
+                const auto second = gain(*p, 2), third = gain(*p, 3);
+                for (bool restore : { false, true })
+                {
+                    if (restore)
+                    {
+                        juce::MemoryBlock state; p->getStateInformation(state);
+                        p = std::make_unique<ClassicPlayerAudioProcessor>();
+                        p->setStateInformation(state.getData(), (int) state.getSize());
+                        p->prepareToPlay(48000, 128);
+                    }
+                    send(*p, 1, controller, 0);
+                    check(gain(*p, 1) == 0.0f, "mapped layer volume did not close");
+                    check(std::abs(gain(*p, 2) - second) < 0.01f
+                          && std::abs(gain(*p, 3) - third) < 0.01f,
+                          "one layer CC changed unrelated layer volumes");
+                    check(p->parameters.getRawParameterValue("master")->load() == 100.0f,
+                          "layer CC changed a legacy duplicate master mapping");
+                    send(*p, 2, controller, 127);
+                    check(gain(*p, 1) == 0.0f, "layer volume accepted the wrong MIDI channel");
+                    send(*p, 1, controller, 127);
+                    check(gain(*p, 1) == 100.0f, "layer volume did not reopen");
+                }
+            }
+        std::cout << "CC7/CC11/CC86 layer/master isolation, host/physical input and state restore passed\n";
+    }
+
     static void sf2Mute(const juce::File& file)
     {
         auto processor = std::make_unique<ClassicPlayerAudioProcessor>();
@@ -543,6 +593,7 @@ int main(int argc, char** argv)
             MidiRecordingRegressionAccess::sf2Mute(juce::File(juce::String::fromUTF8(argv[2])));
             return 0;
         }
+        MidiRecordingRegressionAccess::layerVolumeIsolation();
         startupPrograms();
         programLibraryExportImport();
         livePerformanceEqPersistence();
