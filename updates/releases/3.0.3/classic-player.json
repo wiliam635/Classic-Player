@@ -1,0 +1,9 @@
+{
+  "version": "3.0.3",
+  "notes": "Classic Player 3.0.3: correções de MIDI por layer, melhorias de desempenho, Moog fixo em 32 vozes, ganho do Hammond recalibrado e correção do menu de exclusão.",
+  "releaseNotesUrl": "https://licenca.classickeys.com.br/updates/classic-player-3.0.3.html",
+  "downloads": {
+    "macos": "https://licenca.classickeys.com.br/membros",
+    "windows": "https://licenca.classickeys.com.br/membros"
+  }
+}
