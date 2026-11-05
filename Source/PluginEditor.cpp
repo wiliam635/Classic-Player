@@ -7719,6 +7719,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDown(const juce::MouseE
 {
     if (event.mods.isPopupMenu())
     {
+        // The strip is also a recursive mouse listener. Its own mouse event
+        // can arrive through both routes; never leave two popup menus stacked.
+        if (layerContextMenuOpen) return;
         // This strip listens to descendants for layer dragging. LEARN owns
         // its context menu, so the recursive listener must not open another.
         for (auto* source = event.originalComponent; source != nullptr && source != this;
@@ -7767,10 +7770,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDown(const juce::MouseE
         menu.addSeparator();
         menu.addItem(1, localizedUiText("Excluir layer", language));
         const juce::Component::SafePointer<LayerStrip> safe(this);
+        layerContextMenuOpen = true;
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
                            [safe](int result)
         {
-            if (safe == nullptr || result == 0) return;
+            if (safe == nullptr) return;
+            safe->layerContextMenuOpen = false;
+            if (result == 0) return;
 
             const auto changeChannel = result >= 30 && result <= 41;
             const auto action = changeChannel ? result - 20 : result;
@@ -7823,8 +7829,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDown(const juce::MouseE
 
             // A hosted instrument editor must close before its layer is
             // released, just as it did with the old X button.
-            safe->externalEditorWindow.reset();
-            if (safe->removeLayerCallback) safe->removeLayerCallback();
+            juce::PopupMenu::dismissAllActiveMenus();
+            juce::MessageManager::callAsync([safe]
+            {
+                if (safe == nullptr) return;
+                safe->externalEditorWindow.reset();
+                if (safe->removeLayerCallback) safe->removeLayerCallback();
+            });
         });
         draggingLayerTitle = false;
         return;

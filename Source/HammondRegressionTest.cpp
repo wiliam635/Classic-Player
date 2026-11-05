@@ -250,6 +250,39 @@ static void continuousPadRegression()
 }
 struct LiveSetLayoutRegressionAccess
 {
+    static void layerContextMenu()
+    {
+        auto processor = std::make_unique<ClassicPlayerAudioProcessor>();
+        auto editor = std::make_unique<ClassicPlayerAudioProcessorEditor>(*processor, false);
+        editor->setSize(1280, 740);
+        editor->setVisible(true);
+        editor->activationPanel.setVisible(false);
+        auto* strip = editor->strips[0].get();
+        check(strip != nullptr, "missing layer strip");
+        const auto before = processor->activeLayerCount();
+        const auto modalBefore = juce::Component::getNumCurrentlyModalComponents();
+        const auto now = juce::Time::getCurrentTime();
+        const juce::Point<float> point { 10.0f, 10.0f };
+        const juce::MouseEvent click(juce::Desktop::getInstance().getMainMouseSource(),
+            point, juce::ModifierKeys(juce::ModifierKeys::rightButtonModifier),
+            1.0f, 0.0f, 0.0f, 0.0f, 0.0f, strip, strip, now, point, now, 1, false);
+        strip->mouseDown(click);
+        strip->mouseDown(click); // component + recursive-listener delivery
+        check(juce::Component::getNumCurrentlyModalComponents() == modalBefore + 1,
+              "duplicate layer context menus were opened");
+        auto* popup = juce::Component::getCurrentlyModalComponent();
+        check(popup != nullptr, "layer popup was not modal");
+        // Use the menu's real selection path, including hiding its window.
+        popup->keyPressed(juce::KeyPress(juce::KeyPress::upKey));
+        popup->keyPressed(juce::KeyPress(juce::KeyPress::returnKey));
+        juce::Timer::callAfterDelay(150, [] { juce::MessageManager::getInstance()->stopDispatchLoop(); });
+        juce::MessageManager::getInstance()->runDispatchLoop();
+        check(processor->activeLayerCount() == before - 1, "context action did not remove layer");
+        check(juce::Component::getNumCurrentlyModalComponents() == modalBefore,
+              "context menu remained after deleting the layer");
+        std::cout << "Layer context menu duplicate delivery and delete dismissal passed\n";
+    }
+
     static void responsiveUi(const char* screenshot)
     {
         juce::TemporaryFile storage;
@@ -614,7 +647,9 @@ static std::vector<float> render(int block,double rate,bool routed,bool allBars=
         juce::MidiBuffer empty;
         if(routed)local[0].swapWith(midi);
         engine->process(out,routed?empty:midi,c,routed?&local:nullptr);
-        result.insert(result.end(),out.getReadPointer(0),out.getReadPointer(0)+count);
+        // This legacy test checks envelope shape/discontinuities at the old
+        // reference level. Actual output calibration has its own DX7 test.
+        for (int i=0;i<count;++i) result.push_back(out.getSample(0,i)/HammondEngine::outputCalibration);
     }
     return result;
 }
@@ -650,6 +685,43 @@ static float hammondCompressorRms(float mix, float attack, float makeup,
     }
     return (float) std::sqrt(power / (double) std::max(1, count));
 }
+static void hammondOutputCalibrationRegression()
+{
+    juce::TemporaryFile fixture(".syx");
+    check(fixture.getFile().replaceWithData(
+        ClassicPlayerAssets::Classic_Keys_DX7__Divine_Masquerade_1_syx,
+        ClassicPlayerAssets::Classic_Keys_DX7__Divine_Masquerade_1_syxSize), "DX7 reference bank fixture");
+    const auto measure = [&](bool organ, float gain)
+    {
+        auto h=std::make_unique<HammondEngine>();auto d=std::make_unique<Dx7Engine>();
+        h->prepare(48000,256);d->prepare(48000,256);
+        auto hc=configs();hc[0]=HammondEngine::preset(0);hc[0].routing.enabled=true;
+        hc[0].routing.gain=gain;hc[0].routing.reverb=0;
+        std::array<Sf2Engine::LayerConfig,Sf2Engine::layerCount> dc;
+        for(auto& c:dc)c.enabled=false;
+        // Mirror the real processor's DX7 calibration; comparing raw engines
+        // without this trim would over-amplify Hammond by 18 dB.
+        dc[0].enabled=true;dc[0].gain=gain*juce::Decibels::decibelsToGain(-18.0f);
+        dc[0].dx7Chorus=0;dc[0].reverb=0;
+        check(d->loadSysEx(0,fixture.getFile()).wasOk(),"DX7 reference load");
+        double energy=0;int count=0;
+        for(int block=0;block<96;++block)
+        {
+            juce::AudioBuffer<float> audio(2,256);audio.clear();juce::MidiBuffer midi;
+            if(block==0)midi.addEvent(juce::MidiMessage::noteOn(1,60,(juce::uint8)100),0);
+            if(organ)h->process(audio,midi,hc);else d->process(audio,midi,nullptr,dc);
+            if(block>=20)for(int ch=0;ch<2;++ch)for(int i=0;i<256;++i)
+            {const auto x=audio.getSample(ch,i);check(std::isfinite(x),"nonfinite calibrated output");energy+=x*x;++count;}
+        }
+        return std::sqrt(energy/count);
+    };
+    const auto dx=measure(false,.8f),h=measure(true,.8f),half=measure(true,.4f);
+    const auto difference=20*std::log10(h/dx);
+    check(std::abs(difference)<3.0,"initial Hammond output is not aligned with DX7 reference");
+    check(std::abs(half/h-.5)<.001,"Hammond calibration changed fader response");
+    std::cout<<"Hammond/DX7 reference RMS "<<h<<" / "<<dx<<" difference dB "<<difference<<"\n";
+}
+
 static void hammondCompressorRegression()
 {
     const auto dry = hammondCompressorRms(0.0f, 0.1f, 0.0f, 8000, 12000);
@@ -1122,6 +1194,8 @@ int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
     try{
+        if (argc > 1 && juce::String(argv[1]) == "--hammond-level") { hammondOutputCalibrationRegression(); return 0; }
+        if (argc > 1 && juce::String(argv[1]) == "--layer-menu") { LiveSetLayoutRegressionAccess::layerContextMenu(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--hammond-midi") { hammondPresetAndWheel(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--ui-preferences") { LiveSetLayoutRegressionAccess::displayPreferences(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--benchmark-idle-hammond")
@@ -1176,6 +1250,7 @@ int main(int argc, char** argv)
         continuousPadRegression();
         spectrumConsumerRegression();
         hammondPresetAndWheel();
+        hammondOutputCalibrationRegression();
         hammondCompressorRegression();
         hammondIdleWakeRegression();
         analogEditorLifecycle();

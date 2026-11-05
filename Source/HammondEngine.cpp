@@ -185,11 +185,9 @@ void HammondEngine::message(int index,const juce::MidiMessage& m,Config& c)
     v.perStep=std::min(base*c.percussion,sampleRate*.45)/sampleRate;
     v.click=c.click*.06f;
 }
-float HammondEngine::renderVoice(Voice& v,Layer& l,const Config& c,const std::array<float,9>& bars,float leak)
+float HammondEngine::renderVoice(Voice& v,Layer& l,const std::array<float,9>& bars,float leak,int attack,int releaseSamples)
 {
     if(!v.active)return 0;
-    const int attack=std::max(1,(int)(sampleRate*layerAttackSeconds(c.routing.attack)));
-    const int releaseSamples=std::max(1,(int)(sampleRate*layerReleaseSeconds(c.routing.release)));
     if(v.releasing){
         if(v.releaseAge>=releaseSamples){v.active=false;v.envelope=0;return 0;}
         v.envelope=v.releaseStart*.5f*(1.f+(float)std::cos(pi*(double)++v.releaseAge/releaseSamples));
@@ -304,15 +302,33 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
                            c.routing.eqMidFrequency, c.routing.eqHighFrequency,
                            c.routing.eqLowQ, c.routing.eqMidQ, c.routing.eqHighQ);
         scratch.clear();
+        const int attackSamples=std::max(1,(int)(sampleRate*layerAttackSeconds(c.routing.attack)));
+        const int releaseSamples=std::max(1,(int)(sampleRate*layerReleaseSeconds(c.routing.release)));
+        std::array<Voice*, Sf2Engine::maxPolyphonyPerLayer> activeVoices {};
+        size_t activeCount = 0;
+        const auto collectActiveVoices = [&]
+        {
+            activeCount = 0;
+            for (auto& voice : l.voices)
+                if (voice.active) activeVoices[activeCount++] = &voice;
+        };
+        collectActiveVoices();
         for(int s=0;s<out.getNumSamples();++s){
             bool event=false;
             while(hi!=host.cend()&&(*hi).samplePosition<=s){message(index,(*hi).getMessage(),c);++hi;event=true;}
             while(li!=local.cend()&&(*li).samplePosition<=s){message(index,(*li).getMessage(),c);++li;event=true;}
-            if(event)setTargets();
+            if(event){setTargets();collectActiveVoices();}
             std::array<float,9> bars;for(size_t i=0;i<9;++i)bars[i]=l.bars[i].getNextValue();
             std::array<float,16> channel;for(size_t i=0;i<16;++i)channel[i]=l.channelGain[i].getNextValue();
             const float leak=l.leakage.getNextValue();float sample=0;
-            for(auto& v:l.voices)sample+=renderVoice(v,l,c,bars,leak)*channel[(size_t)v.channel];
+            size_t survivors=0;
+            for(size_t i=0;i<activeCount;++i)
+            {
+                auto& v=*activeVoices[i];
+                sample+=renderVoice(v,l,bars,leak,attackSamples,releaseSamples)*channel[(size_t)v.channel];
+                if(v.active)activeVoices[survivors++]=&v;
+            }
+            activeCount=survivors;
             const float drive=l.drive.getNextValue();
             sample=sample*(1-drive)+std::tanh(2*sample*(1+drive*8))/std::tanh(2.f)*drive/(1+drive*2);
             l.crossover+=cross*(sample-l.crossover);
@@ -359,7 +375,7 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
 
         for(int s=0;s<out.getNumSamples();++s){
             float left=scratch.getSample(0,s),right=scratch.getSample(1,s);
-            const float gain=l.gain.getNextValue()*l.level.getNextValue();
+            const float gain=l.gain.getNextValue()*l.level.getNextValue()*outputCalibration;
             const float pan=juce::jlimit(-1.f,1.f,l.pan.getNextValue());
             float* values[2]={&left,&right};
             for(int ch=0;ch<2;++ch){
@@ -383,7 +399,7 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
             else if(out.getNumChannels()==1)out.addSample(0,s,(left+right)*.5f);
             peak=std::max(peak,std::max(std::abs(left),std::abs(right)));
         }
-        if (hasVoices() || effectPeak > 0.000001f || peak > 0.000001f)
+        if (hasVoices() || effectPeak > 0.000001f || peak > 0.000001f * outputCalibration)
         {
             l.tailPending = true;
             l.quietSamples = 0;

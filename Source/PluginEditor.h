@@ -223,6 +223,7 @@ private:
         juce::Colour channelColour;
         bool hasCustomChannelColour = false;
         bool draggingLayerTitle = false;
+        bool layerContextMenuOpen = false;
         bool quickPresetMenuOpen = false;
         bool muted = false;
         bool solo = false;

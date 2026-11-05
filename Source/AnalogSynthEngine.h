@@ -169,8 +169,8 @@ private:
     static float midiNoteToFrequency(int note) noexcept;
     static bool acceptsMessage(const Sf2Engine::LayerConfig& config,
                                const juce::MidiMessage& message);
-    static float nextEnvelope(Envelope& envelope, float attackMs, float decayMs,
-                              float sustain, float releaseMs, double sampleRate);
+    static float nextEnvelope(Envelope& envelope, float sustain,
+                              const std::array<float, 3>& coefficients);
     float nextBrowserEnvelope(Voice&, const Config&);
     float processBrowserFilter(Voice&, float input, float cutoffHz, float resonanceDb);
 
@@ -182,6 +182,8 @@ private:
     void renderVoice(Voice& voice, const Config& config, float lfo, float modWheel,
                      float pitchRatio, float browserBaseCutoff,
                      const std::array<float, 3>& oscillatorRatios,
+                     const std::array<float, 3>& ampCoefficients,
+                     const std::array<float, 3>& filterCoefficients,
                      float& left, float& right);
 
     std::array<Layer, layerCount> layers {};

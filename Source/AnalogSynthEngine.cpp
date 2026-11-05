@@ -18,13 +18,11 @@ float wrapPhase(float value) noexcept
 // notes end with a discontinuity (the audible click users reported).  This
 // helper follows the same five-time-constant convention while remaining
 // sample based and real-time safe.
-float exponentialApproach(float current, float target, float milliseconds,
-                          double sampleRate) noexcept
+float envelopeCoefficient(float milliseconds, double sampleRate) noexcept
 {
     const auto duration = juce::jmax(3.0f, milliseconds) * 0.001f;
     const auto tau = duration / 5.0f;
-    const auto coefficient = std::exp(-1.0f / juce::jmax(1.0, tau * sampleRate));
-    return target + (current - target) * static_cast<float>(coefficient);
+    return static_cast<float>(std::exp(-1.0f / juce::jmax(1.0, tau * sampleRate)));
 }
 
 float nextNoise(uint32_t& state) noexcept
@@ -205,8 +203,8 @@ bool AnalogSynthEngine::acceptsMessage(const Sf2Engine::LayerConfig& config,
     return note >= config.lowNote && note <= config.highNote;
 }
 
-float AnalogSynthEngine::nextEnvelope(Envelope& envelope, float attackMs, float decayMs,
-                                      float sustain, float releaseMs, double rate)
+float AnalogSynthEngine::nextEnvelope(Envelope& envelope, float sustain,
+                                      const std::array<float, 3>& coefficients)
 {
     sustain = juce::jlimit(0.0f, 1.0f, sustain);
 
@@ -217,7 +215,7 @@ float AnalogSynthEngine::nextEnvelope(Envelope& envelope, float attackMs, float 
             break;
 
         case EnvelopeStage::attack:
-            envelope.value = exponentialApproach(envelope.value, 1.0f, attackMs, rate);
+            envelope.value = 1.0f + (envelope.value - 1.0f) * coefficients[0];
             if (envelope.value >= 0.9995f)
             {
                 envelope.value = 1.0f;
@@ -226,7 +224,7 @@ float AnalogSynthEngine::nextEnvelope(Envelope& envelope, float attackMs, float 
             break;
 
         case EnvelopeStage::decay:
-            envelope.value = exponentialApproach(envelope.value, sustain, decayMs, rate);
+            envelope.value = sustain + (envelope.value - sustain) * coefficients[1];
             if (std::abs(envelope.value - sustain) <= 0.0005f)
             {
                 envelope.value = sustain;
@@ -242,8 +240,7 @@ float AnalogSynthEngine::nextEnvelope(Envelope& envelope, float attackMs, float 
         case EnvelopeStage::release:
             // Keep a minimum 15 ms release, matching the web version's
             // click-safe stopVoice() even when a preset asks for zero.
-            envelope.value = exponentialApproach(envelope.value, 0.0001f,
-                                                  juce::jmax(15.0f, releaseMs), rate);
+            envelope.value = 0.0001f + (envelope.value - 0.0001f) * coefficients[2];
             if (envelope.value <= 0.00011f)
             {
                 envelope.value = 0.0f;
@@ -530,6 +527,8 @@ float AnalogSynthEngine::processLadder(Voice& voice, float input, float cutoffHz
 void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lfo,
                                     float modWheel, float pitchRatio, float browserBaseCutoff,
                                     const std::array<float, 3>& oscillatorRatios,
+                                    const std::array<float, 3>& ampCoefficients,
+                                    const std::array<float, 3>& filterCoefficients,
                                     float& left, float& right)
 {
     // No portamento/glide in Analog: Mono/Legato transitions are immediate,
@@ -537,11 +536,8 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
     voice.currentFrequency = voice.targetFrequency;
 
     const auto amp = config.browserCompatible ? nextBrowserEnvelope(voice, config)
-        : nextEnvelope(voice.amp, config.ampAttackMs, config.ampDecayMs,
-                       config.ampSustain, config.ampReleaseMs, sampleRate);
-    const auto filterEnvelope = nextEnvelope(voice.filter, config.filterAttackMs,
-                                             config.filterDecayMs, config.filterSustain,
-                                             config.filterReleaseMs, sampleRate);
+        : nextEnvelope(voice.amp, config.ampSustain, ampCoefficients);
+    const auto filterEnvelope = nextEnvelope(voice.filter, config.filterSustain, filterCoefficients);
     if (voice.amp.stage == EnvelopeStage::idle)
     {
         voice.active = false;
@@ -849,6 +845,16 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
         float peak = 0.0f;
         const auto browserBaseCutoff = config.browserCompatible
             ? 25.0f * std::pow(700.0f, config.cutoff / 100.0f) : 0.0f;
+        const std::array<float, 3> ampCoefficients {
+            envelopeCoefficient(config.ampAttackMs, sampleRate),
+            envelopeCoefficient(config.ampDecayMs, sampleRate),
+            envelopeCoefficient(juce::jmax(15.0f, config.ampReleaseMs), sampleRate)
+        };
+        const std::array<float, 3> filterCoefficients {
+            envelopeCoefficient(config.filterAttackMs, sampleRate),
+            envelopeCoefficient(config.filterDecayMs, sampleRate),
+            envelopeCoefficient(juce::jmax(15.0f, config.filterReleaseMs), sampleRate)
+        };
         std::array<Voice*, voicesPerLayer> activeVoices {};
         size_t activeCount = 0;
         const auto collectActiveVoices = [&]
@@ -900,7 +906,8 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
             {
                 auto& voice = *activeVoices[i];
                 renderVoice(voice, config, lfo, layer.modWheel, pitchRatio,
-                            browserBaseCutoff, oscillatorRatios, left, right);
+                            browserBaseCutoff, oscillatorRatios, ampCoefficients,
+                            filterCoefficients, left, right);
                 if (voice.active) activeVoices[survivors++] = &voice;
             }
             activeCount = survivors;

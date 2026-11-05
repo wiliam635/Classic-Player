@@ -1,0 +1,217 @@
+{
+  "Followup": {
+    "samples": 278528,
+    "bit_identical": true,
+    "max_error": 0.0,
+    "runs": 3,
+    "cases": [
+      {
+        "kind": "hammond",
+        "voices_or_mode": "1",
+        "before_ms": 26.748,
+        "after_ms": 1.33283,
+        "reduction_pct": 95.01708538956184
+      },
+      {
+        "kind": "hammond",
+        "voices_or_mode": "32",
+        "before_ms": 61.0554,
+        "after_ms": 14.285,
+        "reduction_pct": 76.60321609554602
+      },
+      {
+        "kind": "hammond",
+        "voices_or_mode": "64",
+        "before_ms": 92.7699,
+        "after_ms": 26.1243,
+        "reduction_pct": 71.8396807585219
+      },
+      {
+        "kind": "hammond",
+        "voices_or_mode": "128",
+        "before_ms": 196.477,
+        "after_ms": 51.8367,
+        "reduction_pct": 73.61691190317443
+      },
+      {
+        "kind": "pad",
+        "voices_or_mode": "0",
+        "before_ms": 0.444336,
+        "after_ms": 0.138086,
+        "reduction_pct": 68.92306722840374
+      },
+      {
+        "kind": "pad",
+        "voices_or_mode": "1",
+        "before_ms": 0.602241,
+        "after_ms": 0.230136,
+        "reduction_pct": 61.78672657623776
+      },
+      {
+        "kind": "pad",
+        "voices_or_mode": "2",
+        "before_ms": 0.526086,
+        "after_ms": 0.313628,
+        "reduction_pct": 40.38465193903659
+      }
+    ]
+  },
+  "FollowMoog": {
+    "samples": 655360,
+    "bit_identical": true,
+    "max_error": 0,
+    "runs": 3,
+    "cases": [
+      {
+        "kind": "0",
+        "voices_or_mode": "1",
+        "before_ms": 1.41283,
+        "after_ms": 1.38266,
+        "reduction_pct": 2.1354303065478475
+      },
+      {
+        "kind": "0",
+        "voices_or_mode": "64",
+        "before_ms": 48.1895,
+        "after_ms": 43.5238,
+        "reduction_pct": 9.68198466470912
+      },
+      {
+        "kind": "0",
+        "voices_or_mode": "128",
+        "before_ms": 96.1454,
+        "after_ms": 97.3946,
+        "reduction_pct": -1.299282128942214
+      },
+      {
+        "kind": "0",
+        "voices_or_mode": "256",
+        "before_ms": 196.023,
+        "after_ms": 174.58,
+        "reduction_pct": 10.939022461649905
+      },
+      {
+        "kind": "1",
+        "voices_or_mode": "1",
+        "before_ms": 1.31442,
+        "after_ms": 1.24475,
+        "reduction_pct": 5.300436694511646
+      },
+      {
+        "kind": "1",
+        "voices_or_mode": "64",
+        "before_ms": 45.8357,
+        "after_ms": 41.5826,
+        "reduction_pct": 9.279011774664736
+      },
+      {
+        "kind": "1",
+        "voices_or_mode": "128",
+        "before_ms": 92.097,
+        "after_ms": 82.4975,
+        "reduction_pct": 10.42324940008903
+      },
+      {
+        "kind": "1",
+        "voices_or_mode": "256",
+        "before_ms": 181.75,
+        "after_ms": 180.646,
+        "reduction_pct": 0.6074277854195342
+      },
+      {
+        "kind": "2",
+        "voices_or_mode": "1",
+        "before_ms": 5.72595,
+        "after_ms": 5.94221,
+        "reduction_pct": -3.776840524279823
+      },
+      {
+        "kind": "2",
+        "voices_or_mode": "64",
+        "before_ms": 211.088,
+        "after_ms": 201.717,
+        "reduction_pct": 4.439380732206466
+      },
+      {
+        "kind": "2",
+        "voices_or_mode": "128",
+        "before_ms": 431.416,
+        "after_ms": 415.642,
+        "reduction_pct": 3.656331707678895
+      },
+      {
+        "kind": "2",
+        "voices_or_mode": "256",
+        "before_ms": 863.043,
+        "after_ms": 843.034,
+        "reduction_pct": 2.3184244585727543
+      },
+      {
+        "kind": "3",
+        "voices_or_mode": "1",
+        "before_ms": 6.14354,
+        "after_ms": 5.69259,
+        "reduction_pct": 7.340230551115479
+      },
+      {
+        "kind": "3",
+        "voices_or_mode": "64",
+        "before_ms": 212.55,
+        "after_ms": 193.465,
+        "reduction_pct": 8.97906374970595
+      },
+      {
+        "kind": "3",
+        "voices_or_mode": "128",
+        "before_ms": 438.038,
+        "after_ms": 381.337,
+        "reduction_pct": 12.944310767558987
+      },
+      {
+        "kind": "3",
+        "voices_or_mode": "256",
+        "before_ms": 839.139,
+        "after_ms": 784.153,
+        "reduction_pct": 6.552668866540579
+      },
+      {
+        "kind": "4",
+        "voices_or_mode": "1",
+        "before_ms": 5.74179,
+        "after_ms": 5.402,
+        "reduction_pct": 5.917840952037601
+      },
+      {
+        "kind": "4",
+        "voices_or_mode": "64",
+        "before_ms": 203.22,
+        "after_ms": 190.205,
+        "reduction_pct": 6.404389331758676
+      },
+      {
+        "kind": "4",
+        "voices_or_mode": "128",
+        "before_ms": 407.879,
+        "after_ms": 377.256,
+        "reduction_pct": 7.507863851779584
+      },
+      {
+        "kind": "4",
+        "voices_or_mode": "256",
+        "before_ms": 849.645,
+        "after_ms": 754.454,
+        "reduction_pct": 11.20362033555191
+      }
+    ]
+  },
+  "baseline": "91f076674fdffcc60d3cff0a74432109516c9579",
+  "scope": "Local ARM64 macOS Release engine probes, 48 kHz, 256-frame blocks; not overall app CPU or customer Intel hardware. Hammond/Pad timings taken before the intentional output calibration change.",
+  "calibration": {
+    "hammond_gain": 3.25,
+    "gain_db": 10.237667219577487,
+    "hammond_rms": 0.0285239,
+    "dx7_reference_rms": 0.0293258,
+    "difference_db": -0.240825,
+    "dx7_processor_trim_db": -18
+  }
+}

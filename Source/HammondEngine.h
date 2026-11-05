@@ -9,6 +9,9 @@ class HammondEngine
 {
 public:
     static constexpr int layerCount = Sf2Engine::layerCount;
+    // Factory DX7 reference including its processor -18 dB trim, same note/velocity. Applied
+    // after tone/effects so registration and drive character are preserved.
+    static constexpr float outputCalibration = 3.25f;
     struct Config
     {
         Sf2Engine::LayerConfig routing;
@@ -70,7 +73,7 @@ private:
     };
     void message(int layer, const juce::MidiMessage&, Config&);
     void release(Voice&);
-    float renderVoice(Voice&, Layer&, const Config&, const std::array<float,9>&, float leak);
+    float renderVoice(Voice&, Layer&, const std::array<float,9>&, float leak, int attackSamples, int releaseSamples);
     float sine(double phase) const;
     std::array<Layer,layerCount> layers;
     std::array<std::atomic<float>,layerCount> peaks {};

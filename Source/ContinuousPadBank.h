@@ -157,17 +157,37 @@ public:
                          eqSettings.lowFrequency, eqSettings.midFrequency,
                          eqSettings.highFrequency, eqSettings.lowQ,
                          eqSettings.midQ, eqSettings.highQ);
+        // The bank lock fixes selection/audio buffers for this block. Build a
+        // small ordered list of playing/fading pads and their loop geometry.
+        const int selectedPad=active.load();
+        std::array<int,count> renderingPads {};
+        std::array<double,count> overlaps {}, seams {}, increments {};
+        int renderingCount=0;
+        for(int i=0;i<count;++i)
+        {
+            const auto& p=pads[(size_t)i];
+            if(p.level<=0 && i!=selectedPad)continue;
+            renderingPads[(size_t)renderingCount++]=i;
+            const int length=p.audio != nullptr?p.audio->frames:0;
+            if(length>=4)
+            {
+                overlaps[(size_t)i]=juce::jlimit(1.0,length*.5,seconds*p.audio->rate);
+                seams[(size_t)i]=length-overlaps[(size_t)i];
+                increments[(size_t)i]=p.audio->rate/sampleRate;
+            }
+        }
         for(int sample=0;sample<output.getNumSamples();++sample)
         {
             float sum[2]{};
-            for(int i=0;i<count;++i)
+            for(int slot=0;slot<renderingCount;++slot)
             {
-                auto& p=pads[(size_t)i];const bool on=i==active.load();
+                const int i=renderingPads[(size_t)slot];
+                auto& p=pads[(size_t)i];const bool on=i==selectedPad;
                 p.level=juce::jlimit(0.f,1.f,p.level+(on?step:-step));
                 const int length=p.audio != nullptr ? p.audio->frames : 0;
                 if(p.level<=0 || length<4)continue;
-                const double overlap=juce::jlimit(1.0,length*.5,seconds*p.audio->rate);
-                const double seam=length-overlap;
+                const double overlap=overlaps[(size_t)i];
+                const double seam=seams[(size_t)i];
                 for(int ch=0;ch<2;++ch)
                 {
                     float value=read(p,ch,p.position);
@@ -178,7 +198,7 @@ public:
                     }
                     sum[ch]+=value*p.level;
                 }
-                p.position+=p.audio->rate/sampleRate;
+                p.position+=increments[(size_t)i];
                 if(p.position>=length)p.position=overlap+std::fmod(p.position-length,length-overlap);
             }
             const float v=volume.getNextValue();
