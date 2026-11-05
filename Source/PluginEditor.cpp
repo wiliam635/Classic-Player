@@ -5046,24 +5046,12 @@ public:
     void resized() override
     {
         auto area = getLocalBounds();
-        if (getHeight() < 45)
-        {
-            area.removeFromTop(8);
-            auto labels = area.removeFromTop(9);
-            const auto labelWidth = labels.getWidth() / 3;
-            lowLabel.setBounds(labels.removeFromLeft(labelWidth));
-            highLabel.setBounds(labels.removeFromLeft(labelWidth));
-            const auto buttonWidth = area.getWidth() / 3;
-            lowButton.setBounds(area.removeFromLeft(buttonWidth).reduced(1));
-            highButton.setBounds(area.removeFromLeft(buttonWidth).reduced(1));
-            resetButton.setBounds(area.reduced(1));
-            return;
-        }
-        area.removeFromTop(16); // SPLIT POINT heading and divider
-        auto labels = area.removeFromTop(14);
-        const auto labelWidth = labels.getWidth() / 3;
-        lowLabel.setBounds(labels.removeFromLeft(labelWidth));
-        highLabel.setBounds(labels.removeFromLeft(labelWidth));
+        area.removeFromTop(juce::jmin(14, getHeight() / 4));
+        auto labels = area.removeFromTop(juce::jmin(10, area.getHeight() / 3));
+        const auto third = labels.getWidth() / 3;
+        lowLabel.setBounds(labels.removeFromLeft(third));
+        highLabel.setBounds(labels.removeFromLeft(third));
+        area = area.removeFromTop(juce::jmin(34, area.getHeight()));
         const auto width = area.getWidth() / 3;
         lowButton.setBounds(area.removeFromLeft(width).reduced(1));
         highButton.setBounds(area.removeFromLeft(width).reduced(1));
@@ -5288,7 +5276,8 @@ public:
         const int cell = area.getWidth() / 5;
         auto place = [](juce::Rectangle<int> r, juce::Label& label, juce::ComboBox& box)
         {
-            label.setBounds(r.removeFromTop(16)); box.setBounds(r.reduced(3, 1));
+            label.setBounds(r.removeFromTop(16));
+            box.setBounds(r.removeFromTop(juce::jmin(34, r.getHeight())).reduced(3, 1));
         };
         auto routing = area.removeFromTop(50);
         place(routing.removeFromLeft(cell), modeLabel, modeBox);
@@ -5301,7 +5290,7 @@ public:
             auto bounds = deviceBox.getBounds();
             numaButton.setBounds(bounds.removeFromRight(48).reduced(1)); deviceBox.setBounds(bounds);
         }
-        auto split = area.removeFromTop(50);
+        auto split = area.removeFromTop(juce::jlimit(32, 60, area.getHeight() - 46));
         sensitivityButton.setBounds(split.removeFromLeft(area.getWidth() / 3).reduced(3, 8));
         splitControls.setBounds(split.reduced(3, 0));
         auto range = area.removeFromTop(50);
@@ -5579,7 +5568,8 @@ public:
         auto calibration = area.removeFromBottom(calibrationButton.isVisible() ? 28 : 0);
         auto place = [](juce::Rectangle<int> r, juce::Label& label, juce::ComboBox& box)
         {
-            label.setBounds(r.removeFromTop(16)); box.setBounds(r.reduced(3, 1));
+            label.setBounds(r.removeFromTop(16));
+            box.setBounds(r.removeFromTop(juce::jmin(34, r.getHeight())).reduced(3, 1));
         };
         auto routing = area.removeFromTop(juce::jmin(48, area.getHeight() / 3));
         const auto fifth = routing.getWidth() / 5;
@@ -5593,7 +5583,7 @@ public:
             auto bounds = deviceBox.getBounds();
             numaButton.setBounds(bounds.removeFromRight(48).reduced(1)); deviceBox.setBounds(bounds);
         }
-        auto split = area.removeFromTop(juce::jmin(50, area.getHeight() / 2));
+        auto split = area.removeFromTop(juce::jlimit(32, 60, area.getHeight() - 46));
         sensitivityButton.setBounds(split.removeFromLeft(area.getWidth() / 3).reduced(3, 8));
         splitControls.setBounds(split.reduced(3, 0));
         velocityLabel.setBounds({}); velocityBox.setBounds({});
@@ -6922,8 +6912,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         importNordPanel->setSize(actionWidth, 92);
         dialog->addCustomComponent(new CenteredPanel(importNordPanel, actionWidth, 92));
         auto* nordRouting = new LayerRoutingEditorPanel(processor, index);
-        nordRouting->setSize(actionWidth, 186);
-        dialog->addCustomComponent(new CenteredPanel(nordRouting, actionWidth, 186));
+        nordRouting->setSize(actionWidth, 164);
+        dialog->addCustomComponent(new CenteredPanel(nordRouting, actionWidth, 164));
         auto* nordTimbrePanel = new NordPianoTimbrePanel(processor, index);
         nordTimbrePanel->setSize(actionWidth, 42);
         dialog->addCustomComponent(new CenteredPanel(nordTimbrePanel, actionWidth, 42));
