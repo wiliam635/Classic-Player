@@ -24,3 +24,9 @@ Baseline: 91f076674fdffcc60d3cff0a74432109516c9579.
 ## Limits
 
 These are local engine/test results, not release installers, Windows runtime measurements or a guarantee of the same CPU reduction on the customer machine. The existing local SDK compatibility shim described by the previous audit was used only in test build objects. No installer/Actions build was triggered. The selected voice limits were preserved; heavy Moog polyphony still needs a target-hardware test.
+
+## Fixed Moog voice limit (subsequent user request)
+
+Moog/Analog now allocates exactly 32 voice slots and ignores variable polyphony requests. The Analog selector is hidden and its row uses two velocity columns. Defaults, factory presets, runtime config, exported state and legacy-state restoration expose 32. The common SF2 routing store retains its own minimum; the Analog projection and engine enforce the effective 32 independently. Other engines retain their existing voice controls. Mono remains available.
+
+Audio regression includes a 96-note sustain/voice-stealing scenario: an old 256-voice request must produce exactly the same output as a 32-voice request, with a compile-time 32-slot assertion. Factory-preset, processor restore and UI-selector visibility checks cover the effective limit. No installer/Actions run was requested for these source changes.

@@ -396,6 +396,36 @@ static void browserRegression()
     std::cout<<"32 browser presets, 44.1/48 kHz, velocity, legato/release and block-size checks passed\n";
 }
 
+static void fixedAnalogPolyphonyRegression()
+{
+    static_assert(AnalogSynthEngine::voicesPerLayer == 32);
+    const auto render = [](int requested)
+    {
+        auto engine=std::make_unique<AnalogSynthEngine>();engine->prepare(48000,256);
+        std::array<AnalogSynthEngine::Config,AnalogSynthEngine::layerCount> configs;
+        for(auto& c:configs)c.routing.enabled=false;
+        configs[0].routing.enabled=true;configs[0].routing.polyphony=requested;
+        configs[0].routing.sustainEnabled=true;configs[0].monophonic=false;
+        std::vector<float> result;
+        for(int start=0;start<8192;start+=256)
+        {
+            juce::AudioBuffer<float> audio(2,256);audio.clear();juce::MidiBuffer midi;
+            if(start==0)midi.addEvent(juce::MidiMessage::controllerEvent(1,64,127),0);
+            if(start<1024)for(int i=0;i<24;++i)
+                midi.addEvent(juce::MidiMessage::noteOn(1,24+((start/256)*24+i)%96,(juce::uint8)100),i*3);
+            if(start==2048)for(int i=0;i<96;++i)midi.addEvent(juce::MidiMessage::noteOff(1,24+i),i);
+            if(start==4096)midi.addEvent(juce::MidiMessage::controllerEvent(1,64,0),0);
+            engine->process(audio,midi,configs);
+            result.insert(result.end(),audio.getReadPointer(0),audio.getReadPointer(0)+256);
+        }
+        return result;
+    };
+    const auto normal=render(32),legacy=render(256);
+    require(normal==legacy,"legacy polyphony escaped fixed 32-voice Analog ceiling");
+    require(*std::max_element(normal.begin(),normal.end())>0.0001f,"fixed Analog test silent");
+    std::cout<<"Analog fixed 32 voices, legacy 256 request, sustain and voice stealing passed\n";
+}
+
 static void bundleModulationRegression()
 {
     for (const double rate : {44100.0, 48000.0})
@@ -468,6 +498,7 @@ int main()
         volumeRamp(fixture.getFile());
         independentAnalogTuning();
         browserRegression();
+        fixedAnalogPolyphonyRegression();
         for (bool mono : {false, true})
             for (bool transitions : {false, true})
             {

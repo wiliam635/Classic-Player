@@ -271,7 +271,7 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
     }
     else
     {
-        const auto voiceLimit = juce::jlimit(64, voicesPerLayer, config.routing.polyphony);
+        const auto voiceLimit = voicesPerLayer;
         if (config.nordRetriggerSameNote)
             for (int i = 0; i < voiceLimit; ++i)
             {

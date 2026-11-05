@@ -14,13 +14,15 @@ class AnalogSynthEngine
 {
 public:
     static constexpr int layerCount = Sf2Engine::layerCount;
-    static constexpr int voicesPerLayer = Sf2Engine::maxPolyphonyPerLayer;
+    static constexpr int voicesPerLayer = 32; // Fixed Moog ceiling, including legacy presets.
 
     enum class Waveform { triangle = 0, saw, square, pulse, sine };
 
     struct Config
     {
-        Sf2Engine::LayerConfig routing;
+        Sf2Engine::LayerConfig routing = [] {
+            Sf2Engine::LayerConfig config; config.polyphony = voicesPerLayer; return config;
+        }();
         Waveform oscillator1Wave = Waveform::saw;
         Waveform oscillator2Wave = Waveform::saw;
         Waveform oscillator3Wave = Waveform::triangle;

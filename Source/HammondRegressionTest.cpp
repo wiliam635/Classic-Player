@@ -250,6 +250,35 @@ static void continuousPadRegression()
 }
 struct LiveSetLayoutRegressionAccess
 {
+    static void analogPolyphonyUi()
+    {
+        auto processor=std::make_unique<ClassicPlayerAudioProcessor>();
+        processor->setLayerType(0,ClassicPlayerAudioProcessor::LayerType::analog);
+        auto editor=std::make_unique<ClassicPlayerAudioProcessorEditor>(*processor,false);
+        editor->setVisible(true);editor->activationPanel.setVisible(false);
+        bool opened=false;
+        for(auto* child:editor->strips[0]->getChildren())
+            if(auto* button=dynamic_cast<juce::TextButton*>(child))
+                if(button->getButtonText()=="EDITAR" && button->onClick)
+                {button->onClick();opened=true;break;}
+        check(opened,"Analog edit button not found");
+        auto* dialog=juce::Component::getCurrentlyModalComponent();
+        check(dialog!=nullptr,"Analog editor did not open");
+        int selectors=0;
+        const auto visit=[&](auto&& self,juce::Component& component)->void
+        {
+            if(auto* combo=dynamic_cast<juce::ComboBox*>(&component))
+                if(combo->getNumItems()>0 && combo->getItemText(0).contains("VOZES"))
+                {++selectors;check(!combo->isVisible(),"Moog still exposes polyphony selector");}
+            for(auto* child:component.getChildren())self(self,*child);
+        };
+        visit(visit,*dialog);check(selectors>0,"Analog routing controls not inspected");
+        dialog->exitModalState(0);
+        juce::Timer::callAfterDelay(150,[]{juce::MessageManager::getInstance()->stopDispatchLoop();});
+        juce::MessageManager::getInstance()->runDispatchLoop();
+        std::cout<<"Moog editor has no visible polyphony selector; fixed 32-voice routing passed\n";
+    }
+
     static void layerContextMenu()
     {
         auto processor = std::make_unique<ClassicPlayerAudioProcessor>();
@@ -854,6 +883,15 @@ static void analogEditorLifecycle()
 {
     auto processor=std::make_unique<ClassicPlayerAudioProcessor>();
     processor->setLayerType(0,ClassicPlayerAudioProcessor::LayerType::analog);
+    check(processor->layerConfig(0).polyphony==32,"new Analog layer not fixed at 32 voices");
+    auto legacyRouting=processor->layerConfig(0);legacyRouting.polyphony=256;
+    processor->setLayerConfig(0,legacyRouting);
+    check(processor->layerConfig(0).polyphony==32,"legacy Analog routing escaped 32 voices");
+    juce::MemoryBlock state;processor->getStateInformation(state);
+    auto restored=std::make_unique<ClassicPlayerAudioProcessor>();
+    restored->setStateInformation(state.getData(),(int)state.getSize());
+    check(restored->layerConfig(0).polyphony==32
+          &&restored->analogSynthConfig(0).routing.polyphony==32,"restored Analog limit changed");
     const auto parameter=[&](const char* suffix) {
         return processor->parameters.getParameter("layer1"+juce::String(suffix));
     };
@@ -890,6 +928,7 @@ static void analogEditorLifecycle()
         check(std::abs(slider(*panel,3)->getValue()-selected.cutoff)<0.0001,
               "reopening rounded or reset cutoff");
         check(processor->analogSynthConfig(0).browserCompatible,"closing changed synth mode");
+        check(processor->analogSynthConfig(0).routing.polyphony==32,"factory Analog preset changed fixed limit");
     }
     std::cout<<"Analog editor preset/volume/host updates and close/reopen lifecycle passed\n";
 }
@@ -1194,6 +1233,7 @@ int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
     try{
+        if (argc > 1 && juce::String(argv[1]) == "--analog-polyphony") { LiveSetLayoutRegressionAccess::analogPolyphonyUi(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--hammond-level") { hammondOutputCalibrationRegression(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--layer-menu") { LiveSetLayoutRegressionAccess::layerContextMenu(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--hammond-midi") { hammondPresetAndWheel(); return 0; }

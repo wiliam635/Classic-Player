@@ -53,6 +53,7 @@ inline AnalogSynthEngine::Config config(size_t index, const Sf2Engine::LayerConf
     const auto& p = bank.at(index);
     AnalogSynthEngine::Config c;
     c.routing = routing;
+    c.routing.polyphony = AnalogSynthEngine::voicesPerLayer;
     c.routing.release = 0.0f;
     c.browserCompatible = true;
     c.oscillator1Wave = p.waves[0]; c.oscillator2Wave = p.waves[1]; c.oscillator3Wave = p.waves[2];

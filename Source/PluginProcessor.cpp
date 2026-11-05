@@ -913,6 +913,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         dx7LayerConfigs[(size_t) i] = config;
         auto analogConfig = analogLayerConfigs[(size_t) i];
         analogConfig.routing = config;
+        analogConfig.routing.polyphony = AnalogSynthEngine::voicesPerLayer;
         analogConfig.routing.enabled = config.enabled && layerType(i) == LayerType::analog;
         // The Analog filter is rendered from its native cutoff field, while
         // the compact mixer edits the shared APVTS cutoff parameter. Mirror
@@ -1730,7 +1731,13 @@ juce::String ClassicPlayerAudioProcessor::soundFontPath(int layer) const
         return sampleEngine.path(layer);
     return engine.getSoundFontPath(layer);
 }
-Sf2Engine::LayerConfig ClassicPlayerAudioProcessor::layerConfig(int layer) const { return engine.getConfig(layer); }
+Sf2Engine::LayerConfig ClassicPlayerAudioProcessor::layerConfig(int layer) const
+{
+    auto config = engine.getConfig(layer);
+    // Shared SF2 bookkeeping has its own range; report the effective Moog ceiling.
+    if (layerType(layer) == LayerType::analog) config.polyphony = AnalogSynthEngine::voicesPerLayer;
+    return config;
+}
 void ClassicPlayerAudioProcessor::setLayerConfig(int layer, const Sf2Engine::LayerConfig& c) { engine.setConfig(layer, c); }
 void ClassicPlayerAudioProcessor::setLayerReleaseControl(int layer, float release)
 {
@@ -1998,7 +2005,7 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
     if (type == LayerType::analog && previousType != LayerType::analog)
     {
         auto config = engine.getConfig(layer);
-        config.polyphony = 64;
+        config.polyphony = AnalogSynthEngine::voicesPerLayer;
         engine.setConfig(layer, config);
         setLayerReleaseControl(layer, 0.0f);
         externalInstruments[(size_t) layer].unload();
@@ -2066,8 +2073,10 @@ bool ClassicPlayerAudioProcessor::hasAnalogSynth(int layer) const
 AnalogSynthEngine::Config ClassicPlayerAudioProcessor::analogSynthConfig(int layer) const
 {
     const juce::ScopedLock lock(getCallbackLock());
-    return juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)
+    auto config = juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)
         ? analogLayerConfigs[(size_t) layer] : AnalogSynthEngine::Config{};
+    config.routing.polyphony = AnalogSynthEngine::voicesPerLayer;
+    return config;
 }
 
 void ClassicPlayerAudioProcessor::setAnalogSynthConfig(int layer,
@@ -2076,7 +2085,8 @@ void ClassicPlayerAudioProcessor::setAnalogSynthConfig(int layer,
     const juce::ScopedLock lock(getCallbackLock());
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return;
     auto updated = config;
-    updated.routing = engine.getConfig(layer);
+    updated.routing = layerConfig(layer);
+    updated.routing.polyphony = AnalogSynthEngine::voicesPerLayer;
     // The compact mixer and the Analog editor share these parameters. Keep
     // the APVTS values in sync so the realtime engine cannot overwrite an
     // Analog-panel change on the next audio block.
@@ -4260,7 +4270,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         // existing instance avoids plugin crashes while changing programs.
         state.setProperty("externalInstrumentState" + juce::String(i + 1),
                           externalInstruments[(size_t) i].getState().toBase64Encoding(), nullptr);
-        const auto config = engine.getConfig(i);
+        const auto config = layerConfig(i);
         state.setProperty("midiChannel" + juce::String(i), config.midiChannel, nullptr);
         state.setProperty("low" + juce::String(i), config.lowNote, nullptr);
         state.setProperty("high" + juce::String(i), config.highNote, nullptr);
@@ -4873,9 +4883,11 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.highVelocity = juce::jlimit(config.lowVelocity, 127, (int) state.getProperty(
                     "velocityHigh" + juce::String(i), 127));
                 config.octave = state.getProperty("octave" + juce::String(i), 0);
-                config.polyphony = juce::jlimit(64, Sf2Engine::maxPolyphonyPerLayer,
-                    static_cast<int>(state.getProperty("polyphony" + juce::String(i),
-                                                       Sf2Engine::polyphonyPerLayer)));
+                config.polyphony = savedType == static_cast<int>(LayerType::analog)
+                    ? AnalogSynthEngine::voicesPerLayer
+                    : juce::jlimit(64, Sf2Engine::maxPolyphonyPerLayer,
+                        static_cast<int>(state.getProperty("polyphony" + juce::String(i),
+                                                           Sf2Engine::polyphonyPerLayer)));
                 config.velocityCurve = state.getProperty("velocityCurve" + juce::String(i), 0);
                 config.velocityEditorMode = juce::jlimit(0, 1, (int) state.getProperty(
                     "velocityEditorMode" + juce::String(i), 0));

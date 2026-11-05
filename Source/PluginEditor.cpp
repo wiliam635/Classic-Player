@@ -5484,6 +5484,7 @@ public:
         : processor(p), index(layer), splitControls(p, layer, lowNoteBox, highNoteBox)
     {
         const auto layerType = processor.layerType(index);
+        fixedAnalogPolyphony = layerType == ClassicPlayerAudioProcessor::LayerType::analog;
         velocityHandledExternally = layerType == ClassicPlayerAudioProcessor::LayerType::nord
             || layerType == ClassicPlayerAudioProcessor::LayerType::nordSample
             || layerType == ClassicPlayerAudioProcessor::LayerType::dx7;
@@ -5589,6 +5590,8 @@ public:
         calibrationStatus.setVisible(false);
         calibrationStatus.setColour(juce::Label::textColourId, juce::Colour(mutedText));
         calibrationStatus.setFont(juce::FontOptions(10.0f));
+        polyphonyLabel.setVisible(!fixedAnalogPolyphony);
+        polyphonyBox.setVisible(!fixedAnalogPolyphony);
         refresh();
         setSize(700, isNord ? 186 : 160);
         // Legacy calibration is no longer exposed in the NPNO routing panel.
@@ -5657,10 +5660,19 @@ public:
         splitControls.setBounds(split.reduced(3, 0));
         velocityLabel.setBounds({}); velocityBox.setBounds({});
         auto range = area;
-        const auto third = range.getWidth() / 3;
-        place(range.removeFromLeft(third), polyphonyLabel, polyphonyBox);
-        place(range.removeFromLeft(third), velocityLowLabel, velocityLowBox);
-        place(range, velocityHighLabel, velocityHighBox);
+        if (fixedAnalogPolyphony)
+        {
+            polyphonyLabel.setBounds({}); polyphonyBox.setBounds({});
+            place(range.removeFromLeft(range.getWidth()/2), velocityLowLabel, velocityLowBox);
+            place(range, velocityHighLabel, velocityHighBox);
+        }
+        else
+        {
+            const auto third = range.getWidth() / 3;
+            place(range.removeFromLeft(third), polyphonyLabel, polyphonyBox);
+            place(range.removeFromLeft(third), velocityLowLabel, velocityLowBox);
+            place(range, velocityHighLabel, velocityHighBox);
+        }
         if (calibrationButton.isVisible())
         {
             calibrationButton.setBounds(calibration.removeFromLeft(168).reduced(2, 1));
@@ -5788,8 +5800,8 @@ private:
         config.octave = octaveBox.getSelectedId() - 5;
         config.lowNote = lowNoteBox.getSelectedId() - 1;
         config.highNote = highNoteBox.getSelectedId() - 1;
-        config.polyphony = juce::jlimit(64, Sf2Engine::maxPolyphonyPerLayer,
-                                      polyphonyBox.getSelectedId());
+        config.polyphony = fixedAnalogPolyphony ? AnalogSynthEngine::voicesPerLayer
+            : juce::jlimit(64, Sf2Engine::maxPolyphonyPerLayer, polyphonyBox.getSelectedId());
         config.lowVelocity = juce::jlimit(1, 127, velocityLowBox.getSelectedId());
         config.highVelocity = juce::jlimit(config.lowVelocity, 127, velocityHighBox.getSelectedId());
         velocityHighBox.setSelectedId(config.highVelocity, juce::dontSendNotification);
@@ -5802,6 +5814,7 @@ private:
     ClassicPlayerAudioProcessor& processor;
     int index = 0;
     bool velocityHandledExternally = false;
+    bool fixedAnalogPolyphony = false;
     juce::Label modeLabel, sustainLabel, channelLabel, deviceLabel, octaveLabel,
                 velocityLabel, polyphonyLabel, velocityLowLabel, velocityHighLabel;
     juce::TextButton sensitivityButton, numaButton;
