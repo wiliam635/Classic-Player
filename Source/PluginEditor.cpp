@@ -9879,17 +9879,11 @@ void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
     if (showingLiveSet)
     {
         g.setColour(juce::Colour(paletteLine));
-        g.drawHorizontalLine(81, 14.0f, (float)interfaceCanvas.getWidth()-14.0f);
-        g.drawRoundedRectangle(juce::Rectangle<float>(14, (float)interfaceCanvas.getHeight()-76, (float)interfaceCanvas.getWidth()-28, 62), 5, 1);
+        g.drawHorizontalLine(109, 14.0f, (float)interfaceCanvas.getWidth()-14.0f);
+        g.drawRoundedRectangle(juce::Rectangle<float>(14, (float)interfaceCanvas.getHeight()-114, (float)interfaceCanvas.getWidth()-28, 100), 5, 1);
         g.setColour(juce::Colour(text));
         g.setFont(juce::FontOptions(34.0f, juce::Font::bold));
         g.drawText(localizedUiText("LIVE SET", activeUiLanguage.load()), interfaceCanvas.getWidth()/2-130, 12, 260, 56, juce::Justification::centred);
-        const int start = interfaceCanvas.getWidth()/2-100;
-        for (int i=0; i<ClassicPlayerAudioProcessor::liveSetBankCount; ++i)
-        {
-            g.setColour(juce::Colour(i == activeLiveSetBank ? teal : paletteLine));
-            g.fillEllipse((float)(start+i*26), (float)interfaceCanvas.getHeight()-49, 8, 8);
-        }
         return;
     }
     g.setGradientFill(juce::ColourGradient(juce::Colour(panelLight), 0.0f, 0.0f,
@@ -9999,13 +9993,13 @@ void ClassicPlayerAudioProcessorEditor::resized()
     {
         languageSelector.setVisible(false);
         auto liveArea = interfaceCanvas.getLocalBounds().reduced(14);
-        auto liveHeader = liveArea.removeFromTop(84);
+        auto liveHeader = liveArea.removeFromTop(96);
         cpuMeter.setBounds(350, 20, 140, 22);
         updateButton.setBounds(350, 48, 140, 22);
         appIcon.setBounds(18, 14, 54, 54);
         title.setBounds(82, 20, 260, 28);
-        versionLabel.setBounds(18, 70, 64, 14);
-        subtitle.setBounds(82, 47, 260, 20); userLabel.setBounds(82, 66, 260, 32); userLabel.setVisible(userLabel.getText().isNotEmpty());
+        versionLabel.setBounds(18, 76, 64, 14);
+        subtitle.setBounds(82, 48, 260, 16); userLabel.setBounds(82, 65, 260, 30); userLabel.setVisible(userLabel.getText().isNotEmpty());
         auto controls = liveHeader.removeFromRight(370);
         liveSetButton.setBounds(controls.removeFromRight(72).reduced(2,16));
         auto volumeArea = controls.removeFromRight(140).reduced(8,8);
@@ -10020,7 +10014,16 @@ void ClassicPlayerAudioProcessorEditor::resized()
                 banks.removeFromLeft(bank == ClassicPlayerAudioProcessor::liveSetBankCount - 1
                                      ? banks.getWidth() : bankWidth).reduced(2, 2));
 
-        auto editArea = liveArea.removeFromBottom(68).reduced(6, 10);
+        auto liveFooter = liveArea.removeFromBottom(106).reduced(6, 6);
+        auto editArea = liveFooter.removeFromTop(48);
+        auto utilities = liveFooter.removeFromBottom(32).reduced(2, 1);
+        backupButton.setBounds(utilities.removeFromLeft(112).reduced(1, 0));
+        auto panicControls = utilities.removeFromRight(178);
+        panicLearnButton.setBounds(panicControls.removeFromRight(80).reduced(1, 0));
+        panicButton.setBounds(panicControls.reduced(1, 0));
+        auto theme = utilities.withSizeKeepingCentre(210, 30);
+        skinCaption.setBounds(theme.removeFromLeft(48));
+        skinSelector.setBounds(theme.reduced(2, 0));
         editLiveSetButton.setBounds(editArea.removeFromRight(224).reduced(4, 3));
         livePreviousButton.setBounds(editArea.removeFromLeft(155).reduced(2,3));
         liveNextButton.setBounds(editArea.removeFromRight(155).reduced(2,3));

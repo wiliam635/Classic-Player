@@ -623,6 +623,21 @@ struct LiveSetLayoutRegressionAccess
             editor->showLiveSet(true);
             check(editor->liveSettingsButton.isVisible(),"Live Set settings entry hidden");
             check(!editor->audioMidiSettingsButton.isVisible(),"mixer audio button overlaps Live Set");
+            const std::array<juce::Component*,8> footerControls {{ &editor->livePreviousButton,
+                &editor->liveNextButton, &editor->editLiveSetButton, &editor->backupButton,
+                &editor->skinCaption, &editor->skinSelector, &editor->panicButton, &editor->panicLearnButton }};
+            for(size_t i=0;i<footerControls.size();++i)
+            {
+                const auto bounds=footerControls[i]->getBounds();
+                check(editor->interfaceCanvas.getLocalBounds().contains(bounds),"Live Set footer clipped");
+                for(size_t j=i+1;j<footerControls.size();++j)
+                    check(!bounds.intersects(footerControls[j]->getBounds()),"Live Set footer controls overlap");
+                for(auto& card:editor->liveSetSlotButtons)
+                    check(!bounds.intersects(card.getBounds()),"Live Set footer overlaps cards");
+            }
+            for(auto& bank:editor->liveSetBankButtons)
+                check(!editor->userLabel.getBounds().intersects(bank.getBounds()),"Live Set user label overlaps banks");
+
             for (size_t i=0;i<editor->liveSetSlotButtons.size();++i)
             {
                 const auto bounds=editor->liveSetSlotButtons[i].getBounds();
