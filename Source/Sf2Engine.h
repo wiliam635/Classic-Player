@@ -126,6 +126,11 @@ public:
 
     void prepare(double sampleRate, int maximumBlockSize);
     void reset();
+    // Prepared synths own their resources independently of the rendering lock.
+    struct PreparedSoundFont;
+    juce::Result prepareSoundFont(int layer, const juce::File& file,
+                                 std::shared_ptr<PreparedSoundFont>& prepared);
+    juce::Result installSoundFont(int layer, const std::shared_ptr<PreparedSoundFont>& prepared);
     juce::Result loadSoundFont(int layer, const juce::File& file);
     void unloadSoundFont(int layer);
     // Sends an explicit panic to every synth before a performance is replaced.
@@ -193,11 +198,13 @@ private:
         std::atomic<float> peak { 0.0f };
     };
 
-    void createSynth(Layer& layer);
+    void createSynth(Layer& layer, double sampleRate);
     void dispatchMidi(Layer& layer, const juce::MidiMessage& message);
 
     std::array<Layer, layerCount> layers;
     juce::AudioBuffer<float> scratch;
+    std::array<uint64_t, layerCount> loadGenerations {};
+    uint64_t prepareGeneration = 0;
     double currentSampleRate = 48000.0;
     int currentBlockSize = 512;
     mutable juce::CriticalSection lock;

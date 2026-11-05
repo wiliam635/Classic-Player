@@ -1489,7 +1489,6 @@ void ClassicPlayerAudioProcessor::refreshActivation()
 juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::File& file,
                                                          const juce::String& category)
 {
-    const juce::ScopedLock callbackLock(getCallbackLock());
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
         return juce::Result::fail(juce::String::fromUTF8("Layer inválida."));
     if (layerType(layer) != LayerType::sf2)
@@ -1498,12 +1497,20 @@ juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::F
         return juce::Result::fail("Arquivos .npno devem ser carregados em uma layer Nord.");
     if (category.isNotEmpty() && !soundFontCategories().contains(category))
         return juce::Result::fail("Categoria de SoundFont invalida.");
-    externalInstruments[(size_t) layer].unload();
-    analogSynthEngine.unload(layer);
-    hammondEngine.unload(layer);
-    const auto result = engine.loadSoundFont(layer, file);
+    std::shared_ptr<Sf2Engine::PreparedSoundFont> prepared;
+    const auto preparation = engine.prepareSoundFont(layer, file, prepared);
+    if (preparation.failed()) return preparation;
+    // declared after prepared so retired FluidSynth resources are destroyed
+    // only after the callback lock has been released.
+    const juce::ScopedLock callbackLock(getCallbackLock());
+    if (layerType(layer) != LayerType::sf2)
+        return juce::Result::fail("A layer foi alterada durante o carregamento do SF2.");
+    const auto result = engine.installSoundFont(layer, prepared);
     if (result.wasOk())
     {
+        externalInstruments[(size_t) layer].unload();
+        analogSynthEngine.unload(layer);
+        hammondEngine.unload(layer);
         nordLoaded[(size_t) layer].store(false, std::memory_order_release);
         sampleEngine.unload(layer);
         nordSampleEngine.unload(layer);
@@ -1518,7 +1525,6 @@ juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::F
 juce::Result ClassicPlayerAudioProcessor::loadNordPiano(int layer, const juce::File& file,
                                                          const juce::String& category)
 {
-    const juce::ScopedLock callbackLock(getCallbackLock());
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount))
         return juce::Result::fail(juce::String::fromUTF8("Layer inválida."));
     if (layerType(layer) != LayerType::nord)
@@ -1528,7 +1534,13 @@ juce::Result ClassicPlayerAudioProcessor::loadNordPiano(int layer, const juce::F
     if (category.isNotEmpty() && !soundFontCategories().contains(category))
         return juce::Result::fail(juce::String::fromUTF8("Categoria de piano Nord inválida."));
 
-    const auto result = sampleEngine.loadSample(layer, file);
+    std::shared_ptr<NordPianoDecoder::Instrument> prepared;
+    const auto preparation = sampleEngine.prepareSample(file, prepared);
+    if (preparation.failed()) return preparation;
+    const juce::ScopedLock callbackLock(getCallbackLock());
+    if (layerType(layer) != LayerType::nord)
+        return juce::Result::fail("A layer foi alterada durante o carregamento do piano.");
+    const auto result = sampleEngine.loadSample(layer, file, std::move(prepared));
     if (result.failed()) return result;
 
     externalInstruments[(size_t) layer].unload();
@@ -1555,14 +1567,14 @@ juce::Result ClassicPlayerAudioProcessor::loadNordSample(int layer, const juce::
 
     // Decode the potentially large compressed sample away from the processor
     // callback lock. The new instrument is swapped atomically by the sampler.
-    const auto result = nordSampleEngine.loadSample(layer, file);
-    if (result.failed()) return result;
+    std::shared_ptr<NordSampleDecoder::Instrument> prepared;
+    const auto preparation = nordSampleEngine.prepareSample(file, prepared);
+    if (preparation.failed()) return preparation;
     const juce::ScopedLock callbackLock(getCallbackLock());
     if (layerType(layer) != LayerType::nordSample)
-    {
-        nordSampleEngine.unload(layer);
         return juce::Result::fail(juce::String::fromUTF8("O tipo da layer mudou durante a importação."));
-    }
+    const auto result = nordSampleEngine.loadSample(layer, file, std::move(prepared));
+    if (result.failed()) return result;
     externalInstruments[(size_t) layer].unload();
     engine.unloadSoundFont(layer);
     sampleEngine.unload(layer);

@@ -132,6 +132,7 @@ public:
     {
         const auto previous = spectrumCaptureConsumers.fetch_sub(1, std::memory_order_acq_rel);
         jassert(previous > 0);
+        juce::ignoreUnused(previous);
     }
     unsigned int spectrumRevision() const noexcept
     {

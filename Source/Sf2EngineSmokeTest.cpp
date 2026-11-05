@@ -101,6 +101,54 @@ static int releaseRegression(const juce::File& file)
     return 0;
 }
 
+static int loadingRegression(const juce::File& file)
+{
+    Sf2Engine engine;
+    engine.prepare(48000.0, 256);
+    if (engine.loadSoundFont(0, file).failed()) return 20;
+    const auto original = engine.getSoundFontPath(0);
+    juce::TemporaryFile invalid(".sf2");
+    invalid.getFile().replaceWithText("not a SoundFont");
+    if (engine.loadSoundFont(0, invalid.getFile()).wasOk()
+        || engine.getSoundFontPath(0) != original) return 21;
+
+    std::shared_ptr<Sf2Engine::PreparedSoundFont> first, second;
+    if (engine.prepareSoundFont(0, file, first).failed()) return 22;
+    // Preparing a replacement must not remove or silence the current source.
+    juce::AudioBuffer<float> audio(2, 256);
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 100), 0);
+    float peak = 0.0f;
+    for (int block = 0; block < 32; ++block)
+    {
+        engine.process(audio, midi);
+        midi.clear();
+        peak = juce::jmax(peak, audio.getMagnitude(0, 256));
+    }
+    if (peak < 0.00001f) return 23;
+    if (engine.prepareSoundFont(0, file, second).failed()) return 24;
+    if (engine.installSoundFont(0, first).wasOk()) return 25;
+    auto config = engine.getConfig(0);
+    config.polyphony = 64;
+    config.gain = 0.43f;
+    engine.setConfig(0, config);
+    if (engine.installSoundFont(0, second).failed()) return 26;
+    if (engine.getConfig(0).polyphony != 64 || engine.getConfig(0).gain != 0.43f) return 32;
+    engine.process(audio, midi);
+    if (audio.getMagnitude(0, 256) != 0.0f) return 33;
+    if (engine.installSoundFont(0, second).wasOk()) return 27;
+    if (engine.prepareSoundFont(0, file, first).failed()) return 28;
+    engine.prepare(44100.0, 256);
+    if (engine.installSoundFont(0, first).wasOk()
+        || engine.getSoundFontPath(0) != original) return 29;
+    if (engine.prepareSoundFont(0, file, first).failed()) return 30;
+    engine.unloadSoundFont(0);
+    if (engine.installSoundFont(0, first).wasOk()
+        || engine.getSoundFontPath(0).isNotEmpty()) return 31;
+    std::cout << "SF2 transactional loading regression passed\n";
+    return 0;
+}
+
 int main(int argc, char** argv)
 {
     if (argc == 2 && juce::String::fromUTF8(argv[1]) == "--startup")
@@ -121,11 +169,13 @@ int main(int argc, char** argv)
     }
     if (argc != 2 && argc != 3)
     {
-        std::cerr << "Uso: ClassicPlayerEngineSmokeTest arquivo.sf2 [--benchmark|--release]\n";
+        std::cerr << "Uso: ClassicPlayerEngineSmokeTest arquivo.sf2 [--benchmark|--release|--loading]\n";
         return 2;
     }
     if (argc == 3)
     {
+        if (juce::String::fromUTF8(argv[2]) == "--loading")
+            return loadingRegression(juce::File(juce::String::fromUTF8(argv[1])));
         if (juce::String::fromUTF8(argv[2]) == "--release")
             return releaseRegression(juce::File(juce::String::fromUTF8(argv[1])));
         return juce::String::fromUTF8(argv[2]) == "--benchmark"

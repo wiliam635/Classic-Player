@@ -23,12 +23,12 @@ Sf2Engine::Sf2Engine()
 
 Sf2Engine::~Sf2Engine() = default;
 
-void Sf2Engine::createSynth(Layer& layer)
+void Sf2Engine::createSynth(Layer& layer, double sampleRate)
 {
     layer.synth.reset();
     if (!layer.settings)
         layer.settings.reset(new_fluid_settings());
-    fluid_settings_setnum(layer.settings.get(), "synth.sample-rate", currentSampleRate);
+    fluid_settings_setnum(layer.settings.get(), "synth.sample-rate", sampleRate);
     fluid_settings_setint(layer.settings.get(), "synth.threadsafe-api", 1);
     // A finite ceiling protects the real-time thread from runaway voice counts.
     // FluidSynth performs voice stealing when this ceiling is reached.
@@ -39,6 +39,7 @@ void Sf2Engine::createSynth(Layer& layer)
     // calibration; the shared output limiter still prevents clipping.
     fluid_settings_setnum(layer.settings.get(), "synth.gain", 0.65);
     layer.synth.reset(new_fluid_synth(layer.settings.get()));
+    if (!layer.synth) return;
     // Room processing belongs to the Classic layer reverb. Disable the unused
     // FluidSynth return as well as CC91 sends so its DSP cannot run in parallel.
     fluid_synth_reverb_on(layer.synth.get(), -1, 0);
@@ -69,7 +70,7 @@ void Sf2Engine::createSynth(Layer& layer)
     layer.highPassInput = { 0.0f, 0.0f };
     layer.highPassOutput = { 0.0f, 0.0f };
     layer.lowPassState = { 0.0f, 0.0f };
-    layer.gain.reset(currentSampleRate, 0.02);
+    layer.gain.reset(sampleRate, 0.02);
     layer.gain.setCurrentAndTargetValue(layer.config.gain);
     layer.compressorEnvelope = { 0.0f, 0.0f };
     layer.eq.reset();
@@ -81,6 +82,7 @@ void Sf2Engine::createSynth(Layer& layer)
 void Sf2Engine::prepare(double sampleRate, int maximumBlockSize)
 {
     const juce::ScopedLock guard(lock);
+    ++prepareGeneration;
     currentSampleRate = sampleRate;
     currentBlockSize = maximumBlockSize;
     scratch.setSize(2, maximumBlockSize, false, false, true);
@@ -104,7 +106,7 @@ void Sf2Engine::prepare(double sampleRate, int maximumBlockSize)
         const auto soundFontPath = layer.soundFontPath;
         const auto selectedBank = layer.selectedBank;
         const auto selectedProgram = layer.selectedProgram;
-        createSynth(layer);
+        createSynth(layer, currentSampleRate);
 
         if (soundFontPath.isNotEmpty())
         {
@@ -169,42 +171,69 @@ void Sf2Engine::reset()
         }
 }
 
-juce::Result Sf2Engine::loadSoundFont(int index, const juce::File& file)
+struct Sf2Engine::PreparedSoundFont
 {
+    Layer replacement;
+    int targetLayer = -1;
+    double sampleRate = 48000.0;
+    uint64_t requestGeneration = 0, audioGeneration = 0;
+    bool installed = false;
+};
+
+juce::Result Sf2Engine::prepareSoundFont(int index, const juce::File& file,
+                                       std::shared_ptr<PreparedSoundFont>& prepared)
+{
+    prepared.reset();
     if (!juce::isPositiveAndBelow(index, layerCount))
-        return juce::Result::fail(juce::String::fromUTF8("Layer inválida"));
+        return juce::Result::fail("Layer SF2 invalida.");
     if (!file.existsAsFile())
-        return juce::Result::fail(juce::String::fromUTF8("Arquivo SF2 não encontrado"));
+        return juce::Result::fail("Arquivo SF2 nao encontrado.");
 
-    const juce::ScopedLock guard(lock);
-    auto& layer = layers[(size_t) index];
-    if (!layer.synth)
-        createSynth(layer);
-
-    // A new program/layer must never inherit held notes or sustain from the
-    // previous SoundFont. This is especially audible with long pad releases.
-    if (layer.soundFontId >= 0)
+    auto pending = std::make_shared<PreparedSoundFont>();
     {
-        for (int channel = 0; channel < 16; ++channel)
-        {
-            fluid_synth_cc(layer.synth.get(), channel, 64, 0);
-            fluid_synth_all_notes_off(layer.synth.get(), channel);
-            fluid_synth_all_sounds_off(layer.synth.get(), channel);
-        }
-        layer.monoNote = -1;
-        fluid_synth_sfunload(layer.synth.get(), layer.soundFontId, 1);
+        const juce::ScopedLock guard(lock);
+        pending->targetLayer = index;
+        pending->sampleRate = currentSampleRate;
+        pending->audioGeneration = prepareGeneration;
+        pending->requestGeneration = ++loadGenerations[(size_t) index];
+        pending->replacement.config = layers[(size_t) index].config;
     }
-
-    const auto id = fluid_synth_sfload(layer.synth.get(), file.getFullPathName().toRawUTF8(), 1);
+    // Disk reads, sample allocation and synth creation must not hold either
+    // the engine rendering lock or the processor callback lock.
+    auto& replacement = pending->replacement;
+    createSynth(replacement, pending->sampleRate);
+    if (!replacement.synth)
+        return juce::Result::fail("Nao foi possivel criar o motor SF2.");
+    const auto id = fluid_synth_sfload(replacement.synth.get(), file.getFullPathName().toRawUTF8(), 1);
     if (id < 0)
-    {
-        layer.soundFontId = -1;
-        layer.soundFontPath.clear();
-        return juce::Result::fail(juce::String::fromUTF8("FluidSynth não conseguiu abrir este SF2"));
-    }
+        return juce::Result::fail("FluidSynth nao conseguiu abrir este SF2. O som atual foi mantido.");
+    replacement.soundFontId = id;
+    replacement.soundFontPath = file.getFullPathName();
+    prepared = std::move(pending);
+    return juce::Result::ok();
+}
 
-    layer.soundFontId = id;
-    layer.soundFontPath = file.getFullPathName();
+juce::Result Sf2Engine::installSoundFont(int index, const std::shared_ptr<PreparedSoundFont>& pending)
+{
+    if (!pending || pending->targetLayer != index || !juce::isPositiveAndBelow(index, layerCount))
+        return juce::Result::fail("Carregamento SF2 invalido.");
+    const juce::ScopedLock guard(lock);
+    if (pending->installed || pending->requestGeneration != loadGenerations[(size_t) index])
+        return juce::Result::fail("O carregamento SF2 foi substituido por outra troca de instrumento.");
+    if (pending->audioGeneration != prepareGeneration)
+        return juce::Result::fail("O audio foi reconfigurado durante a leitura. Carregue o SF2 novamente.");
+
+    auto& layer = layers[(size_t) index];
+    auto& replacement = pending->replacement;
+    if (replacement.config.polyphony != layer.config.polyphony)
+        fluid_synth_set_polyphony(replacement.synth.get(),
+            juce::jlimit(64, maxPolyphonyPerLayer, layer.config.polyphony));
+    // Retire the old synth into the prepared object: its destructor runs after
+    // the caller releases the callback lock, never in the audio callback.
+    layer.synth.swap(replacement.synth);
+    layer.settings.swap(replacement.settings);
+    layer.soundFontPath.swapWith(replacement.soundFontPath);
+    layer.soundFontId = replacement.soundFontId;
     layer.selectedBank = 0;
     layer.selectedProgram = 0;
     layer.monoNote = -1;
@@ -222,7 +251,25 @@ juce::Result Sf2Engine::loadSoundFont(int index, const juce::File& file)
     layer.modulationPhase = 0.0;
     layer.effectTailPending = false;
     layer.effectQuietSamples = 0;
+    layer.lastCutoff = layer.lastReverb = layer.lastPortamento = layer.lastMono = -1;
+    layer.lastAppliedAttackTimecents = layer.lastAppliedDecayTimecents = -100000.0f;
+    layer.lastAppliedSustainCentibels = layer.lastAppliedReleaseTimecents = -100000.0f;
+    layer.lastMuteVolumeChannels.fill(0);
+    layer.lastChorusParameters.fill(-1.0f);
+    layer.lastReverbParameters.fill(-1.0f);
+    layer.compressorEnvelope = { 0.0f, 0.0f };
+    layer.eq.reset();
+    layer.nativeReverb.reset();
+    pending->installed = true;
     return juce::Result::ok();
+}
+
+juce::Result Sf2Engine::loadSoundFont(int index, const juce::File& file)
+{
+    std::shared_ptr<PreparedSoundFont> prepared;
+    const auto result = prepareSoundFont(index, file, prepared);
+    if (result.failed()) return result;
+    return installSoundFont(index, prepared);
 }
 
 void Sf2Engine::stopAllSounds()
@@ -251,6 +298,7 @@ void Sf2Engine::unloadSoundFont(int index)
 {
     if (!juce::isPositiveAndBelow(index, layerCount)) return;
     const juce::ScopedLock guard(lock);
+    ++loadGenerations[(size_t) index];
     auto& layer = layers[(size_t) index];
     if (layer.synth && layer.soundFontId >= 0)
     {
