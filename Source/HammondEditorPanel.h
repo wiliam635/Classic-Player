@@ -34,6 +34,9 @@ class HammondEditorPanel final : public juce::Component, private juce::Timer
             g.setColour(juce::Colours::black);
             g.fillRoundedRectangle(centre - 4.0f, (float)y + 2.0f, 8.0f,
                                    juce::jmax(1.0f, (float)height - 4.0f), 4.0f);
+            g.setColour(slider.findColour(juce::Slider::trackColourId).withAlpha(0.7f));
+            g.drawRoundedRectangle(centre - 4.0f, (float)y + 2.0f, 8.0f,
+                                   juce::jmax(1.0f, (float)height - 4.0f), 4.0f, 1.0f);
             const auto index = juce::jlimit(0, 2, (int) slider.getProperties()["drawbarColour"]);
             const auto thumbWidth = juce::jmin(31.0f, (float)width * 0.65f);
             const auto thumbHeight = juce::jmin(37.0f, (float)height * 0.36f);
@@ -212,6 +215,10 @@ public:
         const float cell=(width-16.0f)/9.0f;
         const float top=52.0f,bottom=drawbarBottom-28.0f;
         for(int i=0;i<9;++i){
+            const auto lane = juce::Rectangle<float>(8.0f + cell * i + 2.0f, 29.0f,
+                                                       cell - 4.0f, drawbarBottom - 33.0f);
+            g.setColour(surface.darker(0.45f)); g.fillRoundedRectangle(lane, 6.0f);
+            g.setColour(accent.withAlpha(0.16f)); g.drawRoundedRectangle(lane, 6.0f, 1.0f);
             const float x=8.0f+cell*(float)i+cell*0.48f+8.0f;
             for(int step=0;step<=8;++step){
                 const float y=bottom-(bottom-top)*(float)step/8.0f;

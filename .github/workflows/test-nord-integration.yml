@@ -36,6 +36,21 @@ jobs:
             cmake --preset '${{ matrix.preset }}' ${{ matrix.flags }}
           fi
       - name: Compile actual engines and processor
-        run: cmake --build build/${{ matrix.preset }} --config Release --target ClassicPlayerMasterMidiTest ClassicPlayerAudioRegressionTest --parallel 2
+        run: cmake --build build/${{ matrix.preset }} --config Release --target ClassicPlayerMasterMidiTest ClassicPlayerAudioRegressionTest ClassicPlayerHammondTest --parallel 2
       - name: Run audio and state regressions
         run: ctest --test-dir build/${{ matrix.preset }} -C Release -R "^(audio-regression|master-midi)$" --output-on-failure
+      - name: Validate responsive interface and capture previews
+        shell: bash
+        run: |
+          mkdir -p visual-previews
+          testbin=$(find build/${{ matrix.preset }} -type f \( -name ClassicPlayerHammondTest -o -name ClassicPlayerHammondTest.exe -o -name "Classic Player Hammond Test" -o -name "Classic Player Hammond Test.exe" \) | head -1)
+          test -n "$testbin"
+          "$testbin" --responsive-ui "$PWD/visual-previews/responsive.png"
+          "$testbin" --live-layout "$PWD/visual-previews/live-set.png"
+          "$testbin" "$PWD/visual-previews/hammond.png"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Visual-previews-${{ matrix.os }}
+          path: visual-previews/*.png
+          if-no-files-found: warn

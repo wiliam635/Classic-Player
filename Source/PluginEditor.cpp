@@ -56,6 +56,44 @@ juce::uint32 yellow = uiPalettes[0].highlight;
 juce::uint32 text = uiPalettes[0].text;
 juce::uint32 mutedText = uiPalettes[0].mutedText;
 
+// Shared visual vocabulary: colour comes exclusively from the selected theme.
+void paintControlCard(juce::Graphics& g, juce::Rectangle<float> bounds)
+{
+    if (bounds.isEmpty()) return;
+    g.setGradientFill(juce::ColourGradient(juce::Colour(panelLight).withAlpha(0.45f), bounds.getX(), bounds.getY(),
+                                           juce::Colour(background).withAlpha(0.35f), bounds.getX(), bounds.getBottom(), false));
+    g.fillRoundedRectangle(bounds, 9.0f);
+    g.setColour(juce::Colour(teal).withAlpha(0.42f));
+    g.drawRoundedRectangle(bounds.reduced(0.5f), 9.0f, 1.0f);
+}
+
+void paintHeaderRibbon(juce::Graphics& g, juce::Rectangle<float> bounds)
+{
+    // Cache the decorative lines; repainting meters never rebuilds these paths.
+    static juce::Image artwork;
+    static juce::uint32 artworkAccent = 0;
+    if (!artwork.isValid() || artworkAccent != teal)
+    {
+        artworkAccent = teal;
+        artwork = juce::Image(juce::Image::ARGB, 480, 80, true);
+        juce::Graphics ink(artwork);
+        for (int line = 0; line < 14; ++line)
+        {
+            juce::Path wave;
+            for (int x = 0; x <= 480; x += 4)
+            {
+                const float phase = x / 480.0f;
+                const float y = 38.0f + std::sin(phase * juce::MathConstants<float>::twoPi + line * 0.08f)
+                    * (13.0f + line * 0.65f);
+                if (x == 0) wave.startNewSubPath((float)x, y); else wave.lineTo((float)x, y);
+            }
+            ink.setColour(juce::Colour(teal).withAlpha(0.12f + line * 0.018f));
+            ink.strokePath(wave, juce::PathStrokeType(0.8f));
+        }
+    }
+    g.drawImage(artwork, bounds, juce::RectanglePlacement::stretchToFit);
+}
+
 void paintBrushedSteel(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
     const bool dark = activeUiPalette == 6;
@@ -1685,6 +1723,20 @@ public:
                           float sliderPos, float minSliderPos, float maxSliderPos,
                           juce::Slider::SliderStyle style, juce::Slider& slider) override
     {
+        if (style == juce::Slider::LinearHorizontal)
+        {
+            const auto cy = y + height * 0.5f;
+            const auto track = juce::Rectangle<float>((float)x, cy - 3.0f, (float)width, 6.0f);
+            g.setColour(juce::Colour(paletteLine)); g.fillRoundedRectangle(track, 3.0f);
+            g.setColour(juce::Colour(teal));
+            g.fillRoundedRectangle(track.withWidth(juce::jlimit(0.0f, (float)width, sliderPos - x)), 3.0f);
+            const auto thumb = juce::Rectangle<float>(16.0f, 16.0f).withCentre({sliderPos, cy});
+            g.setGradientFill(juce::ColourGradient(juce::Colour(text), thumb.getX(), thumb.getY(),
+                                                   juce::Colour(teal), thumb.getRight(), thumb.getBottom(), false));
+            g.fillEllipse(thumb);
+            g.setColour(juce::Colour(background)); g.drawEllipse(thumb, 1.0f);
+            return;
+        }
         if (style != juce::Slider::LinearVertical)
         {
             LookAndFeel_V4::drawLinearSlider(g, x, y, width, height, sliderPos,
@@ -1777,6 +1829,17 @@ public:
         // New dialogs should start in the selected palette, including their
         // JUCE-drawn background and frame (not only the embedded controls).
         applyUiSkinToComponentTree(*this, uiPalettes[(size_t) activeUiPalette]);
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        juce::AlertWindow::paint(g);
+        const auto ribbonWidth = juce::jmin(150.0f, getWidth() * 0.17f);
+        paintHeaderRibbon(g, { 8.0f, 8.0f, ribbonWidth, 60.0f });
+        paintHeaderRibbon(g, { getWidth() - ribbonWidth - 8.0f, 8.0f, ribbonWidth, 60.0f });
+        for (int i = 0; i < getNumCustomComponents(); ++i)
+            if (auto* child = getCustomComponent(i))
+                paintControlCard(g, child->getBoundsInParent().toFloat().expanded(3.0f, 2.0f));
     }
 
     void userTriedToCloseWindow() override { exitModalState(0); }
@@ -2002,11 +2065,13 @@ public:
         }
 
         const auto cellWidth = getWidth() / columns;
+        const auto rowCount = juce::jmax(1, (knobs.size() + columns - 1) / columns);
+        const auto rowHeight = getHeight() / rowCount;
         for (int item = 0; item < knobs.size(); ++item)
         {
             const auto column = item % columns;
             const auto row = item / columns;
-            auto cell = juce::Rectangle<int>(column * cellWidth, row * 124, cellWidth, 124).reduced(5, 2);
+            auto cell = juce::Rectangle<int>(column * cellWidth, row * rowHeight, cellWidth, rowHeight).reduced(5, 2);
             labels[item]->setBounds(cell.removeFromTop(21));
             knobs[item]->setBounds(cell.reduced(2, 0));
         }
@@ -2298,7 +2363,12 @@ public:
         envelope.lineTo(x2, ySustain);
         envelope.lineTo(x3, ySustain);
         envelope.lineTo(x4, yBottom);
-        g.setColour(juce::Colour(0xff1682ff));
+        auto filled = envelope;
+        filled.closeSubPath();
+        g.setGradientFill(juce::ColourGradient(juce::Colour(teal).withAlpha(0.25f), x0, yTop,
+                                               juce::Colour(teal).withAlpha(0.01f), x0, yBottom, false));
+        g.fillPath(filled);
+        g.setColour(juce::Colour(teal));
         g.strokePath(envelope, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved,
                                                      juce::PathStrokeType::rounded));
 
@@ -2353,6 +2423,8 @@ private:
     {
         g.setColour(colour);
         g.fillEllipse(centre.x - 5.0f, centre.y - 5.0f, 10.0f, 10.0f);
+        g.setColour(juce::Colour(text));
+        g.drawEllipse(centre.x - 6.5f, centre.y - 6.5f, 13.0f, 13.0f, 1.1f);
     }
 
     static void drawStageLabel(juce::Graphics& g, const juce::String& label,
@@ -2490,7 +2562,7 @@ public:
         save.onClick = [this] { saveCurve(); };
         load.onClick = [this] { loadCurve(); };
         updateControls();
-        setSize(650, 388);
+        setSize(760, 414);
     }
 
     void resized() override
@@ -2501,7 +2573,7 @@ public:
         mode.setBounds(top.removeFromLeft(225).reduced(2));
         activate.setBounds(top.removeFromRight(160).reduced(2));
         area.removeFromTop(8);
-        auto chart = area.removeFromTop(228);
+        auto chart = area.removeFromTop(juce::jmax(180, area.getHeight() - 88));
         auto left = chart.removeFromLeft(64);
         minimumLabel.setBounds(left.removeFromTop(20));
         minimum.setBounds(left.reduced(3, 0));
@@ -2527,27 +2599,43 @@ private:
         std::function<void(const VelocityTable&)> onDraw;
         void setTable(const VelocityTable& next) { table = next; repaint(); }
         void setEditable(bool next) { editable = next; setMouseCursor(next ? juce::MouseCursor::CrosshairCursor : juce::MouseCursor::NormalCursor); }
+        juce::Rectangle<float> plotBounds() const
+        {
+            auto r = getLocalBounds().toFloat().reduced(6.0f);
+            r.removeFromLeft(36.0f); r.removeFromBottom(27.0f); r.removeFromTop(7.0f);
+            return r;
+        }
         void paint(juce::Graphics& g) override
         {
-            auto bounds = getLocalBounds().toFloat().reduced(5.0f);
-            g.setColour(juce::Colour(0xff101b25));
-            g.fillRoundedRectangle(bounds, 4.0f);
-            bounds = bounds.reduced(12.0f);
-            g.setColour(juce::Colour(0xff36505b));
-            for (int line = 0; line <= 4; ++line)
+            paintControlCard(g, getLocalBounds().toFloat().reduced(1.0f));
+            const auto bounds = plotBounds();
+            g.setFont(juce::FontOptions(10.0f));
+            for (int line = 0; line <= 8; ++line)
             {
-                const auto x = bounds.getX() + bounds.getWidth() * line / 4.0f;
-                const auto y = bounds.getY() + bounds.getHeight() * line / 4.0f;
+                const auto amount = line / 8.0f;
+                const auto x = bounds.getX() + bounds.getWidth() * amount;
+                const auto y = bounds.getBottom() - bounds.getHeight() * amount;
+                g.setColour(juce::Colour(paletteLine).withAlpha(0.65f));
                 g.drawVerticalLine(juce::roundToInt(x), bounds.getY(), bounds.getBottom());
                 g.drawHorizontalLine(juce::roundToInt(y), bounds.getX(), bounds.getRight());
+                const auto value = juce::String(line == 0 ? 1 : line == 8 ? 127 : line * 16);
+                g.setColour(juce::Colour(mutedText));
+                g.drawText(value, bounds.getX() - 34, y - 6, 29.0f, 12.0f, juce::Justification::centredRight);
+                g.drawText(value, x - 12, bounds.getBottom() + 3, 24.0f, 12.0f, juce::Justification::centred);
             }
-            g.setColour(juce::Colour(0xff70a8ad));
+            juce::Path outline;
             for (int input = 1; input <= 127; ++input)
             {
                 const auto x = bounds.getX() + (input - 1) * bounds.getWidth() / 126.0f;
                 const auto y = bounds.getBottom() - (table[(size_t) input] - 1) * bounds.getHeight() / 126.0f;
-                g.drawLine(x, bounds.getBottom(), x, y, 2.0f);
+                g.setColour(juce::Colour(teal).withAlpha(0.4f));
+                g.drawLine(x, bounds.getBottom(), x, y, 1.0f);
+                if (input == 1) outline.startNewSubPath(x, y); else outline.lineTo(x, y);
             }
+            g.setColour(juce::Colour(teal));
+            g.strokePath(outline, juce::PathStrokeType(2.0f));
+            g.setColour(juce::Colour(mutedText));
+            g.drawText("MIDI IN / OUT", bounds.withY(bounds.getBottom() + 16).withHeight(12), juce::Justification::centred);
         }
         void mouseDown(const juce::MouseEvent& event) override
         {
@@ -2557,7 +2645,7 @@ private:
         void mouseDrag(const juce::MouseEvent& event) override
         {
             if (!editable) return;
-            const auto bounds = getLocalBounds().toFloat().reduced(17.0f);
+            const auto bounds = plotBounds();
             const auto x = juce::jlimit(1, 127, 1 + juce::roundToInt(
                 (event.position.x - bounds.getX()) * 126.0f / bounds.getWidth()));
             const auto y = juce::jlimit(1, 127, 1 + juce::roundToInt(
@@ -2800,6 +2888,29 @@ static int editorContentWidth(const juce::Component* owner, int preferred)
     return juce::jmin(preferred, juce::jmax(620, owner->getTopLevelComponent()->getWidth() - 72));
 }
 
+class ReverbRoomPanel final : public juce::Component
+{
+public:
+    explicit ReverbRoomPanel(juce::Component* controls) : knobs(controls)
+    {
+        addAndMakeVisible(*knobs); setSize(700, 190);
+    }
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(8);
+        artwork = area.removeFromLeft(area.getWidth() / 5).reduced(2);
+        area.removeFromLeft(12); knobs->setBounds(area);
+    }
+    void paint(juce::Graphics& g) override
+    {
+        paintControlCard(g, getLocalBounds().toFloat().reduced(1.0f));
+        drawCategoryArtwork(g, artwork, "Piano Acustico", juce::Colour(teal));
+    }
+private:
+    std::unique_ptr<juce::Component> knobs;
+    juce::Rectangle<int> artwork;
+};
+
 class EffectPresetPanel final : public juce::Component
 {
 public:
@@ -2829,7 +2940,7 @@ public:
     {
         auto area = getLocalBounds().reduced(4, 3);
         label.setBounds(area.removeFromLeft(120));
-        presets.setBounds(area.removeFromLeft(330));
+        presets.setBounds(area);
     }
 
     void setSelectedPreset(int index)
@@ -3338,17 +3449,20 @@ public:
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced(2, 2);
-        auto row = area.removeFromTop(27);
-        categoryLabel.setBounds(isSampleLayer ? juce::Rectangle<int>{} : row.removeFromLeft(100));
-        categoryBox.setBounds(isSampleLayer ? juce::Rectangle<int>{} : row.removeFromLeft(260).reduced(2, 1));
-        importButton.setBounds(row.removeFromLeft(row.getWidth() / 2).reduced(2, 1));
-        importBundleButton.setBounds(row.reduced(2, 1));
-        row = area.removeFromTop(27);
-        libraryLabel.setBounds(row.removeFromLeft(100));
-        libraryBox.setBounds(row.removeFromLeft(juce::jmax(90, row.getWidth() - 230)).reduced(2, 1));
-        bundleMenuButton.setBounds(row.removeFromLeft(125).reduced(2, 1));
-        deleteButton.setBounds(row.reduced(2, 1));
+        auto area = getLocalBounds().reduced(10, 6);
+        auto actions = area.removeFromRight(area.getWidth() * 2 / 5);
+        area.removeFromRight(14);
+        auto category = area.removeFromLeft(isSampleLayer ? 0 : area.getWidth() / 3);
+        categoryLabel.setBounds(category.removeFromTop(21));
+        categoryBox.setBounds(category.removeFromTop(36).reduced(2));
+        area.removeFromLeft(isSampleLayer ? 0 : 8);
+        libraryLabel.setBounds(area.removeFromTop(21));
+        libraryBox.setBounds(area.removeFromTop(36).reduced(2));
+        auto top = actions.removeFromTop(actions.getHeight() / 2);
+        importButton.setBounds(top.removeFromLeft(top.getWidth() / 2).reduced(3));
+        importBundleButton.setBounds(top.reduced(3));
+        bundleMenuButton.setBounds(actions.removeFromLeft(actions.getWidth() / 2).reduced(3));
+        deleteButton.setBounds(actions.reduced(3));
     }
 
 private:
@@ -3724,11 +3838,11 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        g.fillAll(juce::Colour(0xff0a1118));
+        g.fillAll(juce::Colour(background));
         auto graph = getLocalBounds().toFloat().reduced(42.0f, 22.0f);
         graph.removeFromBottom(24.0f);
         graph.removeFromLeft(8.0f);
-        g.setColour(juce::Colour(0xff25323c));
+        g.setColour(juce::Colour(panel));
         g.fillRect(graph);
 
         const auto toX = [graph](float frequency)
@@ -5156,48 +5270,45 @@ public:
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced(12);
-        auto top = area.removeFromTop(compactLayout ? 24 : 26);
-        categoryLabel.setBounds(top.removeFromLeft(105)); categoryBox.setBounds(top.removeFromLeft(250));
-        importButton.setBounds(top.removeFromLeft(150).reduced(2)); deleteButton.setBounds(top.reduced(2));
-        auto row = area.removeFromTop(compactLayout ? 22 : 25);
-        libraryLabel.setBounds(row.removeFromLeft(105)); libraryBox.setBounds(row);
-        row = area.removeFromTop(compactLayout ? 22 : 25);
-        presetLabel.setBounds(row.removeFromLeft(105)); presetBox.setBounds(row);
-        area.removeFromTop(compactLayout ? 3 : 10);
-        const auto cell = area.getWidth() / 4;
-        auto place = [compact = compactLayout](juce::Rectangle<int> r, juce::Label& l, juce::ComboBox& b)
+        auto area = getLocalBounds().reduced(10, 6);
+        auto header = area.removeFromTop(82);
+        auto actions = header.removeFromRight(header.getWidth() * 2 / 5);
+        header.removeFromRight(12);
+        auto category = header.removeFromLeft(header.getWidth() / 3);
+        categoryLabel.setBounds(category.removeFromTop(20));
+        categoryBox.setBounds(category.removeFromTop(34).reduced(2));
+        header.removeFromLeft(8);
+        libraryLabel.setBounds(header.removeFromTop(20));
+        libraryBox.setBounds(header.removeFromTop(34).reduced(2));
+        auto top = actions.removeFromTop(36);
+        importButton.setBounds(top.removeFromLeft(top.getWidth() / 2).reduced(2));
+        deleteButton.setBounds(top.reduced(2));
+        presetLabel.setBounds(actions.removeFromLeft(52));
+        presetBox.setBounds(actions.reduced(2, 5));
+        const int cell = area.getWidth() / 5;
+        auto place = [](juce::Rectangle<int> r, juce::Label& label, juce::ComboBox& box)
         {
-            l.setBounds(r.removeFromTop(compact ? 12 : 18));
-            b.setBounds(r.reduced(2, compact ? 0 : 2));
+            label.setBounds(r.removeFromTop(16)); box.setBounds(r.reduced(3, 1));
         };
-        for (int rowIndex = 0; rowIndex < 2; ++rowIndex)
+        auto routing = area.removeFromTop(50);
+        place(routing.removeFromLeft(cell), modeLabel, modeBox);
+        place(routing.removeFromLeft(cell), sustainLabel, sustainBox);
+        place(routing.removeFromLeft(cell), channelLabel, channelBox);
+        place(routing.removeFromLeft(cell), deviceLabel, deviceBox);
+        place(routing, octaveLabel, octaveBox);
+        if (numaButton.isVisible())
         {
-            auto line = area.removeFromTop(rowIndex == 0 ? 42 : 60);
-            if (rowIndex == 0)
-            {
-                place(line.removeFromLeft(cell), modeLabel, modeBox);
-                place(line.removeFromLeft(cell), sustainLabel, sustainBox);
-                place(line.removeFromLeft(cell), channelLabel, channelBox);
-                place(line, deviceLabel, deviceBox);
-                if (numaButton.isVisible())
-                {
-                    auto bounds = deviceBox.getBounds();
-                    numaButton.setBounds(bounds.removeFromRight(56).reduced(1, 1));
-                    deviceBox.setBounds(bounds);
-                }
-                continue;
-            }
-
-            place(line.removeFromLeft(cell), octaveLabel, octaveBox);
-            auto splitArea = line.removeFromLeft(cell * 3);
-            splitControls.setBounds(splitArea.reduced(1, 0));
+            auto bounds = deviceBox.getBounds();
+            numaButton.setBounds(bounds.removeFromRight(48).reduced(1)); deviceBox.setBounds(bounds);
         }
-        auto velocityRow = area.removeFromTop(compactLayout ? 38 : 44);
-        sensitivityButton.setBounds(velocityRow.removeFromLeft(cell).reduced(2, 3));
-        place(velocityRow.removeFromLeft(cell), polyphonyLabel, polyphonyBox);
-        place(velocityRow.removeFromLeft(cell), velocityLowLabel, velocityLowBox);
-        place(velocityRow, velocityHighLabel, velocityHighBox);
+        auto split = area.removeFromTop(50);
+        sensitivityButton.setBounds(split.removeFromLeft(area.getWidth() / 3).reduced(3, 8));
+        splitControls.setBounds(split.reduced(3, 0));
+        auto range = area.removeFromTop(50);
+        const int third = range.getWidth() / 3;
+        place(range.removeFromLeft(third), polyphonyLabel, polyphonyBox);
+        place(range.removeFromLeft(third), velocityLowLabel, velocityLowBox);
+        place(range, velocityHighLabel, velocityHighBox);
     }
 
 private:
@@ -5464,44 +5575,38 @@ public:
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced(8);
-        const auto cellWidth = area.getWidth() / 4;
-        auto place = [](juce::Rectangle<int> cell, juce::Label& label, juce::ComboBox& box)
+        auto area = getLocalBounds().reduced(8, 4);
+        auto calibration = area.removeFromBottom(calibrationButton.isVisible() ? 28 : 0);
+        auto place = [](juce::Rectangle<int> r, juce::Label& label, juce::ComboBox& box)
         {
-            label.setBounds(cell.removeFromTop(18));
-            box.setBounds(cell.reduced(2, 1));
+            label.setBounds(r.removeFromTop(16)); box.setBounds(r.reduced(3, 1));
         };
-        const auto calibrationRowHeight = calibrationButton.isVisible() ? 28 : 0;
-        auto calibrationRow = area.removeFromBottom(calibrationRowHeight);
-        auto modeRow = area.removeFromTop(42);
-        place(modeRow.removeFromLeft(cellWidth), modeLabel, modeBox);
-        place(modeRow.removeFromLeft(cellWidth), sustainLabel, sustainBox);
-        place(modeRow.removeFromLeft(cellWidth), channelLabel, channelBox);
-        place(modeRow, deviceLabel, deviceBox);
+        auto routing = area.removeFromTop(juce::jmin(48, area.getHeight() / 3));
+        const auto fifth = routing.getWidth() / 5;
+        place(routing.removeFromLeft(fifth), modeLabel, modeBox);
+        place(routing.removeFromLeft(fifth), sustainLabel, sustainBox);
+        place(routing.removeFromLeft(fifth), channelLabel, channelBox);
+        place(routing.removeFromLeft(fifth), deviceLabel, deviceBox);
+        place(routing, octaveLabel, octaveBox);
         if (numaButton.isVisible())
         {
             auto bounds = deviceBox.getBounds();
-            numaButton.setBounds(bounds.removeFromRight(56).reduced(1, 1));
-            deviceBox.setBounds(bounds);
+            numaButton.setBounds(bounds.removeFromRight(48).reduced(1)); deviceBox.setBounds(bounds);
         }
-
-        auto splitRow = area.removeFromTop(60);
-        place(splitRow.removeFromLeft(cellWidth), octaveLabel, octaveBox);
-        auto splitArea = splitRow.removeFromLeft(cellWidth * 3);
-        splitControls.setBounds(splitArea.reduced(1, 0));
-        auto velocityRow = area;
-        auto sensitivityArea = velocityRow.removeFromLeft(cellWidth);
-        sensitivityButton.setBounds(sensitivityArea.reduced(2, 2));
-        velocityLabel.setBounds({});
-        velocityBox.setBounds({});
-        place(velocityRow.removeFromLeft(cellWidth), polyphonyLabel, polyphonyBox);
-        place(velocityRow.removeFromLeft(cellWidth), velocityLowLabel, velocityLowBox);
-        place(velocityRow, velocityHighLabel, velocityHighBox);
-        if (calibrationRowHeight > 0)
+        auto split = area.removeFromTop(juce::jmin(50, area.getHeight() / 2));
+        sensitivityButton.setBounds(split.removeFromLeft(area.getWidth() / 3).reduced(3, 8));
+        splitControls.setBounds(split.reduced(3, 0));
+        velocityLabel.setBounds({}); velocityBox.setBounds({});
+        auto range = area;
+        const auto third = range.getWidth() / 3;
+        place(range.removeFromLeft(third), polyphonyLabel, polyphonyBox);
+        place(range.removeFromLeft(third), velocityLowLabel, velocityLowBox);
+        place(range, velocityHighLabel, velocityHighBox);
+        if (calibrationButton.isVisible())
         {
-            calibrationButton.setBounds(calibrationRow.removeFromLeft(168).reduced(2, 1));
-            calibrationCancelButton.setBounds(calibrationRow.removeFromLeft(92).reduced(2, 1));
-            calibrationStatus.setBounds(calibrationRow.reduced(4, 1));
+            calibrationButton.setBounds(calibration.removeFromLeft(168).reduced(2, 1));
+            calibrationCancelButton.setBounds(calibration.removeFromLeft(92).reduced(2, 1));
+            calibrationStatus.setBounds(calibration.reduced(4, 1));
         }
     }
 
@@ -6759,7 +6864,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     if (sf2Panel != nullptr)
     {
         sf2Panel->useCompactLayout(true);
-        sf2Panel->setSize(620, 236);
+        sf2Panel->setSize(actionWidth, 244);
     }
     knobs->useDenseGrid(true);
     knobs->setSize(actionWidth, 104);
@@ -6790,8 +6895,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         void resized() override
         {
             content->setBounds(getLocalBounds().withSizeKeepingCentre(
-                juce::jmin(width, content->getWidth()),
-                juce::jmin(getHeight(), content->getHeight())));
+                juce::jmin(width, getWidth()), getHeight()));
         }
 
     private:
@@ -6815,8 +6919,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
                     safe->categoryBox.setSelectedId(selected + 1, juce::sendNotificationSync);
             },
             [safe] { if (safe != nullptr) safe->refresh(); });
-        importNordPanel->setSize(actionWidth, 58);
-        dialog->addCustomComponent(new CenteredPanel(importNordPanel, actionWidth, 58));
+        importNordPanel->setSize(actionWidth, 92);
+        dialog->addCustomComponent(new CenteredPanel(importNordPanel, actionWidth, 92));
         auto* nordRouting = new LayerRoutingEditorPanel(processor, index);
         nordRouting->setSize(actionWidth, 186);
         dialog->addCustomComponent(new CenteredPanel(nordRouting, actionWidth, 186));
@@ -6828,8 +6932,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     {
         auto* importSamplePanel = new NordPianoImportPanel(processor, index, {}, {},
             [safe] { if (safe != nullptr) safe->refresh(); }, true);
-        importSamplePanel->setSize(actionWidth, 58);
-        dialog->addCustomComponent(new CenteredPanel(importSamplePanel, actionWidth, 58));
+        importSamplePanel->setSize(actionWidth, 92);
+        dialog->addCustomComponent(new CenteredPanel(importSamplePanel, actionWidth, 92));
         auto* nsmpRouting = new LayerRoutingEditorPanel(processor, index);
         nsmpRouting->setSize(actionWidth, 156);
         dialog->addCustomComponent(new CenteredPanel(nsmpRouting, actionWidth, 156));
@@ -6838,7 +6942,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     // On a 13-inch display the complete editor, including numeric values and
     // footer, must fit without an inner scroll area.
     if (sf2Panel != nullptr)
-        dialog->addCustomComponent(new CenteredPanel(sf2Panel, 620, 236));
+        dialog->addCustomComponent(new CenteredPanel(sf2Panel, actionWidth, 244));
     const auto layerType = processor.layerType(index);
     if (layerType == ClassicPlayerAudioProcessor::LayerType::sf2
         || layerType == ClassicPlayerAudioProcessor::LayerType::nord
@@ -6847,13 +6951,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         auto* dynamicsButtons = new LayerDynamicsButtons(
             [safe] { if (safe != nullptr) safe->showAdsrEditor(); },
             [safe] { if (safe != nullptr) safe->showVelocityEditor(); });
-        dialog->addCustomComponent(new CenteredPanel(dynamicsButtons, 620, 36));
+        dialog->addCustomComponent(new CenteredPanel(dynamicsButtons, actionWidth, 38));
     }
     dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
-        [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 620, 28));
-    dialog->addCustomComponent(new CenteredPanel(new LayerInputOptionsPanel(processor, index), 620, 32));
-    dialog->addCustomComponent(new CenteredPanel(knobs, 620, 128));
+        [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), actionWidth, 34));
+    dialog->addCustomComponent(new CenteredPanel(new LayerInputOptionsPanel(processor, index), actionWidth, 36));
+    dialog->addCustomComponent(new CenteredPanel(knobs, actionWidth, 104));
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
     const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect(getScreenBounds());
     const auto screenHeight = display != nullptr ? display->userArea.getHeight() : 700;
@@ -6871,7 +6975,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         set("EqLow", knobs->value(6)); set("EqMid", knobs->value(7)); set("EqHigh", knobs->value(8));
         set("PreGainDb", knobs->value(9));
     });
-    dialog->setSize(actionWidth + 52, juce::jmin(570, screenHeight - 12));
+    dialog->setSize(actionWidth + 52, juce::jmin(730, screenHeight - 12));
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
@@ -6975,7 +7079,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
         { "DIFUSAO", 100.0f - processor.parameters.getRawParameterValue(prefix + "ReverbDamping")->load(), 0.0f, 100.0f, 1.0f, 0 },
         { "LARGURA", processor.parameters.getRawParameterValue(prefix + "ReverbWidth")->load(), 0.0f, 100.0f, 1.0f, 0 },
         { "MIX", processor.parameters.getRawParameterValue(prefix + "Reverb")->load(), 0.0f, 100.0f, 1.0f, 0 }
-    }, 3);
+    }, 4);
+    knobs->setSize(700, 174);
     // The mix knob is also the layer's learned REVERB target. Keep this
     // editor live when the value comes from a hardware controller.
     knobs->bindParameter(3, processor.parameters, prefix + "Reverb");
@@ -7028,8 +7133,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
                 knobs->setValue(3, safe->processor.parameters.getRawParameterValue(prefix + "Reverb")->load());
             });
         }), 700));
-    dialog->addCustomComponent(new CentredEditorPanel(knobs, 700));
-    dialog->setSize(760, 580);
+    dialog->addCustomComponent(new CentredEditorPanel(new ReverbRoomPanel(knobs), 700));
+    dialog->setSize(760, 440);
     dialog->fitWithinApp(this);
     const auto setParameter = [safe, prefix](const juce::String& id, float value)
     {
@@ -7886,7 +7991,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
             ? channelColour.interpolatedWith(juce::Colour(text).getBrightness() > 0.5f
                                                 ? juce::Colours::black : juce::Colours::white, 0.55f)
             : juce::Colour(panel);
-        g.setColour(fill); g.fillRoundedRectangle(bounds, 7.0f);
+        g.setGradientFill(juce::ColourGradient(fill.brighter(0.07f), bounds.getX(), bounds.getY(),
+                                               fill.darker(0.22f), bounds.getX(), bounds.getBottom(), false));
+        g.fillRoundedRectangle(bounds, 10.0f);
         if (!hasCustomChannelColour && (activeUiPalette == 5 || activeUiPalette == 6))
         {
             const juce::Graphics::ScopedSaveState state(g);
@@ -7896,8 +8003,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
         }
         g.setColour(juce::Colour(0xff070b10));
         g.drawRoundedRectangle(bounds.reduced(2.5f), 7.0f, 5.0f);
+        g.setColour(accent.withAlpha(0.16f));
+        g.drawRoundedRectangle(bounds.reduced(5.0f), 8.0f, 5.0f);
         g.setColour(accent);
-        g.drawRoundedRectangle(bounds.reduced(2.5f), 7.0f, 3.0f);
+        g.drawRoundedRectangle(bounds.reduced(2.5f), 8.0f, 2.0f);
+        g.setColour(accent.withAlpha(0.35f));
+        g.drawHorizontalLine(31, bounds.getX() + 10.0f, bounds.getRight() - 10.0f);
     };
     if (drumLayer)
     {
@@ -9754,6 +9865,9 @@ void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
         paintBrushedSteel(g, juce::Rectangle<float>(0, 0, (float) interfaceCanvas.getWidth(), 142));
     else
         g.fillRect(0, 0, interfaceCanvas.getWidth(), 142);
+    paintHeaderRibbon(g, { 0.0f, 70.0f, 320.0f, 70.0f });
+    paintControlCard(g, { 6.0f, (float) interfaceCanvas.getHeight() - 68.0f,
+                          (float) interfaceCanvas.getWidth() - 12.0f, 62.0f });
     g.setColour(juce::Colour(paletteLine));
     g.drawHorizontalLine(141, 18.0f, (float) interfaceCanvas.getWidth() - 18.0f);
     g.drawHorizontalLine(interfaceCanvas.getHeight() - 66, 18.0f, (float) interfaceCanvas.getWidth() - 18.0f);
@@ -11327,14 +11441,28 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
         {
             children.add(child);heights.push_back(height);addAndMakeVisible(child);
         }
-        void paint(juce::Graphics& g) override { g.fillAll(juce::Colour(panel)); }
+        void paint(juce::Graphics& g) override
+        {
+            g.fillAll(juce::Colour(panel));
+            paintHeaderRibbon(g, { 4.0f, 0.0f, 180.0f, 38.0f });
+            paintHeaderRibbon(g, { (float)getWidth() - 184.0f, 0.0f, 180.0f, 38.0f });
+            for (auto* child : children)
+                paintControlCard(g, child->getBoundsInParent().toFloat().expanded(2.0f, 1.0f));
+        }
         void resized() override
         {
             heading.setBounds(12,1,getWidth()-24,24);
-            int y=28;
-            for(int i=0;i<children.size();++i){
-                children[i]->setBounds(12,y,getWidth()-24,heights[(size_t)i]);
-                y+=heights[(size_t)i]+2;
+            int desiredHeight = 28;
+            for (const auto h : heights) desiredHeight += h + 2;
+            const auto scale = juce::jmin(1.0f, (float)getHeight() / (float)desiredHeight);
+            const auto logicalWidth = juce::roundToInt(getWidth() / scale);
+            int y = 28;
+            for (int i = 0; i < children.size(); ++i)
+            {
+                children[i]->setTransform(juce::AffineTransform());
+                children[i]->setBounds(12, y, logicalWidth - 24, heights[(size_t)i]);
+                children[i]->setTransform(juce::AffineTransform::scale(scale));
+                y += heights[(size_t)i] + 2;
             }
         }
         juce::OwnedArray<juce::Component> children;
@@ -11351,7 +11479,7 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
     content->add(new EngineProgramSavePanel(processor,index,"Hammond"),25);
     content->add(new LayerPresetFilePanel(std::move(saveLayerCallback),
                                           std::move(loadLayerCallback)),25);
-    content->add(new LayerRoutingEditorPanel(processor,index),105);
+    content->add(new LayerRoutingEditorPanel(processor,index),156);
     const auto prefix="layer"+juce::String(index+1);
     const auto value=[&processor,prefix](const char* name){return processor.parameters.getRawParameterValue(prefix+name)->load();};
     auto* common=new KnobEditorPanel({
@@ -11367,7 +11495,7 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
                               prefix+commonParameterSuffixes[(size_t)control]);
     // This layout follows the available height, including each numeric field.
     common->useCompactGrid(true);
-    content->add(common,55);
+    content->add(common,76);
     content->add(new LayerInputOptionsPanel(processor,index),32);
     common->setOnValueChange([&processor,common,prefix]{
         const std::array<const char*,7> names {"Gain","Attack","Release","Cutoff","Reverb","Comp","PreGainDb"};
@@ -11378,7 +11506,7 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
         new LayerEffectButtons(std::move(reverbCallback), std::move(compressorCallback),
                                {}, std::move(eqCallback)),
         new LayerMidiLearnPanel(processor,index), 1032, 45), 45);
-    content->setSize(1060,636);
+    content->setSize(1060,708);
     return content;
 }
 
@@ -11423,12 +11551,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showHammondEditor()
                 const auto availableWidth = juce::jmax(1, getWidth() - 12);
                 const auto availableHeight = juce::jmax(1, getHeight() - 32);
                 const auto scale = juce::jmin((float) availableWidth / 1060.0f,
-                                              (float) availableHeight / 636.0f);
+                                              (float) availableHeight / 708.0f);
                 content->setTransform({});
-                content->setBounds(0, 0, 1060, 636);
+                content->setBounds(0, 0, 1060, 708);
                 content->setTransform(juce::AffineTransform::scale(scale).translated(
                     ((float)availableWidth - 1060.0f * scale) * 0.5f,
-                    ((float)availableHeight - 636.0f * scale) * 0.5f));
+                    ((float)availableHeight - 708.0f * scale) * 0.5f));
             }
         }
         void closeButtonPressed() override { exitModalState(0); }
