@@ -7528,9 +7528,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
     // dialog shown by the reference layout.
     pads->setSize(560, 430);
     dialog->addCustomComponent(pads);
-    auto* inputOptions = new LayerInputOptionsPanel(processor, index);
-    inputOptions->setSize(560, 32);
-    dialog->addCustomComponent(inputOptions);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::continuousPads)
     {
@@ -7540,7 +7537,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
         eqButton->onClick = [safe] { if (safe != nullptr) safe->showEqEditor(); };
         dialog->addCustomComponent(eqButton);
     }
-    dialog->setSize(678, processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::continuousPads ? 616 : 596);
+    dialog->setSize(678, processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::continuousPads ? 572 : 552);
     dialog->fitWithinApp(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->drumPadPanel.refresh(); }), true);
