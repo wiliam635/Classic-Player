@@ -126,6 +126,13 @@ private:
         Envelope filter;
         AudioTransition transition;
         double biquadX1 = 0, biquadX2 = 0, biquadY1 = 0, biquadY2 = 0;
+        // Cache coefficients only for exactly unchanged inputs. No control-rate
+        // quantisation: modulated filters still update at audio rate.
+        double browserCutoff = -1.0, browserResonance = -1.0;
+        std::array<double, 4> browserCoefficients {};
+        float trackingAmount = -1.0f, trackingGain = 1.0f;
+        int trackingNote = -1;
+        float ladderCutoff = -1.0f, ladderCoefficient = 0.0f;
         double browserLfoPhase = 0;
         uint64_t age = 0;
         bool browserVoice = false;
@@ -173,7 +180,8 @@ private:
     float processLadder(Voice& voice, float input, float cutoffHz, float resonance,
                         float drive) noexcept;
     void renderVoice(Voice& voice, const Config& config, float lfo, float modWheel,
-                     float pitchBendSemitones, const std::array<float, 3>& oscillatorRatios,
+                     float pitchRatio, float browserBaseCutoff,
+                     const std::array<float, 3>& oscillatorRatios,
                      float& left, float& right);
 
     std::array<Layer, layerCount> layers {};

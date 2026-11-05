@@ -31,3 +31,18 @@ These checks are not a complete application build or installer, and do not estab
 Performance/session restoration and layer cloning have existing outer callback-lock scopes; this change does not promise uninterrupted playback during those whole-session operations. Normal imports remain synchronous for the UI, and temporary memory use includes both old and replacement SF2 until installation completes. Large SF2 banks still need a memory/latency test on the target hardware. NPNO/NSMP decoder behavior was not revalidated with all real user banks in this audit.
 
 Before release: compare SF2/NPNO sustained arpeggios, 44.1/48 kHz and 128/256/512-frame buffers, EQ open/closed, reverb/chorus tails, saved presets and instrument switching on the same hardware. Check SF2 room behavior after disabling the redundant internal effect. No measured CPU percentages are claimed.
+
+## Moog/Analog follow-up
+
+- Replace the 256-slot per-sample scan with an ordered active-voice list. Rebuild after MIDI/arpeggiator events and compact when envelopes finish. Voice allocation/stealing, selected polyphony and oscillator summation order remain unchanged.
+- Compute the layer pitch modulation ratio once per sample, not once per voice. Compute the browser base cutoff once per block.
+- Cache keyboard tracking and filter coefficients when their exact inputs are unchanged. Modulated cutoff still updates at audio rate; no filter quality/oversampling reduction.
+- Skip native cutoff calculations in the browser-compatible branch and the unused analog oscillator mix in FM/WAVE branches.
+
+A three-run before/after probe covered 20 cases: 1/64/128/256 requested notes, two browser presets and native analog/FM-H/FM-I, sustain, release, pitch wheel, modulation and parameter changes. Its 655,360 output samples were bit identical. Local median rendering-time reductions were approximately 4–18% for polyphonic cases and 29–60% for one-note cases; these are engine workload timings, not overall app CPU measurements. Raw measurements and method: `performance/moog-20261105.json`.
+
+A separate before/after edge probe covered WAVE, Arp/Poly/Gate, native/browser mono and MIDI panic; all 393,216 samples were bit identical. The existing audio regression suite also passed, including all 32 browser presets, 44.1/48 kHz, legato/release and block-partition checks. An attempted nonlinear-state reuse was discarded because timings were inconsistent; the original saturation operations were retained.
+
+High real polyphony with sustain still costs CPU: nonlinear oversampled filters execute for every sounding voice. Selecting 64 voices for dense pads, and mono for leads/basses when musically appropriate, remains a practical load control. No automatic reduction of saved polyphony was introduced. No installer/Actions build was triggered. Windows performance remains unmeasured.
+
+The final single-pass recheck again produced bit-identical output and passed the audio suite. Its timings were variable, including an 11% slowdown in one browser/64-note case, while the three-run median for that case improved by 4%. Both measurement sets are retained (`performance/moog-20261105-verification.json`); a uniform gain across presets or hardware is not claimed. Real-time deadline and long-session measurements on the customer machine are still needed.

@@ -1,0 +1,158 @@
+{
+  "samples": 655360,
+  "max_absolute_error": 0.0,
+  "bit_identical": true,
+  "runs": 3,
+  "cases": [
+    {
+      "mode": 0,
+      "voices": 1,
+      "before_ms": 3.338,
+      "after_ms": 1.50337,
+      "reduction_pct": 54.9619532654284
+    },
+    {
+      "mode": 0,
+      "voices": 64,
+      "before_ms": 54.295,
+      "after_ms": 52.3411,
+      "reduction_pct": 3.598673911041539
+    },
+    {
+      "mode": 0,
+      "voices": 128,
+      "before_ms": 106.222,
+      "after_ms": 99.7708,
+      "reduction_pct": 6.073318145017037
+    },
+    {
+      "mode": 0,
+      "voices": 256,
+      "before_ms": 211.181,
+      "after_ms": 199.013,
+      "reduction_pct": 5.761881987489403
+    },
+    {
+      "mode": 1,
+      "voices": 1,
+      "before_ms": 3.28679,
+      "after_ms": 1.3213,
+      "reduction_pct": 59.79968297335698
+    },
+    {
+      "mode": 1,
+      "voices": 64,
+      "before_ms": 52.2178,
+      "after_ms": 46.2015,
+      "reduction_pct": 11.521550122755064
+    },
+    {
+      "mode": 1,
+      "voices": 128,
+      "before_ms": 104.449,
+      "after_ms": 96.4068,
+      "reduction_pct": 7.69964288791658
+    },
+    {
+      "mode": 1,
+      "voices": 256,
+      "before_ms": 213.29,
+      "after_ms": 183.361,
+      "reduction_pct": 14.032069014018479
+    },
+    {
+      "mode": 2,
+      "voices": 1,
+      "before_ms": 8.36867,
+      "after_ms": 5.72121,
+      "reduction_pct": 31.635373362792407
+    },
+    {
+      "mode": 2,
+      "voices": 64,
+      "before_ms": 234.296,
+      "after_ms": 214.244,
+      "reduction_pct": 8.558404752962067
+    },
+    {
+      "mode": 2,
+      "voices": 128,
+      "before_ms": 450.263,
+      "after_ms": 420.627,
+      "reduction_pct": 6.5819310047683155
+    },
+    {
+      "mode": 2,
+      "voices": 256,
+      "before_ms": 901.469,
+      "after_ms": 850.179,
+      "reduction_pct": 5.689602193752652
+    },
+    {
+      "mode": 3,
+      "voices": 1,
+      "before_ms": 8.35904,
+      "after_ms": 5.90334,
+      "reduction_pct": 29.377775438327845
+    },
+    {
+      "mode": 3,
+      "voices": 64,
+      "before_ms": 256.341,
+      "after_ms": 211.38,
+      "reduction_pct": 17.53952742635786
+    },
+    {
+      "mode": 3,
+      "voices": 128,
+      "before_ms": 507.278,
+      "after_ms": 418.84,
+      "reduction_pct": 17.433833125032038
+    },
+    {
+      "mode": 3,
+      "voices": 256,
+      "before_ms": 1009.52,
+      "after_ms": 863.721,
+      "reduction_pct": 14.44240827323876
+    },
+    {
+      "mode": 4,
+      "voices": 1,
+      "before_ms": 8.1587,
+      "after_ms": 5.68434,
+      "reduction_pct": 30.32787086177945
+    },
+    {
+      "mode": 4,
+      "voices": 64,
+      "before_ms": 245.622,
+      "after_ms": 206.047,
+      "reduction_pct": 16.11215607722436
+    },
+    {
+      "mode": 4,
+      "voices": 128,
+      "before_ms": 492.246,
+      "after_ms": 406.874,
+      "reduction_pct": 17.34336083990524
+    },
+    {
+      "mode": 4,
+      "voices": 256,
+      "before_ms": 966.581,
+      "after_ms": 809.197,
+      "reduction_pct": 16.28254641876884
+    }
+  ],
+  "baseline_commit": "e1a562ba9226fe66f26263283aae563833df3e98",
+  "platform": "Local ARM64 macOS, Release build; not the customer Intel laptop",
+  "method": "Median of three runs, alternating before/after order. Each case renders 64 blocks of 256 frames at 48 kHz. Timings include rendering/effects, exclude file output. Voices denotes requested note count; releases may lower active count during the case.",
+  "mode_names": {
+    "0": "browser preset 0, forced polyphonic",
+    "1": "browser preset 15, forced polyphonic",
+    "2": "native analog",
+    "3": "native FM-H",
+    "4": "native FM-I"
+  }
+}

@@ -471,16 +471,20 @@ float AnalogSynthEngine::processBrowserFilter(Voice& v, float input, float cutof
     // W3C Web Audio lowpass coefficients. Q is expressed in dB, not linear Q:
     // https://www.w3.org/TR/webaudio-1.0/#filters-characteristics
     const auto frequency = juce::jlimit(0.01, sampleRate * 0.4999, static_cast<double>(cutoffHz));
-    const auto omega = juce::MathConstants<double>::twoPi * frequency / sampleRate;
-    const auto cosine = std::cos(omega);
-    const auto alpha = std::sin(omega) / (2.0 * std::pow(10.0, resonanceDb / 20.0));
-    const auto a0 = 1.0 + alpha;
-    const auto b0 = (1.0 - cosine) * 0.5 / a0;
-    const auto b1 = (1.0 - cosine) / a0;
-    const auto a1 = -2.0 * cosine / a0;
-    const auto a2 = (1.0 - alpha) / a0;
-    const auto output = b0 * input + b1 * v.biquadX1 + b0 * v.biquadX2
-                      - a1 * v.biquadY1 - a2 * v.biquadY2;
+    if (v.browserCutoff != frequency || v.browserResonance != resonanceDb)
+    {
+        const auto omega = juce::MathConstants<double>::twoPi * frequency / sampleRate;
+        const auto cosine = std::cos(omega);
+        const auto alpha = std::sin(omega) / (2.0 * std::pow(10.0, resonanceDb / 20.0));
+        const auto a0 = 1.0 + alpha;
+        v.browserCoefficients = { (1.0 - cosine) * 0.5 / a0,
+            (1.0 - cosine) / a0, -2.0 * cosine / a0, (1.0 - alpha) / a0 };
+        v.browserCutoff = frequency;
+        v.browserResonance = resonanceDb;
+    }
+    const auto& c = v.browserCoefficients;
+    const auto output = c[0] * input + c[1] * v.biquadX1 + c[0] * v.biquadX2
+                      - c[2] * v.biquadY1 - c[3] * v.biquadY2;
     v.biquadX2 = v.biquadX1; v.biquadX1 = input;
     v.biquadY2 = v.biquadY1; v.biquadY1 = output;
     return static_cast<float>(output);
@@ -491,8 +495,13 @@ float AnalogSynthEngine::processLadder(Voice& voice, float input, float cutoffHz
 {
     const auto nyquistSafe = juce::jlimit(20.0f, static_cast<float>(sampleRate) * 0.42f, cutoffHz);
     const auto oversampledRate = static_cast<float>(sampleRate) * 2.0f;
-    const auto g = juce::jlimit(0.0001f, 0.98f,
-        1.0f - std::exp(-twoPi * nyquistSafe / oversampledRate));
+    if (voice.ladderCutoff != nyquistSafe)
+    {
+        voice.ladderCoefficient = juce::jlimit(0.0001f, 0.98f,
+            1.0f - std::exp(-twoPi * nyquistSafe / oversampledRate));
+        voice.ladderCutoff = nyquistSafe;
+    }
+    const auto g = voice.ladderCoefficient;
     const auto feedback = juce::jlimit(0.0f, 3.9f, resonance * 3.9f);
     const auto saturatedDrive = juce::jlimit(0.25f, 4.0f, drive);
     float output = voice.ladderPrevious;
@@ -519,7 +528,7 @@ float AnalogSynthEngine::processLadder(Voice& voice, float input, float cutoffHz
 }
 
 void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lfo,
-                                    float modWheel, float pitchBendSemitones,
+                                    float modWheel, float pitchRatio, float browserBaseCutoff,
                                     const std::array<float, 3>& oscillatorRatios,
                                     float& left, float& right)
 {
@@ -539,9 +548,6 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
         return;
     }
 
-    const auto pitchDepth = config.lfoToPitch + modWheel * config.modWheelToPitch;
-    const auto pitchRatio = std::pow(2.0f,
-        (pitchBendSemitones + lfo * pitchDepth) / 12.0f);
     const auto base = voice.currentFrequency * pitchRatio;
     const auto increment1 = juce::jlimit(0.0f, 0.49f, base * oscillatorRatios[0] / static_cast<float>(sampleRate));
     const auto increment2 = juce::jlimit(0.0f, 0.49f, base * oscillatorRatios[1] / static_cast<float>(sampleRate));
@@ -570,12 +576,16 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
     voice.phase3 = wrapPhase(voice.phase3 + increment3);
 
     auto sample = 0.0f;
-    if (config.oscillator1Enabled)
-        sample += waveSample(config.oscillator1Wave, config.browserCompatible ? p1 : voice.phase1, increment1) * config.oscillator1Level;
-    if (config.oscillator2Enabled)
-        sample += waveSample(config.oscillator2Wave, config.browserCompatible ? p2 : voice.phase2, increment2) * config.oscillator2Level;
-    if (config.oscillator3Enabled)
-        sample += waveSample(config.oscillator3Wave, config.browserCompatible ? p3 : voice.phase3, increment3) * config.oscillator3Level;
+    // FM/WAVE replace the oscillator mix below; evaluating it first is wasted.
+    if (config.nordSynthType < 1 || config.nordSynthType > 3)
+    {
+        if (config.oscillator1Enabled)
+            sample += waveSample(config.oscillator1Wave, config.browserCompatible ? p1 : voice.phase1, increment1) * config.oscillator1Level;
+        if (config.oscillator2Enabled)
+            sample += waveSample(config.oscillator2Wave, config.browserCompatible ? p2 : voice.phase2, increment2) * config.oscillator2Level;
+        if (config.oscillator3Enabled)
+            sample += waveSample(config.oscillator3Wave, config.browserCompatible ? p3 : voice.phase3, increment3) * config.oscillator3Level;
+    }
 
     if (config.nordSynthType == 1 || config.nordSynthType == 2)
     {
@@ -604,26 +614,29 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
     if (!config.browserCompatible || config.mixerDrive > 0)
         sample = std::tanh(sample * mixDrive) / mixDrive;
 
-    const auto keyboardOctaves = (static_cast<float>(voice.note) - 60.0f) / 12.0f;
-    const auto keyboardTracking = std::pow(2.0f, keyboardOctaves
-                                           * juce::jlimit(0.0f, 1.0f, config.filterKeyboardTracking));
-    const auto modulation = lfo * (config.lfoToFilter + modWheel * config.modWheelToFilter);
-    const auto normalizedCutoff = juce::jlimit(0.0f, 1.0f,
-        (config.cutoff + filterEnvelope * config.filterEnvelopeAmount * 100.0f + modulation) / 100.0f);
-    const auto cutoffHz = 25.0f * std::pow(700.0f, normalizedCutoff) * keyboardTracking;
-
     if (config.browserCompatible)
     {
         const auto browserLfo = static_cast<float>(std::sin(voice.browserLfoPhase * juce::MathConstants<double>::twoPi));
         voice.browserLfoPhase += config.lfoRateHz / sampleRate;
         voice.browserLfoPhase -= std::floor(voice.browserLfoPhase);
-        const auto baseCutoff = 25.0f * std::pow(700.0f, config.cutoff / 100.0f);
         sample = processBrowserFilter(voice, sample,
-            baseCutoff + browserLfo * config.lfoToFilter * 4.2f, config.resonance * 20.0f);
+            browserBaseCutoff + browserLfo * config.lfoToFilter * 4.2f, config.resonance * 20.0f);
         sample *= amp * 0.45f; // Browser master; its VCA is velocity insensitive.
     }
     else
     {
+        const auto tracking = juce::jlimit(0.0f, 1.0f, config.filterKeyboardTracking);
+        if (voice.trackingNote != voice.note || voice.trackingAmount != tracking)
+        {
+            const auto keyboardOctaves = (static_cast<float>(voice.note) - 60.0f) / 12.0f;
+            voice.trackingGain = std::pow(2.0f, keyboardOctaves * tracking);
+            voice.trackingNote = voice.note;
+            voice.trackingAmount = tracking;
+        }
+        const auto modulation = lfo * (config.lfoToFilter + modWheel * config.modWheelToFilter);
+        const auto normalizedCutoff = juce::jlimit(0.0f, 1.0f,
+            (config.cutoff + filterEnvelope * config.filterEnvelopeAmount * 100.0f + modulation) / 100.0f);
+        const auto cutoffHz = 25.0f * std::pow(700.0f, normalizedCutoff) * voice.trackingGain;
         sample = processLadder(voice, sample, cutoffHz, config.resonance, config.filterDrive);
         sample *= amp * voice.velocity;
     }
@@ -834,8 +847,20 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
         auto host = midi.begin();
         auto routed = routedMessages.begin();
         float peak = 0.0f;
+        const auto browserBaseCutoff = config.browserCompatible
+            ? 25.0f * std::pow(700.0f, config.cutoff / 100.0f) : 0.0f;
+        std::array<Voice*, voicesPerLayer> activeVoices {};
+        size_t activeCount = 0;
+        const auto collectActiveVoices = [&]
+        {
+            activeCount = 0;
+            for (auto& voice : layer.voices)
+                if (voice.active) activeVoices[activeCount++] = &voice;
+        };
+        collectActiveVoices();
         for (int sampleIndex = 0; sampleIndex < output.getNumSamples(); ++sampleIndex)
         {
+            bool voicesChanged = false;
             while (host != midi.end() || routed != routedMessages.end())
             {
                 const bool useHost = routed == routedMessages.end()
@@ -843,12 +868,14 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
                 const auto event = useHost ? *host : *routed;
                 if (event.samplePosition > sampleIndex) break;
                 dispatch(layerIndex, event.getMessage());
+                voicesChanged = true;
                 if (useHost) ++host; else ++routed;
             }
             if (config.routing.nordArp.enabled || layer.arpeggiator.busy())
             {
                 auto emitArp = [&](const NordArpeggiator::Event& event)
                 {
+                    if (!event.gateEvent) voicesChanged = true;
                     if (event.gateEvent)
                         layer.arpeggiatorGate.setTargetValue(event.gateOpen ? 1.0f : 0.0f);
                     else if (event.noteOn)
@@ -859,15 +886,24 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
                 };
                 layer.arpeggiator.tick(config.routing.nordArp, emitArp);
             }
+            if (voicesChanged) collectActiveVoices();
             layer.lfoPhase = wrapPhase(layer.lfoPhase
                 + config.lfoRateHz / static_cast<float>(sampleRate));
             const auto lfo = std::sin(layer.lfoPhase * twoPi);
             float left = 0.0f, right = 0.0f;
 
-            for (auto& voice : layer.voices)
-                if (voice.active)
-                    renderVoice(voice, config, lfo, layer.modWheel,
-                               layer.pitchBendSemitones, oscillatorRatios, left, right);
+            const auto pitchDepth = config.lfoToPitch + layer.modWheel * config.modWheelToPitch;
+            const auto pitchRatio = std::pow(2.0f,
+                (layer.pitchBendSemitones + lfo * pitchDepth) / 12.0f);
+            size_t survivors = 0;
+            for (size_t i = 0; i < activeCount; ++i)
+            {
+                auto& voice = *activeVoices[i];
+                renderVoice(voice, config, lfo, layer.modWheel, pitchRatio,
+                            browserBaseCutoff, oscillatorRatios, left, right);
+                if (voice.active) activeVoices[survivors++] = &voice;
+            }
+            activeCount = survivors;
 
             const auto gain = layer.gain.getNextValue();
             const auto gate = config.routing.nordArp.mode == 2

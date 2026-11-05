@@ -1,0 +1,149 @@
+{
+  "samples": 655360,
+  "edge_samples": 393216,
+  "max_absolute_error": 0.0,
+  "bit_identical": true,
+  "runs": 1,
+  "cases": [
+    {
+      "mode": 0,
+      "voices": 1,
+      "before_ms": 4.08755,
+      "after_ms": 1.58312,
+      "reduction_pct": 61.269709239030725
+    },
+    {
+      "mode": 0,
+      "voices": 64,
+      "before_ms": 57.1698,
+      "after_ms": 63.7072,
+      "reduction_pct": -11.435058369978556
+    },
+    {
+      "mode": 0,
+      "voices": 128,
+      "before_ms": 109.554,
+      "after_ms": 96.9882,
+      "reduction_pct": 11.469960019716297
+    },
+    {
+      "mode": 0,
+      "voices": 256,
+      "before_ms": 214.297,
+      "after_ms": 190.084,
+      "reduction_pct": 11.298804929607043
+    },
+    {
+      "mode": 1,
+      "voices": 1,
+      "before_ms": 3.59329,
+      "after_ms": 1.29979,
+      "reduction_pct": 63.82730032922475
+    },
+    {
+      "mode": 1,
+      "voices": 64,
+      "before_ms": 52.3727,
+      "after_ms": 44.9132,
+      "reduction_pct": 14.243107573220392
+    },
+    {
+      "mode": 1,
+      "voices": 128,
+      "before_ms": 101.402,
+      "after_ms": 89.6765,
+      "reduction_pct": 11.56338139287193
+    },
+    {
+      "mode": 1,
+      "voices": 256,
+      "before_ms": 200.643,
+      "after_ms": 178.385,
+      "reduction_pct": 11.093334928205822
+    },
+    {
+      "mode": 2,
+      "voices": 1,
+      "before_ms": 8.47092,
+      "after_ms": 6.61008,
+      "reduction_pct": 21.967389610573584
+    },
+    {
+      "mode": 2,
+      "voices": 64,
+      "before_ms": 224.613,
+      "after_ms": 210.425,
+      "reduction_pct": 6.316642402710437
+    },
+    {
+      "mode": 2,
+      "voices": 128,
+      "before_ms": 451.651,
+      "after_ms": 438.016,
+      "reduction_pct": 3.0189239036335525
+    },
+    {
+      "mode": 2,
+      "voices": 256,
+      "before_ms": 898.704,
+      "after_ms": 839.289,
+      "reduction_pct": 6.6111867756235565
+    },
+    {
+      "mode": 3,
+      "voices": 1,
+      "before_ms": 8.2755,
+      "after_ms": 6.1517,
+      "reduction_pct": 25.663706120476093
+    },
+    {
+      "mode": 3,
+      "voices": 64,
+      "before_ms": 246.168,
+      "after_ms": 209.014,
+      "reduction_pct": 15.092944655682295
+    },
+    {
+      "mode": 3,
+      "voices": 128,
+      "before_ms": 490.918,
+      "after_ms": 416.689,
+      "reduction_pct": 15.120447814095217
+    },
+    {
+      "mode": 3,
+      "voices": 256,
+      "before_ms": 1001.63,
+      "after_ms": 834.063,
+      "reduction_pct": 16.7294310274253
+    },
+    {
+      "mode": 4,
+      "voices": 1,
+      "before_ms": 8.35858,
+      "after_ms": 5.72109,
+      "reduction_pct": 31.554283143787575
+    },
+    {
+      "mode": 4,
+      "voices": 64,
+      "before_ms": 252.055,
+      "after_ms": 205.107,
+      "reduction_pct": 18.626093511336816
+    },
+    {
+      "mode": 4,
+      "voices": 128,
+      "before_ms": 490.836,
+      "after_ms": 403.636,
+      "reduction_pct": 17.76560806460814
+    },
+    {
+      "mode": 4,
+      "voices": 256,
+      "before_ms": 957.909,
+      "after_ms": 815.525,
+      "reduction_pct": 14.864042409038857
+    }
+  ]
+}
