@@ -4775,13 +4775,14 @@ public:
     {
         if (presetOnly)
         {
-            g.fillAll(juce::Colour(0xff151f28));
+            paintControlCard(g, getLocalBounds().toFloat().reduced(1.0f));
             g.setColour(juce::Colour(mutedText));
             g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
             g.drawText(localizedUiText(initial.browserCompatible ? "PRESET ANALOG - BROWSER 12 dB"
                                                                  : "PRESET ANALOG - LEGADO",
                                         activeUiLanguage.load()),
-                       12, 8, getWidth() - 24, 16, juce::Justification::left);
+                       16, 8, juce::jmin(280, getWidth() / 3) - 24,
+                       getHeight() - 16, juce::Justification::centredLeft);
             return;
         }
 
@@ -4864,7 +4865,9 @@ public:
     {
         if (presetOnly)
         {
-            presetBox.setBounds(12, 28, juce::jmax(120, getWidth() - 24), 28);
+            const auto labelWidth = juce::jmin(280, getWidth() / 3);
+            presetBox.setBounds(labelWidth, (getHeight() - 34) / 2,
+                                juce::jmax(120, getWidth() - labelWidth - 16), 34);
             return;
         }
         const auto w = getWidth();
@@ -9526,6 +9529,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     // preset selector, routing, shared layer controls and MIDI learn.  The
     // oscillator controls remain implemented in the engine but are not exposed
     // in this window, avoiding a second, oversized editor layout.
+    const auto actionWidth = editorContentWidth(this, 1100);
     auto* controls = new AnalogSynthEditorPanel(processor.analogSynthConfig(index));
     controls->setPresetOnlyMode();
     auto* routing = new LayerRoutingEditorPanel(processor, index);
@@ -9550,8 +9554,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         void resized() override
         {
             content->setBounds(getLocalBounds().withSizeKeepingCentre(
-                juce::jmin(width, content->getWidth()),
-                juce::jmin(getHeight(), content->getHeight())));
+                juce::jmin(width, getWidth()), getHeight()));
         }
     private:
         juce::Component* content;
@@ -9559,14 +9562,40 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         juce::OwnedArray<juce::Component> owned;
     };
 
-    dialog->addCustomComponent(new CenteredPanel(controls, 600, 86));
+    class TitledPanel final : public juce::Component
+    {
+    public:
+        TitledPanel(juce::Component* controlsToOwn, const juce::String& title, int width, int height)
+            : content(controlsToOwn)
+        {
+            heading.setText(localizedUiText(title, activeUiLanguage.load()), juce::dontSendNotification);
+            heading.setFont(juce::FontOptions(14.0f, juce::Font::bold));
+            heading.setColour(juce::Label::textColourId, juce::Colour(text));
+            addAndMakeVisible(heading); addAndMakeVisible(*content); setSize(width, height);
+        }
+        void resized() override
+        {
+            auto area = getLocalBounds().reduced(8, 5);
+            heading.setBounds(area.removeFromTop(26));
+            area.removeFromTop(3); content->setBounds(area);
+        }
+        void paint(juce::Graphics& g) override
+        {
+            paintControlCard(g, getLocalBounds().toFloat().reduced(1.0f));
+            g.setColour(juce::Colour(paletteLine));
+            g.drawHorizontalLine(32, 12.0f, (float)getWidth() - 12.0f);
+        }
+    private:
+        std::unique_ptr<juce::Component> content;
+        juce::Label heading;
+    };
+    dialog->addCustomComponent(new CenteredPanel(controls, actionWidth, 66));
     dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
-        [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), 600, 38));
-    dialog->addCustomComponent(new CenteredPanel(routing, 600, 160));
-    dialog->addCustomComponent(new CenteredPanel(new LayerInputOptionsPanel(processor, index), 600, 34));
-    dialog->addCustomComponent(new CenteredPanel(common, 600, 100));
-    const auto actionWidth = editorContentWidth(this, 930);
+        [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), actionWidth, 40));
+    dialog->addCustomComponent(new TitledPanel(routing, "PARAMETROS GERAIS", actionWidth, 200));
+    dialog->addCustomComponent(new CenteredPanel(new LayerInputOptionsPanel(processor, index), actionWidth, 40));
+    dialog->addCustomComponent(new TitledPanel(common, "CONTROLES DA CAMADA", actionWidth, 160));
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
     controls->onConfigChanged = [safe](const AnalogSynthEngine::Config& config)
     {
@@ -9583,8 +9612,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
             safe->processor.setAnalogSynthConfig(safe->index, factoryConfig);
         }
     };
-    dialog->setSize(actionWidth + 52, 606);
+    dialog->setSize(actionWidth + 52, 720);
     dialog->fitWithinApp(this);
+    dialog->fitCustomComponentsVertically();
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int)
         {
