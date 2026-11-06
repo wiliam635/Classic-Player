@@ -33,7 +33,7 @@ bool load(const std::string& path, size_t decodedBudgetBytes,
           Instrument& destination, std::string& error);
 
 struct Voice {
-    bool active = false, released = false, waitingForSustain = false;
+    bool active = false, keyDown = false, released = false, waitingForSustain = false;
     int note = -1, channel = 0, stroke = -1;
     uint64_t serial = 0, age = 0;
     double position = 0, increment = 1;
