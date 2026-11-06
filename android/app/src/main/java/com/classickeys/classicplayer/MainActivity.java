@@ -524,7 +524,14 @@ public final class MainActivity extends Activity {
         if(screen!=null)screen.postDelayed(this::restorePreferredAudioDevice,1000);
         AudioManager audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
         if (audioManager != null) audioManager.registerAudioDeviceCallback(audioDeviceCallback, null);
-        if (midiManager != null) midiManager.registerDeviceCallback(midiCallback, null);
+        if (midiManager != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                midiManager.registerDeviceCallback(MidiManager.TRANSPORT_MIDI_BYTE_STREAM,
+                        command -> mainHandler.post(command), midiCallback);
+            } else {
+                midiManager.registerDeviceCallback(midiCallback, mainHandler);
+            }
+        }
         refreshMidiDevices();
         if (licenseManager != null && licenseManager.isActivated()) revalidateLicenseAsync();
     }
@@ -579,8 +586,14 @@ public final class MainActivity extends Activity {
 
     private MidiDeviceInfo[] midiInputDevices(){
         if(midiManager==null)return new MidiDeviceInfo[0];
+        java.util.Collection<MidiDeviceInfo> devices;
+        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU){
+            devices=midiManager.getDevicesForTransport(MidiManager.TRANSPORT_MIDI_BYTE_STREAM);
+        }else{
+            devices=java.util.Arrays.asList(midiManager.getDevices());
+        }
         java.util.ArrayList<MidiDeviceInfo> available=new java.util.ArrayList<>();
-        for(MidiDeviceInfo device:midiManager.getDevices())
+        for(MidiDeviceInfo device:devices)
             for(MidiDeviceInfo.PortInfo port:device.getPorts())
                 if(port.getType()==MidiDeviceInfo.PortInfo.TYPE_OUTPUT){available.add(device);break;}
         return available.toArray(new MidiDeviceInfo[0]);
