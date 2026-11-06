@@ -168,7 +168,7 @@ final class PolySynthEngine {
     private static native int nativeHammondPresetCount();
     private static native String nativeHammondPresetName(int preset);
     private static native boolean nativeSetHammondPreset(int layer, int preset);
-    private static native void nativeSetHammondControls(int layer, int[] bars, int leslie, int percussion, float click, float leakage, float drive, float level);
+    private static native void nativeSetHammondControls(int layer, int[] bars, int leslie, boolean updateLeslie, int percussion, float click, float leakage, float drive, float level);
     private static native void nativeUnloadAll();
     private static native void nativeClearLayer(int layer);
     private static native void nativeSetMaster(float value);
@@ -181,6 +181,7 @@ final class PolySynthEngine {
     private static native void nativeSetLayerCompressor(int layer,float threshold,float ratio,float attackMs,float releaseMs,float makeupDb);
     private static native void nativeSetLayerReverb(int layer,float size,float damping,float width);
     private static native void nativeSetLayerRouting(int layer,int channel,int octave,int lowNote,int highNote,int velocityCurve,boolean sustainEnabled,int mode);
+    private static native void nativeSetLayerModulationEnabled(int layer,boolean enabled);
     private static native void nativeSetMasterEffects(float reverb, float chorus);
     private static native int nativePresetCount(int layer);
     private static native String nativePresetName(int layer, int preset);
@@ -309,7 +310,7 @@ final class PolySynthEngine {
     int hammondPresetCount() { return nativeHammondPresetCount(); }
     String hammondPresetName(int preset) { return nativeHammondPresetName(preset); }
     boolean setHammondPreset(int layer, int preset) { return nativeSetHammondPreset(layer, preset); }
-    void setHammondControls(int layer,int[] bars,int leslie,int percussion,float click,float leakage,float drive,float level){nativeSetHammondControls(layer,bars,leslie,percussion,click,leakage,drive,level);}
+    void setHammondControls(int layer,int[] bars,int leslie,boolean updateLeslie,int percussion,float click,float leakage,float drive,float level){nativeSetHammondControls(layer,bars,leslie,updateLeslie,percussion,click,leakage,drive,level);}
     void setMaster(float value) { nativeSetMaster(value); }
     void clearLayer(int layer) { nativeClearLayer(layer); }
     void setLayerGain(int layer, float value) { nativeSetLayerGain(layer, value); }
@@ -321,6 +322,7 @@ final class PolySynthEngine {
     void setLayerCompressor(int layer,float threshold,float ratio,float attack,float release,float makeup){nativeSetLayerCompressor(layer,threshold,ratio,attack,release,makeup);}
     void setLayerReverb(int layer,float size,float damping,float width){nativeSetLayerReverb(layer,size,damping,width);}
     void setLayerRouting(int layer,int channel,int octave,int low,int high,int velocityCurve,boolean sustain,int mode){nativeSetLayerRouting(layer,channel,octave,low,high,velocityCurve,sustain,mode);}
+    void setLayerModulationEnabled(int layer,boolean enabled){nativeSetLayerModulationEnabled(layer,enabled);}
     void setMasterEffects(float reverb, float chorus) { nativeSetMasterEffects(reverb, chorus); }
     int presetCount(int layer) { return nativePresetCount(layer); }
     String presetName(int layer, int preset) { return nativePresetName(layer, preset); }

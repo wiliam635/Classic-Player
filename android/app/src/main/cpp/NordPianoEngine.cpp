@@ -201,20 +201,25 @@ void noteOn(Layer& layer,int note,int velocity,int channel,bool sustain,int voic
     target->level=(velocity/127.f)*std::pow(10.f,(piano.gainTenthsDb/10.f+trimDb)/20.f);
     target->attackGain=attackSeconds>0?0.f:1.f;
 }
-void noteOff(Layer& layer,int note,int channel,bool sustain){
+void noteOff(Layer& layer,int note,int channel,bool sustain,float releaseSeconds){
     for(auto& v:layer.voices)if(v.active&&!v.released&&v.note==note&&v.channel==channel){
         if(sustain)v.waitingForSustain=true;else{v.released=true;v.waitingForSustain=false;}
+        if(!sustain)v.releaseSeconds=std::clamp(releaseSeconds,.005f,5.0f);
     }
 }
-void pedalUp(Layer& layer,int channel){for(auto& v:layer.voices)if(v.active&&v.channel==channel&&v.waitingForSustain){v.waitingForSustain=false;v.released=true;}}
-void render(Layer& layer,float* stereo,int frames,int outputRate,int budget,float attackSeconds,float releaseSeconds){
+void pedalUp(Layer& layer,int channel,float releaseSeconds){
+    for(auto& v:layer.voices)if(v.active&&v.channel==channel&&v.waitingForSustain){
+        v.waitingForSustain=false;v.released=true;v.releaseSeconds=std::clamp(releaseSeconds,.005f,5.0f);
+    }
+}
+void render(Layer& layer,float* stereo,int frames,int outputRate,int budget,float attackSeconds){
     if(!layer.instrument||!stereo)return;const auto& piano=*layer.instrument;
     const int voices=std::clamp(budget,0,maxVoices);
     const float attackStep=attackSeconds>0?1.f/std::max(1.f,attackSeconds*outputRate):1.f;
-    const float releaseFactor=std::exp(std::log(.0001f)/std::max(1.f,std::max(.005f,releaseSeconds)*outputRate));
     const uint64_t maxAge=(uint64_t)(outputRate*15.0);
     for(int vi=0;vi<voices;++vi){auto& v=layer.voices[(size_t)vi];if(!v.active||v.stroke<0)continue;
         const auto& s=piano.strokes[(size_t)v.stroke];int total=(int)(s.pcm.size()/size_t(piano.channels));
+        const float releaseFactor=std::exp(std::log(.0001f)/std::max(1.f,std::max(.005f,v.releaseSeconds)*outputRate));
         for(int f=0;f<frames;++f){
             if(++v.age>=maxAge&&layer.finitePiano){v={};break;}
             if(s.loopEnd>s.loopStart&&v.position>=s.loopEnd)

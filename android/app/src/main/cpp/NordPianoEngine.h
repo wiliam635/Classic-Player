@@ -9,7 +9,7 @@
 
 namespace nord_android {
 constexpr int sampleRate = 35002;
-constexpr int maxVoices = 128;
+constexpr int maxVoices = 256;
 
 struct Stroke {
     uint8_t root = 60, bank = 0, velocityLayer = 0;
@@ -37,7 +37,7 @@ struct Voice {
     int note = -1, channel = 0, stroke = -1;
     uint64_t serial = 0, age = 0;
     double position = 0, increment = 1;
-    float level = 0, attackGain = 1, releaseGain = 1;
+    float level = 0, attackGain = 1, releaseGain = 1, releaseSeconds = 0.04f;
 };
 
 struct Layer {
@@ -51,9 +51,10 @@ struct Layer {
 
 void noteOn(Layer& layer, int note, int velocity, int channel, bool sustain,
             int voiceBudget, float attackSeconds);
-void noteOff(Layer& layer, int note, int channel, bool sustain);
-void pedalUp(Layer& layer, int channel);
+void noteOff(Layer& layer, int note, int channel, bool sustain,
+             float releaseSeconds = 0.04f);
+void pedalUp(Layer& layer, int channel, float releaseSeconds = 0.04f);
 void render(Layer& layer, float* stereo, int frames, int outputRate,
-            int voiceBudget, float attackSeconds, float releaseSeconds);
+            int voiceBudget, float attackSeconds);
 int activeVoices(const Layer& layer);
 }

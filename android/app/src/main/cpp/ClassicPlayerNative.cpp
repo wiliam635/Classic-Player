@@ -28,9 +28,13 @@ namespace
 constexpr int kLayerCount = 6;
 constexpr int kSampleRate = 44100;
 constexpr int kMaxFrames = 2048;
-constexpr int kMaximumPolyphonyPerLayer = 128;
-constexpr size_t kVoicePoolCapacity = kMaximumPolyphonyPerLayer;
+constexpr int kMaximumPolyphony = 256;
+constexpr size_t kVoicePoolCapacity = kMaximumPolyphony;
+constexpr int kLowPolyphonyEngineLimit = 32;
+static_assert(nord_android::maxVoices >= kMaximumPolyphony,
+              "NPNO voice storage must cover the shared polyphony ceiling");
 constexpr int kHammondDelayFrames = 1204;
+constexpr float kHammondOutputCalibration = 3.25f;
 
 std::array<tsf*, kLayerCount> fonts {};
 enum class EngineType : int { empty = 0, sf2 = 1, dx7 = 2, analog = 3, hammond = 4, nord = 7 };
@@ -46,6 +50,7 @@ std::array<int,kLayerCount> layerMidiChannel { -1,-1,-1,-1,-1,-1 }, layerOctave 
 std::array<int,kLayerCount> layerMidiMode {};
 std::array<std::array<int,3>,kLayerCount> nordVelocityCalibration {};
 std::array<bool,kLayerCount> layerSustainEnabled {true,true,true,true,true,true};
+std::array<bool,kLayerCount> layerModulationEnabled {};
 std::array<std::array<std::array<int,128>,16>,kLayerCount> routedNotes {};
 // SF2 editor values are additive seconds. Zero means use each region's exact
 // SoundFont envelope; never infer a fake 5/50 ms envelope for the preset.
@@ -259,7 +264,8 @@ struct HammondVoice {
     std::array<double,13> phase{},step{};
 };
 struct HammondLayer {
-    int preset=0, leslie=1, percussion=0;
+    int preset=0, leslie=1, manualLeslie=1, percussion=0;
+    bool modulationWheelOverride=false;
     std::array<float,9> bars{};
     std::array<float,9> smoothedBars{};
     float click=0.15f, leakage=0.12f, drive=0.12f, level=0.8f;
@@ -276,15 +282,54 @@ std::array<int,kLayerCount> calculateLayerVoiceBudgets(
         int overrideLayer = -1, EngineType overrideType = EngineType::empty)
 {
     std::array<int,kLayerCount> budgets{};
+    std::array<bool,kLayerCount> eligible{};
+    int eligibleLayers=0;
     for(int layer=0;layer<kLayerCount;++layer){
         const EngineType type=layer==overrideLayer?overrideType:engineTypes[(size_t)layer];
-        if(type!=EngineType::empty)budgets[(size_t)layer]=kMaximumPolyphonyPerLayer;
+        eligible[(size_t)layer]=type!=EngineType::empty;
+        if(eligible[(size_t)layer])++eligibleLayers;
+    }
+
+    // Match the approved build's shared 256-voice pool. SF2 and NPNO piano
+    // layers share the same fair quota; lighter oscillator engines remain
+    // capped at 32 voices so their unused share can go to sampled instruments.
+    int remainingVoices=kMaximumPolyphony;
+    while(eligibleLayers>0){
+        const int base=remainingVoices/eligibleLayers;
+        const int remainder=remainingVoices%eligibleLayers;
+        bool cappedAny=false;
+        int ordinal=0;
+        for(int layer=0;layer<kLayerCount;++layer){
+            const auto li=(size_t)layer;
+            if(!eligible[li])continue;
+            const EngineType type=layer==overrideLayer?overrideType:engineTypes[li];
+            const int fairShare=base+(ordinal<remainder?1:0);
+            ++ordinal;
+            const bool limited=type==EngineType::dx7||type==EngineType::analog||type==EngineType::hammond;
+            if(limited&&fairShare>kLowPolyphonyEngineLimit){
+                budgets[li]=kLowPolyphonyEngineLimit;
+                eligible[li]=false;
+                --eligibleLayers;
+                remainingVoices-=kLowPolyphonyEngineLimit;
+                cappedAny=true;
+            }
+        }
+        if(eligibleLayers==0)break;
+        if(cappedAny)continue;
+
+        ordinal=0;
+        for(int layer=0;layer<kLayerCount;++layer){
+            const auto li=(size_t)layer;
+            if(!eligible[li])continue;
+            budgets[li]=base+(ordinal<remainder?1:0);
+            ++ordinal;
+        }
+        break;
     }
     return budgets;
 }
 
-// Each loaded layer has its own 128-voice ceiling; adding another layer does
-// not reduce the polyphony available to the existing layers.
+// Recompute shared per-layer quotas whenever a motor is added or removed.
 void distributeLayerVoiceBudgets()
 {
     const auto budgets=calculateLayerVoiceBudgets();
@@ -302,7 +347,7 @@ void distributeLayerVoiceBudgets()
                 try{voices[(size_t)i].synth=std::make_unique<Dx7Note>(tuning,nullptr);}
                 catch(...){effectiveBudget=i;break;}
             }
-            for(int i=effectiveBudget;i<kMaximumPolyphonyPerLayer;++i){
+            for(int i=effectiveBudget;i<kMaximumPolyphony;++i){
                 auto& voice=voices[(size_t)i];
                 voice.active=false;voice.note=-1;voice.read=N;voice.synth.reset();
             }
@@ -312,7 +357,7 @@ void distributeLayerVoiceBudgets()
             tsf_set_max_voices(fonts[li],effectiveBudget);
         // When another motor is added, trim any now-out-of-budget voices.
         // These fixed pools are preallocated; no allocation occurs here.
-        for(int i=budget;i<kMaximumPolyphonyPerLayer;++i){
+        for(int i=budget;i<kMaximumPolyphony;++i){
             auto& dx=dxLayers[li].voices[(size_t)i];dx.active=false;dx.note=-1;dx.read=N;
             analogLayers[li].voices[(size_t)i]={};
             hammondLayers[li].voices[(size_t)i]={};
@@ -407,6 +452,7 @@ void releaseLayer(const int layer)
     analogLayers[(size_t)layer]={};
     hammondLayers[(size_t)layer]={};
     nordLayers[(size_t)layer]={};
+    layerModulationEnabled[(size_t)layer]=false;
     engineTypes[(size_t)layer] = EngineType::empty;
 }
 
@@ -460,10 +506,10 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadLayer(
     // a little headroom for layered chords and PCM output clipping.
     // Four more dB of headroom keeps dense layered chords clean.
     tsf_set_output(loaded, TSF_STEREO_INTERLEAVED, kSampleRate, -6.0f);
-    // Prepare this layer's 128-voice ceiling before publishing the font;
-    // SF2 voices count sample regions, so layered presets may consume more
-    // than one voice per MIDI key.
-    if (!tsf_set_max_voices(loaded, kMaximumPolyphonyPerLayer)) {
+    // Reserve the full shared pool before publishing the font. Its active
+    // quota is trimmed to the fair layer budget after publication; SF2 voices
+    // count sample regions, so layered presets may use several per MIDI key.
+    if (!tsf_set_max_voices(loaded, kMaximumPolyphony)) {
         tsf_close(loaded);
         return JNI_FALSE;
     }
@@ -509,7 +555,10 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadNord(
         nord.finitePiano=finitePiano==JNI_TRUE;
         nord.eqMode=1;
         layerAttack[(size_t)layer]=0.005f;
-        layerRelease[(size_t)layer]=nord.finitePiano?.30f:.01f;
+        // The long piano decay is part of the sample's natural held-note
+        // envelope; key release itself must remain short and independent.
+        // Desktop layer Release=30 maps to a 300 ms fade-to-silence time.
+        layerRelease[(size_t)layer]=nord.finitePiano?0.30f:.01f;
         engineTypes[(size_t)layer]=EngineType::nord;
         distributeLayerVoiceBudgets();
     }catch(const std::bad_alloc&){return env->NewStringUTF("Memória insuficiente para decodificar o NPNO");}
@@ -600,7 +649,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadDx7(
         // buffer to prepare. Do not hold the renderer's mutex while doing so.
         initialiseDx();
         std::array<std::unique_ptr<Dx7Note>,kVoicePoolCapacity> preparedVoices{};
-        for(int i=0;i<kMaximumPolyphonyPerLayer;++i)
+        for(int i=0;i<kLowPolyphonyEngineLimit;++i)
             preparedVoices[(size_t)i]=std::make_unique<Dx7Note>(tuning,nullptr);
 
         std::lock_guard<std::mutex> lock(synthMutex);
@@ -705,16 +754,18 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetHammondPreset(JNIEnv
 {
     if(layer<0||layer>=kLayerCount||preset<0||preset>=(int)hammondNames.size())return JNI_FALSE;
     std::lock_guard<std::mutex> lock(synthMutex); auto& organ=hammondLayers[(size_t)layer]; organ.preset=preset; organ.bars=hammondBars[(size_t)preset];
-    organ.leslie=preset==7?2:preset==6?0:1; organ.percussion=preset==3?1:0; organ.voices={}; return JNI_TRUE;
+    organ.leslie=preset==7?2:preset==6?0:1; organ.manualLeslie=organ.leslie;organ.modulationWheelOverride=false;
+    organ.percussion=preset==3?1:0; organ.voices={}; return JNI_TRUE;
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetHammondControls(JNIEnv* env,jclass,jint layer,jintArray bars,jint leslie,jint percussion,jfloat click,jfloat leakage,jfloat drive,jfloat level)
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetHammondControls(JNIEnv* env,jclass,jint layer,jintArray bars,jint leslie,jboolean updateLeslie,jint percussion,jfloat click,jfloat leakage,jfloat drive,jfloat level)
 {
     if(layer<0||layer>=kLayerCount||bars==nullptr||env->GetArrayLength(bars)<9)return;
     jint values[9]{};env->GetIntArrayRegion(bars,0,9,values);std::lock_guard<std::mutex> lock(synthMutex);
     auto& organ=hammondLayers[(size_t)layer];for(int i=0;i<9;++i)organ.bars[(size_t)i]=std::clamp(values[i],0,8)/8.0f;
-    organ.leslie=std::clamp((int)leslie,0,2);organ.percussion=std::clamp((int)percussion,0,2);
+    if(updateLeslie==JNI_TRUE){organ.leslie=std::clamp((int)leslie,0,2);organ.manualLeslie=organ.leslie;organ.modulationWheelOverride=false;}
+    organ.percussion=std::clamp((int)percussion,0,2);
     organ.click=std::clamp((float)click,0.0f,1.0f);organ.leakage=std::clamp((float)leakage,0.0f,1.0f);
     organ.drive=std::clamp((float)drive,0.0f,1.0f);organ.level=std::clamp((float)level,0.0f,1.0f);
 }
@@ -770,6 +821,23 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerRouting(JNIEnv*
     layerOctave[i]=std::clamp((int)octave,-4,4);layerLowNote[i]=std::clamp((int)low,0,127);
     layerHighNote[i]=std::clamp((int)high,layerLowNote[i],127);layerVelocityCurve[i]=std::clamp((int)velocityCurve,0,3);
     layerSustainEnabled[i]=sustain==JNI_TRUE;layerMidiMode[i]=std::clamp((int)mode,0,2);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerModulationEnabled(JNIEnv*,jclass,jint layer,jboolean enabled)
+{
+    if(layer<0||layer>=kLayerCount)return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    const auto i=(size_t)layer;
+    layerModulationEnabled[i]=enabled==JNI_TRUE;
+    if(layerModulationEnabled[i])return;
+    analogLayers[i].modWheel=0.0f;
+    if(engineTypes[i]==EngineType::hammond&&hammondLayers[i].modulationWheelOverride){
+        hammondLayers[i].leslie=hammondLayers[i].manualLeslie;
+        hammondLayers[i].modulationWheelOverride=false;
+    }
+    if(fonts[i]!=nullptr)for(int channel=0;channel<16;++channel)
+        tsf_channel_midi_control(fonts[i],channel,1,0);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -1008,7 +1076,7 @@ static void applyNoteOff(jint note, jint midiChannel)
         }
         if(layerSustainEnabled[li]&&sustainDown[(size_t)midiChannel]){
             if(type==EngineType::nord)
-                nord_android::noteOff(nordLayers[li],routedNote,midiChannel,true);
+                nord_android::noteOff(nordLayers[li],routedNote,midiChannel,true,layerRelease[li]);
             if(type==EngineType::hammond)
                 for(auto& voice:hammondLayers[li].voices)
                     if(voice.active&&voice.note==routedNote&&voice.channel==midiChannel)voice.down=false;
@@ -1032,7 +1100,7 @@ static void applyNoteOff(jint note, jint midiChannel)
             for (auto& voice: hammondLayers[(size_t)layer].voices)
                 if (voice.active && voice.note == routedNote && voice.channel==midiChannel) releaseHammondVoice(voice);
         if (type == EngineType::nord)
-            nord_android::noteOff(nordLayers[li],routedNote,midiChannel,false);
+            nord_android::noteOff(nordLayers[li],routedNote,midiChannel,false,layerRelease[li]);
     }
 }
 
@@ -1046,17 +1114,45 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeNoteOff(JNIEnv*,jclass,
 static void applyControl(jint controller, jint value, jint midiChannel)
 {
     if(midiChannel<0||midiChannel>15)return;
-    if((controller&0x7f)==1){for(int layer=0;layer<kLayerCount;++layer){const auto li=(size_t)layer;if(engineTypes[li]==EngineType::analog&&(layerMidiChannel[li]<0||layerMidiChannel[li]==midiChannel))analogLayers[li].modWheel=std::clamp((float)(value&0x7f)/127.0f,0.0f,1.0f);}}
+    if((controller&0x7f)==1){
+        const float wheel=std::clamp((float)(value&0x7f)/127.0f,0.0f,1.0f);
+        for(int layer=0;layer<kLayerCount;++layer){
+            const auto li=(size_t)layer;
+            if(!layerModulationEnabled[li]
+                    ||(layerMidiChannel[li]>=0&&layerMidiChannel[li]!=midiChannel))continue;
+            if(engineTypes[li]==EngineType::analog)analogLayers[li].modWheel=wheel;
+            else if(engineTypes[li]==EngineType::hammond){
+                auto& organ=hammondLayers[li];
+                organ.leslie=(value&0x7f)>=64?2:1;
+                organ.modulationWheelOverride=true;
+            }
+        }
+    }
     if ((controller & 0x7f) == 64) {
         const bool wasDown = sustainDown[(size_t)midiChannel];
         sustainDown[(size_t)midiChannel] = (value & 0x7f) >= 64;
         if (wasDown && !sustainDown[(size_t)midiChannel]) {
+            // Match the desktop sample engine: release only NPNO voices that
+            // were explicitly marked as waiting for this pedal-up. Do this
+            // once per layer, not once per MIDI note; still-held/retriggered
+            // voices must keep their own key-down state.
+            for (int layer=0;layer<kLayerCount;++layer) {
+                const auto li=(size_t)layer;
+                if(!layerSustainEnabled[li]
+                        ||(layerMidiChannel[li]>=0&&layerMidiChannel[li]!=midiChannel))continue;
+                if(engineTypes[li]==EngineType::nord)
+                    nord_android::pedalUp(nordLayers[li],midiChannel,layerRelease[li]);
+            }
             for (int note = 0; note < 128; ++note) if (!physicalKeys[(size_t)midiChannel][(size_t)note]) {
                 for (int layer=0; layer<kLayerCount; ++layer) {
                     const auto li=(size_t)layer;
                     if(!layerSustainEnabled[li])continue;
                     const int encoded=routedNotes[li][(size_t)midiChannel][(size_t)note];if(encoded==0)continue;
                     const int routedNote=encoded-1;routedNotes[li][(size_t)midiChannel][(size_t)note]=0;
+                    // NPNO was handled by its per-voice sustain flags; SF2
+                    // handles CC64 internally. Never synthesize a second
+                    // Note Off here for either sample engine.
+                    if(engineTypes[li]==EngineType::nord||engineTypes[li]==EngineType::sf2)continue;
                     if (engineTypes[li] == EngineType::analog) {
                         for (auto& voice: analogLayers[li].voices)
                             if (voice.active && voice.note == routedNote && voice.channel==midiChannel) voice.releasing=true;
@@ -1066,19 +1162,19 @@ static void applyControl(jint controller, jint value, jint midiChannel)
                     } else if (engineTypes[li] == EngineType::dx7) {
                         for (auto& voice: dxLayers[li].voices)
                             if (voice.active && voice.note == routedNote && voice.channel==midiChannel && voice.synth) voice.synth->keyup();
-                    } else if (engineTypes[li] == EngineType::sf2 && fonts[li] != nullptr) {
-                        tsf_channel_note_off(fonts[li],0,routedNote);
-                    } else if (engineTypes[li] == EngineType::nord) {
-                        nord_android::pedalUp(nordLayers[li],midiChannel);
                     }
                 }
             }
         }
     }
     for (int layer=0;layer<kLayerCount;++layer)if(fonts[(size_t)layer]!=nullptr&&
-        (layerMidiChannel[(size_t)layer]<0||layerMidiChannel[(size_t)layer]==midiChannel))
-        tsf_channel_midi_control(fonts[(size_t)layer],midiChannel,controller&0x7f,
-            (controller&0x7f)==64&&!layerSustainEnabled[(size_t)layer]?0:value&0x7f);
+        (layerMidiChannel[(size_t)layer]<0||layerMidiChannel[(size_t)layer]==midiChannel)){
+        const auto li=(size_t)layer;
+        const int cc=controller&0x7f;
+        const int routedValue=(cc==64&&!layerSustainEnabled[li])||
+                (cc==1&&!layerModulationEnabled[li])?0:value&0x7f;
+        tsf_channel_midi_control(fonts[li],midiChannel,cc,routedValue);
+    }
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -1162,7 +1258,7 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
         if(engineTypes[(size_t)layer]==EngineType::sf2 && font!=nullptr) tsf_render_float(font, scratch.data(), frames, TSF_FALSE);
         else if(engineTypes[li]==EngineType::nord)
             nord_android::render(nordLayers[li],scratch.data(),frames,kSampleRate,
-                    layerVoiceBudgets[li],layerAttack[li],layerRelease[li]);
+                    layerVoiceBudgets[li],layerAttack[li]);
         else if(engineTypes[(size_t)layer]==EngineType::dx7) {
             auto& dx=dxLayers[(size_t)layer];
             // Traverse the voice pool once per block instead of once per
@@ -1298,6 +1394,8 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
             for(int sample=0;sample<frames;++sample) scratch[(size_t)sample*2+1]=scratch[(size_t)sample*2];
         }
         const float targetLayer = layerGains[(size_t) layer];
+        const float outputCalibration=engineTypes[li]==EngineType::hammond
+                ?kHammondOutputCalibration:1.0f;
         const float targetMaster = masterGain;
         // Gain changes are smoothed per block to avoid clicks when a fader is
         // moved while notes are sounding.
@@ -1376,10 +1474,11 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
             for(int channel=0;channel<2;++channel){
                 const size_t sample=(size_t)frame*2+(size_t)channel;
                 const float sideGain=channel==0?leftPan:rightPan;
-                const float layerSample=scratch[sample]*gain*sideGain;
+                const float calibratedSample=scratch[sample]*outputCalibration;
+                const float layerSample=calibratedSample*gain*sideGain;
                 mix[sample]+=layerSample;
                 if(!originalSf2)reverbSend[sample]+=layerSample*layerReverbSend[li];
-                renderedPeaks[li]=std::max(renderedPeaks[li],std::abs(scratch[sample]*gain));
+                renderedPeaks[li]=std::max(renderedPeaks[li],std::abs(calibratedSample*gain));
             }
         }
         smoothedLayerGains[(size_t)layer] = targetLayer;

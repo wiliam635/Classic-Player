@@ -155,12 +155,8 @@ public final class MainActivity extends Activity {
             if(first==64){
                 // Match desktop: CC64 is reserved for sustain and cannot be
                 // assigned to a layer parameter through MIDI Learn.
-                boolean wasDown = midiSustain[channel];
                 midiSustain[channel] = second >= 64;
                 audioEngine.setSustain(channel,midiSustain[channel]);
-                if (wasDown && !midiSustain[channel])
-                    for (int note = 0; note < 128; note++)
-                        if (!midiHeld[channel][note]) audioEngine.noteOff(note,channel);
                 return;
             }
             if(pendingLayerLearn>=0&&pendingLayerLearnTarget>=0){
@@ -173,21 +169,36 @@ public final class MainActivity extends Activity {
             // Learn is handled before the reserved MIDI CC filters so STOP
             // can intentionally use CC 120/123 when a controller provides it.
             if (pendingLearnTarget >= 0) {
-                getSharedPreferences("midi_learn",MODE_PRIVATE).edit().putInt("cc_"+pendingLearnTarget,first).apply();
-                screen.setMidiStatus("MIDI: CC "+first+" aprendido"); pendingLearnTarget=-1; return;
+                if(first>=120&&pendingLearnTarget!=7){
+                    screen.setMidiStatus("MIDI: CC 120–127 são comandos reservados; mova outro controle");
+                    return;
+                }
+                getSharedPreferences("midi_learn",MODE_PRIVATE).edit()
+                        .putInt("cc_"+pendingLearnTarget,first)
+                        .putInt("cc_channel_"+pendingLearnTarget,channel).apply();
+                screen.setMidiStatus("MIDI: CC "+first+" · CH "+(channel+1)+" aprendido"); pendingLearnTarget=-1; return;
             }
+            // CC1 remains the dedicated performance wheel for Hammond/Analog
+            // even when it is also assigned to a learned layer or master target.
+            if(first==1)audioEngine.control(first,second,channel);
             SharedPreferences layerLearn=getSharedPreferences("midi_learn",MODE_PRIVATE);
             boolean learnedLayerControl=false;
-            for(int layer=0;layer<6;layer++)for(int target=0;target<5;target++){
-                MidiLearnMapping mapping=MidiLearnMapping.load(layerLearn,layer,target);
-                if(!mapping.matches(first,channel))continue;
-                if(target==4){
+            for(int layer=0;layer<6;layer++){
+                MidiLearnMapping muteMapping=MidiLearnMapping.load(layerLearn,layer,4);
+                if(muteMapping.matches(first,channel)){
                     boolean pressed=second>=64;
                     boolean wasPressed=learnedMuteCcDown[layer][channel][first];
                     learnedMuteCcDown[layer][channel][first]=pressed;
                     if(pressed&&!wasPressed)setLayerMuted(layer,!screen.muted[layer]);
-                }else applyLayerMidiLearn(layer,target,second);
-                learnedLayerControl=true;
+                    learnedLayerControl=true;
+                    continue;
+                }
+                for(int target=0;target<4;target++){
+                    MidiLearnMapping mapping=MidiLearnMapping.load(layerLearn,layer,target);
+                    if(!mapping.matches(first,channel))continue;
+                    applyLayerMidiLearn(layer,target,second);
+                    learnedLayerControl=true;
+                }
             }
             if(learnedLayerControl)return;
             if(padLayerActive&&continuousPadActive&&first!=64){
@@ -197,13 +208,15 @@ public final class MainActivity extends Activity {
                 if(edge)for(int pad=0;pad<12;pad++)if(padMap.getInt("pad_cc_"+pad,-1)==first){padEngine.trigger(pad,true);return;}
             }
             if(first!=64&&first!=120&&first!=123){
-                SharedPreferences learn=getSharedPreferences("midi_learn",MODE_PRIVATE);for(int target=0;target<8;target++)if(learn.getInt("cc_"+target,-1)==first){if(target==7){padEngine.stopAll();screen.setMidiStatus("MIDI: pads parados");}else screen.setLearnedVolume(target,second/127f);return;}
-            } else if (getSharedPreferences("midi_learn",MODE_PRIVATE).getInt("cc_7",-1)==first) {
+                SharedPreferences learn=getSharedPreferences("midi_learn",MODE_PRIVATE);for(int target=0;target<8;target++){int learnedChannel=learn.getInt("cc_channel_"+target,-1);if(learn.getInt("cc_"+target,-1)==first&&(learnedChannel<0||learnedChannel==channel)){if(target==7){padEngine.stopAll();screen.setMidiStatus("MIDI: pads parados");}else screen.setLearnedVolume(target,second/127f);return;}}
+            } else if (getSharedPreferences("midi_learn",MODE_PRIVATE).getInt("cc_7",-1)==first
+                    &&(getSharedPreferences("midi_learn",MODE_PRIVATE).getInt("cc_channel_7",-1)<0
+                    ||getSharedPreferences("midi_learn",MODE_PRIVATE).getInt("cc_channel_7",-1)==channel)) {
                 padEngine.stopAll(); screen.setMidiStatus("MIDI: pads parados"); return;
             }
             if (first == 120 || first == 123) {
                 panicMidiState();
-            } else audioEngine.control(first,second,channel);
+            } else if(first!=1)audioEngine.control(first,second,channel);
             return;
         }
         if (type != 0x80 && type != 0x90) return;
@@ -410,6 +423,7 @@ public final class MainActivity extends Activity {
                 int preset=prefs.getInt("hammond_preset_"+i,0);
                 if(!muted){audioEngine.activateHammond(i);audioEngine.setHammondPreset(i,preset);}
                 screen.setLayerName(i,"Classic Keys Hammond"); screen.setEngineName(i,"HAMMOND"); screen.setPresetName(i,(muted?"MUTE · ":"")+audioEngine.hammondPresetName(preset));
+                screen.setLayerModulationEnabled(i,prefs.getBoolean("modulation_enabled_"+i,true));
                 if(!prefs.contains("hammond_bar_"+i+"_0"))screen.setHammondPresetDefaults(i,preset);
                 continue;
             }
@@ -420,6 +434,8 @@ public final class MainActivity extends Activity {
             String name = displaySafeSoundFontName(prefs.getString("name_" + i, null));
             if (sf2Uris[i] != null) {
                 Uri saved = Uri.parse(sf2Uris[i]);
+                File savedFile = new File(sf2Uris[i]);
+                if (savedFile.isFile()) saved = Uri.fromFile(savedFile);
                 soundFontLayers[i].load(saved, name);
                 screen.setLayerName(i,name==null?"SF2 carregado":name);
                 screen.setEngineName(i,"SF2");
@@ -429,6 +445,7 @@ public final class MainActivity extends Activity {
                 }else{
                     String cachedPath = restoreSoundFont(sf2Uris[i], i);
                     if (cachedPath != null && audioEngine.loadLayer(i, cachedPath)) {
+                    soundFontLayers[i].load(Uri.fromFile(new File(cachedPath)), name);
                     int preset = prefs.getInt("preset_" + i, 0);
                     if (audioEngine.setPreset(i, preset)) {
                         soundFontLayers[i].setPreset(preset);
@@ -480,6 +497,17 @@ public final class MainActivity extends Activity {
                 nordCompressorMigration.putFloat("control_comp_"+i,0f);
             }
             nordCompressorMigration.putBoolean("nord_comp_mix_neutral_migration_1",true).apply();
+        }
+        // Desktop's Acoustic Piano release default is 30 on a 0-100 control;
+        // that maps to 300 ms here. Keep its separate 15-second sample decay.
+        if(!prefs.getBoolean("nord_acoustic_release_migration_4",false)){
+            SharedPreferences.Editor nordReleaseMigration=prefs.edit();
+            for(int i=0;i<6;i++)if("NPNO".equals(screen.engineName(i))
+                    &&"Piano Acústico".equals(prefs.getString("nord_category_"+i,NORD_CATEGORIES[0]))){
+                screen.layerRelease[i]=0.30f;
+                nordReleaseMigration.putFloat("control_release_"+i,0.30f);
+            }
+            nordReleaseMigration.putBoolean("nord_acoustic_release_migration_4",true).apply();
         }
         for(int i=0;i<6;i++)screen.applyLoadedEditorState(i);
         String account = licenseManager.userName();
@@ -820,6 +848,32 @@ public final class MainActivity extends Activity {
     }
 
     private void openSf2Picker(int layer) {
+        File[] library = soundFontLibraryFiles();
+        EditorUi.Panel panel = new EditorUi.Panel(this, "BANCO DE TIMBRES SF2", "Toque no nome para carregar o SoundFont nesta layer.");
+        EditorUi.addButton(EditorUi.gridRow(panel.body), "IMPORTAR SF2", () -> {
+            panel.dialog.dismiss();
+            openSf2FilePicker(layer);
+        });
+        if (library.length == 0) {
+            panel.body.addView(EditorUi.label(this, "Nenhum SF2 importado ainda.", 11));
+        } else {
+            for (File file : library) {
+                String current = getSharedPreferences("layers", MODE_PRIVATE).getString("sf2_" + layer, null);
+                String label = (file.getAbsolutePath().equals(current) ? "✓  " : "") + soundFontFileDisplayName(file);
+                Button item = EditorUi.button(this, label, () -> {
+                    panel.dialog.dismiss();
+                    boolean reset = !file.getAbsolutePath().equals(current)
+                            || !"SF2".equals(screen.engineName(layer));
+                    loadSoundFontLibraryFile(layer, file, reset);
+                });
+                panel.body.addView(item, new LinearLayout.LayoutParams(-1, EditorUi.dp(this, 44)));
+            }
+        }
+        EditorUi.addButton(panel.footer, "FECHAR", panel.dialog::dismiss);
+        panel.show();
+    }
+
+    private void openSf2FilePicker(int layer) {
         pendingLayer = layer;
         pendingEngine = 1;
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -831,6 +885,113 @@ public final class MainActivity extends Activity {
                 "audio/x-soundfont", "audio/sf2", "application/octet-stream"
         });
         startActivityForResult(i, 700);
+    }
+
+    private File soundFontLibraryDirectory() {
+        return new File(new File(getFilesDir(), "soundfonts"), "library");
+    }
+
+    /** Includes older per-layer cached files so upgrades keep those timbres available in the bank. */
+    private File[] soundFontLibraryFiles() {
+        ArrayList<File> files = new ArrayList<>();
+        File root = new File(getFilesDir(), "soundfonts");
+        File[] legacy = root.listFiles((dir, name) -> name.toLowerCase(java.util.Locale.ROOT).endsWith(".sf2"));
+        if (legacy != null) java.util.Collections.addAll(files, legacy);
+        File[] stored = soundFontLibraryDirectory().listFiles((dir, name) -> name.toLowerCase(java.util.Locale.ROOT).endsWith(".sf2"));
+        if (stored != null) java.util.Collections.addAll(files, stored);
+        for (int i = files.size() - 1; i >= 0; i--) if (!files.get(i).isFile()) files.remove(i);
+        java.util.Collections.sort(files, (a, b) -> soundFontFileDisplayName(a).compareToIgnoreCase(soundFontFileDisplayName(b)));
+        return files.toArray(new File[0]);
+    }
+
+    private String soundFontFileDisplayName(File file) {
+        String path = file.getAbsolutePath();
+        SharedPreferences prefs = getSharedPreferences("layers", MODE_PRIVATE);
+        for (int i = 0; i < 6; i++) {
+            if (path.equals(prefs.getString("sf2_" + i, null))) {
+                String saved = displaySafeSoundFontName(prefs.getString("name_" + i, null));
+                if (saved != null && !saved.isEmpty()) return saved;
+            }
+        }
+        String name = file.getName();
+        return name.replaceFirst("(?i)\\.sf2$", "");
+    }
+
+    private String cacheSoundFontToLibrary(Uri source, String displayName) {
+        if (source == null) return null;
+        File directory = soundFontLibraryDirectory();
+        if (!directory.exists() && !directory.mkdirs()) return null;
+        String base = displayName == null ? "SoundFont" : new File(displayName).getName();
+        base = base.replaceFirst("(?i)\\.sf2$", "").replaceAll("[^\\p{L}\\p{N} _.-]", "_").trim();
+        if (base.isEmpty()) base = "SoundFont";
+        if (base.length() > 100) base = base.substring(0, 100);
+        File target = new File(directory, base + ".sf2");
+        int suffix = 2;
+        while (target.exists()) target = new File(directory, base + " (" + (suffix++) + ").sf2");
+        try (InputStream input = getContentResolver().openInputStream(source);
+             FileOutputStream output = new FileOutputStream(target, false)) {
+            if (input == null) {
+                target.delete();
+                return null;
+            }
+            byte[] block = new byte[64 * 1024];
+            int count;
+            while ((count = input.read(block)) >= 0) output.write(block, 0, count);
+            output.flush();
+            return target.getAbsolutePath();
+        } catch (Exception ignored) {
+            if (target.exists()) target.delete();
+            return null;
+        }
+    }
+
+    private void loadSoundFontLibraryFile(int layer, File file, boolean resetControls) {
+        if (layer < 0 || layer >= 6 || file == null || !file.isFile() || audioEngine == null) return;
+        screen.setAudioStatus("SF2: carregando " + soundFontFileDisplayName(file) + "…");
+        try {
+            fontImporter.execute(() -> {
+                final boolean loaded;
+                synchronized (importLifecycleLock) {
+                    loaded = !closing && audioEngine != null && audioEngine.loadLayer(layer, file.getAbsolutePath());
+                }
+                runOnUiThread(() -> {
+                    if (closing || isFinishing() || isDestroyed()) return;
+                    if (!loaded) {
+                        screen.setAudioStatus("SF2: falha ao abrir " + soundFontFileDisplayName(file));
+                        new AlertDialog.Builder(this).setTitle("FALHA AO ABRIR SF2")
+                                .setMessage("O arquivo " + soundFontFileDisplayName(file) + " não pôde ser carregado.")
+                                .setPositiveButton("OK", null).show();
+                        return;
+                    }
+                    prepareLayerMotorReplacement(layer);
+                    deactivatePadLayer(layer);
+                    String name = soundFontFileDisplayName(file);
+                    screen.setLayerName(layer, name);
+                    screen.setEngineName(layer, "SF2");
+                    if (resetControls) screen.resetSf2Processing(layer);
+                    if (audioEngine.presetCount(layer) > 0) audioEngine.setPreset(layer, 0);
+                    String firstPreset = audioEngine.presetCount(layer) > 0
+                            ? audioEngine.presetName(layer, 0) : "Preset 1";
+                    screen.setPresetName(layer, firstPreset);
+                    soundFontLayers[layer].load(Uri.fromFile(file), name);
+                    soundFontLayers[layer].setPreset(0);
+                    getSharedPreferences("layers", MODE_PRIVATE).edit()
+                            .putString("sf2_" + layer, file.getAbsolutePath())
+                            .putString("name_" + layer, name)
+                            .putInt("preset_" + layer, 0)
+                            .putInt("engine_" + layer, 1)
+                            .apply();
+                    sf2Uris[layer] = file.getAbsolutePath();
+                    screen.applyLoadedEditorState(layer);
+                    restorePreferredAudioDevice();
+                    screen.setAudioStatus("SF2: " + name + " carregado da biblioteca");
+                    screen.invalidate();
+                    openSoundFontEditor(layer);
+                });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            screen.setAudioStatus("SF2: importação indisponível");
+        }
     }
 
     private void openDx7Picker(int layer) {
@@ -900,7 +1061,7 @@ public final class MainActivity extends Activity {
                 SharedPreferences.Editor save=getSharedPreferences("layers",MODE_PRIVATE).edit()
                         .putInt("engine_"+layer,7).putString("npno_"+layer,file.getAbsolutePath())
                         .putString("nord_category_"+layer,category).putString("nord_browser_category_"+layer,category).putString("name_"+layer,name);
-                screen.setLayerEnvelope(layer,resetControls?.005f:screen.layerAttack[layer],"Piano Acústico".equals(category)?.30f:.0f);
+                screen.setLayerEnvelope(layer,resetControls?.005f:screen.layerAttack[layer],"Piano Acústico".equals(category)?0.30f:.0f);
                 if(resetControls){
                     screen.setLayerRouting(layer,-1,0,0,true);
                     screen.setLearnedVolume(layer,.8f);screen.setLayerPan(layer,0f);
@@ -1127,12 +1288,15 @@ public final class MainActivity extends Activity {
 
     /** A newly chosen motor replaces the muted one; do not reload the old motor first. */
     private void prepareLayerMotorReplacement(int layer){
-        if(layer<0||layer>=6||!screen.muted[layer])return;
-        screen.muted[layer]=false;
-        muteGenerations.incrementAndGet(layer);
-        getSharedPreferences("layers",MODE_PRIVATE).edit().putBoolean("muted_"+layer,false).apply();
-        screen.applyLayerGains();
-        screen.invalidate();
+        if(layer<0||layer>=6)return;
+        screen.setLayerModulationEnabled(layer,false);
+        if(screen.muted[layer]){
+            screen.muted[layer]=false;
+            muteGenerations.incrementAndGet(layer);
+            getSharedPreferences("layers",MODE_PRIVATE).edit().putBoolean("muted_"+layer,false).apply();
+            screen.applyLayerGains();
+            screen.invalidate();
+        }
     }
 
     private void deactivatePadLayer(int layer) {
@@ -1146,6 +1310,7 @@ public final class MainActivity extends Activity {
         if(layer<0||layer>=6)return;
         muteGenerations.incrementAndGet(layer);
         deactivatePadLayer(layer);
+        screen.setLayerModulationEnabled(layer,false);
         if (audioEngine != null) { audioEngine.allNotesOff(); audioEngine.clearLayer(layer); }
         screen.muted[layer]=false;
         getSharedPreferences("layers", MODE_PRIVATE).edit()
@@ -1159,11 +1324,14 @@ public final class MainActivity extends Activity {
     }
 
     private void activateAnalog(int layer) {
+        boolean preserveAnalogModulation="ANALOG".equals(screen.engineName(layer))&&screen.modulationEnabled[layer];
         prepareLayerMotorReplacement(layer);
         deactivatePadLayer(layer);
         audioEngine.activateAnalog(layer); audioEngine.setAnalogPreset(layer,0);
         screen.setLayerName(layer,"Classic Keys Analog"); screen.setEngineName(layer,"ANALOG"); screen.setPresetName(layer,audioEngine.analogPresetName(0));
-        getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("engine_"+layer,3).putInt("analog_preset_"+layer,0).putString("name_"+layer,"Classic Keys Analog").apply();
+        boolean analogModulation=preserveAnalogModulation;
+        screen.setLayerModulationEnabled(layer,analogModulation);
+        getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("engine_"+layer,3).putInt("analog_preset_"+layer,0).putBoolean("modulation_enabled_"+layer,analogModulation).putString("name_"+layer,"Classic Keys Analog").apply();
         screen.setAnalogPresetDefaults(layer,0);
     }
 
@@ -1180,8 +1348,9 @@ public final class MainActivity extends Activity {
         deactivatePadLayer(layer);
         audioEngine.activateHammond(layer); audioEngine.setHammondPreset(layer,0);
         screen.setLayerName(layer,"Classic Keys Hammond"); screen.setEngineName(layer,"HAMMOND"); screen.setPresetName(layer,audioEngine.hammondPresetName(0));
+        screen.setLayerModulationEnabled(layer,true);
         screen.setHammondPresetDefaults(layer,0);
-        getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("engine_"+layer,4).putInt("hammond_preset_"+layer,0).putString("name_"+layer,"Classic Keys Hammond").apply();
+        getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("engine_"+layer,4).putInt("hammond_preset_"+layer,0).putBoolean("modulation_enabled_"+layer,true).putString("name_"+layer,"Classic Keys Hammond").apply();
     }
     private void openHammondEditor(final int layer) {
         int count=audioEngine.hammondPresetCount(); String[] presets=new String[count];
@@ -1287,15 +1456,17 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("SALVAR NO LIVE SET "+(slot+1)).setView(input)
                 .setPositiveButton("SALVAR",(d,w)->{
                     SharedPreferences layers=getSharedPreferences("layers",MODE_PRIVATE),live=getSharedPreferences("live_set",MODE_PRIVATE);SharedPreferences.Editor e=live.edit();
-                    String root="bank_"+bank+"_slot_"+slot;e.putInt(root+"_version",13).putFloat(root+"_master",screen.masterVolume);for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";e.putInt(p+"engine",layers.getInt("engine_"+layer,0));e.putString(p+"sf2",layers.getString("sf2_"+layer,null));e.putString(p+"dx7",layers.getString("dx7_"+layer,null));e.putString(p+"npno",layers.getString("npno_"+layer,null));e.putString(p+"nordCategory",layers.getString("nord_category_"+layer,NORD_CATEGORIES[0]));e.putInt(p+"nordEq",layers.getInt("nord_eq_mode_"+layer,1));e.putString(p+"name",layers.getString("name_"+layer,null));e.putInt(p+"preset",layers.getInt("preset_"+layer,0));e.putInt(p+"dx7_patch",layers.getInt("dx7_patch_"+layer,0));e.putInt(p+"analog",layers.getInt("analog_preset_"+layer,0));e.putInt(p+"hammond",layers.getInt("hammond_preset_"+layer,0));e.putFloat(p+"volume",screen.layerVolumes[layer]).putFloat(p+"pan",screen.layerPan[layer]).putBoolean(p+"muted",screen.muted[layer]).putBoolean(p+"solo",screen.solo[layer]);}
+                    String root="bank_"+bank+"_slot_"+slot;e.putInt(root+"_version",14).putFloat(root+"_master",screen.masterVolume);for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";e.putInt(p+"engine",layers.getInt("engine_"+layer,0));e.putString(p+"sf2",layers.getString("sf2_"+layer,null));e.putString(p+"dx7",layers.getString("dx7_"+layer,null));e.putString(p+"npno",layers.getString("npno_"+layer,null));e.putString(p+"nordCategory",layers.getString("nord_category_"+layer,NORD_CATEGORIES[0]));e.putInt(p+"nordEq",layers.getInt("nord_eq_mode_"+layer,1));e.putString(p+"name",layers.getString("name_"+layer,null));e.putInt(p+"preset",layers.getInt("preset_"+layer,0));e.putInt(p+"dx7_patch",layers.getInt("dx7_patch_"+layer,0));e.putInt(p+"analog",layers.getInt("analog_preset_"+layer,0));e.putInt(p+"hammond",layers.getInt("hammond_preset_"+layer,0));e.putFloat(p+"volume",screen.layerVolumes[layer]).putFloat(p+"pan",screen.layerPan[layer]).putBoolean(p+"muted",screen.muted[layer]).putBoolean(p+"solo",screen.solo[layer]).putBoolean(p+"modulation",screen.modulationEnabled[layer]);}
                     SharedPreferences pads=getSharedPreferences("pads",MODE_PRIVATE);e.putFloat(root+"_pad_fade",pads.getFloat("crossfade_seconds",1f)).putInt(root+"_pad_stop_cc",pads.getInt("pad_stop_cc",-1));for(int pad=0;pad<12;pad++){e.putString(root+"_drum_pad_"+pad,pads.getString(padSampleKey(false,pad),null)).putString(root+"_continuous_pad_"+pad,pads.getString(padSampleKey(true,pad),null)).putString(root+"_drum_pad_name_"+pad,pads.getString(padNameKey(false,pad),null)).putString(root+"_continuous_pad_name_"+pad,pads.getString(padNameKey(true,pad),null)).putInt(root+"_pad_note_"+pad,pads.getInt("pad_note_"+pad,36+pad)).putInt(root+"_pad_cc_"+pad,pads.getInt("pad_cc_"+pad,-1));}
-                    e.putInt(root+"_version",13).putFloat(root+"_reverb",screen.masterReverb).putFloat(root+"_chorus",screen.masterChorus);
+                    e.putInt(root+"_version",14).putFloat(root+"_reverb",screen.masterReverb).putFloat(root+"_chorus",screen.masterChorus);
                     SharedPreferences midiLearn=getSharedPreferences("midi_learn",MODE_PRIVATE);
                     for(int layer=0;layer<6;layer++)for(int target=0;target<5;target++){
                         String key="layer_"+layer+"_"+target;
                         e.putInt(root+"_learn_"+layer+"_"+target,midiLearn.getInt(key,-1))
                                 .putInt(root+"_learn_channel_"+layer+"_"+target,midiLearn.getInt(key+"_channel",-1));
                     }
+                    for(int target=0;target<8;target++)e.putInt(root+"_global_learn_"+target,midiLearn.getInt("cc_"+target,-1))
+                            .putInt(root+"_global_learn_channel_"+target,midiLearn.getInt("cc_channel_"+target,-1));
                     for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";
                         e.putFloat(p+"attack",screen.layerAttack[layer]).putFloat(p+"release",screen.layerRelease[layer]).putFloat(p+"eqLow",screen.eqLow[layer]).putFloat(p+"eqMid",screen.eqMid[layer]).putFloat(p+"eqHigh",screen.eqHigh[layer])
                          .putFloat(p+"eqLowFreq",screen.eqLowFreq[layer]).putFloat(p+"eqMidFreq",screen.eqMidFreq[layer]).putFloat(p+"eqHighFreq",screen.eqHighFreq[layer]).putFloat(p+"eqLowQ",screen.eqLowQ[layer]).putFloat(p+"eqMidQ",screen.eqMidQ[layer]).putFloat(p+"eqHighQ",screen.eqHighQ[layer]).putFloat(p+"eqHighPass",screen.eqHighPass[layer]).putFloat(p+"eqLowPass",screen.eqLowPass[layer])
@@ -1329,8 +1500,14 @@ public final class MainActivity extends Activity {
                     learned.putInt(key,cc).putInt(key+"_channel",version>=9?live.getInt(root+"_learn_channel_"+layer+"_"+target,-1):-1);
                 }
                 learned.putBoolean(key+"_relative",false);
-            }learned.apply();}
-        for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";e.putInt("engine_"+layer,live.getInt(p+"engine",0)).putString("sf2_"+layer,live.getString(p+"sf2",null)).putString("dx7_"+layer,live.getString(p+"dx7",null)).putString("npno_"+layer,live.getString(p+"npno",null)).putString("nord_category_"+layer,live.getString(p+"nordCategory",NORD_CATEGORIES[0])).putInt("nord_eq_mode_"+layer,live.getInt(p+"nordEq",1)).putString("name_"+layer,live.getString(p+"name",null)).putInt("preset_"+layer,live.getInt(p+"preset",0)).putInt("dx7_patch_"+layer,live.getInt(p+"dx7_patch",0)).putInt("analog_preset_"+layer,live.getInt(p+"analog",0)).putInt("hammond_preset_"+layer,live.getInt(p+"hammond",0))
+            }
+            if(version>=14)for(int target=0;target<8;target++){
+                int cc=live.getInt(root+"_global_learn_"+target,-1);String key="cc_"+target;
+                int channel=live.getInt(root+"_global_learn_channel_"+target,-1);
+                if(cc<0)learned.remove(key).remove("cc_channel_"+target);else learned.putInt(key,cc).putInt("cc_channel_"+target,channel);
+            }
+            learned.apply();}
+        for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";int savedEngine=live.getInt(p+"engine",0);e.putInt("engine_"+layer,savedEngine).putString("sf2_"+layer,live.getString(p+"sf2",null)).putString("dx7_"+layer,live.getString(p+"dx7",null)).putString("npno_"+layer,live.getString(p+"npno",null)).putString("nord_category_"+layer,live.getString(p+"nordCategory",NORD_CATEGORIES[0])).putInt("nord_eq_mode_"+layer,live.getInt(p+"nordEq",1)).putString("name_"+layer,live.getString(p+"name",null)).putInt("preset_"+layer,live.getInt(p+"preset",0)).putInt("dx7_patch_"+layer,live.getInt(p+"dx7_patch",0)).putInt("analog_preset_"+layer,live.getInt(p+"analog",0)).putInt("hammond_preset_"+layer,live.getInt(p+"hammond",0)).putBoolean("modulation_enabled_"+layer,version>=14?live.getBoolean(p+"modulation",savedEngine==4):savedEngine==4)
             .putFloat("control_volume_"+layer,live.getFloat(p+"volume",screen.layerVolumes[layer])).putFloat("control_pan_"+layer,live.getFloat(p+"pan",0)).putBoolean("muted_"+layer,live.getBoolean(p+"muted",false)).putBoolean("solo_"+layer,live.getBoolean(p+"solo",false))
             .putFloat("control_attack_"+layer,live.getFloat(p+"attack",screen.layerAttack[layer])).putFloat("control_release_"+layer,live.getFloat(p+"release",screen.layerRelease[layer]))
             .putFloat("eq_low_db_"+layer,version>=4?live.getFloat(p+"eqLow",screen.eqLow[layer]):(float)(20*Math.log10(Math.max(.125f,live.getFloat(p+"eqLow",1f)))))
@@ -1495,48 +1672,23 @@ public final class MainActivity extends Activity {
             catch (SecurityException ignored) { }
             final int layer = pendingLayer;
             pendingLayer = -1;
-            final PolySynthEngine importingEngine = audioEngine;
             screen.setAudioStatus("ÁUDIO: importando SF2…");
-            fontImporter.execute(() -> {
-            if (closing) return;
-            String cachedPath = cacheSoundFont(uri, layer);
-            final boolean loaded;
-            synchronized (importLifecycleLock) {
-                loaded = cachedPath != null && importingEngine != null && !closing
-                        && importingEngine.loadLayer(layer, cachedPath);
+            try {
+                fontImporter.execute(() -> {
+                    if (closing) return;
+                    String cachedPath = cacheSoundFont(uri, layer);
+                    runOnUiThread(() -> {
+                        if (closing || isFinishing() || isDestroyed()) return;
+                        if (cachedPath == null) {
+                            screen.setAudioStatus("SF2: falha ao copiar para a biblioteca");
+                            return;
+                        }
+                        loadSoundFontLibraryFile(layer, new File(cachedPath), true);
+                    });
+                });
+            } catch (java.util.concurrent.RejectedExecutionException ignored) {
+                screen.setAudioStatus("SF2: importação indisponível");
             }
-            runOnUiThread(() -> {
-            if (closing || isFinishing() || isDestroyed()) return;
-            if (!loaded) {
-                screen.setAudioStatus("ÁUDIO: falha ao abrir o arquivo SF2");
-                pendingLayer = -1;
-                return;
-            }
-            prepareLayerMotorReplacement(layer);
-            deactivatePadLayer(layer);
-            String name = soundFontDisplayName(uri);
-            screen.setLayerName(layer, name);
-            screen.setEngineName(layer, "SF2");
-            // A newly imported SoundFont starts with its own region envelopes
-            // and no inherited processing from the previous layer instrument.
-            screen.resetSf2Processing(layer);
-            String firstPreset = audioEngine.presetCount(layer) > 0 ? audioEngine.presetName(layer, 0) : "Preset 1";
-            screen.setPresetName(layer, firstPreset);
-            soundFontLayers[layer].load(uri, name);
-            soundFontLayers[layer].setPreset(0);
-            getSharedPreferences("layers", MODE_PRIVATE).edit()
-                    .putString("sf2_" + layer, cachedPath)
-                    .putString("name_" + layer, name)
-                    .putInt("preset_" + layer, 0)
-                    .putInt("engine_" + layer, 1)
-                    .apply();
-            sf2Uris[layer] = cachedPath;
-            screen.applyLoadedEditorState(layer);
-        restorePreferredAudioDevice();
-            pendingLayer = -1;
-            openSoundFontEditor(layer);
-            });
-            });
         }
     }
 
@@ -1545,7 +1697,11 @@ public final class MainActivity extends Activity {
         if(stored==null||stored.isEmpty())return null;
         File existing = new File(stored);
         if (existing.isFile()) return existing.getAbsolutePath();
-        try { return cacheSoundFont(Uri.parse(stored), layer); }
+        try {
+            String cached = cacheSoundFont(Uri.parse(stored), layer);
+            if (cached != null) getSharedPreferences("layers", MODE_PRIVATE).edit().putString("sf2_" + layer, cached).apply();
+            return cached;
+        }
         catch (Exception ignored) { return null; }
     }
 
@@ -1573,7 +1729,7 @@ public final class MainActivity extends Activity {
     }
 
     private String cacheSoundFont(Uri source, int layer) {
-        return cacheDocument(source, layer, "sf2");
+        return cacheSoundFontToLibrary(source, soundFontDisplayName(source));
     }
 
     private String padDisplayName(Uri source,int pad){
@@ -1701,6 +1857,11 @@ public final class MainActivity extends Activity {
         }else if(analog&&page==1){
             buildAnalogFilterControls(layer,body);
         }else if(page==controlsPage){
+            if("HAMMOND".equals(engine)||"ANALOG".equals(engine)){
+                Button modulation=EditorUi.button(this,"MODULATION DO TECLADO: "+(screen.modulationEnabled[layer]?"ON":"OFF"),()->{});
+                modulation.setOnClickListener(v->{boolean enabled=!screen.modulationEnabled[layer];screen.setLayerModulationEnabled(layer,enabled);modulation.setText("MODULATION DO TECLADO: "+(enabled?"ON":"OFF"));});
+                body.addView(modulation,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,44)));
+            }
             LinearLayout row=EditorUi.knobRow(body);layerMidiKnobs[layer][0]=EditorUi.knob(row,"VOLUME",screen.layerVolumes[layer]*100f,0,100," %",v->screen.setLearnedVolume(layer,v/100f));
             boolean sf2Envelope="SF2".equals(engine);EditorUi.knob(row,sf2Envelope?"ATTACK +ms":"ATTACK ms",screen.layerAttack[layer]*1000f,sf2Envelope?0f:.1f,100," ms",v->screen.setLayerEnvelope(layer,v/1000f,screen.layerRelease[layer]));
             EditorUi.knob(row,sf2Envelope?"RELEASE +ms":"RELEASE ms",screen.layerRelease[layer]*1000f,sf2Envelope?0f:0f,"NPNO".equals(engine)?2000:100," ms",v->screen.setLayerEnvelope(layer,screen.layerAttack[layer],v/1000f));
@@ -1884,7 +2045,7 @@ public final class MainActivity extends Activity {
 
     private void exportLayerPreset(int layer){
         try{
-            SharedPreferences prefs=getSharedPreferences("layers",MODE_PRIVATE);JSONObject json=new JSONObject();json.put("format","ClassicPlayerAndroidLayerPreset");json.put("version",3);json.put("engine",screen.engineName(layer));json.put("sourceName",screen.layerNames[layer]);json.put("sourcePath",prefs.getString("npno_"+layer,prefs.getString("sf2_"+layer,prefs.getString("dx7_"+layer,""))));
+            SharedPreferences prefs=getSharedPreferences("layers",MODE_PRIVATE);JSONObject json=new JSONObject();json.put("format","ClassicPlayerAndroidLayerPreset");json.put("version",4);json.put("engine",screen.engineName(layer));json.put("sourceName",screen.layerNames[layer]);json.put("sourcePath",prefs.getString("npno_"+layer,prefs.getString("sf2_"+layer,prefs.getString("dx7_"+layer,""))));json.put("modulationEnabled",screen.modulationEnabled[layer]);
             if("NPNO".equals(screen.engineName(layer)))json.put("nordCategory",prefs.getString("nord_category_"+layer,NORD_CATEGORIES[0])).put("nordEq",prefs.getInt("nord_eq_mode_"+layer,1));
             String presetKey=screen.engineName(layer).equals("SF2")?"preset_":screen.engineName(layer).equals("DX7")?"dx7_patch_":screen.engineName(layer).equals("ANALOG")?"analog_preset_":"hammond_preset_";json.put("preset",prefs.getInt(presetKey+layer,0));
             json.put("volume",screen.layerVolumes[layer]).put("pan",screen.layerPan[layer]).put("attack",screen.layerAttack[layer]).put("release",screen.layerRelease[layer]).put("cutoff",screen.layerCutoff[layer]).put("reverbSend",screen.layerReverb[layer]).put("compMix",screen.layerCompMix[layer]).put("chorus",screen.layerChorus[layer]).put("mute",screen.muted[layer]).put("solo",screen.solo[layer]);
@@ -1903,6 +2064,7 @@ public final class MainActivity extends Activity {
         if(layer<0||layer>=6||!"ClassicPlayerAndroidLayerPreset".equals(json.optString("format")))throw new IOException("Arquivo inválido: não é um preset de layer Classic Player Android.");
         if(!screen.engineName(layer).equals(json.optString("engine")))throw new IOException("Este preset é do motor "+json.optString("engine")+". Troque o motor da layer antes de importar.");
         SharedPreferences prefs=getSharedPreferences("layers",MODE_PRIVATE);String engine=screen.engineName(layer);int preset=json.optInt("preset",0);boolean legacySf2Effects=engine.equals("SF2")&&json.optInt("version",1)<2;
+        screen.setLayerModulationEnabled(layer,json.optBoolean("modulationEnabled",engine.equals("HAMMOND")));
         if(engine.equals("NPNO")){
             String path=json.optString("sourcePath","");
             String current=prefs.getString("npno_"+layer,"");
@@ -1940,7 +2102,7 @@ public final class MainActivity extends Activity {
         screen.setLearnedVolume(layer,(float)json.optDouble("volume",screen.layerVolumes[layer]));screen.setLayerPan(layer,(float)json.optDouble("pan",screen.layerPan[layer]));
         screen.setLayerRouting(layer,json.optInt("routeChannel",screen.routeChannel[layer]),json.optInt("routeOctave",screen.routeOctave[layer]),json.optInt("routeVelocity",screen.routeVelocity[layer]),json.optBoolean("routeSustain",screen.routeSustain[layer]),json.optInt("routeMode",screen.routeMode[layer]));
         boolean requestedMute=json.optBoolean("mute",false);screen.solo[layer]=json.optBoolean("solo",false);prefs.edit().putBoolean("solo_"+layer,screen.solo[layer]).apply();
-        if(engine.equals("HAMMOND")){screen.hammondLeslie[layer]=json.optInt("hammondLeslie",screen.hammondLeslie[layer]);screen.hammondPercussion[layer]=json.optInt("hammondPercussion",screen.hammondPercussion[layer]);for(int i=0;i<9;i++)screen.hammondBars[layer][i]=json.optInt("hammondBar"+i,screen.hammondBars[layer][i]);for(int i=0;i<4;i++)screen.hammondExtras[layer][i]=(float)json.optDouble("hammondExtra"+i,screen.hammondExtras[layer][i]);screen.persistHammond(layer);screen.applyHammond(layer);}
+        if(engine.equals("HAMMOND")){screen.hammondLeslie[layer]=json.optInt("hammondLeslie",screen.hammondLeslie[layer]);screen.hammondPercussion[layer]=json.optInt("hammondPercussion",screen.hammondPercussion[layer]);for(int i=0;i<9;i++)screen.hammondBars[layer][i]=json.optInt("hammondBar"+i,screen.hammondBars[layer][i]);for(int i=0;i<4;i++)screen.hammondExtras[layer][i]=(float)json.optDouble("hammondExtra"+i,screen.hammondExtras[layer][i]);screen.persistHammond(layer);screen.applyHammond(layer,true);}
         if(engine.equals("ANALOG")){screen.setAnalogOsc1Tune(layer,(float)json.optDouble("analogOsc1Tune",screen.analogOsc1Tune[layer]));for(int i=0;i<19;i++)screen.setAnalogControl(layer,i,(float)json.optDouble("analogControl"+i,screen.analogControls[layer][i]));for(int i=0;i<3;i++){screen.setAnalogWave(layer,i,json.optInt("analogWave"+i,screen.analogWaves[layer][i]));screen.setAnalogOption(layer,i,json.optBoolean("analogEnabled"+i,screen.analogOscillatorEnabled[layer][i]));}screen.setAnalogOption(layer,3,json.optBoolean("analogPink",screen.analogPinkNoise[layer]));screen.setAnalogOption(layer,4,json.optBoolean("analogMono",screen.analogMonophonic[layer]));}
         JSONObject learn=json.optJSONObject("midiLearn");if(learn!=null){SharedPreferences.Editor cc=getSharedPreferences("midi_learn",MODE_PRIVATE).edit();for(int i=0;i<5;i++){String key=layerLearnKey(layer,i);int value=learn.optInt("cc"+i,-1);if(value<0){cc.remove(key).remove(key+"_channel");}else{cc.putInt(key,value).putInt(key+"_channel",learn.optInt("channel"+i,-1));}cc.putBoolean(key+"_relative",false);}cc.apply();}
         setLayerMuted(layer,requestedMute);screen.applyLayerGains();screen.invalidate();
@@ -1985,6 +2147,7 @@ public final class MainActivity extends Activity {
         private final boolean[] routeSustain={true,true,true,true,true,true};
         private final int[][] hammondBars=new int[6][9];private final int[] hammondLeslie=new int[6],hammondPercussion=new int[6];
         private final float[][] hammondExtras=new float[6][4];
+        private final boolean[] modulationEnabled=new boolean[6];
         // Analog editor: the same 19 desktop parameters plus oscillator
         // waveforms/enables, pink noise, and mono/poly mode.
         private final float[][] analogControls=new float[6][19];
@@ -2032,6 +2195,8 @@ public final class MainActivity extends Activity {
         private void loadLayerPreferences(){SharedPreferences p=getSharedPreferences("layers",MODE_PRIVATE);
             masterVolume=p.getFloat("master_volume",masterVolume);masterReverb=p.getFloat("master_reverb",masterReverb);masterChorus=p.getFloat("master_chorus",masterChorus);
             for(int i=0;i<6;i++){
+            int engine=p.getInt("engine_"+i,0);
+            modulationEnabled[i]=p.getBoolean("modulation_enabled_"+i,engine==4);
             setAnalogPresetValues(i,p.getInt("analog_preset_"+i,0));
             for(int c=0;c<19;c++)analogControls[i][c]=p.getFloat("analog_control_"+i+"_"+c,analogControls[i][c]);
             analogOsc1Tune[i]=p.getFloat("analog_osc1_tune_"+i,analogOsc1Tune[i]);
@@ -2053,6 +2218,7 @@ public final class MainActivity extends Activity {
         void setMidiSignal() { midiSignal = true; postInvalidateDelayed(180); }
         void setLastNoteOff(int note) { lastNoteOff = note; postInvalidate(); }
         void setLastMidiControl(int cc,int channel,int value){lastMidiControl="CC "+cc+" · CH "+(channel+1)+" · "+value;postInvalidate();}
+        void setLayerModulationEnabled(int layer,boolean enabled){if(layer<0||layer>=6)return;modulationEnabled[layer]=enabled;getSharedPreferences("layers",MODE_PRIVATE).edit().putBoolean("modulation_enabled_"+layer,enabled).apply();if(audioEngine!=null)audioEngine.setLayerModulationEnabled(layer,enabled);postInvalidate();}
         void setLayerName(int layer, String name) { if (layer >= 0 && layer < layerNames.length) { layerNames[layer] = name; postInvalidate(); } }
         void setPresetName(int layer, String name) { if (layer >= 0 && layer < presetNames.length) { presetNames[layer] = name == null ? "" : name; postInvalidate(); } }
         void setEngineName(int layer, String name) { if (layer >= 0 && layer < engineNames.length) { engineNames[layer] = name == null ? "VAZIA" : name; if("SF2".equals(engineNames[layer]))setSf2OriginalSound(layer,false); postInvalidate(); } }
@@ -2088,13 +2254,14 @@ public final class MainActivity extends Activity {
         void setAnalogWave(int layer,int oscillator,int value){if(layer<0||layer>=6||oscillator<0||oscillator>=3)return;analogWaves[layer][oscillator]=value;getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("analog_wave_"+layer+"_"+oscillator,value).apply();applyAnalog(layer);}
         void setAnalogOption(int layer,int option,boolean value){if(layer<0||layer>=6)return;SharedPreferences.Editor p=getSharedPreferences("layers",MODE_PRIVATE).edit();if(option<3){analogOscillatorEnabled[layer][option]=value;p.putBoolean("analog_enabled_"+layer+"_"+option,value);}else if(option==3){analogPinkNoise[layer]=value;p.putBoolean("analog_pink_"+layer,value);}else{analogMonophonic[layer]=value;p.putBoolean("analog_mono_"+layer,value);}p.apply();applyAnalog(layer);}
         private void applyAnalog(int layer){if(audioEngine!=null&&layer>=0&&layer<6){int[] flags=new int[8];for(int i=0;i<3;i++){flags[i]=analogWaves[layer][i];flags[i+3]=analogOscillatorEnabled[layer][i]?1:0;}flags[6]=analogPinkNoise[layer]?1:0;flags[7]=analogMonophonic[layer]?1:0;float[] controls=new float[20];System.arraycopy(analogControls[layer],0,controls,0,19);controls[19]=analogOsc1Tune[layer];audioEngine.setAnalogControls(layer,controls,flags);}}
-        void setHammondPresetDefaults(int layer,int preset){final float[][] bars={{.8f,.5f,1f,.8f,.3f,.5f,.2f,.3f,.2f},{.5f,.3f,1f,.6f,.2f,.3f,.1f,.1f,0f},{1f,.8f,1f,.9f,.7f,.8f,.6f,.7f,.6f},{.3f,.2f,1f,.7f,.1f,.2f,0f,0f,0f},{1f,1f,1f,1f,1f,1f,1f,1f,1f},{1f,.7f,1f,.9f,.5f,.7f,.3f,.5f,.4f},{.5f,.4f,1f,.7f,.3f,.4f,.2f,.2f,.1f},{.8f,.6f,1f,.9f,.5f,.7f,.4f,.5f,.3f}};for(int b=0;b<9;b++)hammondBars[layer][b]=Math.round(bars[preset][b]*8);hammondLeslie[layer]=preset==7?2:preset==6?0:1;hammondPercussion[layer]=preset==3?1:0;persistHammond(layer);applyHammond(layer);}
+        void setHammondPresetDefaults(int layer,int preset){final float[][] bars={{.8f,.5f,1f,.8f,.3f,.5f,.2f,.3f,.2f},{.5f,.3f,1f,.6f,.2f,.3f,.1f,.1f,0f},{1f,.8f,1f,.9f,.7f,.8f,.6f,.7f,.6f},{.3f,.2f,1f,.7f,.1f,.2f,0f,0f,0f},{1f,1f,1f,1f,1f,1f,1f,1f,1f},{1f,.7f,1f,.9f,.5f,.7f,.3f,.5f,.4f},{.5f,.4f,1f,.7f,.3f,.4f,.2f,.2f,.1f},{.8f,.6f,1f,.9f,.5f,.7f,.4f,.5f,.3f}};for(int b=0;b<9;b++)hammondBars[layer][b]=Math.round(bars[preset][b]*8);hammondLeslie[layer]=preset==7?2:preset==6?0:1;hammondPercussion[layer]=preset==3?1:0;persistHammond(layer);applyHammond(layer,true);}
         void setHammondBar(int layer,int bar,int value){hammondBars[layer][bar]=value;persistHammond(layer);applyHammond(layer);}
-        void setHammondOption(int layer,boolean leslie,int value){if(leslie)hammondLeslie[layer]=value;else hammondPercussion[layer]=value;persistHammond(layer);applyHammond(layer);}
-        void setHammondExtra(int layer,int index,float value){hammondExtras[layer][index]=value;persistHammond(layer);applyHammond(layer);}
+        void setHammondOption(int layer,boolean leslie,int value){if(leslie)hammondLeslie[layer]=value;else hammondPercussion[layer]=value;persistHammond(layer);applyHammond(layer,leslie);}
+        void setHammondExtra(int layer,int index,float value){hammondExtras[layer][index]=value;persistHammond(layer);applyHammond(layer,false);}
         private void persistHammond(int layer){SharedPreferences.Editor p=getSharedPreferences("layers",MODE_PRIVATE).edit();for(int b=0;b<9;b++)p.putInt("hammond_bar_"+layer+"_"+b,hammondBars[layer][b]);p.putInt("hammond_leslie_"+layer,hammondLeslie[layer]).putInt("hammond_percussion_"+layer,hammondPercussion[layer]).putFloat("hammond_click_"+layer,hammondExtras[layer][0]).putFloat("hammond_leakage_"+layer,hammondExtras[layer][1]).putFloat("hammond_drive_"+layer,hammondExtras[layer][2]).putFloat("hammond_level_"+layer,hammondExtras[layer][3]).apply();}
-        private void applyHammond(int layer){if(audioEngine!=null){int[] bars=hammondBars[layer].clone();for(int b=0;b<9;b++)if(bars[b]<0)bars[b]=6;audioEngine.setHammondControls(layer,bars,hammondLeslie[layer],hammondPercussion[layer],hammondExtras[layer][0],hammondExtras[layer][1],hammondExtras[layer][2],hammondExtras[layer][3]);}}
-        void applyLoadedEditorState(int layer){SharedPreferences p=getSharedPreferences("layers",MODE_PRIVATE);layerVolumes[layer]=p.getFloat("control_volume_"+layer,layerVolumes[layer]);layerPan[layer]=p.getFloat("control_pan_"+layer,0);muted[layer]=p.getBoolean("muted_"+layer,false);solo[layer]=p.getBoolean("solo_"+layer,false);applyLayerGains();if(audioEngine!=null){audioEngine.setLayerGain(layer,faderGain(layerVolumes[layer]));audioEngine.setLayerPan(layer,layerPan[layer]);audioEngine.setLayerEnvelope(layer,layerAttack[layer],layerRelease[layer]);audioEngine.setLayerEq(layer,eqLow[layer],eqMid[layer],eqHigh[layer],eqLowFreq[layer],eqMidFreq[layer],eqHighFreq[layer],eqLowQ[layer],eqMidQ[layer],eqHighQ[layer],eqHighPass[layer],eqLowPass[layer]);audioEngine.setLayerCompressor(layer,compressorThreshold[layer],compressorRatio[layer],compressorAttackMs[layer],compressorReleaseMs[layer],compressorMakeupDb[layer]);audioEngine.setLayerTone(layer,layerCutoff[layer],layerReverb[layer],layerCompMix[layer],layerChorus[layer]);audioEngine.setLayerReverb(layer,reverbSize[layer],reverbDamping[layer],reverbWidth[layer]);applyLayerRouting(layer);if("ANALOG".equals(engineName(layer)))applyAnalog(layer);if("HAMMOND".equals(engineName(layer)))applyHammond(layer);}if(isPadEngine(layer)&&padEngine!=null){boolean continuous=engineName(layer).startsWith("CONT");padEngine.setGain(faderGain(layerVolumes[layer]),continuous);padEngine.setPan(layerPan[layer],continuous);padEngine.setEq(eqLow[layer],eqMid[layer],eqHigh[layer],eqLowFreq[layer],eqMidFreq[layer],eqHighFreq[layer],eqLowQ[layer],eqMidQ[layer],eqHighQ[layer],eqHighPass[layer],eqLowPass[layer],continuous);}}
+        private void applyHammond(int layer){applyHammond(layer,false);}
+        private void applyHammond(int layer,boolean updateLeslie){if(audioEngine!=null){int[] bars=hammondBars[layer].clone();for(int b=0;b<9;b++)if(bars[b]<0)bars[b]=6;audioEngine.setHammondControls(layer,bars,hammondLeslie[layer],updateLeslie,hammondPercussion[layer],hammondExtras[layer][0],hammondExtras[layer][1],hammondExtras[layer][2],hammondExtras[layer][3]);}}
+        void applyLoadedEditorState(int layer){SharedPreferences p=getSharedPreferences("layers",MODE_PRIVATE);layerVolumes[layer]=p.getFloat("control_volume_"+layer,layerVolumes[layer]);layerPan[layer]=p.getFloat("control_pan_"+layer,0);int storedEngine=p.getInt("engine_"+layer,0);modulationEnabled[layer]=p.getBoolean("modulation_enabled_"+layer,storedEngine==4);muted[layer]=p.getBoolean("muted_"+layer,false);solo[layer]=p.getBoolean("solo_"+layer,false);applyLayerGains();if(audioEngine!=null){audioEngine.setLayerGain(layer,faderGain(layerVolumes[layer]));audioEngine.setLayerPan(layer,layerPan[layer]);audioEngine.setLayerModulationEnabled(layer,modulationEnabled[layer]);audioEngine.setLayerEnvelope(layer,layerAttack[layer],layerRelease[layer]);audioEngine.setLayerEq(layer,eqLow[layer],eqMid[layer],eqHigh[layer],eqLowFreq[layer],eqMidFreq[layer],eqHighFreq[layer],eqLowQ[layer],eqMidQ[layer],eqHighQ[layer],eqHighPass[layer],eqLowPass[layer]);audioEngine.setLayerCompressor(layer,compressorThreshold[layer],compressorRatio[layer],compressorAttackMs[layer],compressorReleaseMs[layer],compressorMakeupDb[layer]);audioEngine.setLayerTone(layer,layerCutoff[layer],layerReverb[layer],layerCompMix[layer],layerChorus[layer]);audioEngine.setLayerReverb(layer,reverbSize[layer],reverbDamping[layer],reverbWidth[layer]);applyLayerRouting(layer);if("ANALOG".equals(engineName(layer)))applyAnalog(layer);if("HAMMOND".equals(engineName(layer)))applyHammond(layer,true);}if(isPadEngine(layer)&&padEngine!=null){boolean continuous=engineName(layer).startsWith("CONT");padEngine.setGain(faderGain(layerVolumes[layer]),continuous);padEngine.setPan(layerPan[layer],continuous);padEngine.setEq(eqLow[layer],eqMid[layer],eqHigh[layer],eqLowFreq[layer],eqMidFreq[layer],eqHighFreq[layer],eqLowQ[layer],eqMidQ[layer],eqHighQ[layer],eqHighPass[layer],eqLowPass[layer],continuous);}}
 
         private void text(Canvas canvas, String value, float x, float y, float size, int colour) {
             paint.setStyle(Paint.Style.FILL); paint.setColor(colour); paint.setTextSize(size);
@@ -2356,7 +2523,7 @@ public final class MainActivity extends Activity {
             if(focusedLayer<0&&activeCount>0)focusedLayer=activeLayerAt(0);
             layerScrollX=Math.max(0,Math.min(mixerMaxScroll(w),layerScrollX));
             String focusText=focusedLayer>=0&&focusedLayer<6&&!"VAZIA".equals(engineNames[focusedLayer])?" · FOCO LAYER "+(focusedLayer+1):"";
-            fittedText(canvas, "MIXER · " + activeCount + " / 6 LAYERS"+focusText+" · TESTE NPNO 16.10.2", left, w-EditorUi.dp(getContext(),18), h * .16f, h * .024f, EditorUi.MUTED);
+            fittedText(canvas, "MIXER · " + activeCount + " / 6 LAYERS"+focusText, left, w-EditorUi.dp(getContext(),18), h * .16f, h * .024f, EditorUi.MUTED);
             setContentDescription("Mixer, "+activeCount+" layers. Deslize horizontalmente para percorrer as layers; master permanece fixo à direita.");
             if (activeCount == 0)
                 text(canvas, "TOQUE EM + LAYER PARA ADICIONAR UM MOTOR", left + 12, h * .36f, h * .024f, EditorUi.MUTED);
