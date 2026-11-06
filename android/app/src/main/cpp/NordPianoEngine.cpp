@@ -196,20 +196,34 @@ void noteOn(Layer& layer,int note,int velocity,int channel,bool sustain,int voic
     const auto& s=piano.strokes[(size_t)chosen];int trim=(int)s.trim;if(trim>=0x8000)trim-=0x10000;
     float trimDb=piano.signedTrim?-trim/10.f:-(float)s.trim;
     double cents=piano.fineTune[(size_t)note]*.7;
-    *target={};target->active=true;target->note=note;target->channel=channel;target->stroke=chosen;
+    *target={};target->active=true;target->keyDown=true;target->note=note;target->channel=channel;target->stroke=chosen;
     target->serial=++layer.serial;target->increment=std::pow(2.0,(note-root+cents/100.0)/12.0)*sampleRate/44100.0;
     target->level=(velocity/127.f)*std::pow(10.f,(piano.gainTenthsDb/10.f+trimDb)/20.f);
     target->attackGain=attackSeconds>0?0.f:1.f;
 }
 void noteOff(Layer& layer,int note,int channel,bool sustain,float releaseSeconds){
-    for(auto& v:layer.voices)if(v.active&&!v.released&&v.note==note&&v.channel==channel){
-        if(sustain)v.waitingForSustain=true;else{v.released=true;v.waitingForSustain=false;}
-        if(!sustain)v.releaseSeconds=std::clamp(releaseSeconds,.005f,5.0f);
+    // MIDI Note Off has no voice identifier. Match the oldest still-held
+    // instance of this pitch so repeated notes under sustain do not release
+    // voices whose keys are still physically down.
+    Voice* target=nullptr;
+    for(auto& v:layer.voices)if(v.active&&v.keyDown&&!v.released&&v.note==note&&v.channel==channel){
+        if(!target||v.serial<target->serial)target=&v;
+    }
+    if(!target)return;
+    target->keyDown=false;
+    if(sustain)target->waitingForSustain=true;
+    else{
+        target->released=true;
+        target->waitingForSustain=false;
+        target->releaseSeconds=std::clamp(releaseSeconds,.005f,5.0f);
     }
 }
 void pedalUp(Layer& layer,int channel,float releaseSeconds){
+    // NPNO samples need a short damper tail; 50 ms reaches near silence
+    // too quickly and sounds like a hard volume cut when a chord is released.
+    const float smoothRelease=std::clamp(std::max(releaseSeconds,.25f),.005f,5.0f);
     for(auto& v:layer.voices)if(v.active&&v.channel==channel&&v.waitingForSustain){
-        v.waitingForSustain=false;v.released=true;v.releaseSeconds=std::clamp(releaseSeconds,.005f,5.0f);
+        v.keyDown=false;v.waitingForSustain=false;v.released=true;v.releaseSeconds=smoothRelease;
     }
 }
 void render(Layer& layer,float* stereo,int frames,int outputRate,int budget,float attackSeconds){
