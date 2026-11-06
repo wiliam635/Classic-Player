@@ -693,15 +693,12 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             layer.sustainDown[(size_t) channel - 1] = isDown;
             if (wasDown && !isDown)
             {
-                std::array<float, 128> releasedVelocities {};
+                // Pedal-up should release notes whose key-up was deferred by sustain.
+                // Starting a bank-2 reflection for every deferred note creates new
+                // pitched attacks and can steal voices that are already fading.
                 for (auto& voice : layer.voices)
                     if (voice.active && voice.waitingForSustain && voice.channel == channel)
-                    {
-                        releasedVelocities[(size_t) voice.note] = voice.velocity;
                         releasePianoVoice(voice, routing.release, routing.pianoSoftRelease);
-                    }
-                for (int note = 0; note < 128; ++note)
-                    startReleaseReflection(note, channel, releasedVelocities[(size_t) note]);
             }
             return;
         }
