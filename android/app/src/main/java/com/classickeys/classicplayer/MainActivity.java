@@ -27,6 +27,7 @@ import android.media.midi.MidiInputPort;
 import android.media.midi.MidiOutputPort;
 import android.media.midi.MidiManager;
 import android.media.midi.MidiReceiver;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
