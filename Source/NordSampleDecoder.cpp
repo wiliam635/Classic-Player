@@ -36,6 +36,13 @@ void require(bool condition, const char* message)
     if (! condition) throw std::runtime_error(message);
 }
 
+struct Section
+{
+    const Byte* data = nullptr;
+    size_t length = 0, at = 0;
+    std::uint32_t version = 0;
+};
+
 size_t countStrokeSamples(const Section& section)
 {
     require(section.length >= 72 && (section.length - 68) % 4 == 0, "NSMP4 stroke truncado.");
@@ -97,13 +104,6 @@ std::uint32_t crc(const Byte* bytes, size_t length)
     }
     return value ^ 0xffffffffu;
 }
-
-struct Section
-{
-    const Byte* data = nullptr;
-    size_t length = 0, at = 0;
-    std::uint32_t version = 0;
-};
 
 void decodeStroke(const Section& section, NordSampleDecoder::Zone& zone)
 {
