@@ -166,14 +166,21 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file,
 }
 
 juce::Result SampleEngine::prepareSample(const juce::File& file,
-    std::shared_ptr<NordPianoDecoder::Instrument>& decoded)
+    std::shared_ptr<NordPianoDecoder::Instrument>& decoded, std::uint64_t maxDecodedBytes)
 {
     if (!file.existsAsFile() || !file.hasFileExtension(".npno"))
         return juce::Result::fail("Selecione um piano Nord NPNO valido.");
     decoded = findCachedPiano(file);
-    if (decoded != nullptr) return juce::Result::ok();
+    if (decoded != nullptr)
+    {
+        std::uint64_t bytes = 0;
+        for (const auto& stroke : decoded->strokes)
+            bytes += stroke.interleavedPcm.capacity() * sizeof(std::int16_t);
+        return bytes <= maxDecodedBytes ? juce::Result::ok()
+            : juce::Result::fail("Este piano Nord excede a memória restante para carregar o preset.");
+    }
     decoded = std::make_shared<NordPianoDecoder::Instrument>();
-    if (const auto result = NordPianoDecoder::decodeFile(file, *decoded); result.failed())
+    if (const auto result = NordPianoDecoder::decodeFile(file, *decoded, maxDecodedBytes); result.failed())
     { decoded.reset(); return result; }
     if (file.getParentDirectory().getFileName() != "Organ") preparePianoLoops(*decoded);
     decoded = cachePiano(file, std::move(decoded));
@@ -652,7 +659,8 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
 
     const auto startReleaseReflection = [&] (int note, int channel, float velocity)
     {
-        if (!layer.pianoLoaded || !routing.pianoPedalResonance || velocity <= 0.0f) return;
+        if (!layer.pianoLoaded || !routing.pianoPedalResonance
+            || !routing.pianoReleaseSamplesEnabled || velocity <= 0.0f) return;
         const auto stroke = findPianoStroke(layer, note, velocity, 2);
         if (stroke >= 0)
             startPianoVoice(layer, stroke, note, channel, velocity * 0.5f, routing);

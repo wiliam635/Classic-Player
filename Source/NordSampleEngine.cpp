@@ -107,15 +107,23 @@ juce::Result NordSampleEngine::loadSample(int layerIndex, const juce::File& file
 }
 
 juce::Result NordSampleEngine::prepareSample(const juce::File& file,
-    std::shared_ptr<NordSampleDecoder::Instrument>& decoded)
+    std::shared_ptr<NordSampleDecoder::Instrument>& decoded, std::uint64_t maxDecodedBytes)
 {
     if (!file.existsAsFile() || !file.hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
         return juce::Result::fail("Selecione uma amostra Nord valida.");
     decoded = findCachedInstrument(file);
-    if (decoded != nullptr) return juce::Result::ok();
+    if (decoded != nullptr)
+    {
+        std::uint64_t bytes = 0;
+        for (const auto& zone : decoded->zones)
+            bytes += zone.pcm.capacity() * sizeof(float);
+        return bytes <= maxDecodedBytes ? juce::Result::ok()
+            : juce::Result::fail("Este timbre Nord excede a memória restante para carregar o preset.");
+    }
     decoded = std::make_shared<NordSampleDecoder::Instrument>();
     const auto result = file.hasFileExtension(".nsmp4")
-        ? NordSampleDecoder::decode(file, *decoded) : NordLegacySampleDecoder::decodeFile(file, *decoded);
+        ? NordSampleDecoder::decode(file, *decoded, maxDecodedBytes)
+        : NordLegacySampleDecoder::decodeFile(file, *decoded, maxDecodedBytes);
     if (result.failed()) { decoded.reset(); return result; }
     prepareLoopCrossfades(*decoded);
     decoded = cacheInstrument(file, std::move(decoded));

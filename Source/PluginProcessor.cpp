@@ -1557,6 +1557,13 @@ juce::Result ClassicPlayerAudioProcessor::loadNordPiano(int layer, const juce::F
     savedPaths[(size_t) layer] = file.getFullPathName();
     nordLoaded[(size_t) layer].store(true, std::memory_order_release);
 
+    if (category.isNotEmpty())
+    {
+        auto routing = layerConfig(layer);
+        routing.pianoReleaseSamplesEnabled = category == "Upright Piano";
+        setLayerConfig(layer, routing);
+    }
+
     // Apply category defaults for a user load; project restoration calls this
     // method without a category and keeps the saved parameter value intact.
     if (category.isNotEmpty()) applyCategoryReleaseDefault(parameters, layer, category);
@@ -2878,14 +2885,14 @@ void ClassicPlayerAudioProcessor::attachStandaloneMidiRouting(
 
 void ClassicPlayerAudioProcessor::refreshStandaloneMidiInputs()
 {
-    if (standaloneDeviceManager == nullptr) return;
+    if (standaloneDeviceManager == nullptr || midiEnumerationSuspended.load(std::memory_order_acquire)) return;
     refreshStandaloneMidiInputs(juce::MidiInput::getAvailableDevices());
 }
 
 void ClassicPlayerAudioProcessor::refreshStandaloneMidiInputs(
     const juce::Array<juce::MidiDeviceInfo>& devices)
 {
-    if (standaloneDeviceManager == nullptr) return;
+    if (standaloneDeviceManager == nullptr || midiEnumerationSuspended.load(std::memory_order_acquire)) return;
     juce::String fingerprint;
     for (const auto& device : devices) fingerprint << device.identifier << ";";
     if (fingerprint == registeredMidiFingerprint) return;
@@ -2922,7 +2929,8 @@ juce::Array<juce::MidiDeviceInfo> ClassicPlayerAudioProcessor::availableMidiDevi
 {
     // A plug-in receives its MIDI from the host. Enumerating CoreMIDI from
     // its editor can stall Ableton's message thread during a repaint.
-    if (wrapperType != wrapperType_Standalone) return {};
+    if (wrapperType != wrapperType_Standalone
+        || midiEnumerationSuspended.load(std::memory_order_acquire)) return {};
     return juce::MidiInput::getAvailableDevices();
 }
 
@@ -3185,7 +3193,8 @@ void ClassicPlayerAudioProcessor::loadNordBundleProgram(const juce::File& folder
                     auto& instrument = pianos[key];
                     if (instrument == nullptr)
                     {
-                        result = sampleEngine.prepareSample(part.file, instrument);
+                        const auto remaining = decodedBytes < memoryBudget ? memoryBudget - decodedBytes : 0;
+                        result = sampleEngine.prepareSample(part.file, instrument, remaining);
                         if (result.wasOk()) for (const auto& stroke : instrument->strokes)
                             decodedBytes += stroke.interleavedPcm.capacity() * sizeof(int16_t);
                     }
@@ -3196,7 +3205,8 @@ void ClassicPlayerAudioProcessor::loadNordBundleProgram(const juce::File& folder
                     auto& instrument = samples[key];
                     if (instrument == nullptr)
                     {
-                        result = nordSampleEngine.prepareSample(part.file, instrument);
+                        const auto remaining = decodedBytes < memoryBudget ? memoryBudget - decodedBytes : 0;
+                        result = nordSampleEngine.prepareSample(part.file, instrument, remaining);
                         if (result.wasOk()) for (const auto& zone : instrument->zones)
                             decodedBytes += zone.pcm.capacity() * sizeof(float);
                     }
@@ -4299,6 +4309,8 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("pianoSoftRelease" + juce::String(i + 1), config.pianoSoftRelease, nullptr);
         state.setProperty("pianoDynamicCompression" + juce::String(i + 1), config.pianoDynamicCompression, nullptr);
         state.setProperty("pianoPedalResonance" + juce::String(i + 1), config.pianoPedalResonance, nullptr);
+        state.setProperty("pianoReleaseSamplesEnabled" + juce::String(i + 1),
+                          config.pianoReleaseSamplesEnabled, nullptr);
         const auto fxKey = juce::String(i + 1);
         state.setProperty("nordTremoloMix" + fxKey, config.nordFx.tremoloMix, nullptr);
         state.setProperty("nordTremoloRate" + fxKey, config.nordFx.tremoloRate, nullptr);
@@ -4935,6 +4947,10 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     "pianoDynamicCompression" + juce::String(i + 1), 0)));
                 config.pianoPedalResonance = static_cast<bool>(state.getProperty(
                     "pianoPedalResonance" + juce::String(i + 1), false));
+                const auto savedPianoPath = state.getProperty("sf2Layer" + juce::String(i + 1)).toString();
+                const auto uprightReleaseDefault = savedPianoPath.containsIgnoreCase("upright");
+                config.pianoReleaseSamplesEnabled = static_cast<bool>(state.getProperty(
+                    "pianoReleaseSamplesEnabled" + juce::String(i + 1), uprightReleaseDefault));
                 const auto fxKey = juce::String(i + 1);
                 config.nordFx.tremoloMix = juce::jlimit(0.0f, 100.0f, (float) state.getProperty("nordTremoloMix" + fxKey, 0.0f));
                 config.nordFx.tremoloRate = juce::jlimit(0.2f, 12.0f, (float) state.getProperty("nordTremoloRate" + fxKey, 4.0f));

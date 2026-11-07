@@ -1,10 +1,12 @@
 #pragma once
 
 #include "NordSampleDecoder.h"
+#include <limits>
 
 namespace NordLegacySampleDecoder
 {
 // Decodes Nord Sample Library 2 (.nsmp) and 3 (.nsmp3) into the same
 // instrument representation used by the NSMP4 playback engine.
-juce::Result decodeFile(const juce::File& file, NordSampleDecoder::Instrument& destination);
+juce::Result decodeFile(const juce::File& file, NordSampleDecoder::Instrument& destination,
+                        std::uint64_t maxDecodedBytes = std::numeric_limits<std::uint64_t>::max());
 }

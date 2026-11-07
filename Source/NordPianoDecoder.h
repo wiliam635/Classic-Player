@@ -3,6 +3,7 @@
 #include <juce_core/juce_core.h>
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 namespace NordPianoDecoder
@@ -39,5 +40,6 @@ struct Instrument
     std::vector<Stroke> strokes;
 };
 
-juce::Result decodeFile(const juce::File& file, Instrument& destination);
+juce::Result decodeFile(const juce::File& file, Instrument& destination,
+                        std::uint64_t maxDecodedBytes = std::numeric_limits<std::uint64_t>::max());
 }

@@ -68,6 +68,7 @@ public:
         bool pianoSoftRelease = false; // optional gentler NPNO key-up, independent of sustain
         int pianoDynamicCompression = 0; // 0 off, 1-3 lift quiet notes without changing sample layer
         bool pianoPedalResonance = false; // opt-in NPNO pedal-down bank; disabled for existing performances
+        bool pianoReleaseSamplesEnabled = false; // NPNO key-off bank is reserved for Upright Piano categories
         NordEffectSettings nordFx;
         NordMorphSettings nordMorph;
         float gain = 0.8f;

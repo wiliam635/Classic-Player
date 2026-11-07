@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <map>
 #include <stdexcept>
 
@@ -33,6 +34,56 @@ float f32(const Byte* p)
 void require(bool condition, const char* message)
 {
     if (! condition) throw std::runtime_error(message);
+}
+
+size_t countStrokeSamples(const Section& section)
+{
+    require(section.length >= 72 && (section.length - 68) % 4 == 0, "NSMP4 stroke truncado.");
+    const auto* stream = section.data + 68;
+    const auto words = (section.length - 68) / 4;
+    const auto base = ((section.at + 68) / 4) % 65536;
+    const auto pointer = [&](int offset)
+    {
+        return (size_t(u16(section.data + offset)) + 65536 - base) % 65536;
+    };
+    const auto first = pointer(20);
+    auto alternate = pointer(29);
+    auto marked = pointer(38);
+    auto last = pointer(47);
+    while (alternate < first) alternate += 65536;
+    while (marked < alternate) marked += 65536;
+    while (last < marked) last += 65536;
+    while (last + 65536 < words) last += 65536;
+    require(first < words && alternate < words && marked <= last && last < words
+                && (be(stream + last * 4) == 0x800020u || be(stream + last * 4) == 0x800040u),
+            "Diretorio NSMP4 invalido.");
+    const auto channels = be(stream + last * 4) == 0x800040u ? 2u : 1u;
+
+    size_t totalSamples = 0;
+    auto word = first;
+    while (word < last)
+    {
+        const auto raw = be(stream + word * 4);
+        const bool direct = ((raw >> 23) & 1u) != 0;
+        const auto width = size_t((raw >> 19) & 15u) + 1;
+        const int order = direct ? 0 : int((raw >> 14) & 7u);
+        const auto count = size_t(raw & 0x3fffu);
+        require((raw >> 24) == 0 && (raw & 0x20000u) == 0 && order <= 4
+                    && count > 0 && count % channels == 0
+                    && (direct || count % (32u * channels) == 0),
+                "Registro NSMP4 nao suportado.");
+        const auto perChannel = count / channels;
+        const auto channelWords = (perChannel * width + 31) / 32;
+        const auto span = channels == 2 ? 1 + 2 * channelWords
+            : 1 + (count * width + 31) / 32;
+        require(span <= last - word && count <= std::numeric_limits<size_t>::max() - totalSamples,
+                "Registro NSMP4 fora dos limites.");
+        totalSamples += count;
+        word += span;
+        while (word < last && be(stream + word * 4) == 0) ++word;
+    }
+    require(word == last && totalSamples > 0, "Fim do stroke NSMP4 invalido.");
+    return totalSamples;
 }
 
 std::uint32_t crc(const Byte* bytes, size_t length)
@@ -169,7 +220,8 @@ void decodeStroke(const Section& section, NordSampleDecoder::Zone& zone)
 }
 }
 
-juce::Result NordSampleDecoder::decode(const juce::File& file, Instrument& output)
+juce::Result NordSampleDecoder::decode(const juce::File& file, Instrument& output,
+                                       std::uint64_t maxDecodedBytes)
 {
     output = {};
     try
@@ -224,22 +276,37 @@ juce::Result NordSampleDecoder::decode(const juce::File& file, Instrument& outpu
                 * static_cast<float>(u24(record)) / 1048576.0f;
             decoded.detune[static_cast<size_t>(note)] = static_cast<float>(s24(record + 3)) / 256.0f;
         }
+        const auto maxInstrumentSamples = size_t{128} * 1024u * 1024u;
+        const auto requestedSampleBudget = static_cast<size_t>(std::min<std::uint64_t>(
+            maxInstrumentSamples, maxDecodedBytes / sizeof(float)));
         size_t totalSamples = 0;
+        std::array<const Section*, 128> zoneStrokes {};
+        for (size_t zoneIndex = 0; zoneIndex < count; ++zoneIndex)
+        {
+            const auto* record = map.data + 1318 + zoneIndex * 16;
+            const auto root = record[0], high = record[1], low = record[2];
+            const auto velocityLow = record[14], velocityHigh = record[15];
+            require(root <= 127 && low <= high && high <= 127
+                        && velocityLow <= velocityHigh && velocityHigh <= 127,
+                    "Limites de zona NSMP4 invalidos.");
+            const auto found = strokes.find(be(record + 8));
+            require(found != strokes.end() && found->second.data[5] == root,
+                    "Stroke da zona NSMP4 nao encontrado.");
+            const auto zoneSamples = countStrokeSamples(found->second);
+            require(zoneSamples <= requestedSampleBudget - std::min(totalSamples, requestedSampleBudget),
+                    "NSMP4 excede o limite de memória restante para carregar este preset.");
+            totalSamples += zoneSamples;
+            zoneStrokes[zoneIndex] = &found->second;
+        }
+
+        decoded.zones.reserve(count);
         for (size_t zoneIndex = 0; zoneIndex < count; ++zoneIndex)
         {
             const auto* record = map.data + 1318 + zoneIndex * 16;
             Zone zone;
             zone.root = record[0]; zone.high = record[1]; zone.low = record[2];
             zone.velocityLow = record[14]; zone.velocityHigh = record[15];
-            require(zone.root <= 127 && zone.low <= zone.high && zone.high <= 127
-                        && zone.velocityLow <= zone.velocityHigh && zone.velocityHigh <= 127,
-                    "Limites de zona NSMP4 invalidos.");
-            const auto found = strokes.find(be(record + 8));
-            require(found != strokes.end() && found->second.data[5] == zone.root,
-                    "Stroke da zona NSMP4 nao encontrado.");
-            decodeStroke(found->second, zone);
-            totalSamples += zone.pcm.size();
-            require(totalSamples <= 128u * 1024u * 1024u, "NSMP4 excede o limite de PCM.");
+            decodeStroke(*zoneStrokes[zoneIndex], zone);
             decoded.zones.push_back(std::move(zone));
         }
         output = std::move(decoded);

@@ -249,7 +249,8 @@ juce::Result fail(const char* message)
 }
 }
 
-juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& destination)
+juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& destination,
+                                          std::uint64_t maxDecodedBytes)
 {
     destination = {};
 
@@ -346,7 +347,7 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
     }
 
     // Include the release/reflection bank in the decoded PCM budget as well.
-    const auto safeDecodedBytes = decodedAudioBudget(fileBytes);
+    const auto safeDecodedBytes = std::min(decodedAudioBudget(fileBytes), maxDecodedBytes);
     std::uint64_t totalDecodedBytes = 0;
     size_t preflightRecordIndex = 0;
     for (size_t root = 0; root < rootCounts.size(); ++root)

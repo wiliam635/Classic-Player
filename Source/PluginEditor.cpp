@@ -10244,24 +10244,51 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
             addLayerButton.setEnabled(activeCount < Sf2Engine::layerCount);
             layoutLayerStrips();
         }
-        const auto modalWindowOpen = juce::ModalComponentManager::getInstance()
-                                         ->getNumModalComponents() > 0;
         // A hosted plug-in receives MIDI from its DAW. CoreMIDI enumeration on
         // the message thread can stall the plug-in editor while Ableton repaints.
         if (classicProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
         {
-            const auto devices = classicProcessor.availableMidiDevices();
-            if (audioMidiSettingsOpen && !modalWindowOpen)
+            bool audioSettingsWindowOpen = false;
+            const auto topLevelWindowCount = juce::TopLevelWindow::getNumTopLevelWindows();
+            for (int windowIndex = 0; windowIndex < topLevelWindowCount; ++windowIndex)
             {
-                audioMidiSettingsOpen = false;
+                if (const auto* window = juce::TopLevelWindow::getTopLevelWindow(windowIndex))
+                {
+                    const auto name = window->getName();
+                    if (name.containsIgnoreCase("Audio/MIDI") || name.containsIgnoreCase("Audio MIDI Settings"))
+                    {
+                        audioSettingsWindowOpen = true;
+                        break;
+                    }
+                }
+            }
+
+            if (audioMidiSettingsOpen)
+            {
+                audioMidiSettingsWindowWasSeen = audioMidiSettingsWindowWasSeen
+                    || audioSettingsWindowOpen || topLevelWindowCount > audioMidiSettingsTopLevelCountBefore;
+                if (audioMidiSettingsWarmupTicks > 0)
+                    --audioMidiSettingsWarmupTicks;
+                else if (!audioMidiSettingsWindowWasSeen
+                         || (!audioSettingsWindowOpen
+                             && topLevelWindowCount <= audioMidiSettingsTopLevelCountBefore))
+                {
+                    audioMidiSettingsOpen = false;
+                    audioMidiSettingsCloseDelayTicks = 2;
+                }
+            }
+
+            const auto suspendEnumeration = audioMidiSettingsOpen || audioMidiSettingsCloseDelayTicks > 0;
+            classicProcessor.setMidiEnumerationSuspended(suspendEnumeration);
+            if (!suspendEnumeration)
+            {
+                const auto devices = classicProcessor.availableMidiDevices();
                 classicProcessor.refreshStandaloneMidiInputs(devices);
+                for (auto& strip : strips)
+                    if (strip != nullptr) strip->refreshMidiDevices(devices);
             }
             else if (!audioMidiSettingsOpen)
-            {
-                classicProcessor.refreshStandaloneMidiInputs(devices);
-            }
-            for (auto& strip : strips)
-                if (strip != nullptr) strip->refreshMidiDevices(devices);
+                --audioMidiSettingsCloseDelayTicks;
         }
     }
     masterMeter.setLevel(juce::jlimit(0.0f, 1.0f, classicProcessor.limiterOutputLevel()));
@@ -10724,7 +10751,13 @@ void ClassicPlayerAudioProcessorEditor::showAudioMidiSettings()
     if (classicProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
         if (auto* holder = juce::StandalonePluginHolder::getInstance())
         {
+            if (audioMidiSettingsOpen) return;
             audioMidiSettingsOpen = true;
+            audioMidiSettingsWindowWasSeen = false;
+            audioMidiSettingsTopLevelCountBefore = juce::TopLevelWindow::getNumTopLevelWindows();
+            audioMidiSettingsWarmupTicks = 3;
+            audioMidiSettingsCloseDelayTicks = 0;
+            classicProcessor.setMidiEnumerationSuspended(true);
             holder->showAudioSettingsDialog();
         }
    #endif

@@ -193,6 +193,10 @@ public:
     void refreshStandaloneMidiInputs();
     void refreshStandaloneMidiInputs(const juce::Array<juce::MidiDeviceInfo>& devices);
     juce::Array<juce::MidiDeviceInfo> availableMidiDevices() const;
+    void setMidiEnumerationSuspended(bool suspended) noexcept
+    {
+        midiEnumerationSuspended.store(suspended, std::memory_order_release);
+    }
     void setLayerMidiDevice(int layer, const juce::String& identifier);
     juce::String layerMidiDevice(int layer) const;
     static juce::StringArray soundFontCategories();
@@ -486,6 +490,7 @@ private:
     // continue to use their stable internal indices.
     std::array<std::atomic<int>, Sf2Engine::layerCount> visualLayerOrder {};
     mutable juce::CriticalSection midiRoutingLock;
+    std::atomic<bool> midiEnumerationSuspended { false };
     juce::AudioDeviceManager* standaloneDeviceManager = nullptr;
     juce::MidiInputCallback* standaloneDefaultMidiCallback = nullptr;
     juce::String registeredMidiFingerprint;

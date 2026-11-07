@@ -642,7 +642,8 @@ std::uint64_t decodedBudget(std::size_t sourceBytes)
 } // namespace
 
 juce::Result NordLegacySampleDecoder::decodeFile(const juce::File& file,
-                                                 NordSampleDecoder::Instrument& destination)
+                                                 NordSampleDecoder::Instrument& destination,
+                                                 std::uint64_t maxDecodedBytes)
 {
     destination = {};
     if (!file.existsAsFile()) return fail("Arquivo Nord Sample não encontrado.");
@@ -743,10 +744,14 @@ juce::Result NordLegacySampleDecoder::decodeFile(const juce::File& file,
         totalDecoded += decodedBytes;
         plans.push_back(std::move(plan));
     }
-    const auto budget = decodedBudget(fileBytes);
-    if (totalDecoded > budget)
+    // The converted playback zones use float PCM (twice the int16 byte count).
+    // Check the final resident size before decoding, so bundle loading can
+    // reject a large part before allocating its sample buffers.
+    const auto finalDecodedBytes = totalDecoded * 2u;
+    const auto budget = std::min(decodedBudget(fileBytes), maxDecodedBytes);
+    if (finalDecodedBytes > budget)
     {
-        const auto required = (totalDecoded + bytesPerMiB - 1) / bytesPerMiB;
+        const auto required = (finalDecodedBytes + bytesPerMiB - 1) / bytesPerMiB;
         const auto allowed = budget / bytesPerMiB;
         return fail("Este instrumento Nord precisa de " + juce::String(static_cast<juce::int64>(required))
             + " MiB descompactados; o limite seguro neste computador é "
@@ -795,7 +800,7 @@ juce::Result NordLegacySampleDecoder::decodeFile(const juce::File& file,
         converted.gain[note] = parsed.instrumentGain * parsed.keyGain[note];
         converted.detune[note] = parsed.keyTuneSemitones[note] * 100.0f;
     }
-    for (const auto& stroke : parsed.strokes)
+    for (auto& stroke : parsed.strokes)
     {
         NordSampleDecoder::Zone zone;
         zone.root = stroke.rootNote;
@@ -811,6 +816,9 @@ juce::Result NordLegacySampleDecoder::decodeFile(const juce::File& file,
         for (const auto sample : stroke.interleavedPcm)
             zone.pcm.push_back(static_cast<float>(sample) / 32768.0f);
         converted.zones.push_back(std::move(zone));
+        // Release each temporary int16 stroke as soon as its float playback
+        // zone is ready, keeping conversion peak memory close to final size.
+        std::vector<std::int16_t>().swap(stroke.interleavedPcm);
     }
     destination = std::move(converted);
     return juce::Result::ok();

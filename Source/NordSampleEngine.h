@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -22,7 +23,8 @@ public:
     void prepare(double sampleRate, int maximumBlockSize);
     juce::Result loadSample(int layer, const juce::File& file,
                             std::shared_ptr<NordSampleDecoder::Instrument> prepared = {});
-    juce::Result prepareSample(const juce::File&, std::shared_ptr<NordSampleDecoder::Instrument>&);
+    juce::Result prepareSample(const juce::File&, std::shared_ptr<NordSampleDecoder::Instrument>&,
+                               std::uint64_t maxDecodedBytes = std::numeric_limits<std::uint64_t>::max());
     juce::Result preloadSample(const juce::File& file);
     void unload(int layer);
     void stopAllSounds();

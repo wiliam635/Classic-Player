@@ -373,6 +373,7 @@ inline juce::Result build(const juce::File& folder, const juce::String& path, Pr
                     : part.file.getFullPathName().containsIgnoreCase("/Grand/") ? "Piano Acustico" : "Piano Eletrico";
                 if (group == 0)
                 {
+                    part.routing.pianoReleaseSamplesEnabled = part.category == "Upright Piano";
                     part.routing.pianoDynamicCompression = juce::jlimit(0, 3, int(p.get(prefix + ".dynComp")));
                     const auto eq = int(p.get(prefix + ".eq"));
                     part.routing.pianoTimbre = eq == 0 ? -1 : eq == 1 ? 0 : eq == 2 ? 1 : 2;

@@ -3,6 +3,8 @@
 #include <juce_core/juce_core.h>
 #include <array>
 #include <vector>
+#include <cstdint>
+#include <limits>
 
 namespace NordSampleDecoder
 {
@@ -24,5 +26,6 @@ struct Instrument
     std::vector<Zone> zones;
 };
 
-juce::Result decode(const juce::File&, Instrument&);
+juce::Result decode(const juce::File&, Instrument&,
+                    std::uint64_t maxDecodedBytes = std::numeric_limits<std::uint64_t>::max());
 }

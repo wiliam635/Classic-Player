@@ -338,6 +338,10 @@ private:
     void refreshUpdateNotice();
     void showUpdateDetails();
     bool audioMidiSettingsOpen = false;
+    bool audioMidiSettingsWindowWasSeen = false;
+    int audioMidiSettingsTopLevelCountBefore = 0;
+    int audioMidiSettingsWarmupTicks = 0;
+    int audioMidiSettingsCloseDelayTicks = 0;
     bool standaloneMidiRoutingAttached = false;
     int standaloneMidiRoutingDelayTicks = 0;
     juce::String detectedChord() const;
