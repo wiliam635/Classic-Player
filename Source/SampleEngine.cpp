@@ -1004,11 +1004,14 @@ void SampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<float>& 
                            currentSampleRate, routing.eqLowFrequency,
                            routing.eqMidFrequency, routing.eqHighFrequency,
                            routing.eqLowQ, routing.eqMidQ, routing.eqHighQ);
-    for (int channel = 0; channel < 2; ++channel)
+    if (layer.eq.isActive())
     {
-        auto* values = scratch.getWritePointer(channel);
-        for (int sample = 0; sample < samples; ++sample)
-            values[sample] = layer.eq.process(values[sample], channel);
+        for (int channel = 0; channel < 2; ++channel)
+        {
+            auto* values = scratch.getWritePointer(channel);
+            for (int sample = 0; sample < samples; ++sample)
+                values[sample] = layer.eq.process(values[sample], channel);
+        }
     }
 
     if (layer.pianoLoaded)

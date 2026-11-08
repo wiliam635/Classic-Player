@@ -180,6 +180,8 @@ public:
     // Three-band master EQ: low/high shelves plus a variable mid bell.
     float masterEqValue(const juce::String& parameterId) const;
     void setMasterEqValue(const juce::String& parameterId, float value);
+    bool masterEqEnabled() const noexcept;
+    void setMasterEqEnabled(bool enabled);
     void beginMidiLearn(int layer, LearnTarget target);
     void clearMidiLearn(int layer, LearnTarget target);
     void resetMidiLearn(int layer);
@@ -200,6 +202,7 @@ public:
     void setLayerMidiDevice(int layer, const juce::String& identifier);
     juce::String layerMidiDevice(int layer) const;
     static juce::StringArray soundFontCategories();
+    static juce::StringArray nordSampleCategories();
     juce::Result importSoundFont(const juce::File&, const juce::String& category,
                                  juce::File& importedFile) const;
     juce::Array<juce::File> librarySoundFonts(const juce::String& category) const;
@@ -217,7 +220,11 @@ public:
     juce::Array<juce::File> libraryNordPianos(const juce::String& category) const;
     juce::Result deleteLibraryNordPiano(const juce::File&);
     juce::Result importNordSample(const juce::File&, juce::File& importedFile) const;
+    juce::Result importNordSample(const juce::File&, const juce::String& category,
+                                  juce::File& importedFile) const;
+    juce::String nordSampleCategoryForFile(const juce::File&) const;
     juce::Array<juce::File> libraryNordSamples() const;
+    juce::Array<juce::File> libraryNordSamples(const juce::String& category) const;
     juce::Result deleteLibraryNordSample(const juce::File&);
     NordOrganEngine::Config nordOrganConfig(int layer) const;
     void setNordOrganConfig(int layer, const NordOrganEngine::Config&);
@@ -416,6 +423,8 @@ private:
     std::array<juce::dsp::IIR::Filter<float>, 2> masterEqMid;
     std::array<juce::dsp::IIR::Filter<float>, 2> masterEqHigh;
     std::array<juce::dsp::IIR::Filter<float>, 2> masterEqHighCut;
+    juce::SmoothedValue<float> masterEqWet;
+    bool masterEqProcessingEnabled = false;
     std::array<float, 8> lastMasterEqValues {
         -999.0f, -999.0f, -999.0f, -999.0f,
         -999.0f, -999.0f, -999.0f, -999.0f

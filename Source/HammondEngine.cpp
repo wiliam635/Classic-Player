@@ -275,8 +275,12 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
             continue;
         }
         const float cross=1.f-(float)std::exp(-2*pi*800/sampleRate);
-        const float cutoffHz=40.f*std::pow(450.f,juce::jlimit(0.f,100.f,c.routing.cutoff)/100.f);
-        const float lowpass=1.f-(float)std::exp(-2*pi*std::min((double)cutoffHz,sampleRate*.45)/sampleRate);
+        const auto cutoffEnabled = c.routing.cutoff < 99.5f;
+        const float cutoffHz = cutoffEnabled
+            ? 40.f * std::pow(450.f, juce::jlimit(0.f, 100.f, c.routing.cutoff) / 100.f) : 0.0f;
+        const float lowpass = cutoffEnabled
+            ? 1.f - (float) std::exp(-2 * pi * std::min((double) cutoffHz, sampleRate * .45) / sampleRate)
+            : 0.0f;
         juce::Reverb::Parameters rp;
         rp.roomSize=c.routing.reverbSize/100.f;rp.damping=c.routing.reverbDamping/100.f;
         rp.width=c.routing.reverbWidth/100.f;
@@ -290,17 +294,21 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
         const auto compressorRelease = compressorEnabled
             ? (float) std::exp(-1.0 / (sampleRate * 0.001
                 * juce::jmax(1.0f, c.routing.compressorRelease))) : 0.0f;
-        const auto compressorThreshold = juce::Decibels::decibelsToGain(
-            juce::jlimit(-60.0f, 0.0f, c.routing.compressorThreshold));
-        const auto compressorRatio = juce::jlimit(1.0f, 20.0f, c.routing.compressorRatio);
-        const auto compressorMakeup = juce::Decibels::decibelsToGain(
-            juce::jlimit(0.0f, 24.0f, c.routing.compressorMakeup));
+        const auto compressorThreshold = compressorEnabled
+            ? juce::Decibels::decibelsToGain(
+                juce::jlimit(-60.0f, 0.0f, c.routing.compressorThreshold)) : 1.0f;
+        const auto compressorRatio = compressorEnabled
+            ? juce::jlimit(1.0f, 20.0f, c.routing.compressorRatio) : 1.0f;
+        const auto compressorMakeup = compressorEnabled
+            ? juce::Decibels::decibelsToGain(
+                juce::jlimit(0.0f, 24.0f, c.routing.compressorMakeup)) : 1.0f;
         if (!compressorEnabled)
             l.compressor = {};
         l.eq.setParameters(c.routing.eqLow, c.routing.eqMid, c.routing.eqHigh,
                            sampleRate, c.routing.eqLowFrequency,
                            c.routing.eqMidFrequency, c.routing.eqHighFrequency,
                            c.routing.eqLowQ, c.routing.eqMidQ, c.routing.eqHighQ);
+        const auto eqEnabled = l.eq.isActive();
         scratch.clear();
         const int attackSamples=std::max(1,(int)(sampleRate*layerAttackSeconds(c.routing.attack)));
         const int releaseSamples=std::max(1,(int)(sampleRate*layerReleaseSeconds(c.routing.release)));
@@ -313,11 +321,38 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
                 if (voice.active) activeVoices[activeCount++] = &voice;
         };
         collectActiveVoices();
+        bool audioPathNeeded = l.tailPending || activeCount > 0;
         for(int s=0;s<out.getNumSamples();++s){
             bool event=false;
             while(hi!=host.cend()&&(*hi).samplePosition<=s){message(index,(*hi).getMessage(),c);++hi;event=true;}
             while(li!=local.cend()&&(*li).samplePosition<=s){message(index,(*li).getMessage(),c);++li;event=true;}
             if(event){setTargets();collectActiveVoices();}
+            if (activeCount == 0 && !l.tailPending)
+            {
+                // Controllers still need sample-accurate state updates, but
+                // an idle organ has no oscillators to render. Advance ramps
+                // and rotor/delay time while skipping the nonlinear voice,
+                // rotary interpolation, and stereo mix work for this sample.
+                for (auto& value : l.bars) value.skip(1);
+                for (auto& value : l.channelGain) value.skip(1);
+                l.leakage.skip(1);
+                l.drive.skip(1);
+                l.gain.skip(1);
+                l.level.skip(1);
+                l.pan.skip(1);
+                l.rotaryDepth.skip(1);
+                for (size_t rotor = 0; rotor < l.speed.size(); ++rotor)
+                {
+                    l.rotorPhase[rotor] += l.speed[rotor].getNextValue() / sampleRate;
+                    l.rotorPhase[rotor] -= std::floor(l.rotorPhase[rotor]);
+                    l.delay[rotor][(size_t) l.delayPosition] = 0.0f;
+                }
+                l.crossover += cross * (0.0f - l.crossover);
+                l.delayPosition = (l.delayPosition + 1) % (int) l.delay[0].size();
+                ++l.clock;
+                continue;
+            }
+            audioPathNeeded = true;
             std::array<float,9> bars;for(size_t i=0;i<9;++i)bars[i]=l.bars[i].getNextValue();
             std::array<float,16> channel;for(size_t i=0;i<16;++i)channel[i]=l.channelGain[i].getNextValue();
             const float leak=l.leakage.getNextValue();float sample=0;
@@ -330,7 +365,9 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
             }
             activeCount=survivors;
             const float drive=l.drive.getNextValue();
-            sample=sample*(1-drive)+std::tanh(2*sample*(1+drive*8))/std::tanh(2.f)*drive/(1+drive*2);
+            if (drive > 0.0f)
+                sample = sample * (1 - drive) + std::tanh(2 * sample * (1 + drive * 8))
+                    / std::tanh(2.f) * drive / (1 + drive * 2);
             l.crossover+=cross*(sample-l.crossover);
             const std::array<float,2> bands {l.crossover,sample-l.crossover};
             float left=0,right=0;const float depth=l.rotaryDepth.getNextValue();
@@ -357,6 +394,12 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
             ++l.clock;
         }
 
+        if (!audioPathNeeded)
+        {
+            peaks[(size_t)index].store(0.0f, std::memory_order_relaxed);
+            continue;
+        }
+
         auto organFx = c.routing.nordFx;
         if (organFx.chorusMix <= 0.0f)
         {
@@ -379,10 +422,17 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
             const float pan=juce::jlimit(-1.f,1.f,l.pan.getNextValue());
             float* values[2]={&left,&right};
             for(int ch=0;ch<2;++ch){
-                auto& value=*values[ch];auto& env=l.compressor[(size_t)ch];
-                l.lowpass[(size_t)ch]+=lowpass*(value-l.lowpass[(size_t)ch]);value=l.lowpass[(size_t)ch];
+                auto& value = *values[ch];
+                if (cutoffEnabled)
+                {
+                    l.lowpass[(size_t) ch] += lowpass * (value - l.lowpass[(size_t) ch]);
+                    value = l.lowpass[(size_t) ch];
+                }
+                else
+                    l.lowpass[(size_t) ch] = value;
                 if (compressorEnabled)
                 {
+                    auto& env = l.compressor[(size_t) ch];
                     const auto dry = value;
                     const auto coefficient = std::abs(value) > env
                         ? compressorAttack : compressorRelease;
@@ -392,7 +442,8 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
                                    1.0f - 1.0f / compressorRatio) : 1.0f;
                     value = dry + (dry * reduction * compressorMakeup - dry) * compressorMix;
                 }
-                value = l.eq.process(value, ch);
+                if (eqEnabled)
+                    value = l.eq.process(value, ch);
                 value*=gain*(ch==0?std::sqrt(1-pan):std::sqrt(1+pan));
             }
             if(out.getNumChannels()>1){out.addSample(0,s,left);out.addSample(1,s,right);}

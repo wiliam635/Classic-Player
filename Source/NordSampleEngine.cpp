@@ -803,10 +803,14 @@ void NordSampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<floa
     layer.eq.setParameters(routing.eqLow, routing.eqMid, routing.eqHigh, currentSampleRate,
                            routing.eqLowFrequency, routing.eqMidFrequency, routing.eqHighFrequency,
                            routing.eqLowQ, routing.eqMidQ, routing.eqHighQ);
-    for (int channel = 0; channel < 2; ++channel)
+    if (layer.eq.isActive())
     {
-        auto* values = scratchBuffer.getWritePointer(channel);
-        for (int i = 0; i < samples; ++i) values[i] = layer.eq.process(values[i], channel);
+        for (int channel = 0; channel < 2; ++channel)
+        {
+            auto* values = scratchBuffer.getWritePointer(channel);
+            for (int i = 0; i < samples; ++i)
+                values[i] = layer.eq.process(values[i], channel);
+        }
     }
     layer.nordFx.process(scratchBuffer, routing.nordFx);
     const std::array<float, 4> reverbValues { routing.reverb, routing.reverbSize,

@@ -232,6 +232,7 @@ private:
         juce::Array<juce::File> libraryFiles;
         juce::Array<juce::File> externalInstrumentFiles;
         juce::Array<juce::File> dx7LibraryFiles;
+        int categoryOptionsKind = -1;
 
         juce::Label layerTitle;
         juce::Rectangle<int> categoryArtworkBounds;

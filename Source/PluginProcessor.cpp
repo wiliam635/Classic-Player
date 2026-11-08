@@ -431,6 +431,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> result;
     result.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"master", 1}, "Master", juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 80.0f));
+    result.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"masterEqEnabled", 1}, "Master EQ Enabled", false));
     result.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"limiterInput", 1}, "Limiter Input dB", juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
     result.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -629,6 +631,9 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
         masterEqHigh[(size_t) channel].reset();
         masterEqHighCut[(size_t) channel].reset();
     }
+    masterEqWet.reset(sampleRate, 0.015);
+    masterEqProcessingEnabled = masterEqEnabled();
+    masterEqWet.setCurrentAndTargetValue(masterEqProcessingEnabled ? 1.0f : 0.0f);
     lastMasterEqValues.fill(-999.0f);
     updateMasterEq();
     if (!startupRestored && wrapperType == wrapperType_Standalone)
@@ -1023,29 +1028,54 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             buffer.getWritePointer(channel)[sample] *= gain;
     }
     updateMasterEq();
+    const auto masterEqIsEnabled = masterEqEnabled();
+    if (masterEqIsEnabled != masterEqProcessingEnabled)
+    {
+        if (masterEqIsEnabled)
+        {
+            for (int channel = 0; channel < 2; ++channel)
+            {
+                masterEqLowCut[(size_t) channel].reset();
+                masterEqLow[(size_t) channel].reset();
+                masterEqMid[(size_t) channel].reset();
+                masterEqHigh[(size_t) channel].reset();
+                masterEqHighCut[(size_t) channel].reset();
+            }
+        }
+        masterEqProcessingEnabled = masterEqIsEnabled;
+        masterEqWet.setTargetValue(masterEqIsEnabled ? 1.0f : 0.0f);
+    }
     const bool lowEqEnabled = std::abs(lastMasterEqValues[1]) > 0.0001f;
     const bool midEqEnabled = std::abs(lastMasterEqValues[3]) > 0.0001f;
     const bool highEqEnabled = std::abs(lastMasterEqValues[5]) > 0.0001f;
     const bool lowCutEnabled = lastMasterEqValues[0] > 20.5f;
     const bool highCutEnabled = lastMasterEqValues[7] < 19950.0f;
-    if (lowEqEnabled || midEqEnabled || highEqEnabled || lowCutEnabled || highCutEnabled)
-    for (int channel = 0; channel < juce::jmin(2, buffer.getNumChannels()); ++channel)
+    const bool masterEqHasActiveBands = lowEqEnabled || midEqEnabled || highEqEnabled
+                                     || lowCutEnabled || highCutEnabled;
+    if (masterEqHasActiveBands && (masterEqIsEnabled || masterEqWet.isSmoothing()))
     {
-        auto* samples = buffer.getWritePointer(channel);
-        auto& lowCut = masterEqLowCut[(size_t) channel];
-        auto& low = masterEqLow[(size_t) channel];
-        auto& mid = masterEqMid[(size_t) channel];
-        auto& high = masterEqHigh[(size_t) channel];
-        auto& highCut = masterEqHighCut[(size_t) channel];
+        const auto channels = juce::jmin(2, buffer.getNumChannels());
         for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
         {
-            auto value = lowCutEnabled ? lowCut.processSample(samples[sample]) : samples[sample];
-            if (lowEqEnabled) value = low.processSample(value);
-            if (midEqEnabled) value = mid.processSample(value);
-            if (highEqEnabled) value = high.processSample(value);
-            samples[sample] = highCutEnabled ? highCut.processSample(value) : value;
+            const auto wet = masterEqWet.isSmoothing() ? masterEqWet.getNextValue()
+                                                       : (masterEqIsEnabled ? 1.0f : 0.0f);
+            for (int channel = 0; channel < channels; ++channel)
+            {
+                auto* samples = buffer.getWritePointer(channel);
+                const auto dry = samples[sample];
+                auto value = lowCutEnabled
+                    ? masterEqLowCut[(size_t) channel].processSample(dry) : dry;
+                if (lowEqEnabled) value = masterEqLow[(size_t) channel].processSample(value);
+                if (midEqEnabled) value = masterEqMid[(size_t) channel].processSample(value);
+                if (highEqEnabled) value = masterEqHigh[(size_t) channel].processSample(value);
+                if (highCutEnabled)
+                    value = masterEqHighCut[(size_t) channel].processSample(value);
+                samples[sample] = dry + (value - dry) * wet;
+            }
         }
     }
+    else if (masterEqWet.isSmoothing())
+        masterEqWet.skip(buffer.getNumSamples());
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> context(block);
     const auto limiterEnabled = parameters.getRawParameterValue("limiterEnabled")->load() >= 0.5f;
@@ -1152,6 +1182,22 @@ void ClassicPlayerAudioProcessor::setMasterEqValue(const juce::String& parameter
 {
     if (auto* parameter = parameters.getParameter(parameterId))
         parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
+}
+
+bool ClassicPlayerAudioProcessor::masterEqEnabled() const noexcept
+{
+    const auto* enabled = parameters.getRawParameterValue("masterEqEnabled");
+    return enabled != nullptr && enabled->load(std::memory_order_relaxed) >= 0.5f;
+}
+
+void ClassicPlayerAudioProcessor::setMasterEqEnabled(bool enabled)
+{
+    if (auto* parameter = parameters.getParameter("masterEqEnabled"))
+    {
+        parameter->beginChangeGesture();
+        parameter->setValueNotifyingHost(enabled ? 1.0f : 0.0f);
+        parameter->endChangeGesture();
+    }
 }
 
 void ClassicPlayerAudioProcessor::updateMasterEq()
@@ -2963,6 +3009,11 @@ juce::StringArray ClassicPlayerAudioProcessor::soundFontCategories()
              "Brass", "Organ", "Guitar", "Bass", "Bells", "Efeitos", "Outros" };
 }
 
+juce::StringArray ClassicPlayerAudioProcessor::nordSampleCategories()
+{
+    return { "Strings", "Pads", "Metais", "Synth", "Organ", "Guitar", "Bass", "Outros" };
+}
+
 juce::Result ClassicPlayerAudioProcessor::importSoundFont(const juce::File& source,
                                                            const juce::String& category,
                                                            juce::File& importedFile) const
@@ -3389,10 +3440,19 @@ juce::Result ClassicPlayerAudioProcessor::deleteLibraryNordPiano(const juce::Fil
 juce::Result ClassicPlayerAudioProcessor::importNordSample(const juce::File& source,
                                                             juce::File& importedFile) const
 {
+    return importNordSample(source, "Outros", importedFile);
+}
+
+juce::Result ClassicPlayerAudioProcessor::importNordSample(const juce::File& source,
+                                                            const juce::String& category,
+                                                            juce::File& importedFile) const
+{
     if (!source.existsAsFile() || !source.hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
         return juce::Result::fail(juce::String::fromUTF8("Selecione uma amostra Nord .nsmp, .nsmp3 ou .nsmp4 válida."));
+    if (!nordSampleCategories().contains(category))
+        return juce::Result::fail(juce::String::fromUTF8("Categoria de amostra Nord inválida."));
     auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                    .getChildFile("Classic Player").getChildFile("Nord Samples");
+                    .getChildFile("Classic Player").getChildFile("Nord Samples").getChildFile(category);
     const auto directoryResult = folder.createDirectory();
     if (directoryResult.failed()) return directoryResult;
     auto destination = folder.getChildFile(source.getFileName());
@@ -3417,7 +3477,7 @@ juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordSamples() const
     juce::Array<juce::File> result;
     const auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                             .getChildFile("Classic Player").getChildFile("Nord Samples");
-    folder.findChildFiles(result, juce::File::findFiles, false,
+    folder.findChildFiles(result, juce::File::findFiles, true,
                           "*.nsmp;*.NSMP;*.nsmp3;*.NSMP3;*.nsmp4;*.NSMP4");
     for (const auto& bundle : libraryNordBundles())
         bundle.getChildFile("Samp Lib").findChildFiles(result, juce::File::findFiles, true,
@@ -3427,6 +3487,43 @@ juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordSamples() const
         return a.getFileName().compareNatural(b.getFileName()) < 0;
     });
     return result;
+}
+
+juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordSamples(
+    const juce::String& category) const
+{
+    juce::Array<juce::File> result;
+    if (!nordSampleCategories().contains(category)) return result;
+    const auto allSamples = libraryNordSamples();
+    for (const auto& file : allSamples)
+        if (nordSampleCategoryForFile(file) == category) result.add(file);
+    return result;
+}
+
+juce::String ClassicPlayerAudioProcessor::nordSampleCategoryForFile(const juce::File& file) const
+{
+    const auto sampleRoot = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                                .getChildFile("Classic Player").getChildFile("Nord Samples");
+    if (file.isAChildOf(sampleRoot))
+    {
+        const auto parent = file.getParentDirectory().getFileName();
+        return nordSampleCategories().contains(parent) ? parent : juce::String("Outros");
+    }
+
+    // Bundled samples stay selectable. Infer a category from their path/name
+    // when the bundle does not provide category metadata.
+    const auto text = (file.getFullPathName() + " " + file.getFileNameWithoutExtension()).toLowerCase();
+    if (text.contains("pad")) return "Pads";
+    if (text.contains("string") || text.contains("violin") || text.contains("cello")
+        || text.contains("viola") || text.contains("orchestra")) return "Strings";
+    if (text.contains("brass") || text.contains("horn") || text.contains("trumpet")
+        || text.contains("trombone") || text.contains("tuba")) return "Metais";
+    if (text.contains("organ") || text.contains("hammond") || text.contains("b3")) return "Organ";
+    if (text.contains("guitar")) return "Guitar";
+    if (text.contains("bass")) return "Bass";
+    if (text.contains("synth") || text.contains("lead") || text.contains("saw")
+        || text.contains("wave") || text.contains("analog")) return "Synth";
+    return "Outros";
 }
 
 juce::Result ClassicPlayerAudioProcessor::deleteLibraryNordSample(const juce::File& file)

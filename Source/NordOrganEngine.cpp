@@ -228,16 +228,20 @@ void NordOrganEngine::process(juce::AudioBuffer<float>& output, const juce::Midi
         renderScratch.clear();
         const auto reverbAmount = juce::jlimit(0.0f, 1.0f, config.routing.reverb / 100.0f);
         const auto compressorMix = juce::jlimit(0.0f, 1.0f, config.routing.compressor / 100.0f);
-        const auto compressorThreshold = juce::Decibels::decibelsToGain(
-            juce::jlimit(-60.0f, 0.0f, config.routing.compressorThreshold));
-        const auto compressorRatio = juce::jmax(1.0f,
-            juce::jlimit(1.0f, 20.0f, config.routing.compressorRatio));
-        const auto compressorAttack = std::exp(-1.0f / juce::jmax(1.0f,
-            (float)(sampleRate * juce::jlimit(0.1f, 200.0f, config.routing.compressorAttack) * 0.001f)));
-        const auto compressorRelease = std::exp(-1.0f / juce::jmax(1.0f,
-            (float)(sampleRate * juce::jlimit(5.0f, 2000.0f, config.routing.compressorRelease) * 0.001f)));
-        const auto compressorMakeup = juce::Decibels::decibelsToGain(
-            juce::jlimit(-12.0f, 24.0f, config.routing.compressorMakeup));
+        const auto compressorThreshold = compressorMix > 0.0f
+            ? juce::Decibels::decibelsToGain(
+                juce::jlimit(-60.0f, 0.0f, config.routing.compressorThreshold)) : 1.0f;
+        const auto compressorRatio = compressorMix > 0.0f
+            ? juce::jmax(1.0f, juce::jlimit(1.0f, 20.0f, config.routing.compressorRatio)) : 1.0f;
+        const auto compressorAttack = compressorMix > 0.0f
+            ? std::exp(-1.0f / juce::jmax(1.0f,
+                (float)(sampleRate * juce::jlimit(0.1f, 200.0f, config.routing.compressorAttack) * 0.001f))) : 0.0f;
+        const auto compressorRelease = compressorMix > 0.0f
+            ? std::exp(-1.0f / juce::jmax(1.0f,
+                (float)(sampleRate * juce::jlimit(5.0f, 2000.0f, config.routing.compressorRelease) * 0.001f))) : 0.0f;
+        const auto compressorMakeup = compressorMix > 0.0f
+            ? juce::Decibels::decibelsToGain(
+                juce::jlimit(-12.0f, 24.0f, config.routing.compressorMakeup)) : 1.0f;
         juce::Reverb::Parameters reverb;
         reverb.roomSize = juce::jlimit(0.0f, 1.0f, config.routing.reverbSize / 100.0f);
         reverb.damping = juce::jlimit(0.0f, 1.0f, config.routing.reverbDamping / 100.0f);
@@ -248,11 +252,15 @@ void NordOrganEngine::process(juce::AudioBuffer<float>& output, const juce::Midi
             sampleRate, config.routing.eqLowFrequency, config.routing.eqMidFrequency,
             config.routing.eqHighFrequency, config.routing.eqLowQ,
             config.routing.eqMidQ, config.routing.eqHighQ);
+        const auto eqEnabled = layer.eq.isActive();
+        const auto reverbEnabled = layer.reverb.shouldProcess();
+        const auto cutoffEnabled = config.routing.cutoff < 99.5f;
         const auto cutoffAmount = juce::jlimit(0.0f, 100.0f, config.routing.cutoff);
-        const auto cutoffFrequency = 80.0f * std::pow(250.0f, cutoffAmount / 100.0f);
-        const auto cutoffCoefficient = cutoffAmount >= 99.5f ? 0.0f
-            : std::exp(-juce::MathConstants<float>::twoPi * cutoffFrequency
-                       / static_cast<float>(sampleRate));
+        const auto cutoffFrequency = cutoffEnabled
+            ? 80.0f * std::pow(250.0f, cutoffAmount / 100.0f) : 0.0f;
+        const auto cutoffCoefficient = cutoffEnabled
+            ? std::exp(-juce::MathConstants<float>::twoPi * cutoffFrequency
+                       / static_cast<float>(sampleRate)) : 0.0f;
         std::array<float, 9> drawbarGains {};
         for (size_t bar = 0; bar < drawbarGains.size(); ++bar)
             drawbarGains[bar] = drawbarGain(config.drawbars[bar]);
@@ -329,7 +337,8 @@ void NordOrganEngine::process(juce::AudioBuffer<float>& output, const juce::Midi
                 mono += voiceSample * voice.envelope * 0.62f * config.routing.nordSplit.gain(voice.note);
             }
 
-            mono = (1.0f - drive) * mono + drive * std::tanh(mono * (1.0f + drive * 5.0f));
+            if (drive > 0.0f)
+                mono = (1.0f - drive) * mono + drive * std::tanh(mono * (1.0f + drive * 5.0f));
             layer.rotaryPhase += twoPi * rotaryRate / sampleRate;
             if (layer.rotaryPhase >= twoPi) layer.rotaryPhase -= twoPi;
             const auto rotaryPan = config.rotary == 0 ? 0.0f
@@ -337,10 +346,14 @@ void NordOrganEngine::process(juce::AudioBuffer<float>& output, const juce::Midi
             const auto pan = juce::jlimit(-1.0f, 1.0f, config.routing.pan + rotaryPan);
             float left = mono * layerGain * std::sqrt(0.5f * (1.0f - pan));
             float right = mono * layerGain * std::sqrt(0.5f * (1.0f + pan));
-            layer.reverb.processStereo(&left, &right, 1);
-            left = layer.eq.process(left, 0);
-            right = layer.eq.process(right, 1);
-            if (cutoffAmount < 99.5f)
+            if (reverbEnabled)
+                layer.reverb.processStereo(&left, &right, 1);
+            if (eqEnabled)
+            {
+                left = layer.eq.process(left, 0);
+                right = layer.eq.process(right, 1);
+            }
+            if (cutoffEnabled)
             {
                 auto& leftState = layer.cutoffState[0];
                 auto& rightState = layer.cutoffState[1];

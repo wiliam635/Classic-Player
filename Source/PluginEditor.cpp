@@ -1075,6 +1075,13 @@ juce::String selectedCategoryId(const juce::ComboBox& box)
     return juce::isPositiveAndBelow(index, categories.size()) ? categories[index] : categories[0];
 }
 
+juce::String selectedNordSampleCategoryId(const juce::ComboBox& box)
+{
+    const auto categories = ClassicPlayerAudioProcessor::nordSampleCategories();
+    const auto index = box.getSelectedId() - 1;
+    return juce::isPositiveAndBelow(index, categories.size()) ? categories[index] : "Outros";
+}
+
 juce::PropertiesFile::Options uiLanguageFileOptions()
 {
     juce::PropertiesFile::Options options;
@@ -3263,7 +3270,9 @@ public:
         libraryLabel.setFont(juce::FontOptions(10.0f, juce::Font::bold));
         addAndMakeVisible(libraryLabel);
 
-        const auto categories = ClassicPlayerAudioProcessor::soundFontCategories();
+        const auto categories = isSampleLayer
+            ? ClassicPlayerAudioProcessor::nordSampleCategories()
+            : ClassicPlayerAudioProcessor::soundFontCategories();
         int selectedId = 1;
         for (int i = 0; i < categories.size(); ++i)
         {
@@ -3275,7 +3284,7 @@ public:
         categoryBox.setColour(juce::ComboBox::textColourId, juce::Colour(text));
         categoryBox.onChange = [this]
         {
-            if (categoryChanged) categoryChanged(categoryBox.getText());
+            if (!isSampleLayer && categoryChanged) categoryChanged(categoryBox.getText());
             rebuildLibrary();
         };
         addAndMakeVisible(categoryBox);
@@ -3317,7 +3326,7 @@ public:
                     if (!source.existsAsFile()) return;
                     juce::File imported;
                     auto result = isSampleLayer
-                        ? processor.importNordSample(source, imported)
+                        ? processor.importNordSample(source, selectedNordSampleCategoryId(categoryBox), imported)
                         : processor.importNordPiano(source, selectedCategoryId(categoryBox), imported);
                     if (result.wasOk())
                         result = isSampleLayer ? processor.loadNordSample(index, imported)
@@ -3419,10 +3428,10 @@ public:
         auto area = getLocalBounds().reduced(10, 6);
         auto actions = area.removeFromRight(area.getWidth() * 2 / 5);
         area.removeFromRight(14);
-        auto category = area.removeFromLeft(isSampleLayer ? 0 : area.getWidth() / 3);
+        auto category = area.removeFromLeft(area.getWidth() / 3);
         categoryLabel.setBounds(category.removeFromTop(21));
         categoryBox.setBounds(category.removeFromTop(36).reduced(2));
-        area.removeFromLeft(isSampleLayer ? 0 : 8);
+        area.removeFromLeft(8);
         libraryLabel.setBounds(area.removeFromTop(21));
         libraryBox.setBounds(area.removeFromTop(36).reduced(2));
         auto top = actions.removeFromTop(actions.getHeight() / 2);
@@ -3441,7 +3450,7 @@ private:
 
     void rebuildLibrary()
     {
-        libraryFiles = isSampleLayer ? processor.libraryNordSamples()
+        libraryFiles = isSampleLayer ? processor.libraryNordSamples(selectedNordSampleCategoryId(categoryBox))
                                     : processor.libraryNordPianos(selectedCategoryId(categoryBox));
         libraryBox.clear(juce::dontSendNotification);
         const auto currentPath = processor.soundFontPath(index);
@@ -6893,7 +6902,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     }
     if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordSample)
     {
-        auto* importSamplePanel = new NordPianoImportPanel(processor, index, {}, {},
+        const auto currentSamplePath = processor.soundFontPath(index);
+        auto sampleCategory = juce::String("Outros");
+        if (currentSamplePath.isNotEmpty())
+            sampleCategory = processor.nordSampleCategoryForFile(juce::File(currentSamplePath));
+        auto* importSamplePanel = new NordPianoImportPanel(processor, index, sampleCategory, {},
             [safe] { if (safe != nullptr) safe->refresh(); }, true);
         importSamplePanel->setSize(actionWidth, 92);
         dialog->addCustomComponent(new CenteredPanel(importSamplePanel, actionWidth, 92));
@@ -8089,6 +8102,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     {
         loadButton.setBounds(area.removeFromTop(28));
         area.removeFromTop(4);
+        categoryBox.setBounds(area.removeFromTop(28));
+        area.removeFromTop(4);
         auto libraryRow = area.removeFromTop(28);
         deleteLibraryButton.setBounds(libraryRow.removeFromRight(76).reduced(1, 0));
         libraryBox.setBounds(libraryRow);
@@ -8225,7 +8240,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
             auto result = juce::Result::ok();
             if (isNordSample)
             {
-                result = processor.importNordSample(file, importedFile);
+                result = processor.importNordSample(file, selectedNordSampleCategoryId(categoryBox), importedFile);
                 if (result.wasOk()) result = processor.loadNordSample(index, importedFile);
             }
             else if (isNord)
@@ -8339,6 +8354,22 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     const auto isNordOrgan = type == ClassicPlayerAudioProcessor::LayerType::nordOrgan;
     const auto isDrumPads = type == ClassicPlayerAudioProcessor::LayerType::drumPads || type == ClassicPlayerAudioProcessor::LayerType::continuousPads;
     const auto layerConfig = processor.layerConfig(index);
+    const auto optionsKind = isNordSample ? 1 : 0;
+    if (categoryOptionsKind != optionsKind)
+    {
+        const auto previousCategory = categoryBox.getText();
+        const auto categories = isNordSample
+            ? ClassicPlayerAudioProcessor::nordSampleCategories()
+            : ClassicPlayerAudioProcessor::soundFontCategories();
+        categoryBox.clear(juce::dontSendNotification);
+        for (const auto& category : categories)
+            categoryBox.addItem(category, categoryBox.getNumItems() + 1);
+        auto selectedCategory = categories.indexOf(previousCategory);
+        if (selectedCategory < 0)
+            selectedCategory = isNordSample ? categories.indexOf("Outros") : 0;
+        categoryBox.setSelectedId(selectedCategory + 1, juce::dontSendNotification);
+        categoryOptionsKind = optionsKind;
+    }
     velocityCurve.setItemEnabled(4, isNord && layerConfig.velocityCalibrationEnabled);
     // Drum samples are edited in their dedicated window. The mixer strip
     // mirrors the other layers: vertical fader, meter and volume CC Learn.
@@ -8364,7 +8395,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
     loadButton.setTooltip(isNordSample ? "Importar uma amostra Nord NSMP (.nsmp, .nsmp3, .nsmp4)"
                        : isNord ? "Importar um piano Nord (.npno)" : "Importar um SoundFont (.sf2)");
     loadButton.setVisible(isSf2 || isNord || isNordSample);
-    categoryBox.setVisible(isSf2 || isNord);
+    categoryBox.setVisible(isSf2 || isNord || isNordSample);
     libraryBox.setVisible(isSf2 || isNord || isNordSample);
     deleteLibraryButton.setVisible(isSf2 || isNord || isNordSample);
     deleteLibraryButton.setButtonText(isNordSample ? "EXCLUIR NSMP" : isNord ? "EXCLUIR NPNO" : "EXCLUIR SF2");
@@ -8581,7 +8612,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::rebuildLibrary()
     const auto currentPath = processor.soundFontPath(index);
     const auto isNord = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord;
     const auto isNordSample = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordSample;
-    libraryFiles = isNordSample ? processor.libraryNordSamples()
+    libraryFiles = isNordSample ? processor.libraryNordSamples(selectedNordSampleCategoryId(categoryBox))
                  : isNord ? processor.libraryNordPianos(selectedCategoryId(categoryBox))
                           : processor.librarySoundFonts(selectedCategoryId(categoryBox));
     libraryBox.clear(juce::dontSendNotification);
@@ -8604,15 +8635,19 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::selectCurrentCategory()
     const auto path = processor.soundFontPath(index);
     if (path.isEmpty()) return;
 
-    const auto isNord = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord;
-    const auto categories = ClassicPlayerAudioProcessor::soundFontCategories();
+    const auto type = processor.layerType(index);
+    const auto isNordSample = type == ClassicPlayerAudioProcessor::LayerType::nordSample;
+    const auto isNord = type == ClassicPlayerAudioProcessor::LayerType::nord;
+    const auto categories = isNordSample ? ClassicPlayerAudioProcessor::nordSampleCategories()
+                                         : ClassicPlayerAudioProcessor::soundFontCategories();
     const auto parentCategory = juce::File(path).getParentDirectory().getFileName();
     int selected = categories.indexOf(parentCategory);
     if (selected < 0)
     {
         for (int category = 0; category < categories.size(); ++category)
         {
-            const auto files = isNord ? processor.libraryNordPianos(categories[category])
+            const auto files = isNordSample ? processor.libraryNordSamples(categories[category])
+                              : isNord ? processor.libraryNordPianos(categories[category])
                                       : processor.librarySoundFonts(categories[category]);
             for (const auto& file : files)
                 if (file.getFullPathName() == path)
@@ -8697,6 +8732,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
     const auto channel = state.getProperty("layerChannelColour" + juce::String(index + 1)).toString();
     setChannelColour(juce::Colour::fromString(channel), channel.isEmpty(), false);
     const auto type = processor.layerType(index);
+    updateSourceTypeVisibility();
     muted = processor.isLayerMuted(index);
     muteButton.setToggleState(muted, juce::dontSendNotification);
     if (type == ClassicPlayerAudioProcessor::LayerType::drumPads || type == ClassicPlayerAudioProcessor::LayerType::continuousPads)
@@ -8722,8 +8758,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
         || type == ClassicPlayerAudioProcessor::LayerType::nord
         || type == ClassicPlayerAudioProcessor::LayerType::nordSample)
     {
-        if (type != ClassicPlayerAudioProcessor::LayerType::nordSample)
-            selectCurrentCategory();
+        selectCurrentCategory();
         rebuildLibrary();
         if (type == ClassicPlayerAudioProcessor::LayerType::sf2)
             rebuildPresets();
@@ -8790,7 +8825,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
     velocityCurve.setItemEnabled(4,
         type == ClassicPlayerAudioProcessor::LayerType::nord && config.velocityCalibrationEnabled);
     velocityCurve.setSelectedId(config.velocityCurve + 1, juce::dontSendNotification);
-    updateSourceTypeVisibility();
     repaint();
 }
 
@@ -9763,6 +9797,40 @@ private:
     std::array<MidiLearnButton, 3> buttons;
 };
 
+class MasterEqBypassPanel final : public juce::Component, private juce::Timer
+{
+public:
+    explicit MasterEqBypassPanel(ClassicPlayerAudioProcessor& p) : processor(p)
+    {
+        flatButton(button);
+        button.setClickingTogglesState(true);
+        button.onClick = [this]
+        {
+            processor.setMasterEqEnabled(button.getToggleState());
+            refresh();
+        };
+        addAndMakeVisible(button);
+        setSize(520, 36);
+        refresh();
+        startTimerHz(10);
+    }
+
+    ~MasterEqBypassPanel() override { stopTimer(); }
+    void resized() override { button.setBounds(getLocalBounds().reduced(3, 2)); }
+
+private:
+    void timerCallback() override { refresh(); }
+    void refresh()
+    {
+        const auto enabled = processor.masterEqEnabled();
+        button.setToggleState(enabled, juce::dontSendNotification);
+        button.setButtonText(enabled ? "EQ MASTER: LIGADO" : "EQ MASTER: BYPASS");
+    }
+
+    ClassicPlayerAudioProcessor& processor;
+    juce::TextButton button;
+};
+
 void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
 {
     auto* dialog = new LayerEditorWindow(
@@ -9786,9 +9854,11 @@ void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
         knobs->bindParameter(control, classicProcessor.parameters, ids[(size_t) control]);
     knobs->useDenseGrid(true);
     const auto contentWidth = editorContentWidth(this, 1000);
+    dialog->addCustomComponent(new CentredEditorPanel(
+        new MasterEqBypassPanel(classicProcessor), contentWidth));
     dialog->addCustomComponent(new SideBySideEditorPanel(graph, knobs, contentWidth, 240));
     dialog->addCustomComponent(new MasterEqLearnPanel(classicProcessor));
-    dialog->setSize(contentWidth + 52, 415);
+    dialog->setSize(contentWidth + 52, 452);
     dialog->fitWithinApp(this);
     graph->onPointChanged = [knobs](int band, float frequency, float gain)
     {
