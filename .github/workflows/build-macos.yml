@@ -75,6 +75,7 @@ jobs:
           lipo -archs "build/Classic Player 2.0 macOS Universal.component/Contents/MacOS/Classic Player" | grep -q arm64
           lipo -archs "build/Classic Player 2.0 macOS Universal.component/Contents/MacOS/Classic Player" | grep -q x86_64
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' 'build/Classic Player 2.0 macOS Universal.app/Contents/Info.plist')" = "3.0.3"
+          test -n "$(/usr/libexec/PlistBuddy -c 'Print :NSBluetoothAlwaysUsageDescription' 'build/Classic Player 2.0 macOS Universal.app/Contents/Info.plist')"
           test -f "outputs/installers/Classic-Player-${DOWNLOAD_VERSION}-macOS-High-Sierra-a-Tahoe-Universal.pkg"
           test -f "outputs/installers/Classic-Player-${DOWNLOAD_VERSION}-macOS-High-Sierra-a-Tahoe-Universal-App.zip"
 
