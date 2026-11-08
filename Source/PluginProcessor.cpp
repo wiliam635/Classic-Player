@@ -4594,15 +4594,50 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
 
 void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size)
 {
-    const juce::ScopedLock callbackLock(getCallbackLock());
-    if (wrapperType == wrapperType_Standalone && !startupRestored
-        && !restoringStartupSettings && !applyingProgramState)
-        return;
-    if (auto xml = getXmlFromBinary(data, size))
+    // Check the standalone startup guard briefly, then release the callback
+    // lock before touching files or constructing FluidSynth instances.
+    {
+        const juce::ScopedLock callbackLock(getCallbackLock());
+        if (wrapperType == wrapperType_Standalone && !startupRestored
+            && !restoringStartupSettings && !applyingProgramState)
+            return;
+    }
+
+    auto xml = getXmlFromBinary(data, size);
+    if (xml != nullptr)
     {
         auto state = juce::ValueTree::fromXml(*xml);
         if (state.isValid())
         {
+            // SF2 decoding performs disk I/O, allocation and synth creation.
+            // Do that before acquiring the processor callback lock so audio
+            // keeps running while a saved performance is being restored.
+            std::array<std::shared_ptr<Sf2Engine::PreparedSoundFont>, Sf2Engine::layerCount> preparedSoundFonts {};
+            const auto layerCountToRestore = juce::jlimit(
+                0, Sf2Engine::layerCount,
+                static_cast<int>(state.getProperty("activeLayers", Sf2Engine::defaultLayerCount)));
+            for (int i = 0; i < layerCountToRestore; ++i)
+            {
+                auto savedType = juce::jlimit(0, 9, static_cast<int>(state.getProperty(
+                    "layerType" + juce::String(i + 1), static_cast<int>(LayerType::sf2))));
+                if (savedType == static_cast<int>(LayerType::vst))
+                    savedType = static_cast<int>(LayerType::sf2);
+                const auto sourcePath = state.getProperty("sf2Layer" + juce::String(i + 1)).toString();
+                if (savedType == static_cast<int>(LayerType::sf2)
+                    && (juce::File(sourcePath).hasFileExtension(".npno")
+                        || juce::File(sourcePath).hasFileExtension(".nsmp;.nsmp3;.nsmp4")))
+                    continue;
+                if (savedType != static_cast<int>(LayerType::sf2) || sourcePath.isEmpty()
+                    || engine.getSoundFontPath(i) == sourcePath)
+                    continue;
+
+                const auto result = engine.prepareSoundFont(i, juce::File(sourcePath), preparedSoundFonts[(size_t) i]);
+                if (result.failed())
+                    juce::Logger::writeToLog("Não foi possível preparar o SF2 da layer "
+                        + juce::String(i + 1) + ": " + result.getErrorMessage());
+            }
+
+            const juce::ScopedLock callbackLock(getCallbackLock());
             // Keep an instrument already present in the same layer. Reloading
             // an unchanged SF2 (or decoding a Nord sample) can stall a Live Set
             // change for seconds, even when only its controls have changed.
@@ -4913,7 +4948,11 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     // selected program.
                     if (!keepLoadedSource)
                     {
-                        engine.unloadSoundFont(i);
+                        // Keep the old synth alive until the prepared SF2 is
+                        // atomically installed. Unloading here invalidates its
+                        // generation token and defeats the off-lock load.
+                        if (preparedSoundFonts[(size_t) i] == nullptr)
+                            engine.unloadSoundFont(i);
                         sampleEngine.unload(i);
                         nordSampleEngine.unload(i);
                         nordLoaded[(size_t) i].store(false, std::memory_order_release);
@@ -5217,12 +5256,13 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 }
                 engine.setConfig(i, config);
             }
-            restoreLayerPaths();
+            restoreLayerPaths(preparedSoundFonts);
         }
     }
 }
 
-void ClassicPlayerAudioProcessor::restoreLayerPaths()
+void ClassicPlayerAudioProcessor::restoreLayerPaths(
+    const std::array<std::shared_ptr<Sf2Engine::PreparedSoundFont>, Sf2Engine::layerCount>& preparedSoundFonts)
 {
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
         if ((layerType(i) == LayerType::sf2 || layerType(i) == LayerType::nord
@@ -5249,11 +5289,15 @@ void ClassicPlayerAudioProcessor::restoreLayerPaths()
                     nordLoaded[(size_t) i].store(true, std::memory_order_release);
                 }
             }
-            else if (engine.loadSoundFont(i, juce::File(savedPaths[(size_t) i])).wasOk())
+            else if (preparedSoundFonts[(size_t) i] != nullptr
+                     && engine.installSoundFont(i, preparedSoundFonts[(size_t) i]).wasOk())
             {
                 nordLoaded[(size_t) i].store(false, std::memory_order_release);
                 engine.selectPreset(i, savedSf2Banks[(size_t) i], savedSf2Programs[(size_t) i]);
             }
+            else if (layerType(i) == LayerType::sf2)
+                juce::Logger::writeToLog("SF2 da layer " + juce::String(i + 1)
+                    + " não foi restaurado; o áudio não será bloqueado por uma segunda leitura síncrona.");
         }
 }
 

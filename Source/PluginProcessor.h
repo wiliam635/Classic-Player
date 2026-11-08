@@ -366,7 +366,8 @@ private:
     void captureSplitNote(const juce::MidiMessage&);
     juce::SmoothedValue<float> masterGain;
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameters();
-    void restoreLayerPaths();
+    void restoreLayerPaths(
+        const std::array<std::shared_ptr<Sf2Engine::PreparedSoundFont>, Sf2Engine::layerCount>& preparedSoundFonts);
     void stopAllSoundsBeforeProgramChange();
     void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage&) override;
     void processMidiControlMessage(const juce::MidiMessage&, int layerFilter = -1);
