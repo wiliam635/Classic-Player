@@ -115,6 +115,8 @@ public:
     float limiterOutputLevel() const noexcept { return limiterOutputPeak.load(); }
     float limiterGainReduction() const noexcept { return limiterReduction.load(); }
     static constexpr int spectrumSampleCount = 2048;
+    static_assert((spectrumSampleCount & (spectrumSampleCount - 1)) == 0,
+                  "Spectrum capture ring size must be a power of two");
     // Copies the latest post-master samples. FFT work is deliberately left to
     // the editor/message thread so the real-time audio callback stays light.
     void copySpectrumSamples(float* destination, int sampleCount) const noexcept;

@@ -158,6 +158,9 @@ struct NordLayerEffects
     void prepare(double rate)
     {
         sampleRate = juce::jmax(1.0, rate);
+        for (size_t i = 0; i < lfoSineTable.size(); ++i)
+            lfoSineTable[i] = std::sin(juce::MathConstants<double>::twoPi
+                * static_cast<double>(i) / static_cast<double>(lfoTableSize));
         const auto modulationLength = (size_t) juce::jmax(64, juce::roundToInt(sampleRate * 0.06));
         const auto delayLength = (size_t) juce::jmax(64, juce::roundToInt(sampleRate * 2.5));
         for (auto& channel : modulation) channel.assign(modulationLength, 0.0f);
@@ -266,9 +269,9 @@ struct NordLayerEffects
             const auto chorus = chorusPathActive ? chorusMixSmoother.getNextValue() : 0.0f;
             const auto delayMix = delayPathActive ? delayMixSmoother.getNextValue() : 0.0f;
             const auto extendedMix = extendedPathActive ? extendedMixSmoother.getNextValue() : 0.0f;
-            const auto tremoloLfo = tremolo > 0.0f ? (float) (0.5 + 0.5 * std::sin(tremoloPhase)) : 1.0f;
-            const auto flangerLfo = flanger > 0.0f ? (float) (0.5 + 0.5 * std::sin(flangerPhase)) : 0.0f;
-            const auto chorusLfo = chorus > 0.0f ? (float) (0.5 + 0.5 * std::sin(chorusPhase)) : 0.0f;
+            const auto tremoloLfo = tremolo > 0.0f ? (float) (0.5 + 0.5 * lfoSine(tremoloPhase)) : 1.0f;
+            const auto flangerLfo = flanger > 0.0f ? (float) (0.5 + 0.5 * lfoSine(flangerPhase)) : 0.0f;
+            const auto chorusLfo = chorus > 0.0f ? (float) (0.5 + 0.5 * lfoSine(chorusPhase)) : 0.0f;
             const auto dryLeft = buffer.getSample(0, frame);
             const auto dryRight = buffer.getNumChannels() > 1 ? buffer.getSample(1, frame) : dryLeft;
             std::array<float, 2> modulated { dryLeft, dryRight };
@@ -308,8 +311,8 @@ struct NordLayerEffects
                     // supplies Doppler modulation, opposite gains supply pan.
                     const auto angle = chorusPhase + channel * twopi * 0.5;
                     const auto rotated = read(modulation[(size_t)channel], modulationPosition,
-                        sampleRate * (0.004 + 0.0015 * std::sin(angle)));
-                    const auto amplitude = float(0.75 + 0.25 * std::cos(angle));
+                        sampleRate * (0.004 + 0.0015 * lfoSine(angle)));
+                    const auto amplitude = float(0.75 + 0.25 * lfoSine(angle + twopi * 0.25));
                     value = value * (1.0f - extendedMix) + rotated * amplitude * extendedMix;
                 }
                 if (settings.modulationType == 3 && extendedMix > 0)
@@ -318,7 +321,7 @@ struct NordLayerEffects
                     for (int voice = 0; voice < 3; ++voice)
                     {
                         const double offset = twopi * (double(voice) / 3.0 + channel * 0.17);
-                        const auto lfo = std::sin(chorusPhase + offset);
+                        const auto lfo = lfoSine(chorusPhase + offset);
                         voices += read(modulation[(size_t)channel], modulationPosition,
                             sampleRate * (0.018 + 0.004 * lfo));
                     }
@@ -374,6 +377,17 @@ struct NordLayerEffects
     }
 
 private:
+    static constexpr size_t lfoTableSize = 4096;
+    float lfoSine(double phase) const noexcept
+    {
+        constexpr auto twoPi = juce::MathConstants<double>::twoPi;
+        phase = phase >= twoPi ? phase - twoPi : phase;
+        const auto position = phase * static_cast<double>(lfoTableSize) / twoPi;
+        const auto index = juce::jmin(lfoTableSize - 1, static_cast<size_t>(position));
+        const auto fraction = static_cast<float>(position - static_cast<double>(index));
+        const auto lower = lfoSineTable[index];
+        return lower + fraction * (lfoSineTable[index + 1] - lower);
+    }
     static double wrap(double phase) noexcept
     {
         return phase >= juce::MathConstants<double>::twoPi ? phase - juce::MathConstants<double>::twoPi : phase;
@@ -429,6 +443,7 @@ private:
         const auto saturated = shaped / juce::jmax(0.1f, norm);
         return input * (1.0f - amount) + saturated * amount;
     }
+    std::array<float, lfoTableSize + 1> lfoSineTable {};
     struct FeedbackFilterState { float low = 0.0f, dc = 0.0f, bandDc = 0.0f; };
     NordModulation extendedModulation;
     std::array<std::vector<float>, 2> modulation, delay;

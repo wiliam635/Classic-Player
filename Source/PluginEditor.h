@@ -9,6 +9,7 @@
 #include <array>
 #include <atomic>
 #include <functional>
+#include <limits>
 
 class ClassicPlayerAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                                 private juce::Timer,
@@ -60,10 +61,14 @@ private:
         std::function<void()> onContextMenu;
     private:
         static constexpr int fftSize = ClassicPlayerAudioProcessor::spectrumSampleCount;
+        static constexpr size_t spectrumBandCount = 48;
         juce::dsp::FFT fft { 11 };
         juce::dsp::WindowingFunction<float> window { fftSize, juce::dsp::WindowingFunction<float>::hann };
         std::array<float, fftSize * 2> fftData {};
-        std::array<float, 48> levels {}, peaks {};
+        std::array<float, spectrumBandCount> levels {}, peaks {};
+        std::array<int, spectrumBandCount> firstBins {}, lastBins {};
+        unsigned int lastSpectrumRevision = std::numeric_limits<unsigned int>::max();
+        double cachedSampleRate = 0.0;
     };
     void setDisplaySpectrumMode(bool);
     class LanguageFlags final : public juce::Component, public juce::SettableTooltipClient

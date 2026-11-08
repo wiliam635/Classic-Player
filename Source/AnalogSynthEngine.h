@@ -166,7 +166,9 @@ private:
         LayerEqState eq;
     };
 
-    static float waveform(Waveform waveform, float phase, float phaseIncrement);
+    float waveform(Waveform waveform, float phase, float phaseIncrement) const noexcept;
+    float sineLookup(float phase) const noexcept;
+    float cutoffLookup(float normalizedCutoff) const noexcept;
     static float polyBlep(float phase, float phaseIncrement);
     static float midiNoteToFrequency(int note) noexcept;
     static bool acceptsMessage(const Sf2Engine::LayerConfig& config,
@@ -191,6 +193,13 @@ private:
 
     std::array<Layer, layerCount> layers {};
     std::array<std::atomic<float>, layerCount> peaks {};
+    static constexpr size_t oscillatorSineTableSize = 4096;
+    std::array<float, oscillatorSineTableSize + 1> oscillatorSineTable {};
+    static constexpr size_t cutoffFrequencyTableSize = 4096;
+    std::array<float, cutoffFrequencyTableSize + 1> cutoffFrequencyTable {};
+    static constexpr size_t ladderCoefficientTableSize = 16384;
+    std::array<float, ladderCoefficientTableSize + 1> ladderCoefficientTable {};
+    float ladderCutoffMaximum = 0.0f;
     static constexpr size_t saturationTableSize = 4097;
     static constexpr float saturationTableLimit = 8.0f;
     std::array<float, saturationTableSize> saturationTable {};

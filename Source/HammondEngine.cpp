@@ -190,7 +190,11 @@ float HammondEngine::renderVoice(Voice& v,Layer& l,const std::array<float,9>& ba
     if(!v.active)return 0;
     if(v.releasing){
         if(v.releaseAge>=releaseSamples){v.active=false;v.envelope=0;return 0;}
-        v.envelope=v.releaseStart*.5f*(1.f+(float)std::cos(pi*(double)++v.releaseAge/releaseSamples));
+        const auto releasePhase = static_cast<float>(++v.releaseAge)
+            / static_cast<float>(releaseSamples);
+        // sin(pi/2 + pi*t) == cos(pi*t); reuse the organ wavetable so the
+        // release envelope does not call cos() for every releasing voice/sample.
+        v.envelope=v.releaseStart*.5f*(1.f+sine(.25+.5*releasePhase));
     }else v.envelope=.24f*std::min(1.f,(float)++v.age/attack);
     float sum=0;
     for(size_t i=0;i<ratios.size();++i){

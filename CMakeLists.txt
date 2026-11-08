@@ -41,6 +41,24 @@ elseif(CLASSIC_PLAYER_FETCH_JUCE)
         GIT_TAG 9.0.0
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(JUCE)
+    if(APPLE)
+        # JUCE 9.0.0 checks for the aggregate drift-quality enum at SDK 13.0,
+        # but Apple only exposed that enum in the macOS 14.2 SDK. Older SDKs
+        # must keep using kAudioSubDeviceDriftCompensationHighQuality.
+        set(_juce_coreaudio_source
+            "${CMAKE_BINARY_DIR}/_deps/juce-src/modules/juce_audio_devices/native/juce_CoreAudio_mac.cpp")
+        if(EXISTS "${_juce_coreaudio_source}")
+            file(READ "${_juce_coreaudio_source}" _juce_coreaudio_contents)
+            string(REPLACE
+                "#if JUCE_MAC_API_VERSION_CAN_BE_BUILT (13, 0)\n                              kAudioAggregateDriftCompensationHighQuality);"
+                "#if JUCE_MAC_API_VERSION_CAN_BE_BUILT (14, 2)\n                              kAudioAggregateDriftCompensationHighQuality);"
+                _juce_coreaudio_patched "${_juce_coreaudio_contents}")
+            if(NOT _juce_coreaudio_patched STREQUAL _juce_coreaudio_contents)
+                file(WRITE "${_juce_coreaudio_source}" "${_juce_coreaudio_patched}")
+                message(STATUS "Applied JUCE CoreAudio SDK 14.2 compatibility fix")
+            endif()
+        endif()
+    endif()
 else()
     message(FATAL_ERROR "Set JUCE_DIR or enable CLASSIC_PLAYER_FETCH_JUCE")
 endif()

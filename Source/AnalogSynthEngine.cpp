@@ -36,6 +36,16 @@ float nextNoise(uint32_t& state) noexcept
 
 AnalogSynthEngine::AnalogSynthEngine()
 {
+    for (size_t i = 0; i <= oscillatorSineTableSize; ++i)
+        oscillatorSineTable[i] = std::sin(twoPi * static_cast<float>(i)
+            / static_cast<float>(oscillatorSineTableSize));
+    for (size_t i = 0; i <= cutoffFrequencyTableSize; ++i)
+    {
+        const auto normalized = static_cast<float>(i)
+            / static_cast<float>(cutoffFrequencyTableSize);
+        cutoffFrequencyTable[i] = 25.0f * std::pow(700.0f, normalized);
+    }
+
     for (size_t i = 0; i < saturationTable.size(); ++i)
     {
         const auto value = -saturationTableLimit
@@ -63,6 +73,15 @@ float AnalogSynthEngine::saturate(float value) const noexcept
 void AnalogSynthEngine::prepare(double newSampleRate, int maximumBlockSize)
 {
     sampleRate = juce::jmax(1.0, newSampleRate);
+    ladderCutoffMaximum = juce::jmax(20.001f, static_cast<float>(sampleRate) * 0.42f);
+    const auto oversampledRate = static_cast<float>(sampleRate) * 2.0f;
+    for (size_t i = 0; i <= ladderCoefficientTableSize; ++i)
+    {
+        const auto position = static_cast<float>(i)
+            / static_cast<float>(ladderCoefficientTableSize);
+        const auto cutoff = 20.0f + position * (ladderCutoffMaximum - 20.0f);
+        ladderCoefficientTable[i] = 1.0f - std::exp(-twoPi * cutoff / oversampledRate);
+    }
     renderScratch.setSize(2, juce::jmax(1, maximumBlockSize), false, true, true);
     reset();
     for (auto& layer : layers)
@@ -171,19 +190,43 @@ float AnalogSynthEngine::polyBlep(float phase, float increment)
     return 0.0f;
 }
 
-float AnalogSynthEngine::waveform(Waveform form, float phase, float increment)
+float AnalogSynthEngine::sineLookup(float phase) const noexcept
+{
+    phase = wrapPhase(phase);
+    const auto position = phase * static_cast<float>(oscillatorSineTableSize);
+    const auto index = juce::jmin(oscillatorSineTableSize - 1,
+                                  static_cast<size_t>(position));
+    const auto fraction = position - static_cast<float>(index);
+    const auto a = oscillatorSineTable[index];
+    return a + fraction * (oscillatorSineTable[index + 1] - a);
+}
+
+float AnalogSynthEngine::cutoffLookup(float normalizedCutoff) const noexcept
+{
+    const auto position = juce::jlimit(0.0f, 1.0f, normalizedCutoff)
+        * static_cast<float>(cutoffFrequencyTableSize);
+    const auto index = juce::jmin(cutoffFrequencyTableSize - 1,
+                                  static_cast<size_t>(position));
+    const auto fraction = position - static_cast<float>(index);
+    const auto lower = cutoffFrequencyTable[index];
+    return lower + fraction * (cutoffFrequencyTable[index + 1] - lower);
+}
+
+float AnalogSynthEngine::waveform(Waveform form, float phase, float increment) const noexcept
 {
     phase = wrapPhase(phase);
 
     switch (form)
     {
         case Waveform::triangle:
-            // A sinusoidal triangle avoids the hard corners and aliasing of
-            // the previous piecewise waveform at high notes.
-            return std::asin(std::sin(twoPi * phase)) * (2.0f / juce::MathConstants<float>::pi);
+            // This is algebraically identical to asin(sin(2*pi*phase))*2/pi,
+            // but avoids two transcendental calls in every active voice/sample.
+            if (phase < 0.25f) return 4.0f * phase;
+            if (phase < 0.75f) return 2.0f - 4.0f * phase;
+            return 4.0f * phase - 4.0f;
 
         case Waveform::sine:
-            return std::sin(twoPi * phase);
+            return sineLookup(phase);
 
         case Waveform::saw:
             return 2.0f * phase - 1.0f - polyBlep(phase, increment);
@@ -511,11 +554,17 @@ float AnalogSynthEngine::processLadder(Voice& voice, float input, float cutoffHz
                                        float resonance, float drive) noexcept
 {
     const auto nyquistSafe = juce::jlimit(20.0f, static_cast<float>(sampleRate) * 0.42f, cutoffHz);
-    const auto oversampledRate = static_cast<float>(sampleRate) * 2.0f;
     if (voice.ladderCutoff != nyquistSafe)
     {
+        const auto position = juce::jlimit(0.0f, 1.0f,
+            (nyquistSafe - 20.0f) / (ladderCutoffMaximum - 20.0f))
+            * static_cast<float>(ladderCoefficientTableSize);
+        const auto index = juce::jmin(ladderCoefficientTableSize - 1,
+                                      static_cast<size_t>(position));
+        const auto fraction = position - static_cast<float>(index);
+        const auto lower = ladderCoefficientTable[index];
         voice.ladderCoefficient = juce::jlimit(0.0001f, 0.98f,
-            1.0f - std::exp(-twoPi * nyquistSafe / oversampledRate));
+            lower + fraction * (ladderCoefficientTable[index + 1] - lower));
         voice.ladderCutoff = nyquistSafe;
     }
     const auto g = voice.ladderCoefficient;
@@ -632,7 +681,7 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
 
     if (config.browserCompatible)
     {
-        const auto browserLfo = static_cast<float>(std::sin(voice.browserLfoPhase * juce::MathConstants<double>::twoPi));
+        const auto browserLfo = sineLookup(static_cast<float>(voice.browserLfoPhase));
         voice.browserLfoPhase += config.lfoRateHz / sampleRate;
         voice.browserLfoPhase -= std::floor(voice.browserLfoPhase);
         sample = processBrowserFilter(voice, sample,
@@ -645,14 +694,14 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
         if (voice.trackingNote != voice.note || voice.trackingAmount != tracking)
         {
             const auto keyboardOctaves = (static_cast<float>(voice.note) - 60.0f) / 12.0f;
-            voice.trackingGain = std::pow(2.0f, keyboardOctaves * tracking);
+            voice.trackingGain = std::exp2(keyboardOctaves * tracking);
             voice.trackingNote = voice.note;
             voice.trackingAmount = tracking;
         }
         const auto modulation = lfo * (config.lfoToFilter + modWheel * config.modWheelToFilter);
         const auto normalizedCutoff = juce::jlimit(0.0f, 1.0f,
             (config.cutoff + filterEnvelope * config.filterEnvelopeAmount * 100.0f + modulation) / 100.0f);
-        const auto cutoffHz = 25.0f * std::pow(700.0f, normalizedCutoff) * voice.trackingGain;
+        const auto cutoffHz = cutoffLookup(normalizedCutoff) * voice.trackingGain;
         sample = processLadder(voice, sample, cutoffHz, config.resonance, config.filterDrive);
         sample *= amp * voice.velocity;
     }
@@ -864,7 +913,7 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
         auto routed = routedMessages.begin();
         float peak = 0.0f;
         const auto browserBaseCutoff = config.browserCompatible
-            ? 25.0f * std::pow(700.0f, config.cutoff / 100.0f) : 0.0f;
+            ? cutoffLookup(config.cutoff / 100.0f) : 0.0f;
         const std::array<float, 3> ampCoefficients {
             envelopeCoefficient(config.ampAttackMs, sampleRate),
             envelopeCoefficient(config.ampDecayMs, sampleRate),
@@ -915,11 +964,11 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
             if (voicesChanged) collectActiveVoices();
             layer.lfoPhase = wrapPhase(layer.lfoPhase
                 + config.lfoRateHz / static_cast<float>(sampleRate));
-            const auto lfo = std::sin(layer.lfoPhase * twoPi);
+            const auto lfo = sineLookup(layer.lfoPhase);
             float left = 0.0f, right = 0.0f;
 
             const auto pitchDepth = config.lfoToPitch + layer.modWheel * config.modWheelToPitch;
-            const auto pitchRatio = std::pow(2.0f,
+            const auto pitchRatio = std::exp2(
                 (layer.pitchBendSemitones + lfo * pitchDepth) / 12.0f);
             size_t survivors = 0;
             for (size_t i = 0; i < activeCount; ++i)

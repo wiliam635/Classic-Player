@@ -83,7 +83,8 @@ private:
         const juce::File&, std::shared_ptr<NordSampleDecoder::Instrument>);
     static Voice& allocateVoice(Layer&, int polyphony) noexcept;
     static int findZone(const NordSampleDecoder::Instrument&, int note, int velocity) noexcept;
-    static float readSample(const NordSampleDecoder::Zone&, int channel, double position) noexcept;
+    static void readStereoSample(const NordSampleDecoder::Zone&, double position,
+                                 float& left, float& right) noexcept;
     static float releaseCoefficientFor(float control, double sampleRate) noexcept;
     void handleMidiMessage(Layer&, const juce::MidiMessage&,
                            const Sf2Engine::LayerConfig&, bool generated = false,

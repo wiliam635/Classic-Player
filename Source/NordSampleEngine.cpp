@@ -307,32 +307,64 @@ int NordSampleEngine::findZone(const NordSampleDecoder::Instrument& instrument,
     return best;
 }
 
-float NordSampleEngine::readSample(const NordSampleDecoder::Zone& zone, int channel,
-                                  double position) noexcept
+void NordSampleEngine::readStereoSample(const NordSampleDecoder::Zone& zone,
+                                        double position, float& left, float& right) noexcept
 {
     const auto frames = (int) zone.frames();
-    if (frames <= 0 || zone.channels <= 0) return 0.0f;
-    const auto start = juce::jlimit(0, frames - 1, (int) position);
-    const auto fraction = (float) (position - start);
-    const auto sourceChannel = juce::jmin(channel, zone.channels - 1);
-    const auto read = [&](int frame)
+    if (frames <= 0 || zone.channels <= 0)
     {
-        if (zone.loopEnd > zone.loopStart && frame < (int) zone.loopStart
-            && position >= (double) zone.loopStart)
-            frame = (int) zone.loopEnd - ((int) zone.loopStart - frame);
-        if (zone.loopEnd > zone.loopStart && frame >= (int) zone.loopEnd)
-            frame = (int) zone.loopStart + (frame - (int) zone.loopEnd)
-                  % (int) (zone.loopEnd - zone.loopStart);
+        left = right = 0.0f;
+        return;
+    }
+    const auto start = (int) position;
+    const auto fraction = (float) (position - start);
+    const auto loopStart = (int) zone.loopStart;
+    const auto loopEnd = (int) zone.loopEnd;
+    const auto looped = loopEnd > loopStart + 8;
+
+    // Most playback frames lie well inside the sample or loop. In that case
+    // all four cubic taps are contiguous, so skip per-tap modulo and clamps.
+    const auto tapsAreContiguous = start >= 1 && start + 2 < frames
+        && (!looped
+            || (position >= loopStart
+                ? start - 1 >= loopStart && start + 2 < loopEnd
+                : start + 2 < loopStart));
+    const auto sourceRight = juce::jmin(1, zone.channels - 1);
+    const auto* pcm = zone.pcm.data();
+    const auto sampleAt = [&](int frame, int channel) noexcept
+    {
+        if (looped && frame < loopStart && position >= (double) loopStart)
+            frame = loopEnd - (loopStart - frame);
+        if (looped && frame >= loopEnd)
+            frame = loopStart + (frame - loopEnd) % (loopEnd - loopStart);
         frame = juce::jlimit(0, frames - 1, frame);
-        return zone.pcm[(size_t) frame * (size_t) zone.channels + (size_t) sourceChannel];
+        return pcm[(size_t) frame * (size_t) zone.channels + (size_t) channel];
     };
-    // Cubic interpolation preserves the high end when the 35.002 kHz Nord
-    // source is resampled or played outside its recorded root key.
-    const auto y0 = read(start - 1), y1 = read(start), y2 = read(start + 1), y3 = read(start + 2);
     const auto t2 = fraction * fraction, t3 = t2 * fraction;
-    return 0.5f * ((2.0f * y1) + (-y0 + y2) * fraction
-        + (2.0f * y0 - 5.0f * y1 + 4.0f * y2 - y3) * t2
-        + (-y0 + 3.0f * y1 - 3.0f * y2 + y3) * t3);
+    const auto interpolate = [&](int channel) noexcept
+    {
+        float y0, y1, y2, y3;
+        if (tapsAreContiguous)
+        {
+            const auto* tap = pcm + (size_t) (start - 1) * (size_t) zone.channels + (size_t) channel;
+            y0 = tap[0];
+            y1 = tap[zone.channels];
+            y2 = tap[2 * zone.channels];
+            y3 = tap[3 * zone.channels];
+        }
+        else
+        {
+            y0 = sampleAt(start - 1, channel);
+            y1 = sampleAt(start, channel);
+            y2 = sampleAt(start + 1, channel);
+            y3 = sampleAt(start + 2, channel);
+        }
+        return 0.5f * ((2.0f * y1) + (-y0 + y2) * fraction
+            + (2.0f * y0 - 5.0f * y1 + 4.0f * y2 - y3) * t2
+            + (-y0 + 3.0f * y1 - 3.0f * y2 + y3) * t3);
+    };
+    left = interpolate(0);
+    right = sourceRight == 0 ? left : interpolate(sourceRight);
 }
 
 float NordSampleEngine::releaseCoefficientFor(float control, double sampleRate) noexcept
@@ -623,6 +655,8 @@ void NordSampleEngine::renderVoices(Layer& layer, juce::AudioBuffer<float>& outp
                                     int startSample, int endSample, float& peak,
                                     const Sf2Engine::LayerConfig& routing) noexcept
 {
+    auto* outputLeft = output.getWritePointer(0);
+    auto* outputRight = output.getNumChannels() > 1 ? output.getWritePointer(1) : nullptr;
     for (auto& voice : layer.voices)
     {
         if (!voice.active) continue;
@@ -650,10 +684,12 @@ void NordSampleEngine::renderVoices(Layer& layer, juce::AudioBuffer<float>& outp
             const auto amplitude = voice.amplitude * voice.attack * voice.decayGain * voice.releaseGain;
             const auto leftPan = voice.patternPan > 0 ? 0.0f : 1.0f;
             const auto rightPan = voice.patternPan < 0 ? 0.0f : 1.0f;
-            const auto left = readSample(zone, 0, voice.position) * amplitude * leftPan;
-            const auto right = readSample(zone, 1, voice.position) * amplitude * rightPan;
-            output.addSample(0, sample, left);
-            if (output.getNumChannels() > 1) output.addSample(1, sample, right);
+            float left, right;
+            readStereoSample(zone, voice.position, left, right);
+            left *= amplitude * leftPan;
+            right *= amplitude * rightPan;
+            outputLeft[sample] += left;
+            if (outputRight != nullptr) outputRight[sample] += right;
             peak = juce::jmax(peak, std::abs(left), std::abs(right));
             voice.attack = juce::jmin(1.0f, voice.attack + voice.attackStep);
             if (!voice.released && voice.attack >= 1.0f)

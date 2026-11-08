@@ -1149,7 +1149,7 @@ void ClassicPlayerAudioProcessor::captureSpectrum(const juce::AudioBuffer<float>
     const auto* right = buffer.getNumChannels() > 1 ? buffer.getReadPointer(1) : left;
     auto write = spectrumWritePosition.load(std::memory_order_relaxed);
     for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
-        spectrumSamples[(size_t) (write++ % spectrumSampleCount)].store(
+        spectrumSamples[(size_t) (write++ & (spectrumSampleCount - 1))].store(
             0.5f * (left[sample] + right[sample]), std::memory_order_relaxed);
     spectrumWritePosition.store(write, std::memory_order_release);
 }
@@ -1166,7 +1166,7 @@ void ClassicPlayerAudioProcessor::copySpectrumSamples(float* destination, int sa
     std::fill(destination, destination + missing, 0.0f);
     for (int i = 0; i < available; ++i)
         destination[missing + i] = spectrumSamples[(size_t) ((oldest + static_cast<unsigned int>(i))
-                                                             % spectrumSampleCount)].load(std::memory_order_relaxed);
+                                                             & (spectrumSampleCount - 1))].load(std::memory_order_relaxed);
     if (sampleCount > count)
         std::fill(destination + count, destination + sampleCount, 0.0f);
 }

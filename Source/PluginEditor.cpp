@@ -2425,6 +2425,7 @@ private:
 
     void timerCallback() override
     {
+        if (!isShowing()) return;
         const std::array<float, 4> values {
             read(attack, 5.0f), read(decay, 0.0f),
             read(sustain, 100.0f), read(release, 50.0f)
@@ -2989,7 +2990,7 @@ public:
     }
 
 private:
-    void timerCallback() override { refresh(); }
+    void timerCallback() override { if (isShowing()) refresh(); }
     void refresh()
     {
         const bool enabled = owner.parameters.getRawParameterValue("limiterEnabled")->load() >= 0.5f;
@@ -3006,7 +3007,7 @@ private:
 class MasterLimiterMeters final : public juce::Component, private juce::Timer
 {
 public:
-    explicit MasterLimiterMeters(ClassicPlayerAudioProcessor& p) : processor(p) { setSize(620, 190); startTimerHz(30); }
+    explicit MasterLimiterMeters(ClassicPlayerAudioProcessor& p) : processor(p) { setSize(620, 190); startTimerHz(15); }
     void paint(juce::Graphics& g) override
     {
         g.fillAll(juce::Colour(0xff191f22));
@@ -3628,6 +3629,7 @@ public:
 private:
     void timerCallback() override
     {
+        if (!isShowing()) return;
         const auto config = processor.layerConfig(index);
         decayBox.setSelectedId(juce::roundToInt(config.pianoDecaySeconds),
                                juce::dontSendNotification);
@@ -3885,33 +3887,18 @@ public:
         g.setColour(juce::Colour(0xff4ba9d0).withAlpha(0.72f));
         g.strokePath(spectrum, juce::PathStrokeType(1.1f));
 
-        const auto lowFrequency = parameter("EqLowFrequency", 220.0f);
-        const auto midFrequency = parameter("EqMidFrequency", 1200.0f);
-        const auto highFrequency = parameter("EqHighFrequency", 4200.0f);
-        const auto lowGain = parameter("EqLow", 0.0f);
-        const auto midGain = parameter("EqMid", 0.0f);
-        const auto highGain = parameter("EqHigh", 0.0f);
-        const auto lowQ = parameter("EqLowQ", 0.707f);
-        const auto midQ = parameter("EqMidQ", 1.0f);
-        const auto highQ = parameter("EqHighQ", 0.707f);
-        float highPassHz = 20.0f;
-        float lowPassHz = 20000.0f;
-        if (master)
-        {
-            highPassHz = parameter("LowCut", 20.0f);
-            lowPassHz = parameter("HighCut", 20000.0f);
-        }
-        else
-        {
-            const auto config = processor.layerConfig(layer);
-            highPassHz = config.highPassHz;
-            lowPassHz = config.lowPassHz;
-        }
-
-        const std::array<float, 11> curveParameters {
-            lowFrequency, lowGain, midFrequency, midGain, highFrequency, highGain,
-            lowQ, midQ, highQ, highPassHz, lowPassHz
-        };
+        const auto curveParameters = currentCurveParameters();
+        const auto lowFrequency = curveParameters[0];
+        const auto lowGain = curveParameters[1];
+        const auto midFrequency = curveParameters[2];
+        const auto midGain = curveParameters[3];
+        const auto highFrequency = curveParameters[4];
+        const auto highGain = curveParameters[5];
+        const auto lowQ = curveParameters[6];
+        const auto midQ = curveParameters[7];
+        const auto highQ = curveParameters[8];
+        const auto highPassHz = curveParameters[9];
+        const auto lowPassHz = curveParameters[10];
         if (!responseCacheReady || curveParameters != cachedCurveParameters)
         {
             for (size_t i = 0; i < cachedResponse.size(); ++i)
@@ -3994,6 +3981,30 @@ public:
     }
 
 private:
+    std::array<float, 11> currentCurveParameters() const
+    {
+        auto highPassHz = 20.0f;
+        auto lowPassHz = 20000.0f;
+        if (master)
+        {
+            highPassHz = parameter("LowCut", 20.0f);
+            lowPassHz = parameter("HighCut", 20000.0f);
+        }
+        else
+        {
+            const auto config = processor.layerConfig(layer);
+            highPassHz = config.highPassHz;
+            lowPassHz = config.lowPassHz;
+        }
+        return {
+            parameter("EqLowFrequency", 220.0f), parameter("EqLow", 0.0f),
+            parameter("EqMidFrequency", 1200.0f), parameter("EqMid", 0.0f),
+            parameter("EqHighFrequency", 4200.0f), parameter("EqHigh", 0.0f),
+            parameter("EqLowQ", 0.707f), parameter("EqMidQ", 1.0f),
+            parameter("EqHighQ", 0.707f), highPassHz, lowPassHz
+        };
+    }
+
     juce::String parameterName(const char* suffix) const
     {
         if (master)
@@ -4132,9 +4143,8 @@ private:
 
     float spectrumDbAt(float frequency) const
     {
-        const auto sampleRate = static_cast<float>(processor.spectrumSampleRate());
         const auto bin = juce::jlimit(0.0f, static_cast<float>(spectrumSize / 2),
-            frequency / sampleRate * static_cast<float>(spectrumSize));
+            frequency / spectrumSampleRate * static_cast<float>(spectrumSize));
         const auto lower = static_cast<int>(std::floor(bin));
         const auto upper = juce::jmin(spectrumSize / 2, lower + 1);
         return juce::jmap(bin - static_cast<float>(lower),
@@ -4144,6 +4154,9 @@ private:
     void timerCallback() override
     {
         if (!isShowing()) return;
+        spectrumSampleRate = static_cast<float>(juce::jmax(1.0, processor.spectrumSampleRate()));
+        bool needsRepaint = !responseCacheReady
+            || currentCurveParameters() != cachedCurveParameters;
         const auto revision = processor.spectrumRevision();
         if (revision != lastSpectrumRevision)
         {
@@ -4157,10 +4170,11 @@ private:
                     juce::Decibels::gainToDecibels(
                         juce::jmax(1.0e-7f, spectrumData[(size_t) bin] * scale)));
             lastSpectrumRevision = revision;
+            needsRepaint = true;
         }
-        // Knobs can change while audio is stopped; repaint the response even
-        // when the FFT has no new input to transform.
-        repaint();
+        // Avoid redrawing the graph when neither the live spectrum nor its EQ
+        // response changed. Knob changes are still picked up with audio stopped.
+        if (needsRepaint) repaint();
     }
 
     ClassicPlayerAudioProcessor& processor;
@@ -4176,6 +4190,7 @@ private:
     std::array<float, 11> cachedCurveParameters {};
     bool responseCacheReady = false;
     unsigned int lastSpectrumRevision = std::numeric_limits<unsigned int>::max();
+    float spectrumSampleRate = 48000.0f;
     int layer = 0;
     bool master = false;
     int selectedBand = -1;
@@ -4188,7 +4203,7 @@ public:
         : processor(p), layer(layerIndex)
     {
         setSize(700, 284);
-        startTimerHz(30);
+        startTimerHz(15);
     }
 
     ~CompressorResponseView() override { stopTimer(); }
@@ -4711,7 +4726,7 @@ public:
         // Keep the Analog editor compact enough for notebook displays while
         // preserving all four rows of controls and the oscilloscope.
         setSize(700, 320);
-        startTimerHz(30);
+        startTimerHz(15);
     }
 
     void setPresetOnlyMode()
@@ -5050,7 +5065,7 @@ public:
         highButton.setTooltip("Clique e toque a nota mais aguda no teclado MIDI ou virtual. Clique novamente para cancelar.");
         resetButton.setTooltip("Restaurar toda a faixa de notas (0 a 127), sem alterar oitava ou canal MIDI.");
         refresh();
-        startTimerHz(20);
+        startTimerHz(15);
     }
     ~SplitLearnControls() override { stopTimer(); processor.cancelSplitLearn(index); }
     void resized() override
@@ -5080,10 +5095,9 @@ public:
                    static_cast<float>(getWidth() - 2), 8.0f);
     }
 private:
-    void timerCallback() override { refresh(); }
+    void timerCallback() override { if (isShowing()) refresh(); }
     void refresh()
     {
-        processor.consumeMidiControlUpdates();
         const auto config = processor.layerConfig(index);
         lowBox.setSelectedId(config.lowNote + 1, juce::dontSendNotification);
         highBox.setSelectedId(config.highNote + 1, juce::dontSendNotification);
@@ -5604,7 +5618,7 @@ public:
 
 private:
     bool dx7Layout = false;
-    void timerCallback() override { refreshCalibrationControls(); }
+    void timerCallback() override { if (isShowing()) refreshCalibrationControls(); }
 
     void handleCalibrationButton()
     {
@@ -5770,7 +5784,7 @@ public:
 
     ~LayerMidiLearnPanel() override { stopTimer(); }
 
-    void timerCallback() override { refresh(); }
+    void timerCallback() override { if (isShowing()) refresh(); }
 
     void resized() override
     {
@@ -6264,7 +6278,7 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
     fadeSlider.setValue(processor.continuousPads(layerIndex).fadeSeconds(),juce::dontSendNotification);
     fadeSlider.onValueChange=[this]{processor.continuousPads(layerIndex).setFadeSeconds(fadeSlider.getValue());};
     addAndMakeVisible(fadeSlider);
-    setControlsVisible(true);refresh();startTimerHz(15);
+    setControlsVisible(true);refresh();startTimerHz(10);
 }
 
 void ClassicPlayerAudioProcessorEditor::DrumPadPanel::setControlsVisible(bool shouldShow)
@@ -8888,8 +8902,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMeter()
     sync(reverb, "Reverb");
     sync(compressor, "Comp");
     sync(release, "Release");
-    if (processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::drumPads || processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::continuousPads)
-        drumPadPanel.refresh();
     updateMidiLearnState();
 }
 
@@ -9467,7 +9479,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
 #endif
     setSize(width, height);
     applyUiLanguage();
-    startTimerHz(20);
+    startTimerHz(15);
 }
 
 ClassicPlayerAudioProcessorEditor::~ClassicPlayerAudioProcessorEditor()
@@ -9780,7 +9792,7 @@ public:
         for (auto& button : buttons) button.setBounds(area.removeFromLeft(width).reduced(3, 2));
     }
 private:
-    void timerCallback() override { refresh(); }
+    void timerCallback() override { if (isShowing()) refresh(); }
     void refresh()
     {
         static const std::array<const char*, 3> names { "LOW", "MID", "HIGH" };
@@ -9819,7 +9831,7 @@ public:
     void resized() override { button.setBounds(getLocalBounds().reduced(3, 2)); }
 
 private:
-    void timerCallback() override { refresh(); }
+    void timerCallback() override { if (isShowing()) refresh(); }
     void refresh()
     {
         const auto enabled = processor.masterEqEnabled();
@@ -10304,7 +10316,7 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
         if (strips[(size_t) i] != nullptr)
             strips[(size_t) i]->updateMeter();
     }
-    if (++timerTicks >= 20)
+    if (++timerTicks >= 15)
     {
         timerTicks = 0;
         const auto activeCount = classicProcessor.activeLayerCount();
@@ -10494,26 +10506,52 @@ void ClassicPlayerAudioProcessorEditor::setDisplaySpectrumMode(bool enabled)
 void ClassicPlayerAudioProcessorEditor::ChordDisplay::refreshSpectrum(
     const ClassicPlayerAudioProcessor& processor)
 {
-    processor.copySpectrumSamples(fftData.data(), fftSize);
-    window.multiplyWithWindowingTable(fftData.data(), fftSize);
-    std::fill(fftData.begin() + fftSize, fftData.end(), 0.0f);
-    fft.performFrequencyOnlyForwardTransform(fftData.data());
     const auto rate = juce::jmax(1.0, processor.spectrumSampleRate());
-    const auto maximumHz = juce::jmin(20000.0, rate * 0.5);
-    for (size_t bar = 0; bar < levels.size(); ++bar)
+    const auto revision = processor.spectrumRevision();
+    const auto hasNewAudio = revision != lastSpectrumRevision;
+    if (std::abs(cachedSampleRate - rate) > 0.5)
     {
-        const auto lowHz = 20.0 * std::pow(maximumHz / 20.0, (double) bar / levels.size());
-        const auto highHz = 20.0 * std::pow(maximumHz / 20.0, (double) (bar + 1) / levels.size());
-        const auto first = juce::jlimit(1, fftSize / 2, (int) (lowHz * fftSize / rate));
-        const auto last = juce::jlimit(first, fftSize / 2, (int) std::ceil(highHz * fftSize / rate));
-        float magnitude = 0;
-        for (int bin = first; bin <= last; ++bin) magnitude = juce::jmax(magnitude, fftData[(size_t) bin]);
-        const auto db = juce::Decibels::gainToDecibels(magnitude * (2.0f / fftSize), -80.0f);
-        const auto target = juce::jlimit(0.0f, 1.0f, (db + 72.0f) / 72.0f);
-        levels[bar] += (target - levels[bar]) * (target > levels[bar] ? 0.65f : 0.18f);
-        peaks[bar] = juce::jmax(levels[bar], peaks[bar] - 0.015f);
+        const auto maximumHz = juce::jmin(20000.0, rate * 0.5);
+        for (size_t bar = 0; bar < levels.size(); ++bar)
+        {
+            const auto lowHz = 20.0 * std::pow(maximumHz / 20.0, (double) bar / levels.size());
+            const auto highHz = 20.0 * std::pow(maximumHz / 20.0, (double) (bar + 1) / levels.size());
+            const auto first = juce::jlimit(1, fftSize / 2, (int) (lowHz * fftSize / rate));
+            const auto last = juce::jlimit(first, fftSize / 2, (int) std::ceil(highHz * fftSize / rate));
+            firstBins[bar] = first;
+            lastBins[bar] = last;
+        }
+        cachedSampleRate = rate;
     }
-    repaint();
+    if (hasNewAudio)
+    {
+        processor.copySpectrumSamples(fftData.data(), fftSize);
+        window.multiplyWithWindowingTable(fftData.data(), fftSize);
+        std::fill(fftData.begin() + fftSize, fftData.end(), 0.0f);
+        fft.performFrequencyOnlyForwardTransform(fftData.data());
+        for (size_t bar = 0; bar < levels.size(); ++bar)
+        {
+            float magnitude = 0.0f;
+            for (int bin = firstBins[bar]; bin <= lastBins[bar]; ++bin)
+                magnitude = juce::jmax(magnitude, fftData[(size_t) bin]);
+            const auto db = juce::Decibels::gainToDecibels(magnitude * (2.0f / fftSize), -80.0f);
+            const auto target = juce::jlimit(0.0f, 1.0f, (db + 72.0f) / 72.0f);
+            levels[bar] += (target - levels[bar]) * (target > levels[bar] ? 0.65f : 0.18f);
+            peaks[bar] = juce::jmax(levels[bar], peaks[bar] - 0.015f);
+        }
+        lastSpectrumRevision = revision;
+        repaint();
+        return;
+    }
+
+    bool visiblePeakChanged = false;
+    for (auto& peak : peaks)
+    {
+        const auto next = juce::jmax(0.0f, peak - 0.015f);
+        visiblePeakChanged = visiblePeakChanged || next < peak;
+        peak = next;
+    }
+    if (visiblePeakChanged) repaint();
 }
 
 void ClassicPlayerAudioProcessorEditor::ChordDisplay::paint(juce::Graphics& g)
