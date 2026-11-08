@@ -308,9 +308,8 @@ int NordSampleEngine::findZone(const NordSampleDecoder::Instrument& instrument,
 }
 
 void NordSampleEngine::readStereoSample(const NordSampleDecoder::Zone& zone,
-                                        double position, float& left, float& right) noexcept
+                                        double position, int frames, float& left, float& right) noexcept
 {
-    const auto frames = (int) zone.frames();
     if (frames <= 0 || zone.channels <= 0)
     {
         left = right = 0.0f;
@@ -685,7 +684,7 @@ void NordSampleEngine::renderVoices(Layer& layer, juce::AudioBuffer<float>& outp
             const auto leftPan = voice.patternPan > 0 ? 0.0f : 1.0f;
             const auto rightPan = voice.patternPan < 0 ? 0.0f : 1.0f;
             float left, right;
-            readStereoSample(zone, voice.position, left, right);
+            readStereoSample(zone, voice.position, frames, left, right);
             left *= amplitude * leftPan;
             right *= amplitude * rightPan;
             outputLeft[sample] += left;

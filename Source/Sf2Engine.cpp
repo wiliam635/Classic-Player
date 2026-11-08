@@ -3,6 +3,10 @@
 #include <algorithm>
 #include <cmath>
 
+// FluidSynth exposes this helper in its synthesis library but omits it from
+// the public API: unlike fluid_voice_noteoff(), it releases even under CC64.
+extern "C" void fluid_voice_release(fluid_voice_t* voice);
+
 #if JUCE_MAC
 // FluidSynth 2.5.x keeps this helper exported on macOS for its JACK driver,
 // but does not expose it in the public header. The public
@@ -489,8 +493,39 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
 
         if (!monoMode)
         {
+            std::array<unsigned int, maxPolyphonyPerLayer> priorSameNoteIds {};
+            std::array<fluid_voice_t*, maxPolyphonyPerLayer> voices {};
+            size_t priorSameNoteCount = 0;
+            const auto channelIndex = (size_t) (channel - 1);
+            if (layer.sustainDown[channelIndex])
+            {
+                fluid_synth_get_voicelist(layer.synth.get(), voices.data(), (int) voices.size(), -1);
+                for (auto* voice : voices)
+                    if (voice != nullptr && fluid_voice_is_playing(voice)
+                        && fluid_voice_get_channel(voice) == channel - 1
+                        && fluid_voice_get_key(voice) == note)
+                        priorSameNoteIds[priorSameNoteCount++] = fluid_voice_get_id(voice);
+            }
+            std::sort(priorSameNoteIds.begin(), priorSameNoteIds.begin()
+                      + (std::ptrdiff_t) priorSameNoteCount);
             fluid_synth_noteon(layer.synth.get(), channel - 1, note,
                                juce::jlimit(1, 127, (int) std::round(velocity * 127.0f)));
+            if (priorSameNoteCount > 0)
+            {
+                fluid_synth_get_voicelist(layer.synth.get(), voices.data(), (int) voices.size(), -1);
+                for (auto* voice : voices)
+                {
+                    if (voice == nullptr || !fluid_voice_is_playing(voice)
+                        || fluid_voice_get_channel(voice) != channel - 1
+                        || fluid_voice_get_key(voice) != note)
+                        continue;
+                    const auto voiceId = fluid_voice_get_id(voice);
+                    if (std::binary_search(priorSameNoteIds.begin(),
+                                           priorSameNoteIds.begin() + (std::ptrdiff_t) priorSameNoteCount,
+                                           voiceId))
+                        fluid_voice_release(voice);
+                }
+            }
             return;
         }
 
@@ -678,61 +713,13 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         const auto decayTimecents = 1200.0f * std::log2(juce::jmax(0.001f, layer.config.decayMs * 0.001f));
         const auto sustainCentibels = juce::jlimit(0.0f, 1440.0f,
             -200.0f * std::log10(juce::jmax(0.000001f, layer.config.sustainLevel * 0.01f)));
-        const auto applyAttack = [&]
-        {
-            std::array<fluid_voice_t*, maxPolyphonyPerLayer> voices {};
-            fluid_synth_get_voicelist(layer.synth.get(), voices.data(), (int) voices.size(), -1);
-            for (auto* voice : voices)
-                if (voice != nullptr && fluid_voice_gen_get(voice, GEN_VOLENVATTACK) != attackTimecents)
-                {
-                    fluid_voice_gen_set(voice, GEN_VOLENVATTACK, attackTimecents);
-                    fluid_voice_update_param(voice, GEN_VOLENVATTACK);
-                }
-        };
-        const auto applyRelease = [&]
-        {
-            std::array<fluid_voice_t*, maxPolyphonyPerLayer> voices {};
-            fluid_synth_get_voicelist(layer.synth.get(), voices.data(), (int) voices.size(), -1);
-            for (auto* voice : voices)
-                if (voice != nullptr && fluid_voice_gen_get(voice, GEN_VOLENVRELEASE) != releaseTimecents)
-                {
-                    fluid_voice_gen_set(voice, GEN_VOLENVRELEASE, releaseTimecents);
-                    fluid_voice_update_param(voice, GEN_VOLENVRELEASE);
-                }
-        };
-        const auto applyDecayAndSustain = [&]
-        {
-            if (!customDecay) return;
-            std::array<fluid_voice_t*, maxPolyphonyPerLayer> voices {};
-            fluid_synth_get_voicelist(layer.synth.get(), voices.data(), (int) voices.size(), -1);
-            for (auto* voice : voices)
-            {
-                if (voice == nullptr) continue;
-                if (fluid_voice_gen_get(voice, GEN_VOLENVDECAY) != decayTimecents)
-                {
-                    fluid_voice_gen_set(voice, GEN_VOLENVDECAY, decayTimecents);
-                    fluid_voice_update_param(voice, GEN_VOLENVDECAY);
-                }
-                if (fluid_voice_gen_get(voice, GEN_VOLENVSUSTAIN) != sustainCentibels)
-                {
-                    fluid_voice_gen_set(voice, GEN_VOLENVSUSTAIN, sustainCentibels);
-                    fluid_voice_update_param(voice, GEN_VOLENVSUSTAIN);
-                }
-            }
-        };
-        if (attackTimecents != layer.lastAppliedAttackTimecents)
-        {
-            applyAttack();
-            layer.lastAppliedAttackTimecents = attackTimecents;
-        }
-        if (releaseTimecents != layer.lastAppliedReleaseTimecents)
-        {
-            applyRelease();
-            layer.lastAppliedReleaseTimecents = releaseTimecents;
-        }
-        if (customDecay && (decayTimecents != layer.lastAppliedDecayTimecents
-                            || sustainCentibels != layer.lastAppliedSustainCentibels))
-            applyDecayAndSustain();
+        const auto updateAttack = attackTimecents != layer.lastAppliedAttackTimecents;
+        const auto updateRelease = releaseTimecents != layer.lastAppliedReleaseTimecents;
+        const auto updateDecayAndSustain = customDecay
+            && (decayTimecents != layer.lastAppliedDecayTimecents
+                || sustainCentibels != layer.lastAppliedSustainCentibels);
+        layer.lastAppliedAttackTimecents = attackTimecents;
+        layer.lastAppliedReleaseTimecents = releaseTimecents;
         layer.lastAppliedDecayTimecents = customDecay ? decayTimecents : -100000.0f;
         layer.lastAppliedSustainCentibels = customDecay ? sustainCentibels : -100000.0f;
         bool startedVoice = false;
@@ -750,13 +737,43 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
                 dispatchMidi(layer, metadata.getMessage());
             }
 
-        // Only newly allocated voices need the generator override. Scanning
-        // every active voice twice per audio block grows costly under sustain.
-        if (startedVoice)
+        // Update all required envelope generators in a single pass. New pad
+        // attacks previously caused up to three full voice-list scans in one
+        // audio block (plus separate scans when the envelope settings changed),
+        // which creates an avoidable CPU spike on the realtime thread.
+        if (startedVoice || updateAttack || updateRelease || updateDecayAndSustain)
         {
-            applyAttack();
-            applyRelease();
-            applyDecayAndSustain();
+            std::array<fluid_voice_t*, maxPolyphonyPerLayer> voices {};
+            fluid_synth_get_voicelist(layer.synth.get(), voices.data(), (int) voices.size(), -1);
+            for (auto* voice : voices)
+            {
+                if (voice == nullptr) continue;
+                if ((startedVoice || updateAttack)
+                    && fluid_voice_gen_get(voice, GEN_VOLENVATTACK) != attackTimecents)
+                {
+                    fluid_voice_gen_set(voice, GEN_VOLENVATTACK, attackTimecents);
+                    fluid_voice_update_param(voice, GEN_VOLENVATTACK);
+                }
+                if ((startedVoice || updateRelease)
+                    && fluid_voice_gen_get(voice, GEN_VOLENVRELEASE) != releaseTimecents)
+                {
+                    fluid_voice_gen_set(voice, GEN_VOLENVRELEASE, releaseTimecents);
+                    fluid_voice_update_param(voice, GEN_VOLENVRELEASE);
+                }
+                if (customDecay && (startedVoice || updateDecayAndSustain))
+                {
+                    if (fluid_voice_gen_get(voice, GEN_VOLENVDECAY) != decayTimecents)
+                    {
+                        fluid_voice_gen_set(voice, GEN_VOLENVDECAY, decayTimecents);
+                        fluid_voice_update_param(voice, GEN_VOLENVDECAY);
+                    }
+                    if (fluid_voice_gen_get(voice, GEN_VOLENVSUSTAIN) != sustainCentibels)
+                    {
+                        fluid_voice_gen_set(voice, GEN_VOLENVSUSTAIN, sustainCentibels);
+                        fluid_voice_update_param(voice, GEN_VOLENVSUSTAIN);
+                    }
+                }
+            }
         }
 
         // MIDI controls such as modulation, program changes and sustain must
