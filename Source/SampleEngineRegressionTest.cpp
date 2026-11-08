@@ -293,6 +293,7 @@ struct SampleEngineRegressionTests
         layer.piano->strokes.push_back(std::move(releaseStroke));
         auto routing = config();
         routing.pianoPedalResonance = true;
+        routing.pianoReleaseSamplesEnabled = true;
         juce::AudioBuffer<float> audio(2, 64);
         juce::MidiBuffer midi;
         midi.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 80), 0);
