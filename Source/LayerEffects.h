@@ -158,9 +158,6 @@ struct NordLayerEffects
     void prepare(double rate)
     {
         sampleRate = juce::jmax(1.0, rate);
-        for (size_t i = 0; i < lfoSineTable.size(); ++i)
-            lfoSineTable[i] = std::sin(juce::MathConstants<double>::twoPi
-                * static_cast<double>(i) / static_cast<double>(lfoTableSize));
         const auto modulationLength = (size_t) juce::jmax(64, juce::roundToInt(sampleRate * 0.06));
         const auto delayLength = (size_t) juce::jmax(64, juce::roundToInt(sampleRate * 2.5));
         for (auto& channel : modulation) channel.assign(modulationLength, 0.0f);
@@ -378,6 +375,14 @@ struct NordLayerEffects
 
 private:
     static constexpr size_t lfoTableSize = 4096;
+    inline static const std::array<float, lfoTableSize + 1> lfoSineTable = []
+    {
+        std::array<float, lfoTableSize + 1> table {};
+        for (size_t i = 0; i < table.size(); ++i)
+            table[i] = std::sin(juce::MathConstants<double>::twoPi
+                * static_cast<double>(i) / static_cast<double>(lfoTableSize));
+        return table;
+    }();
     float lfoSine(double phase) const noexcept
     {
         constexpr auto twoPi = juce::MathConstants<double>::twoPi;
@@ -443,7 +448,6 @@ private:
         const auto saturated = shaped / juce::jmax(0.1f, norm);
         return input * (1.0f - amount) + saturated * amount;
     }
-    std::array<float, lfoTableSize + 1> lfoSineTable {};
     struct FeedbackFilterState { float low = 0.0f, dc = 0.0f, bandDc = 0.0f; };
     NordModulation extendedModulation;
     std::array<std::vector<float>, 2> modulation, delay;
