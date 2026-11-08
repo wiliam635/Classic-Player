@@ -175,6 +175,7 @@ private:
                               const std::array<float, 3>& coefficients);
     float nextBrowserEnvelope(Voice&, const Config&);
     float processBrowserFilter(Voice&, float input, float cutoffHz, float resonanceDb);
+    float saturate(float value) const noexcept;
 
     void noteOn(int layer, int midiChannel, int note, float velocity, const Config& config,
                 int splitSourceNote = -1, int patternPan = 0);
@@ -190,6 +191,9 @@ private:
 
     std::array<Layer, layerCount> layers {};
     std::array<std::atomic<float>, layerCount> peaks {};
+    static constexpr size_t saturationTableSize = 4097;
+    static constexpr float saturationTableLimit = 8.0f;
+    std::array<float, saturationTableSize> saturationTable {};
     juce::AudioBuffer<float> renderScratch;
     double sampleRate = 44100.0;
 };

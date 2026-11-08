@@ -36,8 +36,28 @@ float nextNoise(uint32_t& state) noexcept
 
 AnalogSynthEngine::AnalogSynthEngine()
 {
+    for (size_t i = 0; i < saturationTable.size(); ++i)
+    {
+        const auto value = -saturationTableLimit
+            + 2.0f * saturationTableLimit * static_cast<float>(i)
+                / static_cast<float>(saturationTable.size() - 1);
+        saturationTable[i] = std::tanh(value);
+    }
     for (auto& peak : peaks)
         peak.store(0.0f, std::memory_order_relaxed);
+}
+
+float AnalogSynthEngine::saturate(float value) const noexcept
+{
+    if (!std::isfinite(value)) return 0.0f;
+    const auto position = (juce::jlimit(-saturationTableLimit, saturationTableLimit, value)
+        + saturationTableLimit) * static_cast<float>(saturationTable.size() - 1)
+            / (2.0f * saturationTableLimit);
+    const auto index = static_cast<size_t>(position);
+    if (index >= saturationTable.size() - 1) return saturationTable.back();
+    const auto fraction = position - static_cast<float>(index);
+    const auto lower = saturationTable[index];
+    return lower + fraction * (saturationTable[index + 1] - lower);
 }
 
 void AnalogSynthEngine::prepare(double newSampleRate, int maximumBlockSize)
@@ -507,11 +527,11 @@ float AnalogSynthEngine::processLadder(Voice& voice, float input, float cutoffHz
     // old Analog layer brittle at high resonance.
     for (int pass = 0; pass < 2; ++pass)
     {
-        auto stageInput = std::tanh(input * saturatedDrive - feedback * voice.ladderFeedback);
+        auto stageInput = saturate(input * saturatedDrive - feedback * voice.ladderFeedback);
         for (size_t stage = 0; stage < voice.ladder.size(); ++stage)
         {
-            const auto nonlinearInput = std::tanh(stageInput);
-            const auto nonlinearState = std::tanh(voice.ladder[stage]);
+            const auto nonlinearInput = saturate(stageInput);
+            const auto nonlinearState = saturate(voice.ladder[stage]);
             voice.ladder[stage] += g * (nonlinearInput - nonlinearState);
             stageInput = voice.ladder[stage];
         }
@@ -608,7 +628,7 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
 
     const auto mixDrive = 1.0f + juce::jlimit(0.0f, 1.0f, config.mixerDrive) * 3.0f;
     if (!config.browserCompatible || config.mixerDrive > 0)
-        sample = std::tanh(sample * mixDrive) / mixDrive;
+        sample = saturate(sample * mixDrive) / mixDrive;
 
     if (config.browserCompatible)
     {

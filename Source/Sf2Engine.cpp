@@ -552,6 +552,24 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
             && layerControlControllers[(size_t) message.getChannel() - 1]
                                        [(size_t) message.getControllerNumber()];
     };
+    const auto eventTargetsLayer = [&isLayerControl](const Layer& layer,
+                                                       const juce::MidiMessage& message)
+    {
+        const auto channel = message.getChannel();
+        if (channel < 1 || channel > 16 || isLayerControl(message)
+            || (layer.config.midiChannel != 0 && channel != layer.config.midiChannel))
+            return false;
+
+        if (message.isNoteOnOrOff())
+        {
+            const auto note = message.getNoteNumber();
+            if (note < layer.config.lowNote || note > layer.config.highNote)
+                return false;
+            if (message.isNoteOn() && !layer.config.acceptsVelocity((int) message.getVelocity()))
+                return false;
+        }
+        return true;
+    };
     std::array<unsigned int, 2> muteVolumeChannels {};
     for (const auto& target : layers)
         if (target.config.muteCC == 7 || target.config.muteCC == 11)
@@ -720,14 +738,14 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
         bool startedVoice = false;
         for (const auto metadata : midi)
         {
-            if (isLayerControl(metadata.getMessage())) continue;
+            if (!eventTargetsLayer(layer, metadata.getMessage())) continue;
             startedVoice |= metadata.getMessage().isNoteOn();
             dispatchMidi(layer, metadata.getMessage());
         }
         if (routedMidi != nullptr)
             for (const auto metadata : (*routedMidi)[static_cast<size_t>(&layer - layers.data())])
             {
-                if (isLayerControl(metadata.getMessage())) continue;
+                if (!eventTargetsLayer(layer, metadata.getMessage())) continue;
                 startedVoice |= metadata.getMessage().isNoteOn();
                 dispatchMidi(layer, metadata.getMessage());
             }
@@ -741,11 +759,12 @@ void Sf2Engine::process(juce::AudioBuffer<float>& output, const juce::MidiBuffer
             applyDecayAndSustain();
         }
 
-        const auto layerIndex = static_cast<size_t>(&layer - layers.data());
-        const auto hasMidiEvents = !midi.isEmpty()
-            || (routedMidi != nullptr && !(*routedMidi)[layerIndex].isEmpty());
-        if (!hasMidiEvents && fluid_synth_get_active_voice_count(layer.synth.get()) == 0
-            && !layer.effectTailPending)
+        // MIDI controls such as modulation, program changes and sustain must
+        // still be dispatched above, but they do not require an audio render
+        // until a voice or an effect tail actually produces sound. Previously
+        // any event on any channel forced every loaded SF2 instance to render
+        // a silent block.
+        if (fluid_synth_get_active_voice_count(layer.synth.get()) == 0 && !layer.effectTailPending)
         {
             layer.gain.setTargetValue(juce::jmax(0.0f, layer.config.gain));
             layer.gain.skip(output.getNumSamples());

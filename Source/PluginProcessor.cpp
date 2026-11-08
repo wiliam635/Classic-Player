@@ -1013,9 +1013,12 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // With it bypassed, the user accepts peaks above 0 dBFS.
     const auto masterLinear = parameters.getRawParameterValue("master")->load() / 100.0f;
     masterGain.setTargetValue(masterLinear);
-    for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+    const auto masterTrim = juce::Decibels::decibelsToGain(6.0f);
+    if (!masterGain.isSmoothing())
+        buffer.applyGain(masterGain.getCurrentValue() * masterTrim);
+    else for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
     {
-        const auto gain = masterGain.getNextValue() * juce::Decibels::decibelsToGain(6.0f);
+        const auto gain = masterGain.getNextValue() * masterTrim;
         for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
             buffer.getWritePointer(channel)[sample] *= gain;
     }
@@ -1023,6 +1026,9 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     const bool lowEqEnabled = std::abs(lastMasterEqValues[1]) > 0.0001f;
     const bool midEqEnabled = std::abs(lastMasterEqValues[3]) > 0.0001f;
     const bool highEqEnabled = std::abs(lastMasterEqValues[5]) > 0.0001f;
+    const bool lowCutEnabled = lastMasterEqValues[0] > 20.5f;
+    const bool highCutEnabled = lastMasterEqValues[7] < 19950.0f;
+    if (lowEqEnabled || midEqEnabled || highEqEnabled || lowCutEnabled || highCutEnabled)
     for (int channel = 0; channel < juce::jmin(2, buffer.getNumChannels()); ++channel)
     {
         auto* samples = buffer.getWritePointer(channel);
@@ -1033,11 +1039,11 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         auto& highCut = masterEqHighCut[(size_t) channel];
         for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
         {
-            auto value = lowCut.processSample(samples[sample]);
+            auto value = lowCutEnabled ? lowCut.processSample(samples[sample]) : samples[sample];
             if (lowEqEnabled) value = low.processSample(value);
             if (midEqEnabled) value = mid.processSample(value);
             if (highEqEnabled) value = high.processSample(value);
-            samples[sample] = highCut.processSample(value);
+            samples[sample] = highCutEnabled ? highCut.processSample(value) : value;
         }
     }
     juce::dsp::AudioBlock<float> block(buffer);
@@ -1058,8 +1064,11 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         applyOutputSafety(buffer, parameters.getRawParameterValue("limiterCeiling")->load());
     }
     float outputPeak = 0.0f;
-    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
-        outputPeak = juce::jmax(outputPeak, buffer.getMagnitude(channel, 0, buffer.getNumSamples()));
+    if (limiterEnabled)
+        for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+            outputPeak = juce::jmax(outputPeak, buffer.getMagnitude(channel, 0, buffer.getNumSamples()));
+    else
+        outputPeak = inputPeak; // No processing changes the buffer after this measurement.
     limiterInputPeak.store(inputPeak, std::memory_order_relaxed);
     limiterOutputPeak.store(outputPeak, std::memory_order_relaxed);
     // JUCE's Limiter applies make-up gain after its compressors (7.5 dB from
@@ -1173,7 +1182,7 @@ void ClassicPlayerAudioProcessor::updateMasterEq()
     };
     if (values[0] != previous[0])
         update(masterEqLowCut, juce::dsp::IIR::Coefficients<float>::makeHighPass(
-            currentSampleRate, lowCutFrequency));
+            currentSampleRate, lowCutFrequency), values[0] <= 20.5f);
     if (values[1] != previous[1] || values[2] != previous[2])
         update(masterEqLow, juce::dsp::IIR::Coefficients<float>::makeLowShelf(
             currentSampleRate, lowFrequency, 0.7071f,
@@ -1188,7 +1197,7 @@ void ClassicPlayerAudioProcessor::updateMasterEq()
             juce::Decibels::decibelsToGain(values[5])), std::abs(values[5]) <= 0.0001f);
     if (values[7] != previous[7])
         update(masterEqHighCut, juce::dsp::IIR::Coefficients<float>::makeLowPass(
-            currentSampleRate, highCutFrequency));
+            currentSampleRate, highCutFrequency), values[7] >= 19950.0f);
 }
 
 juce::Result ClassicPlayerAudioProcessor::startAudioRecording()

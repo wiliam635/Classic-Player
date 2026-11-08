@@ -148,15 +148,6 @@ public:
         const double seconds=fade.load();
         const float step=(float)(1.0/(sampleRate*seconds));
         volume.setTargetValue(gain);
-        float blockPeak=0;
-        highPassHz=juce::jlimit(20.f,1000.f,highPassHz);lowPassHz=juce::jlimit(80.f,20000.f,lowPassHz);
-        const bool highPassEnabled=highPassHz>20.5f,lowPassEnabled=lowPassHz<19950.f;
-        const float highPassCoefficient=std::exp(-juce::MathConstants<float>::twoPi*highPassHz/(float)sampleRate);
-        const float lowPassCoefficient=std::exp(-juce::MathConstants<float>::twoPi*lowPassHz/(float)sampleRate);
-        eq.setParameters(eqSettings.low, eqSettings.mid, eqSettings.high, sampleRate,
-                         eqSettings.lowFrequency, eqSettings.midFrequency,
-                         eqSettings.highFrequency, eqSettings.lowQ,
-                         eqSettings.midQ, eqSettings.highQ);
         // The bank lock fixes selection/audio buffers for this block. Build a
         // small ordered list of playing/fading pads and their loop geometry.
         const int selectedPad=active.load();
@@ -176,6 +167,26 @@ public:
                 increments[(size_t)i]=p.audio->rate/sampleRate;
             }
         }
+        if(renderingCount==0)
+        {
+            // A fully faded/stopped bank has no source audio or effect tail
+            // worth processing. Drain the volume ramp and clear filter state
+            // once so the next trigger starts cleanly without a silent block
+            // scanning every sample through the EQ/filter chain.
+            volume.skip(output.getNumSamples());
+            highPassInput={};highPassOutput={};lowPassState={};eq.reset();
+            meter=0.0f;
+            return;
+        }
+        float blockPeak=0;
+        highPassHz=juce::jlimit(20.f,1000.f,highPassHz);lowPassHz=juce::jlimit(80.f,20000.f,lowPassHz);
+        const bool highPassEnabled=highPassHz>20.5f,lowPassEnabled=lowPassHz<19950.f;
+        const float highPassCoefficient=std::exp(-juce::MathConstants<float>::twoPi*highPassHz/(float)sampleRate);
+        const float lowPassCoefficient=std::exp(-juce::MathConstants<float>::twoPi*lowPassHz/(float)sampleRate);
+        eq.setParameters(eqSettings.low, eqSettings.mid, eqSettings.high, sampleRate,
+                         eqSettings.lowFrequency, eqSettings.midFrequency,
+                         eqSettings.highFrequency, eqSettings.lowQ,
+                         eqSettings.midQ, eqSettings.highQ);
         for(int sample=0;sample<output.getNumSamples();++sample)
         {
             float sum[2]{};
