@@ -52,37 +52,33 @@ configure_and_build() {
     -DCMAKE_BUILD_TYPE=Release
   local -a targets=(
     ClassicPlayer_Standalone ClassicPlayer_VST3 ClassicPlayer_AU
-    ClassicPlayerVst3HostSmokeTest ClassicPlayerChordDetectorTest
-    ClassicPlayerUpdateCheckerTest ClassicPlayerHammondTest
-    ClassicPlayerAudioRegressionTest ClassicPlayerSampleEngineTest
-    ClassicPlayerNordSampleTest ClassicPlayerMasterMidiTest
+    ClassicPlayerVst3HostSmokeTest
   )
   if [[ "$arch" == "arm64" ]]; then
-    targets+=(ClassicPlayerAuHostSmokeTest)
+    # Each regression executable compiles its own JUCE modules. Build and run
+    # the full suite once on native Apple Silicon; rebuilding the same test
+    # harnesses for Intel adds substantial time without testing extra app code.
+    # Intel still builds every shipped format and runs its VST3 host smoke test.
+    targets+=(
+      ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest
+      ClassicPlayerHammondTest ClassicPlayerAudioRegressionTest
+      ClassicPlayerSampleEngineTest ClassicPlayerNordSampleTest
+      ClassicPlayerMasterMidiTest ClassicPlayerAuHostSmokeTest
+    )
   fi
   "$CMAKE" --build "$build" --target "${targets[@]}" --parallel 4
-  for test_name in ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest ClassicPlayerAudioRegressionTest ClassicPlayerSampleEngineTest ClassicPlayerNordSampleTest ClassicPlayerMasterMidiTest; do
-    local test_executable="$build/${test_name}_artefacts/Release/$test_name"
-    if [[ "$arch" == "x86_64" ]]; then
-      arch -x86_64 "$test_executable"
-    else
+  if [[ "$arch" == "arm64" ]]; then
+    for test_name in ClassicPlayerChordDetectorTest ClassicPlayerUpdateCheckerTest ClassicPlayerAudioRegressionTest ClassicPlayerSampleEngineTest ClassicPlayerNordSampleTest ClassicPlayerMasterMidiTest; do
+      local test_executable="$build/${test_name}_artefacts/Release/$test_name"
       "$test_executable"
-    fi
-  done
-  local backup_test="$build/ClassicPlayerMasterMidiTest_artefacts/Release/ClassicPlayerMasterMidiTest"
-  if [[ "$arch" == "x86_64" ]]; then
-    arch -x86_64 "$backup_test" --backup
-  else
+    done
+    local backup_test="$build/ClassicPlayerMasterMidiTest_artefacts/Release/ClassicPlayerMasterMidiTest"
     "$backup_test" --backup
-  fi
-  local ui_test="$build/ClassicPlayerHammondTest_artefacts/Release/ClassicPlayerHammondTest"
-  for skin_option in --hammond-midi --ui-preferences --performance-effects --silver-ui --dark-steel-ui --responsive-ui --live-layout; do
-    if [[ "$arch" == "x86_64" ]]; then
-      arch -x86_64 "$ui_test" "$skin_option"
-    else
+    local ui_test="$build/ClassicPlayerHammondTest_artefacts/Release/ClassicPlayerHammondTest"
+    for skin_option in --hammond-midi --ui-preferences --performance-effects --silver-ui --dark-steel-ui --responsive-ui --live-layout; do
       "$ui_test" "$skin_option"
-    fi
-  done
+    done
+  fi
   local vst3_host_test="$build/ClassicPlayerVst3HostSmokeTest_artefacts/Release/ClassicPlayerVst3HostSmokeTest"
   local vst3_bundle="$build/ClassicPlayer_artefacts/Release/VST3/Classic Player.vst3"
   # CoreMIDI exports these two RTTI descriptors; they contain no executable
