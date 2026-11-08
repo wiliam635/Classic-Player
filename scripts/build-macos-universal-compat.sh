@@ -154,6 +154,8 @@ rm "$UNIVERSAL/Contents/MacOS/Classic Player"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.classickeys.classicplayer.macos161" "$UNIVERSAL/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 3.0.3" "$UNIVERSAL/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 3.0.3" "$UNIVERSAL/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :NSBluetoothAlwaysUsageDescription string 'O Classic Player usa Bluetooth para conectar controladores MIDI sem fio.'" "$UNIVERSAL/Contents/Info.plist" 2>/dev/null || \
+  /usr/libexec/PlistBuddy -c "Set :NSBluetoothAlwaysUsageDescription 'O Classic Player usa Bluetooth para conectar controladores MIDI sem fio.'" "$UNIVERSAL/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 10.13" "$UNIVERSAL/Contents/Info.plist" 2>/dev/null || \
   /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion 10.13" "$UNIVERSAL/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :NSHighResolutionCapable bool true" "$UNIVERSAL/Contents/Info.plist" 2>/dev/null || \
