@@ -1872,15 +1872,15 @@ public:
         for (auto* panelComponent : editorPanels)
         {
             panels.add(panelComponent);
-            panelTab.push_back(juce::jlimit(0, 3, (int) panelComponent->getProperties().getWithDefault("dockTab", 0)));
+            panelTab.push_back(juce::jlimit(0, 4, (int) panelComponent->getProperties().getWithDefault("dockTab", 0)));
             content.addAndMakeVisible(panelComponent);
         }
-        for (int tab = 0; tab < 4; ++tab)
+        for (int tab = 0; tab < 5; ++tab)
             if (std::find(panelTab.begin(), panelTab.end(), tab) != panelTab.end())
                 usedTabs.push_back(tab);
         if (usedTabs.size() > 1)
         {
-            static const char* names[] = { "SOM", "ENVELOPE", "MIDI", "EFEITOS" };
+            static const char* names[] = { "SOM", "ENVELOPE", "MIDI", "EFEITOS", "VELOCITY" };
             for (size_t k = 0; k < usedTabs.size(); ++k)
             {
                 auto* button = tabButtons.add(new juce::TextButton(names[usedTabs[k]]));
@@ -4206,9 +4206,20 @@ public:
         setSize(620, 36);
     }
 
+    // 1 = only the ADSR button, 2 = only the velocity button (used by the docked tabs).
+    void showOnly(int which)
+    {
+        only = which;
+        adsr.setVisible(which != 2);
+        velocity.setVisible(which != 1);
+        resized();
+    }
+
     void resized() override
     {
         auto area = getLocalBounds().reduced(2);
+        if (only == 1) { adsr.setBounds(area.reduced(2, 1)); return; }
+        if (only == 2) { velocity.setBounds(area.reduced(2, 1)); return; }
         const auto buttonWidth = (area.getWidth() - 6) / 2;
         adsr.setBounds(area.removeFromLeft(buttonWidth).reduced(2, 1));
         area.removeFromLeft(6);
@@ -4218,6 +4229,7 @@ public:
 private:
     std::function<void()> onAdsr, onVelocity;
     juce::TextButton adsr, velocity;
+    int only = 0;
 };
 
 class CentredEditorPanel final : public juce::Component
@@ -7380,6 +7392,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     if (sf2Panel != nullptr)
         dialog->addCustomComponent(new CenteredPanel(sf2Panel, actionWidth, 244));
     const auto layerType = processor.layerType(index);
+    bool splitDynamics = false;
     if (layerType == ClassicPlayerAudioProcessor::LayerType::sf2
         || layerType == ClassicPlayerAudioProcessor::LayerType::nord
         || layerType == ClassicPlayerAudioProcessor::LayerType::nordSample)
@@ -7387,7 +7400,17 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         auto* dynamicsButtons = new LayerDynamicsButtons(
             [safe] { if (safe != nullptr) safe->showAdsrEditor(); },
             [safe] { if (safe != nullptr) safe->showVelocityEditor(); });
+        splitDynamics = dockCallback && dockCallback({}, {}, 600, false);
+        if (splitDynamics) dynamicsButtons->showOnly(1);
         dialog->addCustomComponent(new CenteredPanel(dynamicsButtons, actionWidth, 38));
+        if (splitDynamics)
+        {
+            auto* velocityOnly = new LayerDynamicsButtons(
+                [safe] { if (safe != nullptr) safe->showAdsrEditor(); },
+                [safe] { if (safe != nullptr) safe->showVelocityEditor(); });
+            velocityOnly->showOnly(2);
+            dialog->addCustomComponent(new CenteredPanel(velocityOnly, actionWidth, 38));
+        }
     }
     dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
@@ -7423,9 +7446,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         {
             const auto kind = processor.layerType(index);
             std::vector<int> tabs;
-            if (kind == ClassicPlayerAudioProcessor::LayerType::nord) tabs = { 0, 2, 0, 1, 0, 2, 0, 3 };
-            else if (kind == ClassicPlayerAudioProcessor::LayerType::nordSample) tabs = { 0, 2, 1, 0, 2, 0, 3 };
-            else tabs = { 0, 1, 0, 2, 0, 3 };
+            if (kind == ClassicPlayerAudioProcessor::LayerType::nord)
+                tabs = splitDynamics ? std::vector<int>{ 0, 2, 0, 1, 4, 0, 2, 0, 3 } : std::vector<int>{ 0, 2, 0, 1, 0, 2, 0, 3 };
+            else if (kind == ClassicPlayerAudioProcessor::LayerType::nordSample)
+                tabs = splitDynamics ? std::vector<int>{ 0, 2, 1, 4, 0, 2, 0, 3 } : std::vector<int>{ 0, 2, 1, 0, 2, 0, 3 };
+            else
+                tabs = splitDynamics ? std::vector<int>{ 0, 1, 4, 0, 2, 0, 3 } : std::vector<int>{ 0, 1, 0, 2, 0, 3 };
             if (tabs.size() == dockedPanels.size())
                 for (size_t k = 0; k < tabs.size(); ++k)
                     dockedPanels[k]->getProperties().set("dockTab", tabs[k]);
@@ -8004,7 +8030,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::openTabPage(int tab)
     const auto type = processor.layerType(index);
     const bool nordType = type == ClassicPlayerAudioProcessor::LayerType::nord
                        || type == ClassicPlayerAudioProcessor::LayerType::nordSample;
-    if (tab == 1 && (nordType || type == ClassicPlayerAudioProcessor::LayerType::sf2)) showAdsrEditor();
+    if (tab == 4 && (nordType || type == ClassicPlayerAudioProcessor::LayerType::sf2)) showVelocityEditor();
+    else if (tab == 1 && (nordType || type == ClassicPlayerAudioProcessor::LayerType::sf2)) showAdsrEditor();
     else if (tab == 3 && (nordType || type == ClassicPlayerAudioProcessor::LayerType::sf2)) showReverbEditor();
 }
 
