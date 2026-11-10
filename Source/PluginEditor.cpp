@@ -6377,7 +6377,7 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
     auto available=getLocalBounds();
     if (controlsVisible)
     {
-        auto channelRow = available.removeFromTop(28).reduced(5, 1);
+        auto channelRow = available.removeFromBottom(30).reduced(5, 1);
         midiChannelLabel.setBounds(channelRow.removeFromLeft(112));
         midiChannelBox.setBounds(channelRow);
     }
@@ -7658,7 +7658,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int eff
         };
         dialog->addCustomComponent(tap);
     }
-    dialog->setSize(560, effect == 2 ? 350 : 260);
+    dialog->setSize(560, effect == 2 ? 410 : 260);
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
