@@ -1868,7 +1868,7 @@ public:
 
     ~InspectorDock() override { setLookAndFeel(nullptr); }
 
-    static int columnsFor(int width) { return width >= 1000 ? 2 : 1; }
+    static int columnsFor(int) { return 1; }
 
     int preferredHeight(int width) const
     {
@@ -7198,7 +7198,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         set("EqLow", knobs->value(6)); set("EqMid", knobs->value(7)); set("EqHigh", knobs->value(8));
         set("PreGainDb", knobs->value(9));
     });
-    if (activeUiPalette == 7 && dockCallback)
+    if (activeUiPalette == 7 && dockCallback && dockCallback({}, {}))
     {
         std::vector<juce::Component*> dockedPanels;
         while (dialog->getNumCustomComponents() > 0)
@@ -9663,7 +9663,11 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
                                                           [this] { applyMixerStates(); layoutLayerStrips(); });
         strips[(size_t) i]->setRemoveCallback([this, i] { removeLayer(i); });
         strips[(size_t) i]->setDockCallback([this](const juce::String& title, std::vector<juce::Component*> panels)
-        { dockInspector(title, std::move(panels)); });
+        {
+            if (panels.empty()) return canDockInspector();
+            dockInspector(title, std::move(panels));
+            return true;
+        });
         strips[(size_t) i]->setReorderCallback([this](int layer, juce::Point<int> position)
         { reorderLayerFromDrag(layer, position); });
         layerContent.addAndMakeVisible(*strips[(size_t) i]);
@@ -10403,12 +10407,17 @@ void ClassicPlayerAudioProcessorEditor::resized()
         }
         if (inspectorDock != nullptr && activeUiPalette == 7)
         {
-            auto* dock = static_cast<InspectorDock*>(inspectorDock.get());
-            const auto dockHeight = juce::jmin(dock->preferredHeight(area.getWidth()),
-                                               juce::roundToInt((float) area.getHeight() * 0.62f));
-            inspectorDock->setBounds(area.removeFromTop(dockHeight));
-            inspectorDock->setVisible(true);
-            area.removeFromTop(6);
+            // Keep the existing mixer strips untouched; the inspector uses the
+            // free space to their right, up to the width the panels were designed for.
+            const auto free = area.getWidth() - layerStripsWidth() - 8;
+            if (free >= 600)
+            {
+                inspectorDock->setBounds(area.removeFromRight(juce::jmin(free, 930)));
+                inspectorDock->setVisible(true);
+                area.removeFromRight(8);
+            }
+            else
+                inspectorDock->setVisible(false);
         }
         layerViewport.setBounds(area);
         layoutLayerStrips();
@@ -10450,6 +10459,29 @@ void ClassicPlayerAudioProcessorEditor::dockInspector(const juce::String& title,
     applyUiLanguageToComponentTree(*inspectorDock, activeUiLanguage.load());
     resized();
     repaint();
+}
+
+int ClassicPlayerAudioProcessorEditor::layerStripsWidth() const
+{
+    constexpr int gap = 8, stripWidth = 142;
+    int x = 0;
+    const auto count = classicProcessor.activeLayerCount();
+    for (int position = 0; position < count; ++position)
+    {
+        const auto i = classicProcessor.visualLayerAt(position);
+        if (!juce::isPositiveAndBelow(i, count)) continue;
+        const auto type = classicProcessor.layerType(i);
+        const bool pads = type == ClassicPlayerAudioProcessor::LayerType::drumPads
+                       || type == ClassicPlayerAudioProcessor::LayerType::continuousPads;
+        x += (pads ? juce::jmax(420, stripWidth * 2) : stripWidth) + gap;
+    }
+    return x;
+}
+
+bool ClassicPlayerAudioProcessorEditor::canDockInspector() const
+{
+    const auto available = interfaceCanvas.getWidth() - 28;
+    return available - layerStripsWidth() - 8 >= 600;
 }
 
 void ClassicPlayerAudioProcessorEditor::closeInspector()

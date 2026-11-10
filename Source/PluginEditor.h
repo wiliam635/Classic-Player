@@ -177,7 +177,7 @@ private:
         void setRemoveCallback(std::function<void()> callback) { removeLayerCallback = std::move(callback); }
         void setReorderCallback(std::function<void(int, juce::Point<int>)> callback)
         { reorderCallback = std::move(callback); }
-        void setDockCallback(std::function<void(const juce::String&, std::vector<juce::Component*>)> callback)
+        void setDockCallback(std::function<bool(const juce::String&, std::vector<juce::Component*>)> callback)
         { dockCallback = std::move(callback); }
         void setDisplayPosition(int position)
         { layerTitle.setText("LAYER " + juce::String(position + 1), juce::dontSendNotification); }
@@ -225,7 +225,7 @@ private:
         std::function<void()> mixStateChanged;
         std::function<void()> removeLayerCallback;
         std::function<void(int, juce::Point<int>)> reorderCallback;
-        std::function<void(const juce::String&, std::vector<juce::Component*>)> dockCallback;
+        std::function<bool(const juce::String&, std::vector<juce::Component*>)> dockCallback;
         juce::ComponentDragger layerDragger;
         juce::Colour outlineColour;
         bool hasCustomOutlineColour = false;
@@ -333,6 +333,8 @@ private:
     void setUiSkin(int skin, bool savePreference = true);
     void dockInspector(const juce::String& title, std::vector<juce::Component*> panels);
     void closeInspector();
+    bool canDockInspector() const;
+    int layerStripsWidth() const;
     void applyUiLanguage();
     void refreshLiveSet();
     void refreshLiveSetVolumeIndicators();
