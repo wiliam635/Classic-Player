@@ -283,7 +283,8 @@ void NordOrganEngine::process(juce::AudioBuffer<float>& output, const juce::Midi
 
             const auto vibratoDepth = config.vibratoChorus == 2 ? 0.0022
                 : config.vibratoChorus == 1 ? 0.0011 : 0.0;
-            const auto vibrato = 1.0 + vibratoDepth * std::sin(layer.vibratoPhase);
+            const auto vibrato = vibratoDepth > 0.0
+                ? 1.0 + vibratoDepth * std::sin(layer.vibratoPhase) : 1.0;
             layer.vibratoPhase += twoPi * 5.5 / sampleRate;
             if (layer.vibratoPhase >= twoPi) layer.vibratoPhase -= twoPi;
 

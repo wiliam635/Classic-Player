@@ -6,7 +6,7 @@ name: Test build - macOS arm64 (M1) performance branch
 on:
   workflow_dispatch:
   push:
-    branches: [codex/performance-review-303-20261109]
+    branches: [codex/review-fix-client-20261109]
 
 jobs:
   build-macos-arm64:
