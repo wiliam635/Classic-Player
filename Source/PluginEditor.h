@@ -174,11 +174,12 @@ private:
         bool isMuted() const { return muted; }
         bool isSolo() const { return solo; }
         bool isExpanded() const { return expanded; }
+        void setLearnVisible(bool shouldShow) { if (learnModeVisible != shouldShow) { learnModeVisible = shouldShow; updateSourceTypeVisibility(); } }
         void setSelected(bool shouldSelect) { if (selected != shouldSelect) { selected = shouldSelect; repaint(); } }
         void setRemoveCallback(std::function<void()> callback) { removeLayerCallback = std::move(callback); }
         void setReorderCallback(std::function<void(int, juce::Point<int>)> callback)
         { reorderCallback = std::move(callback); }
-        void setDockCallback(std::function<bool(const juce::String&, std::vector<juce::Component*>)> callback)
+        void setDockCallback(std::function<bool(const juce::String&, std::vector<juce::Component*>, int, bool)> callback)
         { dockCallback = std::move(callback); }
         void setDisplayPosition(int position)
         { layerTitle.setText("LAYER " + juce::String(position + 1), juce::dontSendNotification); }
@@ -226,7 +227,7 @@ private:
         std::function<void()> mixStateChanged;
         std::function<void()> removeLayerCallback;
         std::function<void(int, juce::Point<int>)> reorderCallback;
-        std::function<bool(const juce::String&, std::vector<juce::Component*>)> dockCallback;
+        std::function<bool(const juce::String&, std::vector<juce::Component*>, int, bool)> dockCallback;
         juce::ComponentDragger layerDragger;
         juce::Colour outlineColour;
         bool hasCustomOutlineColour = false;
@@ -239,6 +240,7 @@ private:
         bool solo = false;
         bool expanded = false;
         bool selected = false;
+        bool learnModeVisible = false;
         std::vector<Sf2Engine::Preset> presets;
         juce::Array<juce::File> libraryFiles;
         juce::Array<juce::File> externalInstrumentFiles;
@@ -333,13 +335,21 @@ private:
     void chooseBackupFile(bool importing);
     void setUiLanguage(int language);
     void setUiSkin(int skin, bool savePreference = true);
-    void dockInspector(int layer, const juce::String& title, std::vector<juce::Component*> panels);
+    void dockInspector(int layer, const juce::String& title, std::vector<juce::Component*> panels,
+                       int preferredWidth, bool scaleToFit);
+    void refreshMidiLearnMode();
+    juce::TextButton modeStageButton { "PALCO" };
+    juce::TextButton modeMixerButton { "MIXER" };
+    juce::TextButton modeLiveButton { "LIVE SET" };
+    juce::TextButton midiLearnModeButton { "MIDI LEARN" };
+    bool midiLearnMode = false;
+    int dockPreferredWidth = 930;
     void refreshDisplayToggle();
     juce::TextButton displayChordButton { "ACORDE" };
     juce::TextButton displaySpectrumButton { "ESPECTRO" };
     int selectedLayer = -1;
     void closeInspector();
-    bool canDockInspector() const;
+    bool canDockInspector(int minWidth) const;
     int layerStripsWidth() const;
     void applyUiLanguage();
     void refreshLiveSet();

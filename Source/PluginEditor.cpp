@@ -1866,6 +1866,20 @@ public:
         }
     }
 
+    // Fixed-design content (Hammond, Nord Organ) scaled to fit the free area.
+    InspectorDock(const juce::String& heading, juce::Component* fixedContent, std::function<void()> onClose)
+        : title(heading), scaled(fixedContent)
+    {
+        setLookAndFeel(&classicLookAndFeel);
+        closeButton.setButtonText(juce::String::fromUTF8("FECHAR"));
+        closeButton.onClick = std::move(onClose);
+        addAndMakeVisible(closeButton);
+        designWidth = juce::jmax(1, fixedContent->getWidth());
+        designHeight = juce::jmax(1, fixedContent->getHeight());
+        ownedScaled.reset(fixedContent);
+        addAndMakeVisible(fixedContent);
+    }
+
     ~InspectorDock() override { setLookAndFeel(nullptr); }
 
     static int columnsFor(int) { return 1; }
@@ -1899,6 +1913,17 @@ public:
         auto area = getLocalBounds();
         auto header = area.removeFromTop(headerHeight);
         closeButton.setBounds(header.removeFromRight(86).reduced(4, 3));
+        if (scaled != nullptr)
+        {
+            const auto fit = juce::jmin(1.0f, (float) area.getWidth() / (float) designWidth,
+                                        (float) area.getHeight() / (float) designHeight);
+            scaled->setTransform({});
+            scaled->setBounds(0, 0, designWidth, designHeight);
+            scaled->setTransform(juce::AffineTransform::scale(fit).translated(
+                (float) area.getX() + ((float) area.getWidth() - (float) designWidth * fit) * 0.5f,
+                (float) area.getY() + ((float) area.getHeight() - (float) designHeight * fit) * 0.5f));
+            return;
+        }
         viewport.setBounds(area);
         layoutPanels(area.getWidth() - viewport.getScrollBarThickness());
     }
@@ -1954,11 +1979,29 @@ private:
     };
 
     juce::String title;
+    juce::Component* scaled = nullptr;
+    std::unique_ptr<juce::Component> ownedScaled;
+    int designWidth = 1, designHeight = 1;
     juce::TextButton closeButton;
     juce::Viewport viewport;
     Content content;
     juce::Array<juce::Component*> panels;
 };
+
+template <typename Callback, typename Dialog>
+static bool dockAlertPanels(Callback& callback, Dialog* dialog, const juce::String& title, int width)
+{
+    if (activeUiPalette != 7 || !callback || !callback({}, {}, 600, false)) return false;
+    std::vector<juce::Component*> dockedPanels;
+    while (dialog->getNumCustomComponents() > 0)
+    {
+        dockedPanels.push_back(dialog->getCustomComponent(0));
+        dialog->removeCustomComponent(0);
+    }
+    delete dialog;
+    callback(title, std::move(dockedPanels), width, false);
+    return true;
+}
 
 struct KnobEditorSpec
 {
@@ -7198,7 +7241,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         set("EqLow", knobs->value(6)); set("EqMid", knobs->value(7)); set("EqHigh", knobs->value(8));
         set("PreGainDb", knobs->value(9));
     });
-    if (activeUiPalette == 7 && dockCallback && dockCallback({}, {}))
+    if (activeUiPalette == 7 && dockCallback && dockCallback({}, {}, 600, false))
     {
         std::vector<juce::Component*> dockedPanels;
         while (dialog->getNumCustomComponents() > 0)
@@ -7207,7 +7250,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
             dialog->removeCustomComponent(0);
         }
         delete dialog;
-        dockCallback(layerTitle.getText(), std::move(dockedPanels));
+        dockCallback(layerTitle.getText(), std::move(dockedPanels), 930, false);
         return;
     }
     dialog->setSize(actionWidth + 52, juce::jmin(730, screenHeight - 12));
@@ -7709,6 +7752,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
         eqButton->onClick = [safe] { if (safe != nullptr) safe->showEqEditor(); };
         dialog->addCustomComponent(eqButton);
     }
+    if (dockAlertPanels(dockCallback, dialog, layerTitle.getText(), 700)) return;
     dialog->setSize(678, processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::continuousPads ? 572 : 552);
     dialog->fitWithinApp(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
@@ -8738,7 +8782,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
         sourceSummary.setVisible(true);
         gain.setVisible(true);
         meter.setVisible(true);
-        volumeLearn.setVisible(true);
+        volumeLearn.setVisible(activeUiPalette != 7 || learnModeVisible);
         resized();
         return;
     }
@@ -9246,6 +9290,31 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     chordLabel.setColour(juce::Label::backgroundColourId, juce::Colours::black);
     chordLabel.setColour(juce::Label::textColourId, chordColour);
     addAndMakeVisible(chordLabel);
+    for (auto* modeButton : { &modeStageButton, &modeMixerButton, &modeLiveButton, &midiLearnModeButton })
+        addAndMakeVisible(*modeButton);
+    modeStageButton.setTooltip(juce::String::fromUTF8("Palco: mixer e teclado virtual visíveis"));
+    modeMixerButton.setTooltip(juce::String::fromUTF8("Mixer: oculta o teclado virtual e fecha o inspetor"));
+    modeLiveButton.setTooltip(juce::String::fromUTF8("Abrir o Live Set"));
+    midiLearnModeButton.setTooltip(juce::String::fromUTF8("Mostrar os botões de MIDI Learn de volume, master e pânico"));
+    modeStageButton.onClick = [this]
+    {
+        if (showingLiveSet) showLiveSet(false);
+        if (!virtualKeyboardVisible) keyboardVisibilityButton.onClick();
+        refreshDisplayToggle();
+    };
+    modeMixerButton.onClick = [this]
+    {
+        if (showingLiveSet) showLiveSet(false);
+        closeInspector();
+        if (virtualKeyboardVisible) keyboardVisibilityButton.onClick();
+        refreshDisplayToggle();
+    };
+    modeLiveButton.onClick = [this] { showLiveSet(true); };
+    midiLearnModeButton.onClick = [this]
+    {
+        midiLearnMode = !midiLearnMode;
+        refreshMidiLearnMode();
+    };
     addAndMakeVisible(displayChordButton);
     addAndMakeVisible(displaySpectrumButton);
     displayChordButton.setTooltip(juce::String::fromUTF8("Mostrar o nome do acorde no display"));
@@ -9668,10 +9737,10 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
         strips[(size_t) i] = std::make_unique<LayerStrip>(classicProcessor, i,
                                                           [this] { applyMixerStates(); layoutLayerStrips(); });
         strips[(size_t) i]->setRemoveCallback([this, i] { removeLayer(i); });
-        strips[(size_t) i]->setDockCallback([this, i](const juce::String& title, std::vector<juce::Component*> panels)
+        strips[(size_t) i]->setDockCallback([this, i](const juce::String& title, std::vector<juce::Component*> panels, int preferredWidth, bool scaleToFit)
         {
-            if (panels.empty()) return canDockInspector();
-            dockInspector(i, title, std::move(panels));
+            if (panels.empty()) return canDockInspector(preferredWidth);
+            dockInspector(i, title, std::move(panels), preferredWidth, scaleToFit);
             return true;
         });
         strips[(size_t) i]->setReorderCallback([this](int layer, juce::Point<int> position)
@@ -9864,6 +9933,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
             safe->processor.setAnalogSynthConfig(safe->index, factoryConfig);
         }
     };
+    if (dockAlertPanels(dockCallback, dialog, layerTitle.getText(), 930)) return;
     dialog->setSize(actionWidth + 52, 720);
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();
@@ -10007,6 +10077,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.
+    if (dockAlertPanels(dockCallback, dialog, layerTitle.getText(), 930)) return;
     dialog->setSize(actionWidth + 52, 680);
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();
@@ -10327,6 +10398,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
     auto panicArea = footerRow.removeFromRight(166);
     panicLearnButton.setBounds(panicArea.removeFromRight(78).reduced(1, 0));
     panicButton.setBounds(panicArea.reduced(1, 0));
+    if (activeUiPalette == 7) midiLearnModeButton.setBounds(footerRow.removeFromRight(124).reduced(2, 0));
     recordingButton.setBounds(footerRow.removeFromLeft(156).reduced(1, 0));
     // Keep the requested order on one row. Let the recording path use only
     // the space left after reserving the remaining controls.
@@ -10416,9 +10488,9 @@ void ClassicPlayerAudioProcessorEditor::resized()
             // Keep the existing mixer strips untouched; the inspector uses the
             // free space to their right, up to the width the panels were designed for.
             const auto free = area.getWidth() - layerStripsWidth() - 8;
-            if (free >= 600)
+            if (free >= juce::jmin(600, dockPreferredWidth))
             {
-                inspectorDock->setBounds(area.removeFromRight(juce::jmin(free, 930)));
+                inspectorDock->setBounds(area.removeFromRight(juce::jmin(free, dockPreferredWidth)));
                 inspectorDock->setVisible(true);
                 area.removeFromRight(8);
             }
@@ -10440,7 +10512,26 @@ void ClassicPlayerAudioProcessorEditor::resized()
             displayChordButton.setBounds(b.getRight() - 88 - 68, b.getY() + 5, 66, 22);
             displayChordButton.toFront(false);
             displaySpectrumButton.toFront(false);
+            modeStageButton.setBounds(b.getX() + 4, b.getY() + 5, 62, 22);
+            modeMixerButton.setBounds(b.getX() + 4 + 64, b.getY() + 5, 62, 22);
+            modeLiveButton.setBounds(b.getX() + 4 + 128, b.getY() + 5, 76, 22);
+            for (auto* modeButton : { &modeStageButton, &modeMixerButton, &modeLiveButton })
+                modeButton->toFront(false);
             refreshDisplayToggle();
+        }
+        for (auto* modeButton : { &modeStageButton, &modeMixerButton, &modeLiveButton })
+            modeButton->setVisible(showToggle);
+        const bool learnTools = activeUiPalette == 7 && !showingLiveSet;
+        midiLearnModeButton.setVisible(learnTools);
+        if (activeUiPalette == 7)
+        {
+            masterLearnButton.setVisible(midiLearnMode || showingLiveSet);
+            panicLearnButton.setVisible(midiLearnMode || showingLiveSet);
+        }
+        else
+        {
+            masterLearnButton.setVisible(true);
+            panicLearnButton.setVisible(true);
         }
     }
     activationPanel.setBounds(interfaceCanvas.getLocalBounds());
@@ -10466,17 +10557,23 @@ void ClassicPlayerAudioProcessorEditor::resized()
 }
 
 void ClassicPlayerAudioProcessorEditor::dockInspector(int layer, const juce::String& title,
-                                                      std::vector<juce::Component*> panels)
+                                                      std::vector<juce::Component*> panels,
+                                                      int preferredWidth, bool scaleToFit)
 {
+    dockPreferredWidth = preferredWidth;
     selectedLayer = layer;
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
         if (strips[(size_t) i] != nullptr) strips[(size_t) i]->setSelected(i == layer);
     const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
     inspectorDock.reset();
-    inspectorDock = std::make_unique<InspectorDock>(title, std::move(panels), [safe]
+    const auto closeAction = [safe]
     {
         juce::MessageManager::callAsync([safe] { if (safe != nullptr) safe->closeInspector(); });
-    });
+    };
+    if (scaleToFit && panels.size() == 1)
+        inspectorDock = std::make_unique<InspectorDock>(title, panels.front(), closeAction);
+    else
+        inspectorDock = std::make_unique<InspectorDock>(title, std::move(panels), closeAction);
     interfaceCanvas.addAndMakeVisible(*inspectorDock);
     applyUiSkinToComponentTree(*inspectorDock, uiPalettes[(size_t) activeUiPalette]);
     applyUiLanguageToComponentTree(*inspectorDock, activeUiLanguage.load());
@@ -10501,14 +10598,16 @@ int ClassicPlayerAudioProcessorEditor::layerStripsWidth() const
     return x;
 }
 
-bool ClassicPlayerAudioProcessorEditor::canDockInspector() const
+bool ClassicPlayerAudioProcessorEditor::canDockInspector(int minWidth) const
 {
     const auto available = interfaceCanvas.getWidth() - 28;
-    return available - layerStripsWidth() - 8 >= 600;
+    return !showingLiveSet && available - layerStripsWidth() - 8 >= minWidth;
 }
 
 void ClassicPlayerAudioProcessorEditor::closeInspector()
 {
+    if (juce::isPositiveAndBelow(selectedLayer, Sf2Engine::layerCount) && strips[(size_t) selectedLayer] != nullptr)
+        strips[(size_t) selectedLayer]->refresh();
     selectedLayer = -1;
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
         if (strips[(size_t) i] != nullptr) strips[(size_t) i]->setSelected(false);
@@ -10854,6 +10953,18 @@ void ClassicPlayerAudioProcessorEditor::refreshDisplayToggle()
     };
     paint(displayChordButton, !spectrum);
     paint(displaySpectrumButton, spectrum);
+    paint(modeStageButton, !showingLiveSet && virtualKeyboardVisible);
+    paint(modeMixerButton, !showingLiveSet && !virtualKeyboardVisible);
+    paint(modeLiveButton, showingLiveSet);
+    paint(midiLearnModeButton, midiLearnMode);
+}
+
+void ClassicPlayerAudioProcessorEditor::refreshMidiLearnMode()
+{
+    for (auto& strip : strips)
+        if (strip != nullptr) strip->setLearnVisible(midiLearnMode);
+    refreshDisplayToggle();
+    resized();
 }
 
 void ClassicPlayerAudioProcessorEditor::setDisplaySpectrumMode(bool enabled)
@@ -12059,6 +12170,20 @@ std::unique_ptr<juce::Component> createHammondEditorContent(ClassicPlayerAudioPr
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showHammondEditor()
 {
     if(processor.layerType(index)!=ClassicPlayerAudioProcessor::LayerType::hammond)return;
+    if (activeUiPalette == 7 && dockCallback && dockCallback({}, {}, 880, true))
+    {
+        const juce::Component::SafePointer<LayerStrip> dockSafe(this);
+        auto content = createHammondEditorContent(processor, index,
+            [dockSafe] { if (dockSafe != nullptr) dockSafe->showReverbEditor(); },
+            [dockSafe] { if (dockSafe != nullptr) dockSafe->showCompressorEditor(); },
+            [dockSafe] { if (dockSafe != nullptr) dockSafe->showChorusEditor(); },
+            [dockSafe] { if (dockSafe != nullptr) dockSafe->showEqEditor(); },
+            [dockSafe] { if (dockSafe != nullptr) dockSafe->saveLayerPreset(); },
+            [dockSafe] { if (dockSafe != nullptr) dockSafe->loadLayerPreset(); });
+        content->setSize(1060, 708);
+        dockCallback(layerTitle.getText(), { content.release() }, 1060, true);
+        return;
+    }
     class Window final : public juce::DocumentWindow
     {
     public:
@@ -12121,6 +12246,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showHammondEditor()
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordOrganEditor()
 {
     if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::nordOrgan) return;
+    if (activeUiPalette == 7 && dockCallback && dockCallback({}, {}, 700, true))
+    {
+        auto content = std::make_unique<NordOrganEditorPanel>(processor, index);
+        content->setSize(790, 430);
+        dockCallback(layerTitle.getText(), { content.release() }, 790, true);
+        return;
+    }
     class Window final : public juce::DocumentWindow
     {
     public:
