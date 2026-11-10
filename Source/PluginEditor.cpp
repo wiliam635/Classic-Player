@@ -1920,6 +1920,33 @@ public:
         resized();
     }
 
+    // Secondary editors (ADSR, reverb, EQ ...) replace the tab content, with a back button.
+    void setSubPage(const juce::String& heading, std::vector<juce::Component*> comps)
+    {
+        subPanels.clear();
+        for (auto* c : comps)
+        {
+            subPanels.add(c);
+            content.addAndMakeVisible(c);
+        }
+        inSub = true;
+        subTitle = heading;
+        backButton.setVisible(true);
+        if (scaled != nullptr) scaled->setVisible(false);
+        resized();
+        repaint();
+    }
+
+    void leaveSubPage()
+    {
+        subPanels.clear();
+        inSub = false;
+        backButton.setVisible(false);
+        if (scaled != nullptr) scaled->setVisible(true);
+        resized();
+        repaint();
+    }
+
     void paint(juce::Graphics& g) override
     {
         g.setColour(juce::Colour(panel));
@@ -1930,7 +1957,7 @@ public:
         g.fillRect(juce::Rectangle<float>(1.0f, 6.0f, 3.0f, 16.0f));
         g.setColour(juce::Colour(text));
         g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
-        g.drawText(title, 14, 0, getWidth() - 180, headerHeight, juce::Justification::centredLeft);
+        g.drawText(inSub ? title + juce::String::fromUTF8(" · ") + subTitle : title, 14, 0, getWidth() - 280, headerHeight, juce::Justification::centredLeft);
         g.setColour(juce::Colour(paletteLine));
         g.drawHorizontalLine(headerHeight - 1, 0.0f, (float) getWidth());
     }
@@ -1941,7 +1968,10 @@ public:
         auto header = area.removeFromTop(headerHeight);
         closeButton.setBounds(header.removeFromRight(86).reduced(4, 3));
         resetButton.setBounds(header.removeFromRight(72).reduced(4, 3));
-        if (scaled != nullptr)
+        backButton.setBounds(header.removeFromRight(96).reduced(4, 3));
+        for (auto* tabButton : tabButtons) tabButton->setVisible(!inSub);
+        viewport.setVisible(scaled == nullptr || inSub);
+        if (scaled != nullptr && !inSub)
         {
             const auto fit = juce::jmin(1.0f, (float) area.getWidth() / (float) designWidth,
                                         (float) area.getHeight() / (float) designHeight);
@@ -1952,7 +1982,7 @@ public:
                 (float) area.getY() + ((float) area.getHeight() - (float) designHeight * fit) * 0.5f));
             return;
         }
-        if (!tabButtons.isEmpty())
+        if (!tabButtons.isEmpty() && !inSub)
         {
             auto tabRow = area.removeFromTop(32).reduced(8, 4);
             for (int k = 0; k < tabButtons.size(); ++k)
@@ -1978,6 +2008,12 @@ private:
         closeButton.setButtonText(juce::String::fromUTF8("FECHAR"));
         closeButton.onClick = std::move(onClose);
         addAndMakeVisible(closeButton);
+        backButton.setButtonText(juce::String::fromUTF8("< VOLTAR"));
+        backButton.onClick = [this] { leaveSubPage(); };
+        addChildComponent(backButton);
+        viewport.setViewedComponent(&content, false);
+        viewport.setScrollBarsShown(true, false);
+        addAndMakeVisible(viewport);
     }
 
     static void applyLearnVisibility(juce::Component& parent, bool shown)
@@ -2005,13 +2041,20 @@ private:
         for (int i = 0; i < panels.size(); ++i)
         {
             auto* c = panels[i];
-            const bool shown = scaled == nullptr && panelTab[(size_t) i] == activeTab;
+            const bool shown = !inSub && scaled == nullptr && panelTab[(size_t) i] == activeTab;
             c->setVisible(shown);
             if (!shown) continue;
             c->setBounds(gap, y, columnWidth, c->getHeight());
             content.cards.push_back(c->getBounds());
             y += c->getHeight() + gap;
             applyLearnVisibility(*c, learnShown);
+        }
+        for (auto* c : subPanels)
+        {
+            c->setVisible(true);
+            c->setBounds(gap, y, columnWidth, c->getHeight());
+            content.cards.push_back(c->getBounds());
+            y += c->getHeight() + gap;
         }
         content.setSize(width, y);
         content.repaint();
@@ -2033,6 +2076,10 @@ private:
     int designWidth = 1, designHeight = 1;
     juce::TextButton closeButton;
     juce::TextButton resetButton;
+    juce::TextButton backButton;
+    juce::OwnedArray<juce::Component> subPanels;
+    bool inSub = false;
+    juce::String subTitle;
     juce::Viewport viewport;
     Content content;
     juce::Array<juce::Component*> panels;
@@ -2042,6 +2089,21 @@ private:
     int activeTab = 0;
     bool learnShown = false;
 };
+
+template <typename Callback, typename Dialog>
+static bool dockSubAlert(Callback& callback, Dialog* dialog, const juce::String& title)
+{
+    if (activeUiPalette != 7 || !callback || !callback({}, {}, -1, false)) return false;
+    std::vector<juce::Component*> subPanels;
+    while (dialog->getNumCustomComponents() > 0)
+    {
+        subPanels.push_back(dialog->getCustomComponent(0));
+        dialog->removeCustomComponent(0);
+    }
+    delete dialog;
+    callback(title, std::move(subPanels), -1, false);
+    return true;
+}
 
 template <typename Callback, typename Dialog>
 static bool dockAlertPanels(Callback& callback, Dialog* dialog, const juce::String& title, int width,
@@ -4913,7 +4975,8 @@ private:
 static void showParametricLayerEqEditor(
     ClassicPlayerAudioProcessor& processor, int layer, juce::Component* owner,
     std::function<void()> savePreset,
-    std::function<void(std::function<void()>)> loadPreset)
+    std::function<void(std::function<void()>)> loadPreset,
+    std::function<bool(const juce::String&, std::vector<juce::Component*>, int, bool)> dock = {})
 {
     const auto prefix = "layer" + juce::String(layer + 1);
     const auto layerConfig = processor.layerConfig(layer);
@@ -4987,6 +5050,7 @@ static void showParametricLayerEqEditor(
     };
     knobs->setOnValueChange(apply);
     dialog->fitWithinApp(owner);
+    if (dockSubAlert(dock, dialog, "EQ")) return;
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [&processor](int) { juce::ignoreUnused(processor); }), true);
 }
@@ -7402,6 +7466,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAdsrEditor()
     dialog->setSize(770, 560);
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();
+    if (dockSubAlert(dockCallback, dialog, "ENVELOPE ADSR")) return;
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
@@ -7420,6 +7485,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showVelocityEditor()
     dialog->addCustomComponent(new VelocityCurveEditorPanel(processor, index));
     const juce::Component::SafePointer<LayerStrip> safe(this);
     dialog->fitWithinApp(this);
+    if (dockSubAlert(dockCallback, dialog, "CURVA DE VELOCITY")) return;
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
@@ -7526,6 +7592,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
         set("ReverbWidth", juce::jlimit(0.0f, 100.0f, knobs->value(2)));
         set("Reverb", juce::jlimit(0.0f, 100.0f, knobs->value(3)));
     });
+    if (dockSubAlert(dockCallback, dialog, "REVERB")) return;
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
@@ -7707,7 +7774,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showEqEditor()
         [safe](std::function<void()> loaded)
         {
             if (safe != nullptr) safe->loadEffectPreset("EQ", std::move(loaded));
-        });
+        }, dockCallback);
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
@@ -7805,6 +7872,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
     {
         knobs->setValue(handle, value);
     };
+    if (dockSubAlert(dockCallback, dialog, "COMPRESSOR")) return;
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
@@ -7868,6 +7936,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showChorusEditor()
         dialog->addCustomComponent(knobs);
         const juce::Component::SafePointer<LayerStrip> safe(this);
         dialog->fitWithinApp(this);
+        if (dockSubAlert(dockCallback, dialog, "CHORUS")) return;
         dialog->enterModalState(true, juce::ModalCallbackFunction::create(
             [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
         return;
@@ -7888,6 +7957,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showChorusEditor()
             parameter->setValueNotifyingHost(parameter->convertTo0to1(knobs->value(0)));
     });
     dialog->fitWithinApp(this);
+    if (dockSubAlert(dockCallback, dialog, "CHORUS")) return;
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
@@ -8004,6 +8074,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int eff
     dialog->setSize(560, effect == 2 ? 310 : 260);
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();
+    if (dockSubAlert(dockCallback, dialog, "EFEITO NORD")) return;
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
@@ -9867,7 +9938,24 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
         strips[(size_t) i]->setRemoveCallback([this, i] { removeLayer(i); });
         strips[(size_t) i]->setDockCallback([this, i](const juce::String& title, std::vector<juce::Component*> panels, int preferredWidth, bool scaleToFit)
         {
-            if (panels.empty()) return canDockInspector(preferredWidth);
+            if (preferredWidth == -1)
+            {
+                const bool open = inspectorDock != nullptr && selectedLayer == i;
+                if (panels.empty()) return open;
+                if (!open)
+                {
+                    for (auto* unused : panels) delete unused;
+                    return false;
+                }
+                static_cast<InspectorDock*>(inspectorDock.get())->setSubPage(title, std::move(panels));
+                return true;
+            }
+            if (panels.empty())
+            {
+                const bool can = canDockInspector(preferredWidth);
+                if (!can && inspectorDock != nullptr) closeInspector();
+                return can;
+            }
             dockInspector(i, title, std::move(panels), preferredWidth, scaleToFit);
             return true;
         });
