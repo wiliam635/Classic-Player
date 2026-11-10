@@ -7640,7 +7640,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int eff
         flatButton(*tap);
         tap->setSize(220, 34);
         auto previousTap = std::make_shared<double>(0.0);
-        tap->onClick = [safe, knobs, tap, previousTap]
+        tap->onClick = [safe, knobs, tap, previousTap, syncSafe]
         {
             if (safe == nullptr) return;
             const auto now = juce::Time::getMillisecondCounterHiRes();
