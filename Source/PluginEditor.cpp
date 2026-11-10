@@ -1655,11 +1655,17 @@ public:
         if (activeUiPalette == 7 && !isDrumPad)
         {
             // Concept D: flat controls, 1 px outline, 4 px corners.
+            const auto edges = button.getConnectedEdgeFlags();
+            const bool cutLeft = (edges & juce::Button::ConnectedOnLeft) != 0;
+            const bool cutRight = (edges & juce::Button::ConnectedOnRight) != 0;
+            juce::Path face;
+            face.addRoundedRectangle(bounds.getX(), bounds.getY(), bounds.getWidth(), bounds.getHeight(),
+                                     4.0f, 4.0f, !cutLeft, !cutRight, !cutLeft, !cutRight);
             g.setColour(colour);
-            g.fillRoundedRectangle(bounds, 4.0f);
+            g.fillPath(face);
             const bool lit = colour.getPerceivedBrightness() > 0.45f;
             g.setColour(lit ? colour.brighter(0.15f) : juce::Colour(paletteLine).brighter(shouldDrawButtonAsHighlighted ? 0.25f : 0.0f));
-            g.drawRoundedRectangle(bounds, 4.0f, 1.0f);
+            g.strokePath(face, juce::PathStrokeType(1.0f));
             if (button.hasKeyboardFocus(true))
             {
                 g.setColour(juce::Colour(yellow).withAlpha(0.8f));
@@ -1882,6 +1888,15 @@ public:
 
     ~InspectorDock() override { setLookAndFeel(nullptr); }
 
+    void setResetAction(std::function<void()> action)
+    {
+        resetButton.setButtonText("RESET");
+        resetButton.setTooltip(juce::String::fromUTF8("Restaurar esta layer ao padrão"));
+        resetButton.onClick = std::move(action);
+        addAndMakeVisible(resetButton);
+        resized();
+    }
+
     static int columnsFor(int) { return 1; }
 
     int preferredHeight(int width) const
@@ -1913,6 +1928,7 @@ public:
         auto area = getLocalBounds();
         auto header = area.removeFromTop(headerHeight);
         closeButton.setBounds(header.removeFromRight(86).reduced(4, 3));
+        resetButton.setBounds(header.removeFromRight(72).reduced(4, 3));
         if (scaled != nullptr)
         {
             const auto fit = juce::jmin(1.0f, (float) area.getWidth() / (float) designWidth,
@@ -1983,6 +1999,7 @@ private:
     std::unique_ptr<juce::Component> ownedScaled;
     int designWidth = 1, designHeight = 1;
     juce::TextButton closeButton;
+    juce::TextButton resetButton;
     juce::Viewport viewport;
     Content content;
     juce::Array<juce::Component*> panels;
@@ -8259,12 +8276,24 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDrag(const juce::MouseE
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseUp(const juce::MouseEvent& event)
 {
-    if (!draggingLayerTitle) return;
-    draggingLayerTitle = false;
-    if (event.mouseWasDraggedSinceMouseDown() && reorderCallback)
-        reorderCallback(index, event.getScreenPosition());
-    else
-        if (auto* parent = getParentComponent()) parent->resized();
+    const bool clickToOpen = activeUiPalette == 7 && !event.mods.isPopupMenu()
+        && !event.mouseWasDraggedSinceMouseDown()
+        && (event.originalComponent == this || event.originalComponent == &sourceSummary
+            || event.originalComponent == &layerTitle)
+        && !categoryArtworkBounds.contains(event.getEventRelativeTo(this).position.toInt());
+    if (draggingLayerTitle)
+    {
+        draggingLayerTitle = false;
+        if (event.mouseWasDraggedSinceMouseDown() && reorderCallback)
+            reorderCallback(index, event.getScreenPosition());
+        else
+            if (auto* parent = getParentComponent()) parent->resized();
+    }
+    if (clickToOpen)
+    {
+        const juce::Component::SafePointer<LayerStrip> safe(this);
+        juce::MessageManager::callAsync([safe] { if (safe != nullptr) safe->editButton.triggerClick(); });
+    }
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
@@ -8356,9 +8385,20 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     layerTitle.setBounds(top.removeFromLeft(juce::jmin(68, juce::jmax(54, top.getWidth() - 54))));
     muteButton.setBounds(top.removeFromLeft(27).reduced(1));
     soloButton.setBounds(top.removeFromLeft(27).reduced(1));
-    auto layerActions = area.removeFromTop(25);
-    editButton.setBounds(layerActions.removeFromLeft(70).reduced(1));
-    resetButton.setBounds(layerActions.removeFromRight(52).reduced(1));
+    if (activeUiPalette == 7)
+    {
+        // Concept D: click the strip to open the inspector; RESET lives there.
+        editButton.setVisible(false);
+        resetButton.setVisible(false);
+    }
+    else
+    {
+        auto layerActions = area.removeFromTop(25);
+        editButton.setVisible(true);
+        resetButton.setVisible(true);
+        editButton.setBounds(layerActions.removeFromLeft(70).reduced(1));
+        resetButton.setBounds(layerActions.removeFromRight(52).reduced(1));
+    }
     const auto type = processor.layerType(index);
     const bool isPadLayer = type == ClassicPlayerAudioProcessor::LayerType::drumPads
                          || type == ClassicPlayerAudioProcessor::LayerType::continuousPads;
@@ -9315,6 +9355,11 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
         midiLearnMode = !midiLearnMode;
         refreshMidiLearnMode();
     };
+    modeStageButton.setConnectedEdges(juce::Button::ConnectedOnRight);
+    modeMixerButton.setConnectedEdges(juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
+    modeLiveButton.setConnectedEdges(juce::Button::ConnectedOnLeft);
+    displayChordButton.setConnectedEdges(juce::Button::ConnectedOnRight);
+    displaySpectrumButton.setConnectedEdges(juce::Button::ConnectedOnLeft);
     addAndMakeVisible(displayChordButton);
     addAndMakeVisible(displaySpectrumButton);
     displayChordButton.setTooltip(juce::String::fromUTF8("Mostrar o nome do acorde no display"));
@@ -10361,7 +10406,8 @@ void ClassicPlayerAudioProcessorEditor::resized()
             + static_cast<float>(interfaceCanvas.getWidth() - 1100) * 0.23f));
     auto rightActions = header.removeFromRight(rightActionsWidth);
     const auto rightActionHeight = 28;
-    liveSetButton.setBounds(rightActions.removeFromTop(rightActionHeight).reduced(1));
+    if (activeUiPalette == 7 && !showingLiveSet) liveSetButton.setBounds({});
+    else liveSetButton.setBounds(rightActions.removeFromTop(rightActionHeight).reduced(1));
     addLayerButton.setBounds(rightActions.removeFromTop(rightActionHeight).reduced(1));
     chordColourButton.setBounds(rightActions.removeFromTop(rightActionHeight).reduced(1));
     keyColourButton.setBounds(rightActions.removeFromTop(rightActionHeight).reduced(1));
@@ -10509,12 +10555,12 @@ void ClassicPlayerAudioProcessorEditor::resized()
         {
             const auto b = chordLabel.getBounds();
             displaySpectrumButton.setBounds(b.getRight() - 88, b.getY() + 5, 84, 22);
-            displayChordButton.setBounds(b.getRight() - 88 - 68, b.getY() + 5, 66, 22);
+            displayChordButton.setBounds(b.getRight() - 88 - 66, b.getY() + 5, 66, 22);
             displayChordButton.toFront(false);
             displaySpectrumButton.toFront(false);
             modeStageButton.setBounds(b.getX() + 4, b.getY() + 5, 62, 22);
-            modeMixerButton.setBounds(b.getX() + 4 + 64, b.getY() + 5, 62, 22);
-            modeLiveButton.setBounds(b.getX() + 4 + 128, b.getY() + 5, 76, 22);
+            modeMixerButton.setBounds(b.getX() + 4 + 62, b.getY() + 5, 62, 22);
+            modeLiveButton.setBounds(b.getX() + 4 + 124, b.getY() + 5, 76, 22);
             for (auto* modeButton : { &modeStageButton, &modeMixerButton, &modeLiveButton })
                 modeButton->toFront(false);
             refreshDisplayToggle();
@@ -10574,6 +10620,12 @@ void ClassicPlayerAudioProcessorEditor::dockInspector(int layer, const juce::Str
         inspectorDock = std::make_unique<InspectorDock>(title, panels.front(), closeAction);
     else
         inspectorDock = std::make_unique<InspectorDock>(title, std::move(panels), closeAction);
+    static_cast<InspectorDock*>(inspectorDock.get())->setResetAction([safe, layer]
+    {
+        if (safe != nullptr && juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)
+            && safe->strips[(size_t) layer] != nullptr)
+            safe->strips[(size_t) layer]->triggerReset();
+    });
     interfaceCanvas.addAndMakeVisible(*inspectorDock);
     applyUiSkinToComponentTree(*inspectorDock, uiPalettes[(size_t) activeUiPalette]);
     applyUiLanguageToComponentTree(*inspectorDock, activeUiLanguage.load());

@@ -174,6 +174,7 @@ private:
         bool isMuted() const { return muted; }
         bool isSolo() const { return solo; }
         bool isExpanded() const { return expanded; }
+        void triggerReset() { resetButton.triggerClick(); }
         void setLearnVisible(bool shouldShow) { if (learnModeVisible != shouldShow) { learnModeVisible = shouldShow; updateSourceTypeVisibility(); } }
         void setSelected(bool shouldSelect) { if (selected != shouldSelect) { selected = shouldSelect; repaint(); } }
         void setRemoveCallback(std::function<void()> callback) { removeLayerCallback = std::move(callback); }
