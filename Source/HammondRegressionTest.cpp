@@ -265,6 +265,17 @@ static void continuousPadRegression()
     juce::AudioBuffer<float> routedAudio(2,128);
     juce::MidiBuffer routedMidi;
     const auto playBlock = [&] { routedAudio.clear();p->processBlock(routedAudio,routedMidi);routedMidi.clear(); };
+    p->continuousPads(1).learn(1);
+    ContinuousPadRegressionAccess::handleIncomingMidiMessage(
+        *p,juce::MidiMessage::controllerEvent(3,75,50));
+    check(p->continuousPads(1).mapping(1)==75,
+          "pad Learn did not capture a controller on another MIDI channel");
+    ContinuousPadRegressionAccess::handleIncomingMidiMessage(
+        *p,juce::MidiMessage::controllerEvent(3,75,127));
+    playBlock();
+    check(p->continuousPads(1).selected()==1,
+          "learned pad CC did not play when the layer note channel differed");
+    p->continuousPads(1).stopImmediately();
     p->continuousPads(1).trigger(0);playBlock();
     check(p->continuousPads(1).selected()==0,"pad fixture failed to start");
     p->setLayerMidiDevice(1,"another-controller");

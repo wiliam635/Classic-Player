@@ -89,6 +89,8 @@ juce_add_plugin(ClassicPlayer
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
+    BLUETOOTH_PERMISSION_ENABLED TRUE
+    BLUETOOTH_PERMISSION_TEXT "A Classic Player usa Bluetooth para conectar controladores MIDI sem fio."
     ICON_BIG "Resources/classic-player-app-icon.png"
     ICON_SMALL "Resources/classic-player-app-icon.png"
     COPY_PLUGIN_AFTER_BUILD FALSE
