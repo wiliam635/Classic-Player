@@ -10,6 +10,7 @@
 #include <atomic>
 #include <functional>
 #include <limits>
+#include <vector>
 
 class ClassicPlayerAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                                 private juce::Timer,
@@ -176,6 +177,8 @@ private:
         void setRemoveCallback(std::function<void()> callback) { removeLayerCallback = std::move(callback); }
         void setReorderCallback(std::function<void(int, juce::Point<int>)> callback)
         { reorderCallback = std::move(callback); }
+        void setDockCallback(std::function<void(const juce::String&, std::vector<juce::Component*>)> callback)
+        { dockCallback = std::move(callback); }
         void setDisplayPosition(int position)
         { layerTitle.setText("LAYER " + juce::String(position + 1), juce::dontSendNotification); }
 
@@ -222,6 +225,7 @@ private:
         std::function<void()> mixStateChanged;
         std::function<void()> removeLayerCallback;
         std::function<void(int, juce::Point<int>)> reorderCallback;
+        std::function<void(const juce::String&, std::vector<juce::Component*>)> dockCallback;
         juce::ComponentDragger layerDragger;
         juce::Colour outlineColour;
         bool hasCustomOutlineColour = false;
@@ -327,6 +331,8 @@ private:
     void chooseBackupFile(bool importing);
     void setUiLanguage(int language);
     void setUiSkin(int skin, bool savePreference = true);
+    void dockInspector(const juce::String& title, std::vector<juce::Component*> panels);
+    void closeInspector();
     void applyUiLanguage();
     void refreshLiveSet();
     void refreshLiveSetVolumeIndicators();
@@ -415,6 +421,7 @@ private:
     juce::Component interfaceCanvas;
     float interfaceScale = 1.0f;
     juce::Component layerContent;
+    std::unique_ptr<juce::Component> inspectorDock;
     std::array<std::unique_ptr<LayerStrip>, Sf2Engine::layerCount> strips;
     NamedKeyboard keyboard;
 

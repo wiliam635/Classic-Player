@@ -1844,6 +1844,122 @@ public:
 
 ClassicLookAndFeel classicLookAndFeel;
 
+// Concept D: layer editor docked inside the main window (replaces the popup).
+class InspectorDock final : public juce::Component
+{
+public:
+    InspectorDock(const juce::String& heading, std::vector<juce::Component*> editorPanels,
+                  std::function<void()> onClose)
+        : title(heading)
+    {
+        setLookAndFeel(&classicLookAndFeel);
+        closeButton.setButtonText(juce::String::fromUTF8("FECHAR"));
+        closeButton.onClick = std::move(onClose);
+        addAndMakeVisible(closeButton);
+        viewport.setViewedComponent(&content, false);
+        viewport.setScrollBarsShown(true, false);
+        addAndMakeVisible(viewport);
+        for (auto* panelComponent : editorPanels)
+        {
+            panels.add(panelComponent);
+            content.addAndMakeVisible(panelComponent);
+        }
+    }
+
+    ~InspectorDock() override { setLookAndFeel(nullptr); }
+
+    static int columnsFor(int width) { return width >= 1000 ? 2 : 1; }
+
+    int preferredHeight(int width) const
+    {
+        const auto columns = columnsFor(width);
+        const auto heights = flowHeights(columns);
+        int tallest = 0;
+        for (const auto h : heights) tallest = juce::jmax(tallest, h);
+        return headerHeight + tallest + 12;
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.setColour(juce::Colour(panel));
+        g.fillRoundedRectangle(getLocalBounds().toFloat(), 4.0f);
+        g.setColour(juce::Colour(paletteLine));
+        g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(0.5f), 4.0f, 1.0f);
+        g.setColour(juce::Colour(teal));
+        g.fillRect(juce::Rectangle<float>(1.0f, 6.0f, 3.0f, 16.0f));
+        g.setColour(juce::Colour(text));
+        g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+        g.drawText(title, 14, 0, getWidth() - 120, headerHeight, juce::Justification::centredLeft);
+        g.setColour(juce::Colour(paletteLine));
+        g.drawHorizontalLine(headerHeight - 1, 0.0f, (float) getWidth());
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds();
+        auto header = area.removeFromTop(headerHeight);
+        closeButton.setBounds(header.removeFromRight(86).reduced(4, 3));
+        viewport.setBounds(area);
+        layoutPanels(area.getWidth() - viewport.getScrollBarThickness());
+    }
+
+private:
+    static constexpr int headerHeight = 28;
+    static constexpr int gap = 8;
+
+    std::vector<int> flowHeights(int columns) const
+    {
+        int total = 0;
+        for (auto* c : panels) total += c->getHeight() + gap;
+        std::vector<int> heights((size_t) columns, 0);
+        int column = 0;
+        for (auto* c : panels)
+        {
+            if (column < columns - 1 && heights[(size_t) column] >= total / columns) ++column;
+            heights[(size_t) column] += c->getHeight() + gap;
+        }
+        return heights;
+    }
+
+    void layoutPanels(int width)
+    {
+        const auto columns = columnsFor(getWidth());
+        const auto columnWidth = (width - gap * (columns + 1)) / columns;
+        int total = 0;
+        for (auto* c : panels) total += c->getHeight() + gap;
+        std::vector<int> ys((size_t) columns, gap);
+        int column = 0;
+        int usedHeight = gap;
+        for (auto* c : panels)
+        {
+            if (column < columns - 1 && ys[(size_t) column] - gap >= total / columns) ++column;
+            c->setBounds(gap + column * (columnWidth + gap), ys[(size_t) column], columnWidth, c->getHeight());
+            ys[(size_t) column] += c->getHeight() + gap;
+            usedHeight = juce::jmax(usedHeight, ys[(size_t) column]);
+        }
+        content.setSize(width, usedHeight);
+        content.cards.clear();
+        for (auto* c : panels) content.cards.push_back(c->getBounds());
+        content.repaint();
+    }
+
+    struct Content final : public juce::Component
+    {
+        void paint(juce::Graphics& g) override
+        {
+            for (const auto& r : cards)
+                paintControlCard(g, r.toFloat().expanded(3.0f, 2.0f));
+        }
+        std::vector<juce::Rectangle<int>> cards;
+    };
+
+    juce::String title;
+    juce::TextButton closeButton;
+    juce::Viewport viewport;
+    Content content;
+    juce::Array<juce::Component*> panels;
+};
+
 struct KnobEditorSpec
 {
     const char* label;
@@ -7082,6 +7198,18 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         set("EqLow", knobs->value(6)); set("EqMid", knobs->value(7)); set("EqHigh", knobs->value(8));
         set("PreGainDb", knobs->value(9));
     });
+    if (activeUiPalette == 7 && dockCallback)
+    {
+        std::vector<juce::Component*> dockedPanels;
+        while (dialog->getNumCustomComponents() > 0)
+        {
+            dockedPanels.push_back(dialog->getCustomComponent(0));
+            dialog->removeCustomComponent(0);
+        }
+        delete dialog;
+        dockCallback(layerTitle.getText(), std::move(dockedPanels));
+        return;
+    }
     dialog->setSize(actionWidth + 52, juce::jmin(730, screenHeight - 12));
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();
@@ -9534,6 +9662,8 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
         strips[(size_t) i] = std::make_unique<LayerStrip>(classicProcessor, i,
                                                           [this] { applyMixerStates(); layoutLayerStrips(); });
         strips[(size_t) i]->setRemoveCallback([this, i] { removeLayer(i); });
+        strips[(size_t) i]->setDockCallback([this](const juce::String& title, std::vector<juce::Component*> panels)
+        { dockInspector(title, std::move(panels)); });
         strips[(size_t) i]->setReorderCallback([this](int layer, juce::Point<int> position)
         { reorderLayerFromDrag(layer, position); });
         layerContent.addAndMakeVisible(*strips[(size_t) i]);
@@ -10271,6 +10401,15 @@ void ClassicPlayerAudioProcessorEditor::resized()
         {
             keyboard.setBounds({});
         }
+        if (inspectorDock != nullptr && activeUiPalette == 7)
+        {
+            auto* dock = static_cast<InspectorDock*>(inspectorDock.get());
+            const auto dockHeight = juce::jmin(dock->preferredHeight(area.getWidth()),
+                                               juce::roundToInt((float) area.getHeight() * 0.62f));
+            inspectorDock->setBounds(area.removeFromTop(dockHeight));
+            inspectorDock->setVisible(true);
+            area.removeFromTop(6);
+        }
         layerViewport.setBounds(area);
         layoutLayerStrips();
     }
@@ -10295,6 +10434,29 @@ void ClassicPlayerAudioProcessorEditor::resized()
     activationStatus.setBounds(activation.removeFromTop(38));
 
     keyboard.setKeyWidth(juce::jmax(11.0f, static_cast<float>(keyboard.getWidth()) / 52.0f));
+}
+
+void ClassicPlayerAudioProcessorEditor::dockInspector(const juce::String& title,
+                                                      std::vector<juce::Component*> panels)
+{
+    const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
+    inspectorDock.reset();
+    inspectorDock = std::make_unique<InspectorDock>(title, std::move(panels), [safe]
+    {
+        juce::MessageManager::callAsync([safe] { if (safe != nullptr) safe->closeInspector(); });
+    });
+    interfaceCanvas.addAndMakeVisible(*inspectorDock);
+    applyUiSkinToComponentTree(*inspectorDock, uiPalettes[(size_t) activeUiPalette]);
+    applyUiLanguageToComponentTree(*inspectorDock, activeUiLanguage.load());
+    resized();
+    repaint();
+}
+
+void ClassicPlayerAudioProcessorEditor::closeInspector()
+{
+    inspectorDock.reset();
+    resized();
+    repaint();
 }
 
 void ClassicPlayerAudioProcessorEditor::checkForUpdates(bool manual)
@@ -11016,6 +11178,7 @@ void ClassicPlayerAudioProcessorEditor::setUiSkin(int skin, bool savePreference)
 {
     const auto nextIndex = juce::jlimit(0, (int) uiPalettes.size() - 1, skin);
     if (nextIndex == activeUiPalette && nextIndex == uiSkin) return;
+    inspectorDock.reset();
 
     const auto& nextPalette = uiPalettes[(size_t) nextIndex];
     uiSkin = nextIndex;
