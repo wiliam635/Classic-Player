@@ -61,6 +61,14 @@ juce::uint32 mutedText = uiPalettes[0].mutedText;
 void paintControlCard(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
     if (bounds.isEmpty()) return;
+    if (activeUiPalette == 7)
+    {
+        g.setColour(juce::Colour(panel));
+        g.fillRoundedRectangle(bounds, 4.0f);
+        g.setColour(juce::Colour(paletteLine));
+        g.drawRoundedRectangle(bounds.reduced(0.5f), 4.0f, 1.0f);
+        return;
+    }
     g.setGradientFill(juce::ColourGradient(juce::Colour(panelLight).withAlpha(0.45f), bounds.getX(), bounds.getY(),
                                            juce::Colour(background).withAlpha(0.35f), bounds.getX(), bounds.getBottom(), false));
     g.fillRoundedRectangle(bounds, 9.0f);
@@ -70,6 +78,7 @@ void paintControlCard(juce::Graphics& g, juce::Rectangle<float> bounds)
 
 void paintHeaderRibbon(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
+    if (activeUiPalette == 7) return; // concept D: no decorative waves
     // Cache the decorative lines; repainting meters never rebuilds these paths.
     static juce::Image artwork;
     static juce::uint32 artworkAccent = 0;
