@@ -210,7 +210,7 @@ private:
         void showEqEditor();
         void showChorusEditor();
         void showNordEffectsEditor();
-        void showNordEffectEditor(int effect);
+        void showNordEffectEditor(int effect, std::vector<juce::Component*>* collect = nullptr);
         void showDrumPadEditor();
         void showLayerEditor();
         void showAnalogSynthEditor();
@@ -470,7 +470,7 @@ private:
     bool editingLiveSet = false;
     bool virtualKeyboardVisible = true;
     int uiLanguage = 0; // 0 = Português, 1 = English, 2 = Español
-    int uiSkin = 0; // Classic, Black, Red, Purple Blue, White Blue, Brushed Silver, Dark Steel
+    int uiSkin = 0; // Graphite Amber, Classic, Black, Red, Purple Blue
     juce::int64 recordingStartedAtMs = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ClassicPlayerAudioProcessorEditor)

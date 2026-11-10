@@ -37,15 +37,12 @@ struct UiPalette
     juce::uint32 background, panel, panelLight, line, accent, highlight, text, mutedText;
 };
 
-static constexpr std::array<UiPalette, 8> uiPalettes {{
+static constexpr std::array<UiPalette, 5> uiPalettes {{
+    { 0xff0f1114, 0xff171a1f, 0xff1f242b, 0xff2b3239, 0xfff5a524, 0xff4cc9f0, 0xffe8ecf1, 0xff8b95a1 },
     { 0xff091018, 0xff151f28, 0xff202c35, 0xff33414c, 0xff13b8ad, 0xffffd84a, 0xffedf4f7, 0xff9eabb5 },
     { 0xff050608, 0xff101216, 0xff1c2025, 0xff565e66, 0xffbec5cc, 0xfff3f5f6, 0xfff6f7f8, 0xffb1b7bd },
     { 0xff22040b, 0xff3b0912, 0xff60101e, 0xff8d7f82, 0xffd51b38, 0xffbec3c8, 0xfffaf7f8, 0xffc9bfc2 },
-    { 0xff0d1027, 0xff151a35, 0xff202747, 0xff5d5b88, 0xff6549cf, 0xfff5f2ff, 0xfffbfaff, 0xffc8c4df },
-    { 0xffe9eef4, 0xfff6f8fb, 0xffd6e0ec, 0xff6c849d, 0xff126dbe, 0xff3b92dd, 0xff14273b, 0xff4c6073 },
-    { 0xff9fa5ad, 0xffc8cdd2, 0xffe0e3e7, 0xff717982, 0xff245e83, 0xffe9bc36, 0xff16222c, 0xff394853 },
-    { 0xff24292e, 0xff30363d, 0xff424a53, 0xff74818c, 0xff9ac9df, 0xffffd84a, 0xfff1f4f6, 0xffbbc4cc },
-    { 0xff0f1114, 0xff171a1f, 0xff1f242b, 0xff2b3239, 0xfff5a524, 0xff4cc9f0, 0xffe8ecf1, 0xff8b95a1 }
+    { 0xff0d1027, 0xff151a35, 0xff202747, 0xff5d5b88, 0xff6549cf, 0xfff5f2ff, 0xfffbfaff, 0xffc8c4df }
 }};
 int activeUiPalette = 0;
 juce::uint32 background = uiPalettes[0].background;
@@ -150,7 +147,7 @@ void setUiPalette(int index)
 
 juce::Colour brandTextColour()
 {
-    return juce::Colour(activeUiPalette == 2 || activeUiPalette == 3 ? text : teal);
+    return juce::Colour(activeUiPalette == 3 || activeUiPalette == 4 ? text : teal);
 }
 
 juce::Colour layerAccentColour(int layer)
@@ -1153,13 +1150,17 @@ void writeUiDisplayPreference(const char* key, bool value)
 int readUiSkinPreference()
 {
     juce::PropertiesFile settings(uiLanguageFileOptions());
-    return juce::jlimit(0, (int) uiPalettes.size() - 1, settings.getIntValue("uiSkin", 7));
+    if (settings.containsKey("uiSkinV2"))
+        return juce::jlimit(0, (int) uiPalettes.size() - 1, settings.getIntValue("uiSkinV2", 0));
+    // Old numbering: 0 teal, 1 black, 2 red, 3 purple, 4-6 removed light/steel themes, 7 amber.
+    static constexpr int migrated[] { 1, 2, 3, 4, 0, 0, 0, 0 };
+    return migrated[juce::jlimit(0, 7, settings.getIntValue("uiSkin", 7))];
 }
 
 void writeUiSkinPreference(int skin)
 {
     juce::PropertiesFile settings(uiLanguageFileOptions());
-    settings.setValue("uiSkin", juce::jlimit(0, (int) uiPalettes.size() - 1, skin));
+    settings.setValue("uiSkinV2", juce::jlimit(0, (int) uiPalettes.size() - 1, skin));
     settings.saveIfNeeded();
 }
 
@@ -1243,8 +1244,8 @@ void applyUiSkinToComponentTree(juce::Component& component, const UiPalette& new
             remapComponentColour(component, colourId, newPalette);
         if (usesPaletteAccent)
             component.setColour(juce::TextButton::textColourOnId,
-                                juce::Colour(newPalette.accent == uiPalettes[2].accent
-                                          || newPalette.accent == uiPalettes[3].accent
+                                juce::Colour(newPalette.accent == uiPalettes[3].accent
+                                          || newPalette.accent == uiPalettes[4].accent
                                     ? newPalette.text : newPalette.background));
     }
     if (dynamic_cast<juce::ComboBox*>(&component) != nullptr)
@@ -1417,7 +1418,7 @@ void flatButton(juce::Button& button)
     button.setColour(juce::TextButton::buttonColourId, juce::Colour(panelLight));
     button.setColour(juce::TextButton::buttonOnColourId, juce::Colour(teal));
     button.setColour(juce::TextButton::textColourOffId, juce::Colour(text));
-    const auto onText = activeUiPalette == 2 || activeUiPalette == 3 ? text : background;
+    const auto onText = activeUiPalette == 3 || activeUiPalette == 4 ? text : background;
     button.setColour(juce::TextButton::textColourOnId, juce::Colour(onText));
 }
 
@@ -1469,7 +1470,7 @@ public:
         setColour(juce::PopupMenu::textColourId, juce::Colour(text));
         setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(teal));
         setColour(juce::PopupMenu::highlightedTextColourId,
-                  juce::Colour(activeUiPalette == 2 || activeUiPalette == 3 ? text : background));
+                  juce::Colour(activeUiPalette == 3 || activeUiPalette == 4 ? text : background));
         setColour(juce::Slider::textBoxTextColourId, juce::Colour(text));
         setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(background));
         setColour(juce::Slider::textBoxOutlineColourId, juce::Colour(paletteLine));
@@ -7970,6 +7971,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectsEditor()
     const auto type = processor.layerType(index);
     if (type != ClassicPlayerAudioProcessor::LayerType::nord
         && type != ClassicPlayerAudioProcessor::LayerType::nordSample) return;
+    if (dockCallback && dockCallback({}, {}, -1, false))
+    {
+        std::vector<juce::Component*> all;
+        for (int effect = 1; effect <= 4; ++effect) showNordEffectEditor(effect, &all);
+        dockCallback("EFEITOS NORD", std::move(all), -1, false);
+        return;
+    }
     auto* dialog = new LayerEditorWindow(
         "EFEITOS NORD", "Selecione o efeito para ajustar nesta layer.",
         juce::MessageBoxIconType::NoIcon);
@@ -8002,7 +8010,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectsEditor()
     dialog->enterModalState(true, juce::ModalCallbackFunction::create([](int) {}), true);
 }
 
-void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int effect)
+void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int effect, std::vector<juce::Component*>* collect)
 {
     const auto type = processor.layerType(index);
     if ((type != ClassicPlayerAudioProcessor::LayerType::nord
@@ -8078,6 +8086,22 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int eff
     dialog->setSize(560, effect == 2 ? 310 : 260);
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();
+    if (collect != nullptr)
+    {
+        // Gathered into one docked page (all four effects stacked).
+        auto* heading = new juce::Label({}, names[effect]);
+        heading->setFont(juce::FontOptions(12.0f, juce::Font::bold));
+        heading->setColour(juce::Label::textColourId, juce::Colour(teal));
+        heading->setSize(560, 20);
+        collect->push_back(heading);
+        while (dialog->getNumCustomComponents() > 0)
+        {
+            collect->push_back(dialog->getCustomComponent(0));
+            dialog->removeCustomComponent(0);
+        }
+        delete dialog;
+        return;
+    }
     if (dockSubAlert(dockCallback, dialog, "EFEITO NORD")) return;
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
@@ -9759,14 +9783,11 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     };
     addAndMakeVisible(languageSelector);
 
-    skinSelector.addItem(juce::String::fromUTF8("PADRÃO"), 1);
-    skinSelector.addItem("PRETO", 2);
-    skinSelector.addItem("VERMELHO", 3);
-    skinSelector.addItem("AZUL ROXO", 4);
-    skinSelector.addItem("BRANCO AZUL", 5);
-    skinSelector.addItem("PRATEADO", 6);
-    skinSelector.addItem(juce::String::fromUTF8("AÇO ESCURO"), 7);
-    skinSelector.addItem(juce::String::fromUTF8("GRAFITE ÂMBAR"), 8);
+    skinSelector.addItem(juce::String::fromUTF8("GRAFITE ÂMBAR"), 1);
+    skinSelector.addItem(juce::String::fromUTF8("CLÁSSICO"), 2);
+    skinSelector.addItem("PRETO", 3);
+    skinSelector.addItem("VERMELHO", 4);
+    skinSelector.addItem("AZUL ROXO", 5);
     skinSelector.setSelectedId(uiSkin + 1, juce::dontSendNotification);
     skinSelector.setName(juce::String::fromUTF8("Tema de cores do aplicativo"));
     skinSelector.setTooltip(juce::String::fromUTF8("Tema de cores do aplicativo"));
