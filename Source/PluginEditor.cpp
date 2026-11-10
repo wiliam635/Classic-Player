@@ -10725,7 +10725,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
     // the space left after reserving the remaining controls.
     const auto statusWidth = juce::jlimit(140, 230, footerRow.getWidth() - 778);
     recordingStatus.setBounds(footerRow.removeFromLeft(statusWidth).reduced(6, 0));
-    keyboardVisibilityButton.setBounds(footerRow.removeFromLeft(156).reduced(2, 0));
+    keyboardVisibilityButton.setBounds({}); // the PALCO / MIXER modes now control the virtual keyboard
     audioMidiSettingsButton.setBounds(footerRow.removeFromLeft(140).reduced(2, 0));
     skinCaption.setBounds(footerRow.removeFromLeft(48).reduced(2, 0));
     skinSelector.setBounds(footerRow.removeFromLeft(150).reduced(2, 0));
@@ -10737,7 +10737,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
         && classicProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone);
     recordingButton.setVisible(!showingLiveSet);
     recordingStatus.setVisible(!showingLiveSet);
-    keyboardVisibilityButton.setVisible(!showingLiveSet);
+    keyboardVisibilityButton.setVisible(false);
 
     if (showingLiveSet)
     {
@@ -10850,7 +10850,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
             modeButton->setVisible(showToggle);
         const bool learnTools = !showingLiveSet;
         midiLearnModeButton.setVisible(learnTools);
-        masterLearnButton.setVisible(midiLearnMode || showingLiveSet);
+        masterLearnButton.setVisible(midiLearnMode && !showingLiveSet);
         panicLearnButton.setVisible(midiLearnMode || showingLiveSet);
     }
     activationPanel.setBounds(interfaceCanvas.getLocalBounds());
@@ -11780,7 +11780,7 @@ void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
     liveSetButton.setButtonText(localizedUiText(show ? "VOLTAR" : "LIVE SET", activeUiLanguage.load()));
     layerViewport.setVisible(!show);
     keyboard.setVisible(!show && virtualKeyboardVisible);
-    keyboardVisibilityButton.setVisible(!show);
+    keyboardVisibilityButton.setVisible(false);
     programBox.setVisible(!show);
     newProgramButton.setVisible(!show);
     saveProgramButton.setVisible(!show);
