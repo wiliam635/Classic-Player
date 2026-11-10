@@ -483,7 +483,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
             juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 50.0f));
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"layer" + n + "Cutoff", 1}, "Layer " + n + " Cutoff",
-            juce::NormalisableRange<float>(0.0f, 100.0f), 100.0f));
+            juce::NormalisableRange<float>(0.0f, 100.0f), 100.0f,
+            // Display only: whole numbers instead of "100.000000" / "69.3518448".
+            // The range and stored value are unchanged, so presets are unaffected.
+            juce::AudioParameterFloatAttributes().withStringFromValueFunction(
+                [](float value, int) { return juce::String(juce::roundToInt(value)); })));
         result.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{"layer" + n + "EqLow", 1}, "Layer " + n + " EQ Low",
             juce::NormalisableRange<float>(-18.0f, 18.0f, 0.1f), 0.0f));
