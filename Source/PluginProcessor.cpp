@@ -4822,6 +4822,28 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 enabledState.setProperty("value", 1.0f, nullptr);
                 state.addChild(enabledState, -1, nullptr);
             }
+            // The master EQ used to be always in the signal path; the new
+            // bypass switch defaults to off. A saved performance that predates
+            // the switch and has any EQ stage away from its neutral position
+            // must keep sounding the same, so it restores with the EQ enabled.
+            if (!findParameterState("masterEqEnabled").isValid())
+            {
+                const auto savedValue = [&findParameterState](const char* id, float fallback)
+                {
+                    const auto saved = findParameterState(id);
+                    return saved.isValid() ? static_cast<float>(saved.getProperty("value", fallback))
+                                           : fallback;
+                };
+                const auto shapedEq = savedValue("masterEqLowCut", 20.0f) > 20.5f
+                    || std::abs(savedValue("masterEqLow", 0.0f)) > 0.0001f
+                    || std::abs(savedValue("masterEqMid", 0.0f)) > 0.0001f
+                    || std::abs(savedValue("masterEqHigh", 0.0f)) > 0.0001f
+                    || savedValue("masterEqHighCut", 20000.0f) < 19950.0f;
+                juce::ValueTree eqEnabledState("PARAM");
+                eqEnabledState.setProperty("id", "masterEqEnabled", nullptr);
+                eqEnabledState.setProperty("value", shapedEq ? 1.0f : 0.0f, nullptr);
+                state.addChild(eqEnabledState, -1, nullptr);
+            }
             // Discard parameters that no longer exist while retaining all
             // instrument and layer data from older saved performances.
             for (int childIndex = state.getNumChildren(); --childIndex >= 0;)
