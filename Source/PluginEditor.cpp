@@ -10719,14 +10719,19 @@ void ClassicPlayerAudioProcessorEditor::resized()
         }
         if (inspectorDock != nullptr)
         {
-            // Keep the existing mixer strips untouched; the inspector uses the
-            // free space to their right, up to the width the panels were designed for.
-            const auto free = area.getWidth() - layerStripsWidth() - 8;
-            if (free >= juce::jmin(600, dockPreferredWidth))
+            // Only the selected layer stays on the left; its settings fill the rest.
+            const auto selectedType = juce::isPositiveAndBelow(selectedLayer, Sf2Engine::layerCount)
+                ? classicProcessor.layerType(selectedLayer) : ClassicPlayerAudioProcessor::LayerType::sf2;
+            const bool selectedPads = selectedType == ClassicPlayerAudioProcessor::LayerType::drumPads
+                                   || selectedType == ClassicPlayerAudioProcessor::LayerType::continuousPads;
+            const int soloWidth = selectedPads ? 420 : 142;
+            if (area.getWidth() - soloWidth - 8 >= 400)
             {
-                inspectorDock->setBounds(area.removeFromRight(juce::jmin(free, dockPreferredWidth)));
+                auto left = area.removeFromLeft(soloWidth);
+                area.removeFromLeft(8);
+                inspectorDock->setBounds(area);
                 inspectorDock->setVisible(true);
-                area.removeFromRight(8);
+                area = left;
             }
             else
                 inspectorDock->setVisible(false);
@@ -10841,7 +10846,7 @@ int ClassicPlayerAudioProcessorEditor::layerStripsWidth() const
 bool ClassicPlayerAudioProcessorEditor::canDockInspector(int minWidth) const
 {
     const auto available = interfaceCanvas.getWidth() - 28;
-    return !showingLiveSet && available - layerStripsWidth() - 8 >= minWidth;
+    return !showingLiveSet && available - 142 - 8 >= juce::jmin(minWidth, 400);
 }
 
 void ClassicPlayerAudioProcessorEditor::closeInspector()
@@ -12053,6 +12058,8 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
     const auto stripWidth = juce::jmin(availableWidth, compactStripWidth);
     // Pack variable-width pad strips without stretching ordinary instruments.
     std::vector<juce::Rectangle<int>> bounds;
+    const bool solo = inspectorDock != nullptr && inspectorDock->isVisible()
+                      && juce::isPositiveAndBelow(selectedLayer, Sf2Engine::layerCount);
     int x = 0;
     int rowHeight = 0;
     for (int position=0;position<count;++position)
@@ -12064,6 +12071,7 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
         const int requestedHeight = strips[(size_t)i] && strips[(size_t)i]->isExpanded()
             ? expandedHeight : juce::jmax(pads ? 322 : 148, compactHeight);
         const int height = juce::jmin(maxStripHeight, requestedHeight);
+        if (solo && i != selectedLayer) { bounds.emplace_back(0, gap, 0, 0); continue; }
         bounds.emplace_back(x, gap, width, height);
         x+=width+gap;rowHeight=juce::jmax(rowHeight,height);
     }
@@ -12076,7 +12084,7 @@ void ClassicPlayerAudioProcessorEditor::layoutLayerStrips()
         const auto i = classicProcessor.visualLayerAt(position);
         if (!juce::isPositiveAndBelow(i, Sf2Engine::layerCount)) continue;
         if (strips[(size_t) i] == nullptr) continue;
-        strips[(size_t) i]->setVisible(position < count);
+        strips[(size_t) i]->setVisible(position < count && (!solo || i == selectedLayer));
         if (position >= count) continue;
         strips[(size_t) i]->setDisplayPosition(position);
         strips[(size_t) i]->setBounds(bounds[(size_t)position]);
