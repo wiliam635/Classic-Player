@@ -372,6 +372,9 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
         jassert(cached.ModulationEnabled != nullptr);
         cached.PitchBendEnabled = parameters.getRawParameterValue(prefix + "PitchBendEnabled");
         jassert(cached.PitchBendEnabled != nullptr);
+        const std::array<const char*,7> effectFlags {"EqEnabled", "CompEnabled", "ReverbEnabled", "TremoloEnabled", "DelayEnabled", "FlangerEnabled", "ChorusEnabled"};
+        for(size_t effect=0;effect<effectFlags.size();++effect)
+            cached.effectEnabled[effect]=parameters.getRawParameterValue(prefix+effectFlags[effect]);
     }
     for(auto& bank:continuousBanks)bank=std::make_unique<ContinuousPadBank>();
     juce::Logger::writeToLog(juce::String::fromUTF8(
@@ -589,6 +592,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
             juce::ParameterID{"layer" + n + "PitchBendEnabled", 1},
             "Layer " + n + " Pitch Bend Enabled", true));
     }
+    // Append preview bypass switches; existing automation indices stay stable.
+    for(int layer=0;layer<Sf2Engine::layerCount;++layer)
+        for(const char* suffix:std::array<const char*,7>{"EqEnabled", "CompEnabled", "ReverbEnabled", "TremoloEnabled", "DelayEnabled", "FlangerEnabled", "ChorusEnabled"})
+            result.push_back(std::make_unique<juce::AudioParameterBool>(
+                juce::ParameterID{"layer"+juce::String(layer+1)+suffix,1},"Layer "+juce::String(layer+1)+" "+suffix,true));
     return { result.begin(), result.end() };
 }
 
@@ -911,6 +919,14 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         config.nordArp.rate = morphState.apply(config.nordArp.rate, config.nordMorph.arpRate, 1.0f);
         config.nordArp.rangeSemitones = juce::jlimit(0, 48, juce::roundToInt(morphState.apply(
             (float) config.nordArp.rangeSemitones, config.nordMorph.arpRange, 48.0f)));
+        const auto effectOn=[&realtime](size_t effect){return realtime.effectEnabled[effect]->load(std::memory_order_relaxed)>=.5f;};
+        if(!effectOn(0)){config.eqLow=0;config.eqMid=0;config.eqHigh=0;config.highPassHz=20;config.lowPassHz=20000;}
+        if(!effectOn(1))config.compressor=0;
+        if(!effectOn(2))config.reverb=0;
+        if(!effectOn(3))config.nordFx.tremoloMix=0;
+        if(!effectOn(4))config.nordFx.delayMix=0;
+        if(!effectOn(5))config.nordFx.flangerMix=0;
+        if(!effectOn(6)){config.nordFx.chorusMix=0;config.sf2Chorus=0;config.dx7Chorus=0;}
         engine.setRuntimeConfig(i, config);
         nordRouting[(size_t) i] = config;
         nordRouting[(size_t) i].enabled = config.enabled
@@ -1473,6 +1489,18 @@ juce::Result ClassicPlayerAudioProcessor::loadDrumPad(int pad, const juce::File&
     state.path = file.getFullPathName();
     state.position.store(-1, std::memory_order_release);
     return juce::Result::ok();
+}
+
+void ClassicPlayerAudioProcessor::clearDrumPad(int pad)
+{
+    if(!juce::isPositiveAndBelow(pad,drumPadCount))return;
+    const juce::ScopedLock lock(drumPadLock);
+    auto& state=drumPads[(size_t)pad];state.trigger=0;state.position=-1;state.path.clear();state.audio.setSize(0,0);
+}
+void ClassicPlayerAudioProcessor::stopDrumPads()
+{
+    const juce::ScopedLock lock(drumPadLock);
+    for(auto& pad:drumPads){pad.trigger=0;pad.position=-1;}
 }
 
 void ClassicPlayerAudioProcessor::processDrumPads(juce::AudioBuffer<float>& output,
@@ -2344,13 +2372,13 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     }
     for (int position = visualPosition; position < Sf2Engine::layerCount; ++position)
         visualLayerOrder[(size_t) position].store(position, std::memory_order_relaxed);
-    static constexpr std::array<const char*, 34> parameterSuffixes {
+    static constexpr std::array<const char*, 41> parameterSuffixes {
         "Gain", "PreGainDb", "Muted", "Attack", "Decay", "SustainLevel", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh",
         "EqLowFrequency", "EqMidFrequency", "EqHighFrequency", "EqLowQ", "EqMidQ", "EqHighQ",
         "Reverb", "ReverbSize", "ReverbDamping",
         "ReverbWidth", "ReverbPreset", "Comp", "CompThreshold", "CompRatio", "CompAttack",
         "CompRelease", "CompMakeup", "Dx7Chorus", "ModulationEnabled", "PitchBendEnabled",
-        "Sf2Chorus", "Sf2ChorusRate", "Sf2ChorusDepth"
+        "Sf2Chorus", "Sf2ChorusRate", "Sf2ChorusDepth", "EqEnabled", "CompEnabled", "ReverbEnabled", "TremoloEnabled", "DelayEnabled", "FlangerEnabled", "ChorusEnabled"
     };
 
     // Preserve the visual and audio order. The previous implementation moved
@@ -2624,7 +2652,7 @@ void ClassicPlayerAudioProcessor::consumeMidiControlUpdates()
     const auto masterValue = pendingMasterValue.exchange(-1.0f);
     if (masterValue >= 0.0f)
         parameters.getParameter("master")->setValueNotifyingHost(masterValue);
-    static const std::array<const char*, 5> suffixes { "Gain", "Cutoff", "Reverb", "Comp", "Release" };
+    static const std::array<const char*, 10> suffixes { "Gain", "Cutoff", "Reverb", "Comp", "Release", nullptr, "EqLow", "EqMid", "EqHigh", "PreGainDb" };
     for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
     {
         const auto muteToggles = pendingLayerMuteToggles[(size_t) layer].exchange(0,
@@ -2639,6 +2667,7 @@ void ClassicPlayerAudioProcessor::consumeMidiControlUpdates()
         const auto prefix = "layer" + juce::String(layer + 1);
         for (int target = 0; target < static_cast<int>(suffixes.size()); ++target)
         {
+            if(suffixes[(size_t)target]==nullptr)continue;
             const auto value = pendingCCValues[(size_t) layer][(size_t) target].exchange(-1.0f);
             if (value < 0.0f) continue;
             if (auto* parameter = parameters.getParameter(prefix + suffixes[(size_t) target]))
@@ -2658,12 +2687,13 @@ void ClassicPlayerAudioProcessor::applyRealtimeMidiControlUpdates()
         parameter->setValue(value);
         parameters.getRawParameterValue(eqIds[(size_t) band])->store(parameter->convertFrom0to1(value));
     }
-    static const std::array<const char*, 5> suffixes { "Gain", "Cutoff", "Reverb", "Comp", "Release" };
+    static const std::array<const char*, 10> suffixes { "Gain", "Cutoff", "Reverb", "Comp", "Release", nullptr, "EqLow", "EqMid", "EqHigh", "PreGainDb" };
     for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
     {
         const auto prefix = "layer" + juce::String(layer + 1);
         for (int target = 0; target < static_cast<int>(suffixes.size()); ++target)
         {
+            if(suffixes[(size_t)target]==nullptr)continue;
             const auto value = realtimeCCValues[(size_t) layer][(size_t) target].exchange(
                 -1.0f, std::memory_order_acq_rel);
             if (value < 0.0f) continue;
@@ -4807,6 +4837,12 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     state.addChild(modulationState, -1, nullptr);
                 }
 
+                for(const char* suffix:std::array<const char*,7>{"EqEnabled", "CompEnabled", "ReverbEnabled", "TremoloEnabled", "DelayEnabled", "FlangerEnabled", "ChorusEnabled"})
+                    if(!findParameterState(prefix+suffix).isValid())
+                    {
+                        juce::ValueTree flag("PARAM");flag.setProperty("id",prefix+suffix,nullptr);
+                        flag.setProperty("value",1.0f,nullptr);state.addChild(flag,-1,nullptr);
+                    }
                 const auto pitchBendId = prefix + "PitchBendEnabled";
                 if (!findParameterState(pitchBendId).isValid())
                 {

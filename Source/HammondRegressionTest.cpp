@@ -8,6 +8,7 @@
 #include <chrono>
 #include <array>
 #include <utility>
+#include <set>
 static void check(bool b,const char* message){if(!b)throw std::runtime_error(message);}
 struct ContinuousPadRegressionAccess
 {
@@ -302,6 +303,72 @@ static void continuousPadRegression()
 }
 struct LiveSetLayoutRegressionAccess
 {
+    static void conceptUi(const char* output)
+    {
+        using P=ClassicPlayerAudioProcessor;
+        juce::TemporaryFile storage;
+        const auto root=storage.getFile();check(root.createDirectory().wasOk(),"concept storage");
+        struct Cleanup{juce::File root;~Cleanup(){root.deleteRecursively();}} cleanup{root};
+        auto p=std::make_unique<P>(root);p->prepareToPlay(48000,128);p->resetToNewProgram();
+        const std::array<P::LayerType,8> types {P::LayerType::nord,P::LayerType::nordSample,P::LayerType::sf2,
+            P::LayerType::dx7,P::LayerType::hammond,P::LayerType::analog,P::LayerType::drumPads,P::LayerType::continuousPads};
+        for(auto type:types)check(p->addLayer(type),"concept create layer");
+        auto editor=std::make_unique<ClassicPlayerAudioProcessorEditor>(*p,false);
+        editor->setUiSkin(7,false);editor->activationPanel.setVisible(false);editor->virtualKeyboardVisible=true;
+        editor->keyboard.setVisible(true);editor->setSize(1440,1000);
+        const auto capture=[&](const juce::String& name)
+        {
+            if(!editor->showingLiveSet && !editor->conceptMixerOnly)
+            {
+                auto* page=editor->conceptInspectorTabs.getCurrentContentComponent();
+                check(page!=nullptr,"inspector current page");
+                const auto image=page->createComponentSnapshot(page->getLocalBounds());
+                std::set<juce::uint32> colours;
+                for(int y=5;y<image.getHeight();y+=7)for(int x=5;x<image.getWidth();x+=7)colours.insert(image.getPixelAt(x,y).getARGB());
+                check(colours.size()>16,"inspector content rendered blank");
+            }
+            if(output==nullptr)return;
+            auto file=juce::File(juce::String(output)+"-"+name+".png");
+            check(!file.existsAsFile() || file.deleteFile(),"replace snapshot");
+            juce::FileOutputStream stream(file);juce::PNGImageFormat png;
+            check(stream.openedOk() && png.writeImageToStream(editor->createComponentSnapshot(editor->getLocalBounds()),stream),"concept snapshot");
+        };
+        for(int layer=0;layer<8;++layer)
+        {
+            editor->selectedLayer=layer;editor->rebuildConceptInspector();editor->resized();
+            check(editor->conceptInspectorTabs.getNumTabs()>=3,"missing inspector tabs");
+            check(editor->conceptInspectorTabs.getBottom()<=editor->layerViewport.getY(),"inspector overlaps mixer");
+            capture("source-"+juce::String(layer));
+        }
+        editor->selectedLayer=0;editor->rebuildConceptInspector();editor->resized();
+        for(int tab=1;tab<editor->conceptInspectorTabs.getNumTabs();++tab)
+        {editor->conceptInspectorTabs.setCurrentTabIndex(tab);capture("tab-"+juce::String(tab));}
+        editor->conceptInspectorTabs.setCurrentTabIndex(0);
+        for(const auto size:std::array<juce::Point<int>,3>{{{1440,1000},{1100,900},{800,800}}})
+        {editor->setSize(size.x,size.y);capture("responsive-"+juce::String(size.x));}
+        editor->modeMixerButton.onClick();check(editor->conceptMixerOnly && !editor->conceptInspectorTabs.isVisible(),"mixer mode");
+        editor->modeStageButton.onClick();check(!editor->conceptMixerOnly && editor->conceptInspectorTabs.isVisible(),"stage mode");
+        editor->showLiveSet(true);check(!editor->conceptInspectorTabs.isVisible(),"inspector overlays Live Set");capture("live-set");
+        editor->showLiveSet(false);editor->midiLearnModeButton.onClick();check(editor->midiLearnMode,"global learn mode");
+        p->beginMidiLearn(0,P::LearnTarget::eqLow);
+        juce::AudioBuffer<float> audio(2,128);audio.clear();juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::controllerEvent(3,24,127),0);p->processBlock(audio,midi);p->consumeMidiControlUpdates();
+        check(p->midiLearnCC(0,P::LearnTarget::eqLow)==24,"global EQ learn");
+        check(std::abs(p->parameters.getRawParameterValue("layer1EqLow")->load()-18.f)<.11f,"global EQ response");
+        check(editor->conceptMappingLabel("layer1EqLow")=="CC 24","CC badge");
+        p->parameters.getParameter("layer1EqEnabled")->setValueNotifyingHost(0.f);
+        check(p->parameters.getRawParameterValue("layer1EqLow")->load()>17.9f,"bypass destroyed EQ settings");
+        juce::MemoryBlock state;p->getStateInformation(state);p->resetMidiLearn(0);p->setStateInformation(state.getData(),(int)state.getSize());
+        check(p->midiLearnCC(0,P::LearnTarget::eqLow)==24,"new mapping persistence");
+        check(p->parameters.getRawParameterValue("layer1EqEnabled")->load()<.5f,"effect bypass persistence");
+        p->resetToNewProgram();editor->refreshAfterProgramLoad();editor->resized();
+        check(editor->conceptInspectorTabs.getNumTabs()==0 && !editor->conceptInspectorTabs.isVisible(),"empty program retained stale inspector");
+        editor->addLayer(P::LayerType::nordSample);
+        check(editor->selectedLayer==0 && editor->conceptInspectorTabs.getNumTabs()>0,"new layer did not open inspector");
+        editor->removeLayer(0);check(editor->conceptInspectorTabs.getNumTabs()==0,"deleted layer retained controls");
+        std::cout<<"Concept inspector: eight engines, embedded tabs, responsive layout, mode navigation and global EQ mapping/persistence passed\n";
+    }
+
     static void analogPolyphonyUi()
     {
         auto processor=std::make_unique<ClassicPlayerAudioProcessor>();
@@ -375,6 +442,7 @@ struct LiveSetLayoutRegressionAccess
         juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
         processor->setLayerType(5, ClassicPlayerAudioProcessor::LayerType::drumPads);
         auto editor = std::make_unique<ClassicPlayerAudioProcessorEditor>(*processor, false);
+        editor->setUiSkin(0,false); // Legacy layout contract; --concept-ui covers the responsive inspector.
         editor->setVisible(true);
         editor->activationPanel.setVisible(false);
         for (auto& strip : editor->strips) if (strip) strip->refresh();
@@ -608,6 +676,7 @@ struct LiveSetLayoutRegressionAccess
         check(processor->assignLiveSetSlot(0,0,program).wasOk(),"Live Set fixture assignment");
         check(processor->liveSetSlotLayerSummary(0,0)=="2 CAMADAS","built-in instruments missing from layer count");
         auto editor = std::make_unique<ClassicPlayerAudioProcessorEditor>(*processor, false);
+        editor->setUiSkin(0,false); // Legacy layout contract; --concept-ui covers the responsive inspector.
         editor->showLiveSet(true);
         editor->activationPanel.setVisible(false);
         for (auto size : { juce::Point<int>(1280,700), juce::Point<int>(1000,600) })
@@ -1325,6 +1394,8 @@ int main(int argc, char** argv)
             benchmarkIdleHammond();
             return 0;
         }
+        if(argc>1 && juce::String(argv[1])=="--concept-ui")
+        {LiveSetLayoutRegressionAccess::conceptUi(argc>2?argv[2]:nullptr);return 0;}
         if (argc > 1 && juce::String(argv[1]) == "--responsive-ui")
         {
             LiveSetLayoutRegressionAccess::responsiveUi(argc > 2 ? argv[2] : nullptr);

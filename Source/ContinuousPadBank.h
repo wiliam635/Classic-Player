@@ -67,6 +67,13 @@ public:
         return juce::Result::ok();
     }
     juce::String path(int i) const {const juce::ScopedLock g(lock);return pads[(size_t)i].path;}
+    void clearSample(int i)
+    {
+        if (!juce::isPositiveAndBelow(i,count)) return;
+        const juce::ScopedLock guard(lock);
+        auto& pad=pads[(size_t)i]; pad.audio.reset();pad.path.clear();pad.position=0;pad.level=0;
+        if(active.load()==i){active=-1;command=-2;}
+    }
     static juce::String noteName(int i)
     {
         static constexpr const char* names[count] { "C", "C#", "D", "D#", "E", "F",

@@ -23,6 +23,11 @@ public:
     ~ClassicPlayerAudioProcessorEditor() override;
     void paint(juce::Graphics&) override;
     void resized() override;
+    void mouseDown(const juce::MouseEvent&) override;
+    juce::String conceptMappingLabel(const juce::String&) const;
+    juce::StringArray getConceptMenuNames();
+    juce::PopupMenu getConceptMenu(int,const juce::String&);
+    void conceptMenuAction(int,int);
 
 private:
     friend struct LiveSetLayoutRegressionAccess;
@@ -128,8 +133,10 @@ private:
     public:
         explicit DrumPadPanel(ClassicPlayerAudioProcessor&, int layer);
         void resized() override;
+        void visibilityChanged() override;
         void refresh();
         void setControlsVisible(bool shouldShow);
+        std::function<void()> onEditEq;
     private:
         void chooseSample(int pad);
         void timerCallback() override { if (isShowing()) refresh(); }
@@ -139,13 +146,18 @@ private:
         int padCount() const {return continuous()?12:8;}
         std::array<juce::TextButton, 12> pads;
         std::array<juce::TextButton, 12> loadButtons;
+        std::array<juce::TextButton, 12> clearButtons;
+        std::array<juce::Label,12> sampleLabels;
+        juce::Slider layerGain, padCutoff;
+        juce::TextButton padMute { "MUTE" }, editEq { "Editar EQ e filtros" };
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> layerGainAttachment, padCutoffAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> padMuteAttachment;
         std::array<MidiLearnButton, 12> learnButtons;
         std::array<juce::Slider, 12> padVolumes;
         juce::TextButton stopButton{"STOP"};
         MidiLearnButton stopLearn{"LEARN STOP"}, volumeLearnButton{"LEARN VOLUME"},
-                        cutoffLearnButton{"LEARN CUTOFF"}, muteLearnButton{"LEARN MUTE"};
-        juce::Slider fadeSlider, cutoffSlider;
-        juce::Label cutoffLabel;
+                        muteLearnButton{"LEARN MUTE"};
+        juce::Slider fadeSlider;
         std::unique_ptr<juce::FileChooser> fileChooser;
         bool controlsVisible = true;
     };
@@ -175,6 +187,20 @@ private:
         bool isSolo() const { return solo; }
         bool isExpanded() const { return expanded; }
         void triggerReset() { resetButton.triggerClick(); }
+        juce::String selectedCategory() const;
+        void selectCategory(const juce::String&);
+        void openAdsrEditor(){showAdsrEditor();}
+        void openVelocityEditor(){showVelocityEditor();}
+        void openReverbEditor(){showReverbEditor();}
+        void openCompressorEditor(){showCompressorEditor();}
+        void openEqEditor(){showEqEditor();}
+        void openChorusEditor(){showChorusEditor();}
+        void openNordEffectsEditor(){showNordEffectsEditor();}
+        void openSpecializedEditor();
+        void exportLayerPreset(){saveLayerPreset();}
+        void importLayerPreset(){loadLayerPreset();}
+        void resetSelectedLayer(){resetLayer();}
+
         void setLearnVisible(bool shouldShow) { if (learnModeVisible != shouldShow) { learnModeVisible = shouldShow; updateSourceTypeVisibility(); } }
         void setSelected(bool shouldSelect) { if (selected != shouldSelect) { selected = shouldSelect; repaint(); } }
         void setRemoveCallback(std::function<void()> callback) { removeLayerCallback = std::move(callback); }
@@ -250,6 +276,7 @@ private:
 
         juce::Label layerTitle;
         juce::Rectangle<int> categoryArtworkBounds;
+        juce::Rectangle<int> padThumbnailBounds;
         juce::Rectangle<int> engineTagBounds;
         juce::TextButton muteButton { "M" };
         juce::TextButton soloButton { "S" };
@@ -351,6 +378,23 @@ private:
     juce::TextButton displaySpectrumButton { "ESPECTRO" };
     int selectedLayer = -1;
     void closeInspector();
+    void rebuildConceptInspector();
+    void layoutConceptStrips();
+    juce::TabbedComponent conceptInspectorTabs {juce::TabbedButtonBar::TabsAtTop};
+    juce::Label conceptSelectedLabel;
+    bool conceptInspectorReady=false;
+    bool conceptMixerOnly=false;
+    juce::TextButton conceptExport {"Exportar preset"},conceptImport {"Importar preset"},conceptReset {"Reset layer"};
+    class ConceptMenuModel final : public juce::MenuBarModel
+    {
+    public:
+        explicit ConceptMenuModel(ClassicPlayerAudioProcessorEditor& e):owner(e){}
+        juce::StringArray getMenuBarNames() override{return owner.getConceptMenuNames();}
+        juce::PopupMenu getMenuForIndex(int i,const juce::String& n)override{return owner.getConceptMenu(i,n);}
+        void menuItemSelected(int i,int menu)override{owner.conceptMenuAction(i,menu);}
+    private:ClassicPlayerAudioProcessorEditor& owner;
+    } conceptMenuModel {*this};
+    juce::MenuBarComponent conceptMenu {&conceptMenuModel};
     bool canDockInspector(int minWidth) const;
     int layerStripsWidth() const;
     void applyUiLanguage();

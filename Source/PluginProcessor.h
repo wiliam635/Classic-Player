@@ -21,7 +21,7 @@ class ClassicPlayerAudioProcessor final : public juce::AudioProcessor,
 {
 public:
     // Keep existing indices stable because mappings are serialized by index.
-    enum class LearnTarget { volume = 0, cutoff, reverb, compressor, release, mute, count };
+    enum class LearnTarget { volume = 0, cutoff, reverb, compressor, release, mute, eqLow, eqMid, eqHigh, preGain, count };
     void beginMasterMidiLearn();
     void resetMasterMidiLearn();
     bool isMasterMidiLearning() const { return masterLearning.load(); }
@@ -287,6 +287,8 @@ public:
     void clearDrumPadMidiLearn(int pad);
     bool isDrumPadMidiLearning(int pad) const;
     juce::Result loadDrumPad(int pad, const juce::File& file);
+    void clearDrumPad(int pad);
+    void stopDrumPads();
 
     void refreshActivation();
     bool isActivated() const { return activated.load(); }
@@ -335,6 +337,7 @@ private:
         std::atomic<float>* Sf2ChorusDepth = nullptr;
         std::atomic<float>* ModulationEnabled = nullptr;
         std::atomic<float>* PitchBendEnabled = nullptr;
+        std::array<std::atomic<float>*,7> effectEnabled {};
     };
     std::array<RealtimeLayerParameters, Sf2Engine::layerCount> realtimeLayerParameters;
     friend struct MidiRecordingRegressionAccess;

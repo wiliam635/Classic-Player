@@ -58,6 +58,7 @@ class HammondEditorPanel final : public juce::Component, private juce::Timer
         std::array<juce::Image, 3> images;
     } drawbarLook;
 public:
+    void visibilityChanged() override {if(isShowing())startTimerHz(15);else stopTimer();}
     void setUiTextTranslator(std::function<juce::String(const juce::String&)> translator)
     {
         translateUiText = std::move(translator);
@@ -85,6 +86,8 @@ public:
             labels[i].setText(namesOfBars[i],juce::dontSendNotification);
             labels[i].setJustificationType(juce::Justification::centred);
             labels[i].setFont(juce::FontOptions(11.0f,juce::Font::bold));addAndMakeVisible(labels[i]);
+            bars[i].getProperties().set("conceptHammondLayer",index);
+            bars[i].getProperties().set("conceptHammondTarget",(int)i);
             bars[i].setSliderStyle(juce::Slider::LinearVertical);bars[i].setRange(0,8,1);
             bars[i].getProperties().set("drawbarColour", i < 2 ? 0 : (i == 4 || i == 6 || i == 7 ? 2 : 1));
             bars[i].setLookAndFeel(&drawbarLook);
@@ -144,15 +147,31 @@ public:
         learn.onClick=[this]{auto c=processor.hammondConfig(index);c.learning=c.learning>=0?-1:target.getSelectedId()-1;processor.setHammondConfig(index,c);refresh();};
         clear.onClick=[this]{auto c=processor.hammondConfig(index);c.cc[(size_t)(target.getSelectedId()-1)]=-1;c.learning=-1;processor.setHammondConfig(index,c);refresh();};
         learn.onClearMapping = clear.onClick;
-        setSize(680,344);applyThemeColours();refresh();startTimerHz(15);
+        setSize(680,344);applyThemeColours();refresh();
     }
     ~HammondEditorPanel() override {
         stopTimer();
         for (auto& bar : bars) bar.setLookAndFeel(nullptr);
         auto c=processor.hammondConfig(index);c.learning=-1;processor.setHammondConfig(index,c);
     }
+    void useConceptLayout(){conceptCompact=true;resized();}
     void resized() override
     {
+        if(conceptCompact)
+        {
+            auto area=getLocalBounds().reduced(8);auto left=area.removeFromLeft(area.getWidth()/2).reduced(4);
+            auto middle=area.removeFromLeft(area.getWidth()/2).reduced(6);auto right=area.reduced(6);
+            preset.setBounds(left.removeFromTop(28));left.removeFromTop(6);const int cell=left.getWidth()/9;
+            for(size_t i=0;i<bars.size();++i){auto lane=left.removeFromLeft(cell);labels[i].setBounds(lane.removeFromTop(18));bars[i].setBounds(lane.reduced(2));}
+            leslieLabel.setBounds(middle.removeFromTop(20));auto row=middle.removeFromTop(30);int width=row.getWidth()/3;
+            for(auto& b:leslieButtons)b.setBounds(row.removeFromLeft(width));middle.removeFromTop(16);
+            percussionLabel.setBounds(middle.removeFromTop(20));row=middle.removeFromTop(30);width=row.getWidth()/3;
+            for(auto& b:percussionButtons)b.setBounds(row.removeFromLeft(width));
+            for(size_t i=0;i<4;++i){auto box=juce::Rectangle<int>(right.getX()+(int)(i%2)*right.getWidth()/2,right.getY()+(int)(i/2)*right.getHeight()/2,right.getWidth()/2,right.getHeight()/2);
+                knobLabels[i].setBounds(box.removeFromTop(18));knobs[i].setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);knobs[i].setTextBoxStyle(juce::Slider::TextBoxBelow,false,52,18);knobs[i].setBounds(box.reduced(4));}
+            for(juce::Component* c:std::initializer_list<juce::Component*>{&target,&learn,&clear,&mapping})c->setVisible(false);
+            return;
+        }
         const int width = getWidth();
         const int height = getHeight();
         const int drawbarBottom = juce::jmax(145, height - 99);
@@ -200,6 +219,7 @@ public:
         const auto border=getLookAndFeel().findColour(juce::ComboBox::outlineColourId);
         const auto accent=getLookAndFeel().findColour(juce::ComboBox::arrowColourId);
         g.fillAll(surface.darker(0.75f));
+        if(conceptCompact)return;
         const auto drawPanel=[&g,&surface,&border,&accent](juce::Rectangle<float> bounds)
         {
             g.setGradientFill(juce::ColourGradient(surface.brighter(0.08f),bounds.getX(),bounds.getY(),
@@ -276,7 +296,7 @@ private:
             button.setColour(juce::TextButton::textColourOnId,accent.contrasting());
         }
     }
-    void timerCallback() override { refresh(); }
+    void timerCallback() override { if(isShowing())refresh(); }
     void refresh()
     {
         const auto c=processor.hammondConfig(index);
@@ -297,6 +317,7 @@ private:
     }
     juce::String translate(const juce::String& value) const
     { return translateUiText ? translateUiText(value) : value; }
+    bool conceptCompact=false;
     ClassicPlayerAudioProcessor& processor;int index;
     std::array<juce::Slider,9> bars;
     std::array<juce::Label,9> labels;

@@ -75,7 +75,7 @@ configure_and_build() {
     local backup_test="$build/ClassicPlayerMasterMidiTest_artefacts/Release/ClassicPlayerMasterMidiTest"
     "$backup_test" --backup
     local ui_test="$build/ClassicPlayerHammondTest_artefacts/Release/ClassicPlayerHammondTest"
-    for skin_option in --hammond-midi --ui-preferences --performance-effects --silver-ui --dark-steel-ui --responsive-ui --live-layout; do
+    for skin_option in --hammond-midi --ui-preferences --performance-effects --silver-ui --dark-steel-ui --responsive-ui --live-layout --concept-ui; do
       "$ui_test" "$skin_option"
     done
   fi

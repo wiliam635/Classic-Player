@@ -2,7 +2,7 @@ name: Build Classic Player - macOS Universal
 
 on:
   push:
-    branches: [codex/nord-bundle-loader-20261102, codex/nord-morph-investigation-20261103, codex/fix-client-issues-20261107]
+    branches: [codex/concept-d-complete-preview-20261110, codex/nord-bundle-loader-20261102, codex/nord-morph-investigation-20261103, codex/fix-client-issues-20261107]
   workflow_dispatch:
 
 jobs:
@@ -17,7 +17,7 @@ jobs:
       - name: Define download version
         shell: bash
         run: |
-          echo "DOWNLOAD_VERSION=3.0.3" >> "$GITHUB_ENV"
+          echo "DOWNLOAD_VERSION=3.0.3-Conceito-D-teste" >> "$GITHUB_ENV"
 
       - name: Preflight native source
         run: |
