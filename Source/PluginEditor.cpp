@@ -8097,6 +8097,19 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
             ? channelColour.interpolatedWith(juce::Colour(text).getBrightness() > 0.5f
                                                 ? juce::Colours::black : juce::Colours::white, 0.55f)
             : juce::Colour(panel);
+        if (activeUiPalette == 7)
+        {
+            // Concept D: flat card, 1 px outline, thin header rule.
+            g.setColour(fill);
+            g.fillRoundedRectangle(bounds, 6.0f);
+            g.setColour(juce::Colour(paletteLine));
+            g.drawRoundedRectangle(bounds.reduced(0.5f), 6.0f, 1.0f);
+            g.setColour(accent.withAlpha(0.9f));
+            g.fillRect(juce::Rectangle<float>(bounds.getX() + 1.0f, bounds.getY() + 6.0f, 3.0f, 20.0f));
+            g.setColour(juce::Colour(paletteLine));
+            g.drawHorizontalLine(31, bounds.getX() + 10.0f, bounds.getRight() - 10.0f);
+            return;
+        }
         g.setGradientFill(juce::ColourGradient(fill.brighter(0.07f), bounds.getX(), bounds.getY(),
                                                fill.darker(0.22f), bounds.getX(), bounds.getBottom(), false));
         g.fillRoundedRectangle(bounds, 10.0f);
