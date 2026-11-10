@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Classic Player - Proposta de interface</title>
+<style>
+@page{size:1280px 800px;margin:0}
+*{box-sizing:border-box}
+html,body{margin:0;background:#05090d}
+body{font-family:-apple-system,"Helvetica Neue",Arial,sans-serif;color:#edf4f7;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.pg{width:1280px;height:800px;background:#080e14;padding:34px 44px 30px;position:relative;page-break-after:always;overflow:hidden;display:flex;flex-direction:column}
+.pg header h1{margin:0;font-size:26px;letter-spacing:.02em}
+.pg header p{margin:4px 0 0;font-size:13px;color:#9eabb5}
+.pgbody{flex:1;display:flex;gap:28px;margin-top:18px;min-height:0}
+.main{flex:1;display:flex;flex-direction:column;gap:14px;align-items:flex-start;min-width:0}
+.side{width:300px;border-left:1px solid #26333d;padding-left:22px;font-size:12px;line-height:1.5;color:#c9d3da}
+.side h3{margin:0 0 8px;font-size:11px;letter-spacing:.14em;color:#13b8ad}
+.side ul{margin:0 0 14px;padding-left:16px}.side li{margin-bottom:5px}
+.side .old{color:#d98b8b}
+footer{position:absolute;left:44px;right:44px;bottom:12px;font-size:10px;color:#6f7d88;display:flex;justify-content:space-between}
+.win{border:1px solid #3b4b57;border-radius:10px;overflow:hidden;background:#0b131a}
+.wt{height:24px;background:#1b2630;font-size:11px;font-weight:700;letter-spacing:.06em;color:#c9d3da;display:flex;align-items:center;justify-content:center;position:relative}
+.wt:before{content:"";position:absolute;left:10px;width:9px;height:9px;border-radius:50%;background:#e0584f;box-shadow:15px 0 #e3b341,30px 0 #4cb76a}
+.wb{padding:12px;display:flex;flex-direction:column;gap:9px}
+.ttl{text-align:center;font-size:13px;font-weight:700;letter-spacing:.1em}
+.sub{text-align:center;font-size:10px;color:#9eabb5;margin-top:-4px}
+.pnl{border:1px solid #33414c;border-radius:6px;background:#121b23;overflow:hidden}
+.hd{height:22px;background:#1b2630;border-bottom:1px solid #33414c;display:flex;align-items:center;padding:0 10px;font-size:10px;font-weight:700;letter-spacing:.12em;color:#9eabb5}
+.hd:before{content:"";width:3px;height:10px;background:#13b8ad;margin-right:8px}
+.bd{padding:9px;display:flex;flex-direction:column;gap:7px}
+.lbl{font-size:9px;font-weight:700;letter-spacing:.08em;color:#9eabb5;text-transform:uppercase;margin-bottom:3px}
+.sel{height:28px;border:1px solid #33414c;border-radius:4px;background:#0c141b;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-size:11px;white-space:nowrap}
+.sel i{font-style:normal;color:#13b8ad}
+.btn{height:28px;border:1px solid #3b4b57;border-radius:4px;background:linear-gradient(#25323c,#1a252e);display:flex;align-items:center;justify-content:center;padding:0 8px;font-size:10px;font-weight:700;letter-spacing:.06em;white-space:nowrap}
+.btn.on{background:linear-gradient(#18c6ba,#0f9f95);color:#06141a;border-color:#13b8ad}
+.btn.hov{background:linear-gradient(#2e3e4a,#223039);border-color:#13b8ad}
+.btn.dis{opacity:.4}.btn.dng{background:linear-gradient(#7a2c36,#5b1f28);border-color:#b34a57}
+.btn.xs{height:20px;font-size:9px;padding:0 4px}.btn.lg{height:36px;font-size:11px}
+.row{display:flex;gap:6px}
+.seg{display:flex;border:1px solid #33414c;border-radius:4px;overflow:hidden}
+.seg div{flex:1;height:28px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;border-right:1px solid #33414c;background:#0c141b;padding:0 8px;white-space:nowrap}
+.seg div:last-child{border-right:none}.seg .on{background:#13b8ad;color:#06141a}
+.knob{width:50px;height:50px;border-radius:50%;background:conic-gradient(from 225deg,#13b8ad var(--v),#33414c 0);position:relative;margin:0 auto}
+.knob:before{content:"";position:absolute;inset:4px;border-radius:50%;background:radial-gradient(#2c3944,#151f28)}
+.knob:after{content:"";position:absolute;left:50%;top:8px;width:2px;height:14px;margin-left:-1px;background:#13b8ad;transform-origin:1px 17px;transform:rotate(var(--r))}
+.knob.s{width:38px;height:38px}.knob.s:before{inset:3px}.knob.s:after{top:6px;height:10px;transform-origin:1px 13px}
+.val{width:48px;height:18px;margin:5px auto 0;border:1px solid #33414c;border-radius:3px;background:#0a1117;font-size:10px;text-align:center;line-height:16px}
+.kc{flex:1;text-align:center;min-width:0}.kc .lbl{text-align:center;letter-spacing:.02em;font-size:8px;white-space:nowrap}
+.chip{height:18px;border:1px solid #3b4b57;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;letter-spacing:.06em;color:#9eabb5;margin:5px 6px 0}
+.sw{width:84px}.sw i{display:block;height:44px;border-radius:6px;border:1px solid #33414c}.sw b{display:block;font-size:10px;margin-top:4px}.sw span{font-size:9px;color:#9eabb5}
+.strip{width:100px;height:372px;border:1px solid #33414c;border-radius:6px;background:#121b23;padding:6px;display:flex;flex-direction:column;gap:5px;position:relative;overflow:hidden}
+.strip>i{position:absolute;left:0;right:0;top:0;height:3px}
+.strip .sh{font-size:9px;font-weight:700;display:flex;gap:3px;align-items:center;margin-top:3px}
+.strip .sh span{margin-left:auto;border:1px solid #3b4b57;border-radius:3px;padding:0 3px;font-size:8px}.strip .sh span+span{margin-left:0}
+.strip .img{height:42px;border-radius:3px;background:linear-gradient(135deg,#2c3944,#18222b);border:1px solid #33414c}
+.strip .btn.xs{font-size:8px;padding:0 2px;letter-spacing:.02em}.strip .nm{font-size:9px;font-weight:700;text-align:center;white-space:nowrap;overflow:hidden}
+.fad{flex:1;position:relative;margin:2px 30px}.fad:before{content:"";position:absolute;left:50%;top:0;bottom:0;width:4px;margin-left:-2px;background:#0a1117;border-radius:2px}
+.fad b{position:absolute;left:50%;margin-left:-11px;top:34%;width:22px;height:10px;border-radius:2px;background:#cfd6db}
+.pad{height:34px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#06141a}
+table{border-collapse:collapse;font-size:11px;width:100%}th,td{border:1px solid #26333d;padding:6px 8px;text-align:left;vertical-align:top}th{background:#16212a;color:#9eabb5;font-size:10px;letter-spacing:.08em}
+.tag{display:inline-block;font-size:9px;font-weight:700;letter-spacing:.08em;color:#06141a;background:#13b8ad;border-radius:3px;padding:1px 5px;margin-right:6px}
+</style></head><body>
+<script>
+const sel=(l,t,f='1')=>`<div style="flex:${f};min-width:0"><div class=lbl>${l}</div><div class=sel>${t}<i>⌄</i></div></div>`;
+const btn=(t,c='',s='')=>`<div class="btn ${c}" style="${s}">${t}</div>`;
+const knob=(l,v,f,learn,sm)=>`<div class=kc><div class=lbl>${l}</div><div class="knob ${sm?'s':''}" style="--v:${f*75}%;--r:${-135+f*270}deg"></div><div class=val>${v}</div>${learn?'<div class=chip>LEARN</div>':''}</div>`;
+const panel=(t,body,s='')=>`<div class=pnl style="${s}"><div class=hd>${t}</div><div class=bd>${body}</div></div>`;
+const row=(x,s='')=>`<div class=row style="${s}">${x}</div>`;
+const seg=(items,on,s='')=>`<div class=seg style="${s}">${items.map((x,i)=>`<div class="${i==on?'on':''}">${x}</div>`).join('')}</div>`;
+const win=(title,body,w)=>`<div class=win style="width:${w}px"><div class=wt>${title}</div><div class=wb>${body}</div></div>`;
+const head=(t,s)=>`<div class=ttl>${t}</div>${s?`<div class=sub>${s}</div>`:''}`;
+const notes=(sec)=>`<div class=side>${sec.map(([h,items,cls])=>`<h3>${h}</h3><ul>${items.map(i=>`<li class="${cls||''}">${i}</li>`).join('')}</ul>`).join('')}</div>`;
+const page=(n,t,s,body,side)=>`<section class=pg><header><h1>${t}</h1><p>${s}</p></header><div class=pgbody><div class=main>${body}</div>${side?notes(side):''}</div><footer><span>Classic Player 3.0.3 · proposta de interface (conceito C)</span><span>página ${n}</span></footer></section>`;
+const strip=(n,name,c)=>`<div class=strip><i style="background:${c}"></i><div class=sh>LAYER ${n}<span>M</span><span>S</span></div>${row(btn('EDITAR','xs','flex:1')+btn('RESET','xs','flex:1'),'gap:3px')}<div class=img></div><div class=nm>${name}</div><div class=fad><b></b></div><div class=val style="margin:2px auto;width:40px">80</div>${btn('LEARN','xs')}</div>`;
+const pad=(t,c,w)=>`<div class=pad style="background:${c};${w?'width:'+w+'px':'flex:1'}">${t}</div>`;
+const P=[];
+const eng={npno:'#13b8ad',nsmp:'#6ea8ff',sf2:'#e3b341',dx7:'#c58bff',ham:'#ff9b52',ana:'#5ee08a',pad:'#ff6f91'};
+
+/* 1 capa */
+P.push(`<section class=pg style="justify-content:center"><div style="font-size:12px;letter-spacing:.3em;color:#13b8ad">CLASSIC PLAYER 3.0.3</div><h1 style="font-size:46px;margin:10px 0 6px">Proposta de interface</h1><div style="font-size:18px;color:#9eabb5;margin-bottom:34px">Conceito C: painel de hardware aplicado a todas as janelas</div>
+<table style="width:760px;font-size:13px"><tr><th>Pág.</th><th>Conteúdo</th></tr>
+<tr><td>2</td><td>Sistema visual: cores, tipografia, botões, knobs, painéis, valores</td></tr>
+<tr><td>3</td><td>Janela principal e faixas de layer</td></tr>
+<tr><td>4</td><td>Editar layer NPNO, referência de todos os motores</td></tr>
+<tr><td>5</td><td>Como cada motor usa o mesmo esqueleto (NPNO, NSMP, SF2, DX7, Hammond, Analog)</td></tr>
+<tr><td>6</td><td>Painéis específicos: Hammond e Analog</td></tr>
+<tr><td>7</td><td>Envelope ADSR e curva de velocity (com indicador e piso de timbre)</td></tr>
+<tr><td>8</td><td>Reverb, compressor e EQ da layer</td></tr>
+<tr><td>9</td><td>Efeitos Nord em uma só janela</td></tr>
+<tr><td>10</td><td>EQ master e Limiter master</td></tr>
+<tr><td>11</td><td>Live Set</td></tr>
+<tr><td>12</td><td>Drum Pads e Pad Contínuo</td></tr>
+<tr><td>13</td><td>Lista de mudanças, ordem de implementação e riscos</td></tr></table>
+<div style="margin-top:26px;font-size:12px;color:#9eabb5;max-width:760px;line-height:1.6">Todos os elementos usam só o que o JUCE desenha: retângulos arredondados, borda de 1 px, gradiente vertical simples, arcos e ponteiros nos knobs e a fonte do sistema. Os desenhos são mockups: o app real não foi alterado por este documento.</div></section>`);
+
+/* 2 sistema */
+P.push(page(2,'Sistema visual','Regras únicas para todas as janelas. Cada item vira constante no ClassicLookAndFeel.',
+`<div style="display:flex;gap:12px;flex-wrap:wrap">${[['#091018','Fundo','background'],['#121b23','Painel','panel'],['#202c35','Painel claro','panelLight'],['#33414c','Linha','line'],['#13b8ad','Destaque','accent'],['#ffd84a','Alerta','highlight'],['#edf4f7','Texto','text'],['#9eabb5','Texto suave','muted']].map(c=>`<div class=sw><i style="background:${c[0]}"></i><b>${c[1]}</b><span>${c[0]}</span></div>`).join('')}</div>
+<div style="display:flex;gap:14px;margin-top:6px">
+<div style="width:270px">${panel('BOTÕES',row(btn('PADRÃO','','flex:1')+btn('HOVER','hov','flex:1'))+row(btn('ATIVO','on','flex:1')+btn('DESABILITADO','dis','flex:1'))+row(btn('PERIGO (PANIC)','dng','flex:1')+btn('COMPACTO','xs','width:90px'))+btn('DESTAQUE 36 PX','lg'))}</div>
+<div style="width:240px">${panel('SELEÇÃO',sel('Combo','Piano acústico')+seg(['OFF','SOFT','MID','BRIGHT'],0)+row(btn('GRAVE','','flex:1')+btn('AGUDO','','flex:1')))}</div>
+<div style="width:250px">${panel('KNOBS E VALORES',row(knob('Pequeno 38',80,.6,false,true)+knob('Padrão 50','5,0',.1,true)+knob('dB','-3,0',.4)))}</div></div>
+<table style="margin-top:8px"><tr><th>Item</th><th>Regra</th></tr>
+<tr><td>Grade</td><td>Múltiplos de 4 px; espaço entre controles 6 px; entre painéis 10 px; margem da janela 14 px.</td></tr>
+<tr><td>Alturas</td><td>Botão e combo 28 px; compacto 20 px; destaque 36 px. Raio 4 px nos controles, 6 px nos painéis.</td></tr>
+<tr><td>Tipografia</td><td>Título da janela 15 px negrito; título de painel 10 px caixa alta; rótulo 9 px caixa alta; valor 10-11 px.</td></tr>
+<tr><td>Valores</td><td>Inteiro para %, Hz e MIDI; uma casa para dB e segundos; duas casas só para Q. Nunca mais de 3 dígitos fracionários.</td></tr>
+<tr><td>Texto</td><td>Português com acentos em todo o app; termos técnicos (LEARN, ADSR, EQ, LIMITER) mantidos. Sem mistura como "MODULATION DO TECLADO".</td></tr></table>`,
+[['O QUE MUDA',['Hoje há cinco alturas de botão e três de combo.','Hoje um knob mostra 100.000... e 69.3518448.','Hoje cores de borda não vêm do tema.'],'old'],['COMO FICA',['Um conjunto de constantes no ClassicLookAndFeel.','Os sete temas continuam: só as cores trocam.','Estados de botão iguais em todas as janelas.']]]));
+
+/* 3 principal */
+const hdrBtns=`<div style="display:grid;grid-template-columns:repeat(2,96px);gap:4px">${['IMPORTAR','NOVO','SALVAR','EXCLUIR','EXPORTAR','MISTO ⌄'].map(t=>btn(t,'xs')).join('')}</div>`;
+P.push(page(3,'Janela principal','Cabeçalho, faixas de layer e rodapé com o mesmo ritmo e as mesmas alturas.',
+win('Classic Player',`<div style="display:flex;gap:14px;align-items:center;height:92px"><div style="width:200px"><div style="font-size:16px;font-weight:700;color:#13b8ad">CLASSIC PLAYER</div><div style="font-size:9px;color:#9eabb5">v3.0.3 · CLASSIC KEYS SF2 WORKSTATION</div></div><div style="flex:1;height:80px;border:1px solid #33414c;border-radius:4px;background:#05090d;font-size:9px;color:#6f7d88;padding:4px">analisador</div>${hdrBtns}<div style="display:grid;grid-template-columns:96px;gap:4px">${btn('LIVE SET','xs')}${btn('+ CAMADA','xs')}${btn('COR ACORDE','xs')}${btn('COR TECLAS','xs')}</div><div style="width:92px;text-align:center"><div class=lbl>Master</div><div class="knob s" style="--v:60%;--r:70deg"></div>${row(btn('EQ','xs','flex:1')+btn('LIM','xs','flex:1')+btn('LEARN','xs','flex:1'),'gap:2px;margin-top:4px')}</div></div>
+<div style="display:flex;gap:8px">${strip(1,'Sem piano Nord',eng.npno)}${strip(2,'Sem amostra Nord',eng.nsmp)}${strip(3,'Sem SoundFont',eng.sf2)}${strip(4,'E.PIANO 1',eng.dx7)}${strip(5,'HAMMOND',eng.ham)}${strip(6,'CLASSIC KEYS ANALOG',eng.ana)}<div class=strip style="width:240px"><i style="background:${eng.pad}"></i><div class=sh>LAYER 7 · DRUM PADS<span>M</span><span>S</span></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;flex:1;padding:4px 0">${['#3b8bff','#a65cff','#ff6a80','#ff9b52','#3fd18a','#f2c94c','#3ccfdd','#ee6aa7'].map((c,i)=>pad('PAD '+(i+1),c)).join('')}</div>${btn('LEARN VOLUME','xs')}</div></div>
+<div style="display:flex;gap:6px;align-items:center;border-top:1px solid #26333d;padding-top:8px;margin-top:2px">${btn('GRAVAR WAV+MIDI','','width:140px')}${btn('MOSTRAR TECLADO','','width:130px')}${btn('ÁUDIO / MIDI','','width:110px')}<div style="width:150px">${sel('Tema','Padrão')}</div>${btn('ATUALIZAÇÕES','','width:110px')}${btn('BACKUP','','width:90px')}<div style="flex:1"></div>${btn('PANIC','dng','width:80px')}${btn('LEARN','','width:70px')}</div>`,880),
+[['O QUE MUDA',['Botões do cabeçalho em 3 grupos de mesma largura.','EQ, LIM e LEARN deixam de ser minúsculos.','Faixas: uma barra de cor no topo no lugar da moldura colorida inteira.','Faixa de pads com os mesmos botões e rótulos (LEARN VOLUME).','Rodapé em uma só altura (28 px).'],'old'],['COR POR MOTOR',['Barra no topo indica o motor: NPNO, NSMP, SF2, DX7, Hammond, Analog, Pads.','A cor da barra segue o tema escolhido.']]]));
+
+/* 4 editar layer NPNO */
+const knobsC=`<div style="display:flex">${[['Volume',80,.6,1],['Attack','5,0',.05,0],['Release',50,.5,1]].map(a=>knob(...a)).join('')}</div>`;
+P.push(page(4,'Editar layer: NPNO (referência)','Mesma estrutura em todos os motores: Fonte, Timbre, MIDI, Ações, Controladores, Controles.',
+win('EDITAR LAYER',head('EDITAR LAYER')+
+row(panel('FONTE',row(sel('Categoria','Piano acústico')+sel('Biblioteca NPNO','Escolha o NPNO','1.4'))+row(btn('IMPORTAR NPNO','','flex:1')+btn('IMPORTAR BUNDLE','','flex:1')),'flex:1.15')+panel('TIMBRE',seg(['OFF','SOFT','MID','BRIGHT'],0)+row(sel('Dyn comp','Off')+sel('Cauda','Original')),'flex:1'),'gap:10px')+
+panel('MIDI',row(sel('Modo','Poli')+sel('Sustain','Sustain on')+sel('Canal','MIDI omni')+sel('Entrada','Todos os controladores','1.5')+sel('Oitava','0 oit','.7')+sel('Polifonia','128 vozes'))+row(`<div style="width:90px">${sel('Vel. mín.','1')}</div><div style="width:90px">${sel('Vel. máx.','127')}</div><div style="width:90px"><div class=lbl>Split baixa</div>${btn('GRAVE')}</div><div style="width:90px"><div class=lbl>Split alta</div>${btn('AGUDO')}</div>${btn('RESET','','width:70px;align-self:flex-end')}<div style="flex:1"></div>${btn('DESLIGAR SENSIBILIDADE','','width:190px;align-self:flex-end')}`))+
+row(panel('AÇÕES',row(btn('EDITAR ADSR','','flex:1')+btn('CURVA DE VELOCITY','','flex:1'))+row(btn('EXPORTAR PRESET','','flex:1')+btn('IMPORTAR PRESET','','flex:1')),'flex:1')+panel('CONTROLADORES',seg(['MODULAÇÃO: OFF','PITCH BEND: ON'],1)+row(btn('EDITAR REVERB','','flex:1')+btn('EDITAR COMP','','flex:1')+btn('EDITAR EQ','','flex:1')+btn('NORD FX','','flex:1')),'flex:1'),'gap:10px')+
+panel('CONTROLES DA CAMADA',`<div style="display:flex">${[['Volume',80,.6,1],['Attack','5,0',.05,0],['Release',50,.5,1],['Cutoff',100,1,1],['Reverb',0,0,1],['Comp',0,0,1],['EQ low','0,0',.5],['EQ mid','0,0',.5],['EQ high','0,0',.5],['Ganho dB','0,0',.5,1]].map(a=>knob(...a)).join('')}</div>`),860),
+[['O QUE MUDA',['Seis painéis com barra de título no lugar de nove caixas soltas.','LEARN vira chip pequeno sob o knob (volume, cutoff, reverb, comp, mute).','MODULAÇÃO e PITCH BEND no mesmo controle segmentado.','Todos os botões em 28 px.','Cutoff mostra 100, não 100.000...'],'old'],['REGRA',['O esqueleto vale para NPNO, NSMP, SF2, DX7, Hammond e Analog; só o painel FONTE muda.']]]));
+
+/* 5 matriz motores */
+P.push(page(5,'Um esqueleto, seis motores','Só o painel FONTE e um painel específico mudam de motor para motor.',
+`<table><tr><th>Motor</th><th>FONTE</th><th>Painel específico</th><th>Hoje</th><th>Depois</th></tr>
+<tr><td><span class=tag>NPNO</span></td><td>Categoria, biblioteca NPNO, importar NPNO e bundle, excluir</td><td>TIMBRE (OFF/SOFT/MID/BRIGHT), dyn comp, cauda, reflexões</td><td>Combos pequenos fora do padrão</td><td>Painel TIMBRE com segmentado</td></tr>
+<tr><td><span class=tag style="background:#6ea8ff">NSMP</span></td><td>Categoria, biblioteca NSMP, importar NSMP e bundle, bancos importados</td><td>nenhum</td><td>Idêntico ao NPNO sem timbre</td><td>Mesmo esqueleto sem painel TIMBRE</td></tr>
+<tr><td><span class=tag style="background:#e3b341">SF2</span></td><td>Categoria, biblioteca SF2, preset, importar e excluir SF2</td><td>EDITAR CHORUS no lugar de NORD FX</td><td>Preset isolado em linha própria</td><td>Preset dentro do painel FONTE</td></tr>
+<tr><td><span class=tag style="background:#c58bff">DX7</span></td><td>Banco DX7, timbre DX7, importar e excluir DX7</td><td>Controles com knob de CHORUS</td><td>Duplica "Exportar Preset"; layout diferente dos outros</td><td>Esqueleto igual; chorus entre os knobs</td></tr>
+<tr><td><span class=tag style="background:#ff9b52">Hammond</span></td><td>Preset de órgão</td><td>DRAWBARS, LESLIE, PERCUSSÃO, key click, leakage, drive</td><td>Duplica "Exportar Preset"; botões em larguras diferentes</td><td>Painéis DRAWBARS e EFEITOS DO ÓRGÃO (pág. 6)</td></tr>
+<tr><td><span class=tag style="background:#5ee08a">Analog</span></td><td>Preset analógico (browser 12 dB)</td><td>nenhum além dos controles</td><td>Cutoff mostra 69.3518448</td><td>Cutoff inteiro; mesmo esqueleto</td></tr></table>`,
+[['O QUE FICA IGUAL',['Todos os parâmetros, nomes internos e presets.','A ordem dos controles não afeta o estado salvo.']],['O QUE MUDA',['Só layout, tamanho e texto dos controles.','Janelas deixam de ter tamanhos diferentes: largura única de 860 px.'],'old']]));
+
+/* 6 hammond e analog */
+const dbar=(l,v,f)=>`<div class=kc><div class=lbl>${l}</div><div style="height:70px;width:30px;margin:0 auto;border:1px solid #33414c;border-radius:4px;background:#0a1117;position:relative"><div style="position:absolute;left:3px;right:3px;top:${(1-f)*46+4}px;height:16px;border-radius:2px;background:${f>.7?'#d94b4b':'#e8e2d6'}"></div></div><div class=val>${v}</div></div>`;
+P.push(page(6,'Painéis específicos: Hammond e Analog','Os controles próprios do motor ganham painéis com a mesma barra de título.',
+row(win('EDITAR LAYER · HAMMOND',`${head('ÓRGÃO TONEWHEEL','9 drawbars · Leslie e percussão')}${panel('PRESET',sel('Preset','Jimmy Gospel'))}${panel('DRAWBARS',`<div style="display:flex">${[['16 ft',8,1],['5 1/3',8,1],['8 ft',7,.9],['4 ft',6,.75],['2 2/3',8,1],['2 ft',5,.6],['1 3/5',4,.5],['1 1/3',3,.4],['1 ft',2,.25]].map(a=>dbar(...a)).join('')}</div>`)}
+${row(panel('LESLIE',seg(['STOP','CHORALE','FAST'],1),'flex:1')+panel('PERCUSSÃO',seg(['OFF','2ND','3RD'],0),'flex:1'),'gap:10px')}
+${panel('EFEITOS DO ÓRGÃO',`<div style="display:flex">${[['Key click','15%',.15],['Leakage','12%',.12],['Drive','8%',.08],['Level','75%',.75]].map(a=>knob(a[0],a[1],a[2],false,true)).join('')}</div>`)}`,520)+
+win('EDITAR LAYER · ANALOG',`${head('CLASSIC KEYS ANALOG','Preset analógico')}${panel('PRESET',sel('Preset analógico - browser 12 dB','Inicial'))}${panel('CONTROLES DA CAMADA',`<div style="display:flex">${[['Volume',80,.6],['Attack','5,0',.05],['Release',0,0],['Cutoff',69,.69],['Reverb',0,0],['Comp',0,0]].map(a=>knob(a[0],a[1],a[2],false,true)).join('')}</div>`)}${panel('CONTROLADORES',seg(['MODULAÇÃO: OFF','PITCH BEND: ON'],1))}`,300),'gap:14px;align-items:flex-start'),
+[['O QUE MUDA',['Drawbars com altura fixa e valor abaixo, como hoje, dentro de um painel.','LESLIE e PERCUSSÃO como controles segmentados no mesmo estilo.','Sliders de key click, leakage, drive e level viram knobs pequenos.','Duplicata "Exportar Preset" removida.'],'old'],['FIEL AO JUCE',['Drawbar é slider vertical com thumb retangular: já existe no código.']]]));
+
+/* 7 adsr e velocity */
+const graph=(h,extra='')=>`<div style="height:${h}px;border:1px solid #33414c;border-radius:4px;background:#0a1117;position:relative;overflow:hidden">${extra}</div>`;
+P.push(page(7,'Envelope ADSR e curva de velocity','Gráfico à esquerda, controles à direita; botões de arquivo iguais nas duas janelas.',
+row(win('ENVELOPE ADSR',`${head('ENVELOPE ADSR','Attack e Release de 0 a 100; Decay em ms; Sustain em %.')}${panel('GRÁFICO DO CICLO ADSR',graph(120,'<svg width=100% height=120 viewBox="0 0 400 120" preserveAspectRatio=none><polyline points="0,110 70,10 120,10 290,10 400,110" fill="rgba(19,184,173,.15)" stroke="#13b8ad" stroke-width="2"/></svg>'))}${row(sel('Preset','Escolher preset','1.4')+btn('SALVAR','','width:80px;align-self:flex-end')+btn('CARREGAR','','width:80px;align-self:flex-end'))}${panel('CONTROLES',`<div style="display:flex">${[['Attack 0-100','5,0',.05],['Decay ms','0',0],['Sustain %','100',1],['Release 0-100','50',.5]].map(a=>knob(a[0],a[1],a[2])).join('')}</div>`)}`,430)+
+win('CURVA DE VELOCITY',`${head('CURVA DE VELOCITY')}${panel('CURVA',row(btn('PRESETS ⌄','','width:110px')+sel('Modo','Ajustar curva','1')+btn('CURVA ATIVA','on','width:130px'))+graph(150,'<svg width=100% height=150 viewBox="0 0 300 150" preserveAspectRatio=none><line x1=0 y1=150 x2=300 y2=0 stroke="#13b8ad" stroke-width="2"/></svg>')+row(sel('Mín.','1')+sel('Máx.','127')+sel('Inclinação','0')))}${panel('NPNO · DIAGNÓSTICO',`<div style="font-size:11px">ÚLTIMO TOQUE: recebida <b>43</b> → após a curva <b>43</b> → camada <b>104 de 166</b> (0 = mais forte)</div>${row(`<div style="flex:1;font-size:10px;color:#9eabb5;align-self:center">PISO DE TIMBRE</div>`+sel('Piso','1','1'))}`)}${row(btn('RESET LINEAR','','flex:1')+btn('SALVAR CURVA','','flex:1')+btn('CARREGAR CURVA','','flex:1'))}`,430),'gap:14px'),
+[['O QUE MUDA',['Rótulo "ATTACK 0-2s" com valor 5,0 vira "Attack 0-100".','Sobreposição "Sustain/100%" no eixo do gráfico removida.','Sliders verticais MIN/MAX viram combos, para manter só dois tipos de controle.','Indicador de velocity e piso de timbre num painel próprio.'],'old']]));
+
+/* 8 reverb comp eq */
+const kc4=(a,w)=>`<div style="width:${w}%">${knob(a[0],a[1],a[2],false,true)}</div>`;
+const bandRow=(t,ks)=>`<div style="display:flex;align-items:center;gap:6px"><div style="width:34px;font-size:9px;font-weight:700;color:#13b8ad">${t}</div><div style="display:flex;flex:1">${ks.map(k=>knob(k[0],k[1],k[2],false,true)).join('')}</div></div>`;
+P.push(page(8,'Reverb, compressor e EQ da layer','Knobs sempre em grade regular, sem espaços vazios.',
+row(win('REVERB DA LAYER',`${head('REVERB DA LAYER')}${panel('PRESET',sel('Preset','Escolha um preset')+row(btn('EXPORTAR','','flex:1')+btn('IMPORTAR','','flex:1')))}${panel('CARÁTER DA SALA',`<div style="display:flex;flex-wrap:wrap">${[['Tamanho',55,.55],['Difusão',55,.55],['Largura',100,1],['Mix',0,0]].map(a=>kc4(a,50)).join('')}</div>`)}`,262)+
+win('COMPRESSOR DA LAYER',`${head('COMPRESSOR DA LAYER')}${panel('PRESET',sel('Preset','Escolha um preset')+row(btn('EXPORTAR','','flex:1')+btn('IMPORTAR','','flex:1')))}${panel('CURVA',graph(80,'<svg width=100% height=80 viewBox="0 0 200 80" preserveAspectRatio=none><polyline points="0,80 100,44 200,10" fill="none" stroke="#13b8ad" stroke-width="2"/></svg>')+'<div style="font-size:9px;color:#9eabb5">Medidores de entrada, GR e saída ao lado do gráfico</div>')}${panel('CONTROLES',`<div style="display:flex;flex-wrap:wrap">${[['Thresh.','-18,0',.7],['Ratio','4,0',.25],['Attack','10,0',.1],['Release','120',.3],['Makeup','0,0',0]].map(a=>kc4(a,20)).join('')}</div>`)}`,262)+
+win('EQ DA LAYER',`${head('EQ DA LAYER')}${panel('PRESET',row(btn('EXPORTAR','','flex:1')+btn('IMPORTAR','','flex:1')))}${panel('RESPOSTA',graph(60,'<svg width=100% height=60 viewBox="0 0 200 60" preserveAspectRatio=none><line x1=0 y1=30 x2=200 y2=30 stroke="#13b8ad" stroke-width="2"/></svg>')+'<div style="font-size:9px;color:#9eabb5">Analisador da layer</div>')}${panel('BANDAS',bandRow('LOW',[['Hz',220,.3],['dB','0,0',.5],['Q','0,71',.3]])+bandRow('MID',[['Hz',1200,.5],['dB','0,0',.5],['Q','1,00',.4]])+bandRow('HIGH',[['Hz',4200,.6],['dB','0,0',.5],['Q','0,71',.3]])+bandRow('CORTE',[['Low cut',20,0],['High cut',20000,1]]))}`,262),'gap:14px;align-items:flex-start'),
+[['O QUE MUDA',['Reverb sem foto do instrumento: a imagem volta só nas faixas.','Compressor: cinco knobs em uma linha; rótulos "INPUT EST." e "CURVA" sobrepostos corrigidos.','EQ: o gráfico deixa de dizer "ANALISADOR MASTER"; bandas em linhas LOW, MID, HIGH e CORTE.'],'old'],['Q',['Valores de Q com duas casas, como hoje.']]]));
+
+/* 9 nord fx */
+P.push(page(9,'Efeitos Nord em uma só janela','Hoje são cinco janelas (menu e quatro efeitos). Passa a ser uma, com seções.',
+win('EFEITOS NORD',`${head('EFEITOS NORD','Ajuste os efeitos desta layer.')}${seg(['TREMOLO','DELAY','FLANGER','CHORUS'],1)}${panel('DELAY',`<div style="display:flex">${[['BPM',120,.4],['Feedback %',30,.3],['Mix %',0,0]].map(a=>knob(...a)).join('')}</div>${row(btn('TAP TEMPO','','flex:1'))}`)}${row(panel('TREMOLO',`<div style="display:flex">${knob('Rate Hz','4,0',.4,false,true)}${knob('Depth %',0,0,false,true)}</div>`,'flex:1')+panel('FLANGER',`<div style="display:flex">${knob('Rate Hz','0,35',.2,false,true)}${knob('Mix %',0,0,false,true)}</div>`,'flex:1')+panel('CHORUS',`<div style="display:flex">${knob('Rate Hz','0,80',.3,false,true)}${knob('Mix %',0,0,false,true)}</div>`,'flex:1'),'gap:8px')}`,600),
+[['O QUE MUDA',['Um menu com quatro botões e quatro janelas viram uma janela com seletor.','"TAP TEMPO" aparece uma vez (hoje rótulo e botão duplicados).','Todos os efeitos usam o mesmo tamanho de knob.'],'old'],['RISCO BAIXO',['Parâmetros e ids iguais; muda só a composição das janelas.']]]));
+
+/* 10 eq master e limiter */
+P.push(page(10,'EQ master e Limiter master','Mesmo cabeçalho de janela e mesmos botões de ligar/desligar.',
+row(win('EQ MASTER',`${head('EQ MASTER','Cinco estágios: corte baixo, três bandas e corte alto.')}${row(btn('EQ MASTER: BYPASS','','flex:1'))}${panel('RESPOSTA',graph(110,'<svg width=100% height=110 viewBox="0 0 300 110" preserveAspectRatio=none><line x1=0 y1=55 x2=300 y2=55 stroke="#13b8ad" stroke-width="2"/></svg>'))}${panel('BANDAS',`<div style="display:flex;flex-wrap:wrap">${[['Low cut',20,0],['Low dB','0,0',.5],['Low Hz',110,.3],['Mid dB','0,0',.5],['Mid Hz',1200,.5],['High dB','0,0',.5],['High Hz',8000,.6],['High cut',20000,1]].map(a=>`<div style="width:25%">${knob(a[0],a[1],a[2],false,true)}</div>`).join('')}</div>`)}${row(btn('LOW: LEARN','','flex:1')+btn('MID: LEARN','','flex:1')+btn('HIGH: LEARN','','flex:1'))}`,520)+
+win('LIMITER MASTER',`${head('LIMITER MASTER','Proteção da saída master. OUTPUT define o teto em dBFS.')}${panel('MEDIDORES',row(['INPUT -60,0 dB','GR 0,0 dB','OUTPUT -60,0 dB'].map(t=>`<div style="flex:1;text-align:center;font-size:9px;color:#9eabb5">${t}<div style="height:70px;margin:4px 40px;border:1px solid #33414c;background:#0a1117"></div></div>`).join('')))}${row(btn('LIMITER MASTER: LIGADO','on','flex:1'))}${panel('CONTROLES',`<div style="display:flex">${[['Input dB','0,0',.5],['Release ms',80,.3],['Output dB','-0,3',.9]].map(a=>knob(...a)).join('')}</div>${sel('Preset','Proteção transparente')}`)}`,380),'gap:14px'),
+[['O QUE MUDA',['Botão do EQ e do Limiter com o mesmo tamanho e formato.','EQ: os três LEARN em linha, sem tamanho próprio.','Medidores do Limiter dentro de um painel, sem caixa vazia ao lado do botão.','"Proteção" e demais textos com acento.'],'old'],['NOTA',['O estado do EQ master (bypass) continua como na 3.0.3.']]]));
+
+/* 11 live set */
+P.push(page(11,'Live Set','Cabeçalho único em todas as telas, bancos e slots alinhados à grade.',
+win('Classic Player · Live Set',`<div style="display:flex;gap:14px;align-items:center"><div style="width:200px"><div style="font-size:16px;font-weight:700;color:#13b8ad">CLASSIC PLAYER</div><div style="font-size:9px;color:#9eabb5">v3.0.3</div></div><div style="flex:1;text-align:center;font-size:20px;font-weight:700;letter-spacing:.08em">LIVE SET</div>${btn('CPU 3%','xs','width:70px')}${btn('CONFIGURAÇÕES','','width:130px')}<div style="width:110px"><div class=lbl>Volume</div><div style="height:6px;background:#33414c;border-radius:3px;position:relative"><div style="position:absolute;left:0;width:70%;height:6px;background:#13b8ad;border-radius:3px"></div></div></div>${btn('VOLTAR','on','width:90px')}</div>
+${seg(['BANCO 1','BANCO 2','BANCO 3','BANCO 4','BANCO 5','BANCO 6','BANCO 7','BANCO 8'],0)}
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">${[1,2,3,4,5,6,7,8].map(n=>`<div class=pnl style="height:112px;text-align:center"><div style="font-size:28px;font-weight:700;color:#13b8ad;margin-top:14px">0${n}</div><div style="height:1px;background:#26333d;margin:8px 16px"></div><div style="color:#9eabb5">–</div></div>`).join('')}</div>
+<div style="display:flex;gap:6px;align-items:center">${btn('◀ ANTERIOR','dis','width:130px')}${btn('PRÓXIMO ▶','','width:130px')}${btn('EDITAR LIVE SET','','width:160px')}<div style="flex:1"></div>${btn('BACKUP','','width:90px')}<div style="width:150px">${sel('Tema','Padrão')}</div>${btn('PANIC','dng','width:80px')}${btn('LEARN','','width:70px')}</div>`,860),
+[['O QUE MUDA',['CONFIGURAÇÕES e VOLTAR deixam de ser botões altos: mesma altura de 28 px.','VOLTAR com o estilo de ação primária (turquesa).','Faixa de bancos como controle segmentado.','Rodapé igual ao da janela principal (BACKUP, TEMA, PANIC, LEARN).','Menu de configurações com acentos: Equalizador master, MIDI learn do volume master.'],'old']]));
+
+/* 12 pads */
+P.push(page(12,'Drum Pads e Pad Contínuo','Cores dos pads preservadas; botões, sliders e rótulos padronizados.',
+row(win('DRUM PADS',`${head('DRUM PADS')}<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${['#3b8bff','#a65cff','#ff6a80','#ff9b52','#3fd18a','#f2c94c','#3ccfdd','#ee6aa7'].map((c,i)=>`<div class=pnl><div class=bd style="padding:6px">${pad('PAD '+(i+1),c)}<div style="display:flex;align-items:center;gap:6px"><div style="flex:1;height:6px;background:#33414c;border-radius:3px"><div style="width:100%;height:6px;background:#13b8ad;border-radius:3px"></div></div><div style="font-size:10px">100%</div></div>${row(btn('CARREGAR','xs','flex:1')+btn('LEARN','xs','flex:1'),'gap:3px')}</div></div>`).join('')}</div>${row(btn('LEARN VOLUME','','flex:1')+btn('LEARN MUTE','','flex:1'))}`,380)+
+win('PAD CONTÍNUO',`${head('PAD CONTÍNUO')}<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">${['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'].map((n,i)=>`<div>${pad(n,['#3b8bff','#a65cff','#ff6a80','#ff9b52','#3fd18a','#f2c94c','#3ccfdd','#ee6aa7','#8f9bff','#ff8a6b','#8bdc66','#b18aee'][i])}${row(btn('CARREGAR','xs','flex:1')+btn('LEARN','xs','flex:1'),'gap:3px;margin-top:3px')}</div>`).join('')}</div>${row(btn('PARAR','','flex:1')+btn('LEARN PARAR','','flex:1'))}${row(sel('Crossfade','1,00 s','1')+sel('Cutoff','100%','1')+btn('LEARN CUTOFF','','width:110px;align-self:flex-end'))}${row(btn('LEARN VOLUME','','flex:1')+btn('LEARN MUTE','','flex:1'))}${btn('EDITAR EQ / FILTROS','lg')}`,420),'gap:14px'),
+[['O QUE MUDA',['LOAD vira CARREGAR; LEARN fica LEARN.','Linha de crossfade e de cutoff com o mesmo componente (rótulo acima, valor visível).','Os botões LEARN VOLUME/MUTE com a mesma largura nos dois motores.','"CRUZAMENTO" não é cortado: "1,00 s crossfa..." hoje aparece truncado.'],'old']]));
+
+/* 13 mudancas */
+P.push(page(13,'Mudanças, ordem de implementação e riscos','O que muda no código e como entregar sem quebrar presets.',
+`<table><tr><th>Fase</th><th>O que entra</th><th>Onde</th><th>Risco</th></tr>
+<tr><td>1</td><td>Constantes de tamanho, estados de botão, formatação de valores</td><td>ClassicLookAndFeel, flatButton, parâmetros</td><td>Baixo: não altera estado salvo</td></tr>
+<tr><td>2</td><td>Cabeçalho e rodapé unificados (principal, Live Set)</td><td>PluginEditor: layout do cabeçalho</td><td>Baixo</td></tr>
+<tr><td>3</td><td>Editar layer com painéis para NPNO e NSMP; depois SF2, DX7, Hammond, Analog</td><td>LayerRoutingEditorPanel e painéis de motor</td><td>Médio: muitas dependências de layout</td></tr>
+<tr><td>4</td><td>ADSR, velocity, reverb, compressor, EQ da layer</td><td>Painéis de efeito</td><td>Baixo</td></tr>
+<tr><td>5</td><td>Efeitos Nord em uma janela</td><td>Menu e quatro janelas de efeito</td><td>Médio: troca de composição</td></tr>
+<tr><td>6</td><td>EQ master, Limiter, Drum Pads, Pad Contínuo</td><td>Janelas existentes</td><td>Baixo</td></tr>
+<tr><td>7</td><td>Textos em português com acentos</td><td>Strings do editor e testes</td><td>Médio: testes de UI comparam textos</td></tr></table>
+<div style="font-size:12px;color:#c9d3da;line-height:1.6;max-width:900px">Cada fase vai para a branch, compila no GitHub e é conferida em print antes da seguinte. Os sete temas de cor continuam, e nenhum parâmetro de áudio muda de id, faixa ou valor guardado, então presets e Live Sets existentes continuam abrindo. Limitações: estes são mockups em HTML; o resultado final depende de o JUCE reproduzir cada medida, e o texto com acento deve ser validado nos testes de UI do repositório.</div>`,
+[['DECISÕES QUE PRECISO DE VOCÊ',['Manter a barra de cor por motor nas faixas ou usar uma única cor?','Aprovar os textos em português com acentos?','Juntar os efeitos Nord em uma janela só?']]]));
+
+document.write(P.join(''));
+</script></body></html>
