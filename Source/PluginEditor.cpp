@@ -1887,7 +1887,7 @@ public:
                                 | (k + 1 < usedTabs.size() ? juce::Button::ConnectedOnRight : 0);
                 button->setConnectedEdges(edges);
                 const int tabValue = usedTabs[k];
-                button->onClick = [this, tabValue] { activeTab = tabValue; resized(); };
+                button->onClick = [this, tabValue] { if (inSub) leaveSubPage(); activeTab = tabValue; resized(); };
                 addAndMakeVisible(button);
             }
             activeTab = usedTabs.front();
@@ -1972,8 +1972,7 @@ public:
         auto header = area.removeFromTop(headerHeight);
         closeButton.setBounds(header.removeFromRight(86).reduced(4, 3));
         resetButton.setBounds(header.removeFromRight(72).reduced(4, 3));
-        backButton.setBounds(header.removeFromRight(96).reduced(4, 3));
-        for (auto* tabButton : tabButtons) tabButton->setVisible(!inSub);
+        backButton.setBounds(header.removeFromRight(120).reduced(4, 3));
         viewport.setVisible(scaled == nullptr || inSub);
         if (scaled != nullptr && !inSub)
         {
@@ -1986,7 +1985,7 @@ public:
                 (float) area.getY() + ((float) area.getHeight() - (float) designHeight * fit) * 0.5f));
             return;
         }
-        if (!tabButtons.isEmpty() && !inSub)
+        if (!tabButtons.isEmpty())
         {
             auto tabRow = area.removeFromTop(32).reduced(8, 4);
             for (int k = 0; k < tabButtons.size(); ++k)
@@ -2012,7 +2011,7 @@ private:
         closeButton.setButtonText(juce::String::fromUTF8("FECHAR"));
         closeButton.onClick = std::move(onClose);
         addAndMakeVisible(closeButton);
-        backButton.setButtonText(juce::String::fromUTF8("< VOLTAR"));
+        backButton.setButtonText(juce::String::fromUTF8("FECHAR EDITOR"));
         backButton.onClick = [this] { leaveSubPage(); };
         addChildComponent(backButton);
         viewport.setViewedComponent(&content, false);
@@ -2045,7 +2044,7 @@ private:
         for (int i = 0; i < panels.size(); ++i)
         {
             auto* c = panels[i];
-            const bool shown = !inSub && scaled == nullptr && panelTab[(size_t) i] == activeTab;
+            const bool shown = scaled == nullptr && panelTab[(size_t) i] == activeTab;
             c->setVisible(shown);
             if (!shown) continue;
             c->setBounds(gap, y, columnWidth, c->getHeight());
@@ -7999,6 +7998,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectsEditor()
     dialog->setSize(480, 340);
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();
+    if (dockSubAlert(dockCallback, dialog, "EFEITOS NORD")) return;
     dialog->enterModalState(true, juce::ModalCallbackFunction::create([](int) {}), true);
 }
 
