@@ -2452,7 +2452,7 @@ private:
     };
 };
 
-class VelocityCurveEditorPanel final : public juce::Component
+class VelocityCurveEditorPanel final : public juce::Component, private juce::Timer
 {
 public:
     VelocityCurveEditorPanel(ClassicPlayerAudioProcessor& owner, int layerIndex)
@@ -2548,13 +2548,23 @@ public:
         };
         save.onClick = [this] { saveCurve(); };
         load.onClick = [this] { loadCurve(); };
+        lastTouch.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+        lastTouch.setColour(juce::Label::textColourId, juce::Colour(text));
+        lastTouch.setJustificationType(juce::Justification::centredLeft);
+        addAndMakeVisible(lastTouch);
         updateControls();
-        setSize(760, 414);
+        updateLastTouch();
+        startTimerHz(10);
+        setSize(760, 442);
     }
+
+    ~VelocityCurveEditorPanel() override { stopTimer(); }
 
     void resized() override
     {
         auto area = getLocalBounds().reduced(10, 8);
+        lastTouch.setBounds(area.removeFromBottom(24));
+        area.removeFromBottom(4);
         auto top = area.removeFromTop(32);
         presetMenu.setBounds(top.removeFromLeft(152).reduced(2));
         mode.setBounds(top.removeFromLeft(225).reduced(2));
@@ -2580,6 +2590,32 @@ public:
     }
 
 private:
+    void timerCallback() override { updateLastTouch(); }
+    // Diagnostic: last note-on received by the NPNO layer, the velocity after
+    // this layer's curve, and the sample layer that was actually selected.
+    void updateLastTouch()
+    {
+        if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::nord)
+        {
+            lastTouch.setText({}, juce::dontSendNotification);
+            return;
+        }
+        const auto info = processor.nordLastVelocity(index);
+        juce::String textValue = "ULTIMO TOQUE: ";
+        if (info.received <= 0)
+            textValue << "toque uma nota para ver a velocity";
+        else
+        {
+            textValue << "recebida " << info.received << "  ->  apos a curva " << info.shaped;
+            if (info.strokeLayer >= 0)
+                textValue << "  ->  camada " << info.strokeLayer << " de " << info.strokeLayerMax
+                          << " (0 = mais forte)";
+        }
+        lastTouch.setText(textValue, juce::dontSendNotification);
+    }
+
+    juce::Label lastTouch;
+
     class Graph final : public juce::Component
     {
     public:

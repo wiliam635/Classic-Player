@@ -42,6 +42,8 @@ public:
     bool isLoaded(int layer) const;
     juce::String path(int layer) const;
     float getLayerPeak(int layer) const;
+    struct VelocityInfo { int received = 0, shaped = 0, strokeLayer = -1, strokeLayerMax = 0; };
+    VelocityInfo getLastVelocity(int layer) const;
     LayerConfig getConfig(int layer) const;
     void setConfig(int layer, const LayerConfig& config);
 
@@ -101,6 +103,9 @@ private:
         uint64_t effectQuietSamples = 0;
         std::array<float, 4> lastReverbParameters { -1.0f, -1.0f, -1.0f, -1.0f };
         std::atomic<float> peak { 0.0f };
+        // Last note-on seen by this layer, for the velocity diagnostic in the UI.
+        std::atomic<int> lastVelocityIn { 0 }, lastVelocityShaped { 0 };
+        std::atomic<int> lastStrokeLayer { -1 }, lastStrokeLayerMax { 0 };
     };
 
     void startVoice(Layer&, int note, int channel, float velocity,

@@ -307,6 +307,18 @@ float SampleEngine::getLayerPeak(int layer) const
     return layers[(size_t) layer].peak.load(std::memory_order_relaxed);
 }
 
+SampleEngine::VelocityInfo SampleEngine::getLastVelocity(int layer) const
+{
+    VelocityInfo info;
+    if (!juce::isPositiveAndBelow(layer, layerCount)) return info;
+    const auto& l = layers[(size_t) layer];
+    info.received = l.lastVelocityIn.load(std::memory_order_relaxed);
+    info.shaped = l.lastVelocityShaped.load(std::memory_order_relaxed);
+    info.strokeLayer = l.lastStrokeLayer.load(std::memory_order_relaxed);
+    info.strokeLayerMax = l.lastStrokeLayerMax.load(std::memory_order_relaxed);
+    return info;
+}
+
 SampleEngine::LayerConfig SampleEngine::getConfig(int layer) const
 {
     if (!juce::isPositiveAndBelow(layer, layerCount)) return {};
@@ -725,6 +737,10 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             else if (!routing.velocitySensitivityOff && routing.velocityCurve == 2) velocity *= velocity;
             else if (!routing.velocitySensitivityOff && routing.velocityCurve == 4)
                 velocity = routing.velocityTable[(size_t) message.getVelocity()] / 127.0f;
+            layer.lastVelocityIn.store(message.getVelocity(), std::memory_order_relaxed);
+            layer.lastVelocityShaped.store(juce::jlimit(1, 127, juce::roundToInt(velocity * 127.0f)),
+                                           std::memory_order_relaxed);
+            layer.lastStrokeLayer.store(-1, std::memory_order_relaxed);
             if (layer.pianoLoaded)
             {
                 const auto channel = juce::jlimit(1, 16, message.getChannel());
@@ -737,7 +753,12 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 if (stroke < 0)
                     stroke = findPianoStroke(layer, note, velocity, 0);
                 if (stroke >= 0)
+                {
+                    layer.lastStrokeLayer.store(layer.piano->strokes[(size_t) stroke].velocityLayer,
+                                                std::memory_order_relaxed);
+                    layer.lastStrokeLayerMax.store(layer.piano->velocityScale, std::memory_order_relaxed);
                     startPianoVoice(layer, stroke, note, channel, velocity, routing, inputNote);
+                }
             }
             else
                 startVoice(layer, note, message.getChannel(), velocity, routing, inputNote);

@@ -111,6 +111,7 @@ public:
     void selectLayerPreset(int layer, int bank, int program);
     void sendLayerController(int layer, int controller, int value);
     float layerPeak(int layer) const;
+    SampleEngine::VelocityInfo nordLastVelocity(int layer) const { return sampleEngine.getLastVelocity(layer); }
     float limiterInputLevel() const noexcept { return limiterInputPeak.load(); }
     float limiterOutputLevel() const noexcept { return limiterOutputPeak.load(); }
     float limiterGainReduction() const noexcept { return limiterReduction.load(); }

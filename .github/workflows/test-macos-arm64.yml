@@ -1,0 +1,83 @@
+name: Test build - macOS arm64 (M1) performance branch
+
+# Fast arm64-only build for manual testing on Apple Silicon. It runs the native
+# regression tests and uploads the standalone app and the VST3 as a plain zip.
+# It does not create an installer and does not publish anything.
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/performance-review-303-20261109]
+
+jobs:
+  build-macos-arm64:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 39344dff01c5a5a0134caf2624cdd492f05d30ea
+          runVcpkgInstall: false
+
+      - name: Install native dependencies (arm64)
+        run: |
+          "$VCPKG_ROOT/vcpkg" install \
+            --triplet arm64-osx-classic \
+            --overlay-triplets="$GITHUB_WORKSPACE/triplets" \
+            --host-triplet=arm64-osx \
+            --x-install-root="$GITHUB_WORKSPACE/build/vcpkg/installed-root" \
+            --x-buildtrees-root="$GITHUB_WORKSPACE/build/vcpkg/buildtrees" \
+            --x-packages-root="$GITHUB_WORKSPACE/build/vcpkg/packages" \
+            --downloads-root="$VCPKG_ROOT/downloads"
+
+      - name: Configure
+        run: |
+          cmake -S . -B build/arm64 -G "Unix Makefiles" \
+            -DCLASSIC_PLAYER_FETCH_JUCE=ON \
+            -DFETCHCONTENT_BASE_DIR="$GITHUB_WORKSPACE/build/fetch-content" \
+            -DCLASSIC_PLAYER_STANDALONE_ONLY=OFF \
+            -DCLASSIC_PLAYER_BUILD_WEBUI_APP=OFF \
+            -DCLASSIC_PLAYER_BUILD_TESTS=ON \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build/vcpkg/installed-root/arm64-osx-classic" \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build app, VST3 and tests
+        run: |
+          cmake --build build/arm64 --parallel 4 --target \
+            ClassicPlayer_Standalone ClassicPlayer_VST3 \
+            ClassicPlayerAudioRegressionTest ClassicPlayerSampleEngineTest \
+            ClassicPlayerNordSampleTest ClassicPlayerMasterMidiTest
+
+      - name: Run regression tests
+        run: |
+          for t in ClassicPlayerAudioRegressionTest ClassicPlayerSampleEngineTest \
+                   ClassicPlayerNordSampleTest ClassicPlayerMasterMidiTest; do
+            echo "=== $t"
+            "build/arm64/${t}_artefacts/Release/$t"
+          done
+
+      - name: Package for manual testing
+        run: |
+          mkdir -p outputs
+          APP="$(find build/arm64 -type d -path '*ClassicPlayer_artefacts/Release/Standalone/Classic Player.app' -print -quit)"
+          VST3="$(find build/arm64 -type d -path '*ClassicPlayer_artefacts/Release/VST3/Classic Player.vst3' -print -quit)"
+          test -d "$APP"; test -d "$VST3"
+          lipo -archs "$APP/Contents/MacOS/Classic Player" | grep -q arm64
+          xattr -cr "$APP" "$VST3"
+          codesign --force --deep --sign - "$APP"
+          codesign --force --deep --sign - "$VST3"
+          ditto -c -k --keepParent "$APP" "outputs/Classic-Player-perf-macOS-arm64-App.zip"
+          ditto -c -k --keepParent "$VST3" "outputs/Classic-Player-perf-macOS-arm64-VST3.zip"
+          git log -1 --format='%H %s' > outputs/COMMIT.txt
+
+      - name: Upload test build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Classic-Player-perf-macOS-arm64-test
+          if-no-files-found: error
+          path: outputs/*
