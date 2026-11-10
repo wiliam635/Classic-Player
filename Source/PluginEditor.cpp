@@ -1643,6 +1643,21 @@ public:
         if (shouldDrawButtonAsDown) colour = colour.darker(0.12f);
         else if (shouldDrawButtonAsHighlighted) colour = colour.brighter(0.08f);
         const auto isDrumPad = button.getName().startsWith("DRUM_PAD");
+        if (activeUiPalette == 7 && !isDrumPad)
+        {
+            // Concept D: flat controls, 1 px outline, 4 px corners.
+            g.setColour(colour);
+            g.fillRoundedRectangle(bounds, 4.0f);
+            const bool lit = colour.getPerceivedBrightness() > 0.45f;
+            g.setColour(lit ? colour.brighter(0.15f) : juce::Colour(paletteLine).brighter(shouldDrawButtonAsHighlighted ? 0.25f : 0.0f));
+            g.drawRoundedRectangle(bounds, 4.0f, 1.0f);
+            if (button.hasKeyboardFocus(true))
+            {
+                g.setColour(juce::Colour(yellow).withAlpha(0.8f));
+                g.drawRoundedRectangle(bounds.reduced(1.5f), 3.0f, 1.0f);
+            }
+            return;
+        }
         if (isDrumPad)
         {
             // Give every pad its own colour while keeping the centre visibly
@@ -1677,6 +1692,19 @@ public:
     {
         const auto bounds = juce::Rectangle<float>(0, 0, (float) width, (float) height).reduced(0.7f);
         const auto face = box.findColour(juce::ComboBox::backgroundColourId);
+        if (activeUiPalette == 7)
+        {
+            g.setColour(face);
+            g.fillRoundedRectangle(bounds, 4.0f);
+            g.setColour(box.hasKeyboardFocus(true) ? juce::Colour(teal) : box.findColour(juce::ComboBox::outlineColourId));
+            g.drawRoundedRectangle(bounds, 4.0f, 1.0f);
+            const float fx = width - 12.0f, fy = height * 0.5f;
+            juce::Path chevron;
+            chevron.startNewSubPath(fx - 3.5f, fy - 1.5f); chevron.lineTo(fx, fy + 2.0f); chevron.lineTo(fx + 3.5f, fy - 1.5f);
+            g.setColour(juce::Colour(mutedText).withAlpha(box.isEnabled() ? 1.0f : 0.3f));
+            g.strokePath(chevron, juce::PathStrokeType(1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            return;
+        }
         g.setGradientFill(juce::ColourGradient(face.brighter(0.12f), 0, 0,
                                                face.darker(0.2f), 0, (float) height, false));
         g.fillRoundedRectangle(bounds, 5.0f);
@@ -1700,6 +1728,24 @@ public:
         const auto bounds = juce::Rectangle<float>(diameter, diameter).withCentre(centre);
         const auto angle = startAngle + position * (endAngle - startAngle);
 
+        if (activeUiPalette == 7)
+        {
+            juce::Path flatTrack, flatArc;
+            flatTrack.addCentredArc(centre.x, centre.y, radius + 2.0f, radius + 2.0f, 0.0f, startAngle, endAngle, true);
+            flatArc.addCentredArc(centre.x, centre.y, radius + 2.0f, radius + 2.0f, 0.0f, startAngle, angle, true);
+            g.setColour(juce::Colour(paletteLine));
+            g.strokePath(flatTrack, juce::PathStrokeType(2.5f));
+            g.setColour(juce::Colour(teal));
+            g.strokePath(flatArc, juce::PathStrokeType(2.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.setColour(juce::Colour(panelLight));
+            g.fillEllipse(bounds.reduced(2.0f));
+            g.setColour(juce::Colour(paletteLine));
+            g.drawEllipse(bounds.reduced(2.0f), 1.0f);
+            g.setColour(juce::Colour(text));
+            g.drawLine(centre.x + std::sin(angle) * radius * 0.30f, centre.y - std::cos(angle) * radius * 0.30f,
+                       centre.x + std::sin(angle) * radius * 0.78f, centre.y - std::cos(angle) * radius * 0.78f, 2.0f);
+            return;
+        }
         g.setColour(juce::Colour(0xff080d11));
         g.fillEllipse(bounds.expanded(3.0f));
         g.setGradientFill(juce::ColourGradient(juce::Colour(0xff69747c), bounds.getX(), bounds.getY(),
