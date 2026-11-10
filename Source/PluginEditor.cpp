@@ -37,14 +37,15 @@ struct UiPalette
     juce::uint32 background, panel, panelLight, line, accent, highlight, text, mutedText;
 };
 
-static constexpr std::array<UiPalette, 7> uiPalettes {{
+static constexpr std::array<UiPalette, 8> uiPalettes {{
     { 0xff091018, 0xff151f28, 0xff202c35, 0xff33414c, 0xff13b8ad, 0xffffd84a, 0xffedf4f7, 0xff9eabb5 },
     { 0xff050608, 0xff101216, 0xff1c2025, 0xff565e66, 0xffbec5cc, 0xfff3f5f6, 0xfff6f7f8, 0xffb1b7bd },
     { 0xff22040b, 0xff3b0912, 0xff60101e, 0xff8d7f82, 0xffd51b38, 0xffbec3c8, 0xfffaf7f8, 0xffc9bfc2 },
     { 0xff0d1027, 0xff151a35, 0xff202747, 0xff5d5b88, 0xff6549cf, 0xfff5f2ff, 0xfffbfaff, 0xffc8c4df },
     { 0xffe9eef4, 0xfff6f8fb, 0xffd6e0ec, 0xff6c849d, 0xff126dbe, 0xff3b92dd, 0xff14273b, 0xff4c6073 },
     { 0xff9fa5ad, 0xffc8cdd2, 0xffe0e3e7, 0xff717982, 0xff245e83, 0xffe9bc36, 0xff16222c, 0xff394853 },
-    { 0xff24292e, 0xff30363d, 0xff424a53, 0xff74818c, 0xff9ac9df, 0xffffd84a, 0xfff1f4f6, 0xffbbc4cc }
+    { 0xff24292e, 0xff30363d, 0xff424a53, 0xff74818c, 0xff9ac9df, 0xffffd84a, 0xfff1f4f6, 0xffbbc4cc },
+    { 0xff0f1114, 0xff171a1f, 0xff1f242b, 0xff2b3239, 0xfff5a524, 0xff4cc9f0, 0xffe8ecf1, 0xff8b95a1 }
 }};
 int activeUiPalette = 0;
 juce::uint32 background = uiPalettes[0].background;
@@ -1140,7 +1141,7 @@ void writeUiDisplayPreference(const char* key, bool value)
 int readUiSkinPreference()
 {
     juce::PropertiesFile settings(uiLanguageFileOptions());
-    return juce::jlimit(0, (int) uiPalettes.size() - 1, settings.getIntValue("uiSkin", 0));
+    return juce::jlimit(0, (int) uiPalettes.size() - 1, settings.getIntValue("uiSkin", 7));
 }
 
 void writeUiSkinPreference(int skin)
@@ -9289,6 +9290,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     skinSelector.addItem("BRANCO AZUL", 5);
     skinSelector.addItem("PRATEADO", 6);
     skinSelector.addItem(juce::String::fromUTF8("AÇO ESCURO"), 7);
+    skinSelector.addItem(juce::String::fromUTF8("GRAFITE ÂMBAR"), 8);
     skinSelector.setSelectedId(uiSkin + 1, juce::dontSendNotification);
     skinSelector.setName(juce::String::fromUTF8("Tema de cores do aplicativo"));
     skinSelector.setTooltip(juce::String::fromUTF8("Tema de cores do aplicativo"));
