@@ -57,11 +57,14 @@ juce::uint32 yellow = uiPalettes[0].highlight;
 juce::uint32 text = uiPalettes[0].text;
 juce::uint32 mutedText = uiPalettes[0].mutedText;
 
+// Concept D look (flat fills, 1 px outlines, no textures/gradients) for every theme.
+static const bool flatUi = true;
+
 // Shared visual vocabulary: colour comes exclusively from the selected theme.
 void paintControlCard(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
     if (bounds.isEmpty()) return;
-    if (activeUiPalette == 7)
+    if (flatUi)
     {
         g.setColour(juce::Colour(panel));
         g.fillRoundedRectangle(bounds, 4.0f);
@@ -78,7 +81,7 @@ void paintControlCard(juce::Graphics& g, juce::Rectangle<float> bounds)
 
 void paintHeaderRibbon(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
-    if (activeUiPalette == 7) return; // concept D: no decorative waves
+    if (flatUi) return; // concept D: no decorative waves
     // Cache the decorative lines; repainting meters never rebuilds these paths.
     static juce::Image artwork;
     static juce::uint32 artworkAccent = 0;
@@ -1216,9 +1219,7 @@ void applyUiSkinToComponentTree(juce::Component& component, const UiPalette& new
     if (dynamic_cast<juce::AlertWindow*>(&component) != nullptr)
     {
         component.setColour(juce::AlertWindow::backgroundColourId,
-            (newPalette.background == uiPalettes[5].background || newPalette.background == uiPalettes[6].background)
-                                                             ? juce::Colours::transparentBlack
-                                                             : juce::Colour(newPalette.panel));
+            juce::Colour(newPalette.panel));
         component.setColour(juce::AlertWindow::textColourId, juce::Colour(newPalette.text));
         component.setColour(juce::AlertWindow::outlineColourId, juce::Colour(newPalette.line));
     }
@@ -1548,7 +1549,7 @@ public:
     void drawAlertBox(juce::Graphics& g, juce::AlertWindow& alert,
                       const juce::Rectangle<int>& textArea, juce::TextLayout& layout) override
     {
-        if (activeUiPalette == 5 || activeUiPalette == 6) paintBrushedSteel(g, alert.getLocalBounds().toFloat());
+        if (!flatUi && (activeUiPalette == 5 || activeUiPalette == 6)) paintBrushedSteel(g, alert.getLocalBounds().toFloat());
         juce::LookAndFeel_V4::drawAlertBox(g, alert, textArea, layout);
     }
 
@@ -1652,7 +1653,7 @@ public:
         if (shouldDrawButtonAsDown) colour = colour.darker(0.12f);
         else if (shouldDrawButtonAsHighlighted) colour = colour.brighter(0.08f);
         const auto isDrumPad = button.getName().startsWith("DRUM_PAD");
-        if (activeUiPalette == 7 && !isDrumPad)
+        if (flatUi && !isDrumPad)
         {
             // Concept D: flat controls, 1 px outline, 4 px corners.
             const auto edges = button.getConnectedEdgeFlags();
@@ -1707,7 +1708,7 @@ public:
     {
         const auto bounds = juce::Rectangle<float>(0, 0, (float) width, (float) height).reduced(0.7f);
         const auto face = box.findColour(juce::ComboBox::backgroundColourId);
-        if (activeUiPalette == 7)
+        if (flatUi)
         {
             g.setColour(face);
             g.fillRoundedRectangle(bounds, 4.0f);
@@ -1743,7 +1744,7 @@ public:
         const auto bounds = juce::Rectangle<float>(diameter, diameter).withCentre(centre);
         const auto angle = startAngle + position * (endAngle - startAngle);
 
-        if (activeUiPalette == 7)
+        if (flatUi)
         {
             juce::Path flatTrack, flatArc;
             flatTrack.addCentredArc(centre.x, centre.y, radius + 2.0f, radius + 2.0f, 0.0f, startAngle, endAngle, true);
@@ -1835,8 +1836,11 @@ public:
         const auto thumb = juce::Rectangle<float>(centreX - thumbWidth * 0.5f,
                                                   sliderPos - thumbHeight * 0.5f,
                                                   thumbWidth, thumbHeight);
-        g.setGradientFill(juce::ColourGradient(juce::Colour(0xffeef1f2), thumb.getX(), thumb.getY(),
-                                               juce::Colour(0xff929a9f), thumb.getRight(), thumb.getY(), false));
+        if (flatUi)
+            g.setColour(juce::Colour(0xffd3d8dc));
+        else
+            g.setGradientFill(juce::ColourGradient(juce::Colour(0xffeef1f2), thumb.getX(), thumb.getY(),
+                                                   juce::Colour(0xff929a9f), thumb.getRight(), thumb.getY(), false));
         g.fillRoundedRectangle(thumb, 1.5f);
         g.setColour(juce::Colour(0xff626b70));
         g.drawRoundedRectangle(thumb, 1.5f, 1.0f);
@@ -8440,7 +8444,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
             ? channelColour.interpolatedWith(juce::Colour(text).getBrightness() > 0.5f
                                                 ? juce::Colours::black : juce::Colours::white, 0.55f)
             : juce::Colour(panel);
-        if (activeUiPalette == 7)
+        if (flatUi)
         {
             // Concept D: flat card, 1 px outline, thin header rule.
             g.setColour(fill);
@@ -8456,7 +8460,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
         g.setGradientFill(juce::ColourGradient(fill.brighter(0.07f), bounds.getX(), bounds.getY(),
                                                fill.darker(0.22f), bounds.getX(), bounds.getBottom(), false));
         g.fillRoundedRectangle(bounds, 10.0f);
-        if (!hasCustomChannelColour && (activeUiPalette == 5 || activeUiPalette == 6))
+        if (!flatUi && !hasCustomChannelColour && (activeUiPalette == 5 || activeUiPalette == 6))
         {
             const juce::Graphics::ScopedSaveState state(g);
             juce::Path clip; clip.addRoundedRectangle(bounds.reduced(1.0f), 7.0f);
@@ -9475,7 +9479,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     chordLabel.setText("-", juce::dontSendNotification);
     chordLabel.setFont(juce::FontOptions(36.0f, juce::Font::bold));
     chordLabel.setJustificationType(juce::Justification::centred);
-    chordLabel.setColour(juce::Label::backgroundColourId, activeUiPalette == 7 ? juce::Colour(0xff0b0d10) : juce::Colours::black);
+    chordLabel.setColour(juce::Label::backgroundColourId, flatUi ? juce::Colour(0xff0b0d10) : juce::Colours::black);
     chordLabel.setColour(juce::Label::textColourId, chordColour);
     addAndMakeVisible(chordLabel);
     for (auto* modeButton : { &modeStageButton, &modeMixerButton, &modeLiveButton, &midiLearnModeButton })
@@ -10492,9 +10496,9 @@ void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
     // unscaled fill prevents those areas from retaining the host's black clear.
     g.fillAll(juce::Colour(background));
     g.addTransform(juce::AffineTransform::scale(interfaceScale));
-    if (activeUiPalette == 5 || activeUiPalette == 6)
+    if (!flatUi && (activeUiPalette == 5 || activeUiPalette == 6))
         paintBrushedSteel(g, interfaceCanvas.getLocalBounds().toFloat());
-    else if (activeUiPalette == 2)
+    else if (!flatUi && activeUiPalette == 2)
     {
         juce::ColourGradient nordGradient(juce::Colour(0xff7a1127), 0.0f, 0.0f,
                                           juce::Colour(background), (float) interfaceCanvas.getWidth(), (float) interfaceCanvas.getHeight(), false);
@@ -10502,7 +10506,7 @@ void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
         g.setGradientFill(nordGradient);
         g.fillAll();
     }
-    else if (activeUiPalette == 3)
+    else if (!flatUi && activeUiPalette == 3)
     {
         juce::ColourGradient violetGradient(juce::Colour(0xff351083), 0.0f, 0.0f,
                                             juce::Colour(background), (float) interfaceCanvas.getWidth(), (float) interfaceCanvas.getHeight(), false);
@@ -10522,12 +10526,20 @@ void ClassicPlayerAudioProcessorEditor::paint(juce::Graphics& g)
         g.drawText(localizedUiText("LIVE SET", activeUiLanguage.load()), interfaceCanvas.getWidth()/2-130, 12, 260, 56, juce::Justification::centred);
         return;
     }
-    g.setGradientFill(juce::ColourGradient(juce::Colour(panelLight), 0.0f, 0.0f,
-                                           juce::Colour(background), (float) interfaceCanvas.getWidth(), 220.0f, false));
-    if (activeUiPalette == 5 || activeUiPalette == 6)
-        paintBrushedSteel(g, juce::Rectangle<float>(0, 0, (float) interfaceCanvas.getWidth(), 142));
-    else
+    if (flatUi)
+    {
+        g.setColour(juce::Colour(panel));
         g.fillRect(0, 0, interfaceCanvas.getWidth(), 142);
+    }
+    else
+    {
+        g.setGradientFill(juce::ColourGradient(juce::Colour(panelLight), 0.0f, 0.0f,
+                                               juce::Colour(background), (float) interfaceCanvas.getWidth(), 220.0f, false));
+        if (activeUiPalette == 5 || activeUiPalette == 6)
+            paintBrushedSteel(g, juce::Rectangle<float>(0, 0, (float) interfaceCanvas.getWidth(), 142));
+        else
+            g.fillRect(0, 0, interfaceCanvas.getWidth(), 142);
+    }
     paintHeaderRibbon(g, { 0.0f, 70.0f, 320.0f, 70.0f });
     paintControlCard(g, { 6.0f, (float) interfaceCanvas.getHeight() - 68.0f,
                           (float) interfaceCanvas.getWidth() - 12.0f, 62.0f });
@@ -11254,7 +11266,7 @@ void ClassicPlayerAudioProcessorEditor::ChordDisplay::refreshSpectrum(
 void ClassicPlayerAudioProcessorEditor::ChordDisplay::paint(juce::Graphics& g)
 {
     if (!spectrumMode) { juce::Label::paint(g); return; }
-    g.fillAll(activeUiPalette == 7 ? juce::Colour(0xff0b0d10) : juce::Colours::black);
+    g.fillAll(flatUi ? juce::Colour(0xff0b0d10) : juce::Colours::black);
     const auto graph = getLocalBounds().toFloat().reduced(10.0f, 6.0f).withTrimmedBottom(12.0f);
     g.setColour(juce::Colours::white.withAlpha(0.1f));
     for (int line = 1; line < 4; ++line)
