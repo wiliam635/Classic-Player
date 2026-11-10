@@ -8006,6 +8006,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::openTabPage(int tab)
                        || type == ClassicPlayerAudioProcessor::LayerType::nordSample;
     if (tab == 1 && (nordType || type == ClassicPlayerAudioProcessor::LayerType::sf2)) showAdsrEditor();
     else if (tab == 3 && nordType) showNordEffectsEditor();
+    else if (tab == 3 && type == ClassicPlayerAudioProcessor::LayerType::sf2) showReverbEditor();
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectsEditor()
