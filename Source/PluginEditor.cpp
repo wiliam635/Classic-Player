@@ -1985,7 +1985,13 @@ private:
         for (auto* child : parent.getChildren())
         {
             if (static_cast<bool>(child->getProperties().getWithDefault("learnPanel", false)))
-                child->setVisible(shown);
+            {
+                if (child->isVisible() != shown)
+                {
+                    child->setVisible(shown);
+                    if (auto* owner = child->getParentComponent()) owner->resized();
+                }
+            }
             else
                 applyLearnVisibility(*child, shown);
         }
@@ -3189,6 +3195,11 @@ public:
     void resized() override
     {
         auto area = getLocalBounds().reduced(3);
+        if (!rightContent->isVisible())
+        {
+            leftContent->setBounds(area.reduced(3, 0));
+            return;
+        }
         const auto leftWidth = area.getWidth() / 2;
         leftContent->setBounds(area.removeFromLeft(leftWidth).reduced(3, 0));
         rightContent->setBounds(area.reduced(3, 0));
@@ -7155,6 +7166,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         if (auto* value = processor.parameters.getRawParameterValue(id)) return value->load();
         return fallback;
     };
+    const bool dockMode = activeUiPalette == 7 && dockCallback && dockCallback({}, {}, 600, false);
+    const int knobsHeight = dockMode ? 230 : 104;
     auto* knobs = new KnobEditorPanel({
         { "VOLUME", valueOf(prefix + "Gain", 80.0f), 0.0f, 100.0f, 1.0f, 0 },
         { "ATTACK", valueOf(prefix + "Attack", 5.0f), 0.0f, 100.0f, 0.1f, 1 },
@@ -7166,7 +7179,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         { "EQ MID dB", valueOf(prefix + "EqMid", 0.0f), -18.0f, 18.0f, 0.1f, 1 },
         { "EQ HIGH dB", valueOf(prefix + "EqHigh", 0.0f), -18.0f, 18.0f, 0.1f, 1 },
         { "GAIN MOTOR dB", valueOf(prefix + "PreGainDb", 0.0f), -18.0f, 18.0f, 0.1f, 1 }
-    }, 10);
+    }, dockMode ? 5 : 10);
     const std::array<const char*, 10> editorParameterSuffixes {
         "Gain", "Attack", "Release", "Cutoff", "Reverb", "Comp",
         "EqLow", "EqMid", "EqHigh", "PreGainDb"
@@ -7183,8 +7196,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         sf2Panel->useCompactLayout(true);
         sf2Panel->setSize(actionWidth, 244);
     }
-    knobs->useDenseGrid(true);
-    knobs->setSize(actionWidth, 104);
+    knobs->useDenseGrid(!dockMode);
+    knobs->setSize(actionWidth, knobsHeight);
     auto* effectButtons = new LayerEffectButtons(
         [safe] { if (safe != nullptr) safe->showReverbEditor(); },
         [safe] { if (safe != nullptr) safe->showCompressorEditor(); },
@@ -7279,7 +7292,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
         [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), actionWidth, 34));
     dialog->addCustomComponent(new CenteredPanel(new LayerInputOptionsPanel(processor, index), actionWidth, 36));
-    dialog->addCustomComponent(new CenteredPanel(knobs, actionWidth, 104));
+    dialog->addCustomComponent(new CenteredPanel(knobs, actionWidth, knobsHeight));
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
     const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect(getScreenBounds());
     const auto screenHeight = display != nullptr ? display->userArea.getHeight() : 700;
@@ -10517,6 +10530,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
 
     if (showingLiveSet)
     {
+        if (inspectorDock != nullptr) inspectorDock->setVisible(false);
         languageSelector.setVisible(false);
         auto liveArea = interfaceCanvas.getLocalBounds().reduced(14);
         auto liveHeader = liveArea.removeFromTop(96);
@@ -11536,6 +11550,7 @@ void ClassicPlayerAudioProcessorEditor::applyUiLanguage()
 
 void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
 {
+    if (show) closeInspector();
     showingLiveSet = show;
     title.setColour(juce::Label::textColourId, brandTextColour());
     subtitle.setText(localizedUiText(show ? "SONS QUE INSPIRAM" : "CLASSIC KEYS SF2 WORKSTATION",
