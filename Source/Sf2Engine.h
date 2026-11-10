@@ -66,6 +66,7 @@ public:
         int pianoTimbre = -1; // Neutral/OFF until the user explicitly selects Soft/Mid/Bright.
         float pianoDecaySeconds = 15.0f; // NPNO sustained tail; old performances stay unchanged
         bool pianoSoftRelease = false; // optional gentler NPNO key-up, independent of sustain
+        int pianoTimbreFloor = 1; // NPNO: lowest velocity (1-127) used to choose the sample layer; volume still follows the real velocity
         int pianoDynamicCompression = 0; // 0 off, 1-3 lift quiet notes without changing sample layer
         bool pianoPedalResonance = false; // opt-in NPNO pedal-down bank; disabled for existing performances
         bool pianoReleaseSamplesEnabled = false; // NPNO key-off bank is reserved for Upright Piano categories

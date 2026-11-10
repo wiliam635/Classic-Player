@@ -2548,6 +2548,26 @@ public:
         };
         save.onClick = [this] { saveCurve(); };
         load.onClick = [this] { loadCurve(); };
+        floorLabel.setText("PISO DE TIMBRE (NPNO)", juce::dontSendNotification);
+        floorLabel.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+        floorLabel.setColour(juce::Label::textColourId, juce::Colour(text));
+        addAndMakeVisible(floorLabel);
+        timbreFloor.setSliderStyle(juce::Slider::LinearHorizontal);
+        timbreFloor.setTextBoxStyle(juce::Slider::TextBoxRight, false, 44, 22);
+        timbreFloor.setRange(1.0, 127.0, 1.0);
+        timbreFloor.setValue(config.pianoTimbreFloor, juce::dontSendNotification);
+        timbreFloor.setTooltip("Menor velocity usada para escolher a camada de amostra do NPNO. "
+                               "O volume continua seguindo a velocity real. 1 = desligado.");
+        timbreFloor.onValueChange = [this]
+        {
+            auto next = processor.layerConfig(index);
+            next.pianoTimbreFloor = (int) timbreFloor.getValue();
+            processor.setLayerConfig(index, next);
+        };
+        const bool isNpno = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord;
+        floorLabel.setVisible(isNpno);
+        timbreFloor.setVisible(isNpno);
+        addAndMakeVisible(timbreFloor);
         lastTouch.setFont(juce::FontOptions(12.0f, juce::Font::bold));
         lastTouch.setColour(juce::Label::textColourId, juce::Colour(text));
         lastTouch.setJustificationType(juce::Justification::centredLeft);
@@ -2555,7 +2575,7 @@ public:
         updateControls();
         updateLastTouch();
         startTimerHz(10);
-        setSize(760, 442);
+        setSize(760, 474);
     }
 
     ~VelocityCurveEditorPanel() override { stopTimer(); }
@@ -2564,6 +2584,10 @@ public:
     {
         auto area = getLocalBounds().reduced(10, 8);
         lastTouch.setBounds(area.removeFromBottom(24));
+        area.removeFromBottom(4);
+        auto floorRow = area.removeFromBottom(28);
+        floorLabel.setBounds(floorRow.removeFromLeft(170));
+        timbreFloor.setBounds(floorRow);
         area.removeFromBottom(4);
         auto top = area.removeFromTop(32);
         presetMenu.setBounds(top.removeFromLeft(152).reduced(2));
@@ -2614,7 +2638,8 @@ private:
         lastTouch.setText(textValue, juce::dontSendNotification);
     }
 
-    juce::Label lastTouch;
+    juce::Label lastTouch, floorLabel;
+    juce::Slider timbreFloor;
 
     class Graph final : public juce::Component
     {

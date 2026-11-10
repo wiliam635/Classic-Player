@@ -748,10 +748,15 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 // a pronounced reflection that sounds like lingering reverb.
                 // Existing performances continue to play the dry bank.
                 const auto pedalDown = layer.sustainDown[(size_t) channel - 1];
+                // The sample layer (timbre) can be kept from dropping below a
+                // floor, while the voice level below still follows the real
+                // velocity. Floor 1 leaves the selection unchanged.
+                const auto layerVelocity = juce::jmax(velocity,
+                    static_cast<float>(juce::jlimit(1, 127, routing.pianoTimbreFloor)) / 127.0f);
                 auto stroke = routing.pianoPedalResonance && pedalDown
-                    ? findPianoStroke(layer, note, velocity, 1) : -1;
+                    ? findPianoStroke(layer, note, layerVelocity, 1) : -1;
                 if (stroke < 0)
-                    stroke = findPianoStroke(layer, note, velocity, 0);
+                    stroke = findPianoStroke(layer, note, layerVelocity, 0);
                 if (stroke >= 0)
                 {
                     layer.lastStrokeLayer.store(layer.piano->strokes[(size_t) stroke].velocityLayer,

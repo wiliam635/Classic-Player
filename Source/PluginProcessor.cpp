@@ -4193,7 +4193,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
     const auto destinationZero = juce::String(destinationLayer);
     const juce::StringArray oneBased {
         "layerType", "dx7Layer", "dx7Patch", "sf2Layer", "sf2Bank", "sf2Program", "pianoTimbre", "pianoDecaySeconds",
-        "pianoSoftRelease", "pianoDynamicCompression", "pianoPedalResonance",
+        "pianoSoftRelease", "pianoDynamicCompression", "pianoTimbreFloor", "pianoPedalResonance",
         "nordTremoloMix", "nordTremoloRate", "nordFlangerMix", "nordFlangerRate",
         "nordSplitLowPoint", "nordSplitHighPoint", "nordSplitLowWidth", "nordSplitHighWidth",
         "nordMorphVolumeWheel", "nordMorphVolumePressure", "nordMorphVolumePedal",
@@ -4414,6 +4414,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("pianoDecaySeconds" + juce::String(i + 1), config.pianoDecaySeconds, nullptr);
         state.setProperty("pianoSoftRelease" + juce::String(i + 1), config.pianoSoftRelease, nullptr);
         state.setProperty("pianoDynamicCompression" + juce::String(i + 1), config.pianoDynamicCompression, nullptr);
+        state.setProperty("pianoTimbreFloor" + juce::String(i + 1), config.pianoTimbreFloor, nullptr);
         state.setProperty("pianoPedalResonance" + juce::String(i + 1), config.pianoPedalResonance, nullptr);
         state.setProperty("pianoReleaseSamplesEnabled" + juce::String(i + 1),
                           config.pianoReleaseSamplesEnabled, nullptr);
@@ -5112,6 +5113,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     "pianoSoftRelease" + juce::String(i + 1), false));
                 config.pianoDynamicCompression = juce::jlimit(0, 3, static_cast<int>(state.getProperty(
                     "pianoDynamicCompression" + juce::String(i + 1), 0)));
+                config.pianoTimbreFloor = juce::jlimit(1, 127, static_cast<int>(state.getProperty(
+                    "pianoTimbreFloor" + juce::String(i + 1), 1)));
                 config.pianoPedalResonance = static_cast<bool>(state.getProperty(
                     "pianoPedalResonance" + juce::String(i + 1), false));
                 const auto savedPianoPath = state.getProperty("sf2Layer" + juce::String(i + 1)).toString();
