@@ -678,9 +678,19 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
     auto inspectDrumPadMidi = [this](const juce::MidiMessage& message)
     {
-        // Drum pads follow the General MIDI percussion channel. This keeps
-        // melodic notes from the keyboard (normally channel 1) isolated.
-        if (message.getChannel() != 10) return;
+        if (!message.isNoteOn() && !message.isNoteOff() && !message.isController()) return;
+        bool drumLayerAcceptsChannel = false;
+        for (int layer = 0; layer < activeLayerCount(); ++layer)
+        {
+            if (layerType(layer) != LayerType::drumPads) continue;
+            const auto channel = engine.getConfig(layer).midiChannel;
+            if (channel == 0 || channel == message.getChannel())
+            {
+                drumLayerAcceptsChannel = true;
+                break;
+            }
+        }
+        if (!drumLayerAcceptsChannel) return;
         if (message.isNoteOn())
         {
             const auto note = message.getNoteNumber();
@@ -690,11 +700,23 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 {
                     pad.midiNote.store(note, std::memory_order_release);
                     pad.midiCC.store(-1, std::memory_order_release);
-                    pad.trigger.store(1, std::memory_order_release);
+                    pad.midiChannel.store(message.getChannel(), std::memory_order_release);
+                    pad.midiNoteDown.store(true, std::memory_order_release);
+                    pad.midiCCDown.store(false, std::memory_order_release);
                 }
-                else if (pad.midiNote.load(std::memory_order_acquire) == note)
+                else if (pad.midiNote.load(std::memory_order_acquire) == note
+                         && pad.midiChannel.load(std::memory_order_acquire) == message.getChannel()
+                         && !pad.midiNoteDown.exchange(true, std::memory_order_acq_rel))
                     pad.trigger.store(1, std::memory_order_release);
             }
+            return;
+        }
+        if (message.isNoteOff())
+        {
+            for (auto& pad : drumPads)
+                if (pad.midiNote.load(std::memory_order_acquire) == message.getNoteNumber()
+                    && pad.midiChannel.load(std::memory_order_acquire) == message.getChannel())
+                    pad.midiNoteDown.store(false, std::memory_order_release);
             return;
         }
         if (!message.isController()) return;
@@ -707,13 +729,18 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             if (pad.learning.exchange(false, std::memory_order_acq_rel))
             {
                 pad.midiCC.store(cc, std::memory_order_release);
+                pad.midiChannel.store(message.getChannel(), std::memory_order_release);
                 pad.midiNote.store(-1, std::memory_order_release);
-                pad.trigger.store(1, std::memory_order_release);
+                pad.midiCCDown.store(message.getControllerValue() >= 64, std::memory_order_release);
+                pad.midiNoteDown.store(false, std::memory_order_release);
             }
             else if (pad.midiCC.load(std::memory_order_acquire) == cc
-                     && message.getControllerValue() >= 64)
+                     && pad.midiChannel.load(std::memory_order_acquire) == message.getChannel())
             {
-                pad.trigger.store(1, std::memory_order_release);
+                const bool down = message.getControllerValue() >= 64;
+                const bool wasDown = pad.midiCCDown.exchange(down, std::memory_order_acq_rel);
+                if (down && !wasDown)
+                    pad.trigger.store(1, std::memory_order_release);
             }
         }
     };
@@ -722,7 +749,10 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     {
         captureSplitNote(metadata.getMessage());
         processLiveSetSlotMidiMessage(metadata.getMessage());
-        inspectDrumPadMidi(metadata.getMessage());
+        // In a plug-in, the host buffer is the single authoritative MIDI
+        // source. Standalone external MIDI is collected per layer below.
+        if (wrapperType != wrapperType_Standalone)
+            inspectDrumPadMidi(metadata.getMessage());
         processMidiControlMessage(metadata.getMessage());
         processMasterMidiMessage(metadata.getMessage());
         if (metadata.getMessage().isNoteOn())
@@ -736,13 +766,26 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 continuousPads(layer).stopFromMidi(metadata.getMessage());
     }
 
+    std::array<bool, 17> inspectedDrumChannel{};
     for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
     {
         routedMidiBuffers[(size_t) layer].clear();
         routedMidiCollectors[(size_t) layer].removeNextBlockOfMessages(
             routedMidiBuffers[(size_t) layer], buffer.getNumSamples());
-        for (const auto metadata : routedMidiBuffers[(size_t) layer])
-            inspectDrumPadMidi(metadata.getMessage());
+        if (wrapperType == wrapperType_Standalone && layerType(layer) == LayerType::drumPads)
+        {
+            for (const auto metadata : routedMidiBuffers[(size_t) layer])
+            {
+                const auto& message = metadata.getMessage();
+                if (!message.isNoteOn() && !message.isNoteOff() && !message.isController()) continue;
+                const int channelIndex = juce::jlimit(1, 16, message.getChannel());
+                if (inspectedDrumChannel[(size_t) channelIndex]) continue;
+                const auto configuredChannel = engine.getConfig(layer).midiChannel;
+                if (configuredChannel != 0 && configuredChannel != message.getChannel()) continue;
+                inspectDrumPadMidi(message);
+                inspectedDrumChannel[(size_t) channelIndex] = true;
+            }
+        }
     }
     visualMidiBuffer.clear();
     visualMidiCollector.removeNextBlockOfMessages(visualMidiBuffer, buffer.getNumSamples());
@@ -1386,6 +1429,9 @@ void ClassicPlayerAudioProcessor::clearDrumPadMidiLearn(int pad)
     state.learning.store(false, std::memory_order_release);
     state.midiCC.store(-1, std::memory_order_release);
     state.midiNote.store(-1, std::memory_order_release);
+    state.midiChannel.store(10, std::memory_order_release);
+    state.midiCCDown.store(false, std::memory_order_release);
+    state.midiNoteDown.store(false, std::memory_order_release);
 }
 
 bool ClassicPlayerAudioProcessor::isDrumPadMidiLearning(int pad) const
@@ -4465,6 +4511,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("drumPadPath" + juce::String(pad + 1), drumPads[(size_t) pad].path, nullptr);
         state.setProperty("drumPadCC" + juce::String(pad + 1), drumPads[(size_t) pad].midiCC.load(), nullptr);
         state.setProperty("drumPadNote" + juce::String(pad + 1), drumPads[(size_t) pad].midiNote.load(), nullptr);
+        state.setProperty("drumPadMidiChannel" + juce::String(pad + 1), drumPads[(size_t) pad].midiChannel.load(), nullptr);
         state.setProperty("drumPadVolume" + juce::String(pad + 1), drumPads[(size_t) pad].volume.load(), nullptr);
     }
     for(int i=state.getNumChildren()-1;i>=0;--i)
@@ -4694,6 +4741,10 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                                      std::memory_order_release);
                 drumPad.midiNote.store(static_cast<int>(state.getProperty(
                     "drumPadNote" + juce::String(pad + 1), -1)), std::memory_order_release);
+                drumPad.midiChannel.store(juce::jlimit(1, 16, static_cast<int>(state.getProperty(
+                    "drumPadMidiChannel" + juce::String(pad + 1), 10))), std::memory_order_release);
+                drumPad.midiCCDown.store(false, std::memory_order_release);
+                drumPad.midiNoteDown.store(false, std::memory_order_release);
                 drumPad.volume.store(juce::jlimit(0.0f, 1.0f, static_cast<float>(state.getProperty(
                     "drumPadVolume" + juce::String(pad + 1), 1.0f))), std::memory_order_release);
                 drumPad.learning.store(false, std::memory_order_release);

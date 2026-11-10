@@ -500,6 +500,9 @@ private:
         std::atomic<int> position { -1 };
         std::atomic<int> midiCC { -1 };
         std::atomic<int> midiNote { -1 };
+        std::atomic<int> midiChannel { 10 };
+        std::atomic<bool> midiCCDown { false };
+        std::atomic<bool> midiNoteDown { false };
         std::atomic<bool> learning { false };
         std::atomic<float> volume { 1.0f };
     };

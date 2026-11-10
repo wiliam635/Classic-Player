@@ -6220,6 +6220,21 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
         };
         addAndMakeVisible(padVolume);
     }
+    midiChannelLabel.setText("MIDI CHANNEL", juce::dontSendNotification);
+    midiChannelLabel.setJustificationType(juce::Justification::centredLeft);
+    midiChannelBox.addItem("MIDI OMNI", 1);
+    for (int channel = 1; channel <= 16; ++channel)
+        midiChannelBox.addItem("MIDI CH " + juce::String(channel), channel + 1);
+    midiChannelBox.setSelectedId(processor.layerConfig(layerIndex).midiChannel + 1,
+                                 juce::dontSendNotification);
+    midiChannelBox.onChange = [this]
+    {
+        auto config = processor.layerConfig(layerIndex);
+        config.midiChannel = juce::jlimit(0, 16, midiChannelBox.getSelectedId() - 1);
+        processor.setLayerConfig(layerIndex, config);
+    };
+    addAndMakeVisible(midiChannelLabel);
+    addAndMakeVisible(midiChannelBox);
     flatButton(stopButton);addAndMakeVisible(stopButton);
     for(auto* button:{&stopLearn,&volumeLearnButton,&cutoffLearnButton,&muteLearnButton}){flatButton(*button);addAndMakeVisible(*button);}
     stopButton.onClick=[this]{processor.continuousPads(layerIndex).stop();};
@@ -6272,6 +6287,8 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::setControlsVisible(bool sh
     fadeSlider.setVisible(controlsVisible&&continuous());cutoffLearnButton.setVisible(continuous());
     cutoffSlider.setVisible(continuous());
     cutoffLabel.setVisible(continuous());
+    midiChannelLabel.setVisible(controlsVisible);
+    midiChannelBox.setVisible(controlsVisible);
     volumeLearnButton.setVisible(controlsVisible);
     muteLearnButton.setVisible(controlsVisible);
     resized();
@@ -6299,6 +6316,9 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::chooseSample(int pad)
 
 void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
 {
+    if (!midiChannelBox.isMouseButtonDown())
+        midiChannelBox.setSelectedId(processor.layerConfig(layerIndex).midiChannel + 1,
+                                     juce::dontSendNotification);
     const auto volumeCC=processor.midiLearnCC(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume);
     setButtonTextIfChanged(volumeLearnButton, localizedUiText(
         processor.isMidiLearning(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume)
@@ -6355,6 +6375,12 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
 void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
 {
     auto available=getLocalBounds();
+    if (controlsVisible)
+    {
+        auto channelRow = available.removeFromTop(28).reduced(5, 1);
+        midiChannelLabel.setBounds(channelRow.removeFromLeft(112));
+        midiChannelBox.setBounds(channelRow);
+    }
     if (continuous())
     {
         auto cutoffRow = available.removeFromBottom(34).reduced(3, 1);
@@ -7568,7 +7594,15 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int eff
     }
     knobs->useDenseGrid(true);
     const juce::Component::SafePointer<LayerStrip> safe(this);
-    knobs->setOnValueChange([safe, knobs, effect]
+    auto* syncButton = effect == 2 ? new juce::TextButton(fx.delaySync ? "SYNC: ON" : "SYNC: OFF") : nullptr;
+    if (syncButton != nullptr)
+    {
+        flatButton(*syncButton);
+        syncButton->setSize(220, 34);
+    }
+    const juce::Component::SafePointer<juce::TextButton> syncSafe(syncButton);
+    const auto initialDelayBpm = fx.delayBpm;
+    knobs->setOnValueChange([safe, knobs, effect, syncSafe, initialDelayBpm]
     {
         if (safe == nullptr) return;
         auto config = safe->processor.layerConfig(safe->index);
@@ -7577,7 +7611,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int eff
         {
             case 1: settings.tremoloRate = knobs->value(0); settings.tremoloMix = knobs->value(1); break;
             case 2: settings.delayBpm = knobs->value(0); settings.delayFeedback = knobs->value(1);
-                    settings.delayMix = knobs->value(2); break;
+                    settings.delayMix = knobs->value(2);
+                    if (std::abs(knobs->value(0) - initialDelayBpm) > 0.01f)
+                    {
+                        settings.delaySync = true;
+                        if (syncSafe != nullptr) syncSafe->setButtonText("SYNC: ON");
+                    }
+                    break;
             case 3: settings.flangerRate = knobs->value(0); settings.flangerMix = knobs->value(1); break;
             case 4: settings.chorusRate = knobs->value(0); settings.chorusMix = knobs->value(1); break;
         }
@@ -7586,6 +7626,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int eff
     dialog->addCustomComponent(knobs);
     if (effect == 2)
     {
+        syncButton->onClick = [safe, syncSafe]
+        {
+            if (safe == nullptr) return;
+            auto config = safe->processor.layerConfig(safe->index);
+            config.nordFx.delaySync = !config.nordFx.delaySync;
+            if (syncSafe != nullptr)
+                syncSafe->setButtonText(config.nordFx.delaySync ? "SYNC: ON" : "SYNC: OFF");
+            safe->processor.setLayerConfig(safe->index, config);
+        };
+        dialog->addCustomComponent(syncButton);
         auto* tap = new juce::TextButton("TAP TEMPO");
         flatButton(*tap);
         tap->setSize(220, 34);
@@ -7601,12 +7651,14 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int eff
             knobs->setValue(0, bpm);
             auto config = safe->processor.layerConfig(safe->index);
             config.nordFx.delayBpm = bpm;
+            config.nordFx.delaySync = true;
             safe->processor.setLayerConfig(safe->index, config);
+            if (syncSafe != nullptr) syncSafe->setButtonText("SYNC: ON");
             tap->setButtonText(juce::String::fromUTF8("TAP TEMPO · ") + juce::String((int) bpm) + " BPM");
         };
         dialog->addCustomComponent(tap);
     }
-    dialog->setSize(560, effect == 2 ? 310 : 260);
+    dialog->setSize(560, effect == 2 ? 350 : 260);
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
@@ -10250,18 +10302,21 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
         // the message thread can stall the plug-in editor while Ableton repaints.
         if (classicProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
         {
-            const auto devices = classicProcessor.availableMidiDevices();
             if (audioMidiSettingsOpen && !modalWindowOpen)
             {
                 audioMidiSettingsOpen = false;
+                const auto devices = classicProcessor.availableMidiDevices();
                 classicProcessor.refreshStandaloneMidiInputs(devices);
+                for (auto& strip : strips)
+                    if (strip != nullptr) strip->refreshMidiDevices(devices);
             }
-            else if (!audioMidiSettingsOpen)
+            else if (!audioMidiSettingsOpen && !modalWindowOpen)
             {
+                const auto devices = classicProcessor.availableMidiDevices();
                 classicProcessor.refreshStandaloneMidiInputs(devices);
+                for (auto& strip : strips)
+                    if (strip != nullptr) strip->refreshMidiDevices(devices);
             }
-            for (auto& strip : strips)
-                if (strip != nullptr) strip->refreshMidiDevices(devices);
         }
     }
     masterMeter.setLevel(juce::jlimit(0.0f, 1.0f, classicProcessor.limiterOutputLevel()));

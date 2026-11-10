@@ -138,6 +138,8 @@ private:
         juce::TextButton stopButton{"STOP"};
         MidiLearnButton stopLearn{"LEARN STOP"}, volumeLearnButton{"LEARN VOLUME"},
                         cutoffLearnButton{"LEARN CUTOFF"}, muteLearnButton{"LEARN MUTE"};
+        juce::Label midiChannelLabel;
+        juce::ComboBox midiChannelBox;
         juce::Slider fadeSlider, cutoffSlider;
         juce::Label cutoffLabel;
         std::unique_ptr<juce::FileChooser> fileChooser;
