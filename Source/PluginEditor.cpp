@@ -8239,8 +8239,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
             // Concept D: flat card, 1 px outline, thin header rule.
             g.setColour(fill);
             g.fillRoundedRectangle(bounds, 6.0f);
-            g.setColour(juce::Colour(paletteLine));
-            g.drawRoundedRectangle(bounds.reduced(0.5f), 6.0f, 1.0f);
+            g.setColour(selected ? juce::Colour(yellow) : juce::Colour(paletteLine));
+            g.drawRoundedRectangle(bounds.reduced(0.5f), 6.0f, selected ? 2.0f : 1.0f);
             g.setColour(accent.withAlpha(0.9f));
             g.fillRect(juce::Rectangle<float>(bounds.getX() + 1.0f, bounds.getY() + 6.0f, 3.0f, 20.0f));
             g.setColour(juce::Colour(paletteLine));
@@ -9246,6 +9246,12 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     chordLabel.setColour(juce::Label::backgroundColourId, juce::Colours::black);
     chordLabel.setColour(juce::Label::textColourId, chordColour);
     addAndMakeVisible(chordLabel);
+    addAndMakeVisible(displayChordButton);
+    addAndMakeVisible(displaySpectrumButton);
+    displayChordButton.setTooltip(juce::String::fromUTF8("Mostrar o nome do acorde no display"));
+    displaySpectrumButton.setTooltip(juce::String::fromUTF8("Mostrar o analisador de espectro no display"));
+    displayChordButton.onClick = [this] { setDisplaySpectrumMode(false); };
+    displaySpectrumButton.onClick = [this] { setDisplaySpectrumMode(true); };
     chordLabel.spectrumMode = classicProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone
         ? readUiDisplayPreference("uiDisplaySpectrum", false)
         : static_cast<bool>(uiState.getProperty("uiDisplaySpectrum",
@@ -9662,10 +9668,10 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
         strips[(size_t) i] = std::make_unique<LayerStrip>(classicProcessor, i,
                                                           [this] { applyMixerStates(); layoutLayerStrips(); });
         strips[(size_t) i]->setRemoveCallback([this, i] { removeLayer(i); });
-        strips[(size_t) i]->setDockCallback([this](const juce::String& title, std::vector<juce::Component*> panels)
+        strips[(size_t) i]->setDockCallback([this, i](const juce::String& title, std::vector<juce::Component*> panels)
         {
             if (panels.empty()) return canDockInspector();
-            dockInspector(title, std::move(panels));
+            dockInspector(i, title, std::move(panels));
             return true;
         });
         strips[(size_t) i]->setReorderCallback([this](int layer, juce::Point<int> position)
@@ -10423,6 +10429,20 @@ void ClassicPlayerAudioProcessorEditor::resized()
         layoutLayerStrips();
     }
 
+    {
+        const bool showToggle = activeUiPalette == 7 && !showingLiveSet;
+        displayChordButton.setVisible(showToggle);
+        displaySpectrumButton.setVisible(showToggle);
+        if (showToggle)
+        {
+            const auto b = chordLabel.getBounds();
+            displaySpectrumButton.setBounds(b.getRight() - 88, b.getY() + 5, 84, 22);
+            displayChordButton.setBounds(b.getRight() - 88 - 68, b.getY() + 5, 66, 22);
+            displayChordButton.toFront(false);
+            displaySpectrumButton.toFront(false);
+            refreshDisplayToggle();
+        }
+    }
     activationPanel.setBounds(interfaceCanvas.getLocalBounds());
     activationBackdrop.setBounds(activationPanel.getLocalBounds());
     if (activationPanel.isVisible())
@@ -10445,9 +10465,12 @@ void ClassicPlayerAudioProcessorEditor::resized()
     keyboard.setKeyWidth(juce::jmax(11.0f, static_cast<float>(keyboard.getWidth()) / 52.0f));
 }
 
-void ClassicPlayerAudioProcessorEditor::dockInspector(const juce::String& title,
+void ClassicPlayerAudioProcessorEditor::dockInspector(int layer, const juce::String& title,
                                                       std::vector<juce::Component*> panels)
 {
+    selectedLayer = layer;
+    for (int i = 0; i < Sf2Engine::layerCount; ++i)
+        if (strips[(size_t) i] != nullptr) strips[(size_t) i]->setSelected(i == layer);
     const juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor> safe(this);
     inspectorDock.reset();
     inspectorDock = std::make_unique<InspectorDock>(title, std::move(panels), [safe]
@@ -10486,6 +10509,9 @@ bool ClassicPlayerAudioProcessorEditor::canDockInspector() const
 
 void ClassicPlayerAudioProcessorEditor::closeInspector()
 {
+    selectedLayer = -1;
+    for (int i = 0; i < Sf2Engine::layerCount; ++i)
+        if (strips[(size_t) i] != nullptr) strips[(size_t) i]->setSelected(false);
     inspectorDock.reset();
     resized();
     repaint();
@@ -10818,9 +10844,22 @@ void ClassicPlayerAudioProcessorEditor::chooseBackupFile(bool importing)
     });
 }
 
+void ClassicPlayerAudioProcessorEditor::refreshDisplayToggle()
+{
+    const bool spectrum = chordLabel.spectrumMode;
+    const auto paint = [](juce::TextButton& button, bool on)
+    {
+        setButtonColourIfChanged(button, juce::TextButton::buttonColourId, juce::Colour(on ? teal : panelLight));
+        setButtonColourIfChanged(button, juce::TextButton::textColourOffId, juce::Colour(on ? background : text));
+    };
+    paint(displayChordButton, !spectrum);
+    paint(displaySpectrumButton, spectrum);
+}
+
 void ClassicPlayerAudioProcessorEditor::setDisplaySpectrumMode(bool enabled)
 {
     chordLabel.spectrumMode = enabled;
+    refreshDisplayToggle();
     classicProcessor.setSpectrumCaptureEnabled(enabled);
     classicProcessor.parameters.state.setProperty("uiDisplaySpectrum", enabled, nullptr);
     writeUiDisplayPreference("uiDisplaySpectrum", enabled);

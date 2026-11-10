@@ -174,6 +174,7 @@ private:
         bool isMuted() const { return muted; }
         bool isSolo() const { return solo; }
         bool isExpanded() const { return expanded; }
+        void setSelected(bool shouldSelect) { if (selected != shouldSelect) { selected = shouldSelect; repaint(); } }
         void setRemoveCallback(std::function<void()> callback) { removeLayerCallback = std::move(callback); }
         void setReorderCallback(std::function<void(int, juce::Point<int>)> callback)
         { reorderCallback = std::move(callback); }
@@ -237,6 +238,7 @@ private:
         bool muted = false;
         bool solo = false;
         bool expanded = false;
+        bool selected = false;
         std::vector<Sf2Engine::Preset> presets;
         juce::Array<juce::File> libraryFiles;
         juce::Array<juce::File> externalInstrumentFiles;
@@ -331,7 +333,11 @@ private:
     void chooseBackupFile(bool importing);
     void setUiLanguage(int language);
     void setUiSkin(int skin, bool savePreference = true);
-    void dockInspector(const juce::String& title, std::vector<juce::Component*> panels);
+    void dockInspector(int layer, const juce::String& title, std::vector<juce::Component*> panels);
+    void refreshDisplayToggle();
+    juce::TextButton displayChordButton { "ACORDE" };
+    juce::TextButton displaySpectrumButton { "ESPECTRO" };
+    int selectedLayer = -1;
     void closeInspector();
     bool canDockInspector() const;
     int layerStripsWidth() const;
