@@ -1851,6 +1851,8 @@ public:
 ClassicLookAndFeel classicLookAndFeel;
 
 // Concept D: layer editor docked inside the main window (replaces the popup).
+// Panels carry a "dockTab" property (0 SOM, 1 ENVELOPE, 2 MIDI, 3 EFEITOS) and
+// panels carrying "learnPanel" are only shown while MIDI LEARN mode is on.
 class InspectorDock final : public juce::Component
 {
 public:
@@ -1858,28 +1860,43 @@ public:
                   std::function<void()> onClose)
         : title(heading)
     {
-        setLookAndFeel(&classicLookAndFeel);
-        closeButton.setButtonText(juce::String::fromUTF8("FECHAR"));
-        closeButton.onClick = std::move(onClose);
-        addAndMakeVisible(closeButton);
+        setup(std::move(onClose));
         viewport.setViewedComponent(&content, false);
         viewport.setScrollBarsShown(true, false);
         addAndMakeVisible(viewport);
         for (auto* panelComponent : editorPanels)
         {
             panels.add(panelComponent);
+            panelTab.push_back(juce::jlimit(0, 3, (int) panelComponent->getProperties().getWithDefault("dockTab", 0)));
             content.addAndMakeVisible(panelComponent);
         }
+        for (int tab = 0; tab < 4; ++tab)
+            if (std::find(panelTab.begin(), panelTab.end(), tab) != panelTab.end())
+                usedTabs.push_back(tab);
+        if (usedTabs.size() > 1)
+        {
+            static const char* names[] = { "SOM", "ENVELOPE", "MIDI", "EFEITOS" };
+            for (size_t k = 0; k < usedTabs.size(); ++k)
+            {
+                auto* button = tabButtons.add(new juce::TextButton(names[usedTabs[k]]));
+                const int edges = (k > 0 ? juce::Button::ConnectedOnLeft : 0)
+                                | (k + 1 < usedTabs.size() ? juce::Button::ConnectedOnRight : 0);
+                button->setConnectedEdges(edges);
+                const int tabValue = usedTabs[k];
+                button->onClick = [this, tabValue] { activeTab = tabValue; resized(); };
+                addAndMakeVisible(button);
+            }
+            activeTab = usedTabs.front();
+        }
+        else if (!usedTabs.empty())
+            activeTab = usedTabs.front();
     }
 
     // Fixed-design content (Hammond, Nord Organ) scaled to fit the free area.
     InspectorDock(const juce::String& heading, juce::Component* fixedContent, std::function<void()> onClose)
         : title(heading), scaled(fixedContent)
     {
-        setLookAndFeel(&classicLookAndFeel);
-        closeButton.setButtonText(juce::String::fromUTF8("FECHAR"));
-        closeButton.onClick = std::move(onClose);
-        addAndMakeVisible(closeButton);
+        setup(std::move(onClose));
         designWidth = juce::jmax(1, fixedContent->getWidth());
         designHeight = juce::jmax(1, fixedContent->getHeight());
         ownedScaled.reset(fixedContent);
@@ -1897,15 +1914,10 @@ public:
         resized();
     }
 
-    static int columnsFor(int) { return 1; }
-
-    int preferredHeight(int width) const
+    void setLearnShown(bool shown)
     {
-        const auto columns = columnsFor(width);
-        const auto heights = flowHeights(columns);
-        int tallest = 0;
-        for (const auto h : heights) tallest = juce::jmax(tallest, h);
-        return headerHeight + tallest + 12;
+        learnShown = shown;
+        resized();
     }
 
     void paint(juce::Graphics& g) override
@@ -1918,7 +1930,7 @@ public:
         g.fillRect(juce::Rectangle<float>(1.0f, 6.0f, 3.0f, 16.0f));
         g.setColour(juce::Colour(text));
         g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
-        g.drawText(title, 14, 0, getWidth() - 120, headerHeight, juce::Justification::centredLeft);
+        g.drawText(title, 14, 0, getWidth() - 180, headerHeight, juce::Justification::centredLeft);
         g.setColour(juce::Colour(paletteLine));
         g.drawHorizontalLine(headerHeight - 1, 0.0f, (float) getWidth());
     }
@@ -1940,6 +1952,18 @@ public:
                 (float) area.getY() + ((float) area.getHeight() - (float) designHeight * fit) * 0.5f));
             return;
         }
+        if (!tabButtons.isEmpty())
+        {
+            auto tabRow = area.removeFromTop(32).reduced(8, 4);
+            for (int k = 0; k < tabButtons.size(); ++k)
+            {
+                auto* button = tabButtons[k];
+                button->setBounds(tabRow.removeFromLeft(112));
+                const bool on = usedTabs[(size_t) k] == activeTab;
+                setButtonColourIfChanged(*button, juce::TextButton::buttonColourId, juce::Colour(on ? teal : panelLight));
+                setButtonColourIfChanged(*button, juce::TextButton::textColourOffId, juce::Colour(on ? background : text));
+            }
+        }
         viewport.setBounds(area);
         layoutPanels(area.getWidth() - viewport.getScrollBarThickness());
     }
@@ -1948,39 +1972,42 @@ private:
     static constexpr int headerHeight = 28;
     static constexpr int gap = 8;
 
-    std::vector<int> flowHeights(int columns) const
+    void setup(std::function<void()> onClose)
     {
-        int total = 0;
-        for (auto* c : panels) total += c->getHeight() + gap;
-        std::vector<int> heights((size_t) columns, 0);
-        int column = 0;
-        for (auto* c : panels)
+        setLookAndFeel(&classicLookAndFeel);
+        closeButton.setButtonText(juce::String::fromUTF8("FECHAR"));
+        closeButton.onClick = std::move(onClose);
+        addAndMakeVisible(closeButton);
+    }
+
+    static void applyLearnVisibility(juce::Component& parent, bool shown)
+    {
+        for (auto* child : parent.getChildren())
         {
-            if (column < columns - 1 && heights[(size_t) column] >= total / columns) ++column;
-            heights[(size_t) column] += c->getHeight() + gap;
+            if (static_cast<bool>(child->getProperties().getWithDefault("learnPanel", false)))
+                child->setVisible(shown);
+            else
+                applyLearnVisibility(*child, shown);
         }
-        return heights;
     }
 
     void layoutPanels(int width)
     {
-        const auto columns = columnsFor(getWidth());
-        const auto columnWidth = (width - gap * (columns + 1)) / columns;
-        int total = 0;
-        for (auto* c : panels) total += c->getHeight() + gap;
-        std::vector<int> ys((size_t) columns, gap);
-        int column = 0;
-        int usedHeight = gap;
-        for (auto* c : panels)
-        {
-            if (column < columns - 1 && ys[(size_t) column] - gap >= total / columns) ++column;
-            c->setBounds(gap + column * (columnWidth + gap), ys[(size_t) column], columnWidth, c->getHeight());
-            ys[(size_t) column] += c->getHeight() + gap;
-            usedHeight = juce::jmax(usedHeight, ys[(size_t) column]);
-        }
-        content.setSize(width, usedHeight);
+        const auto columnWidth = width - gap * 2;
+        int y = gap;
         content.cards.clear();
-        for (auto* c : panels) content.cards.push_back(c->getBounds());
+        for (int i = 0; i < panels.size(); ++i)
+        {
+            auto* c = panels[i];
+            const bool shown = scaled == nullptr && panelTab[(size_t) i] == activeTab;
+            c->setVisible(shown);
+            if (!shown) continue;
+            c->setBounds(gap, y, columnWidth, c->getHeight());
+            content.cards.push_back(c->getBounds());
+            y += c->getHeight() + gap;
+            applyLearnVisibility(*c, learnShown);
+        }
+        content.setSize(width, y);
         content.repaint();
     }
 
@@ -2003,10 +2030,16 @@ private:
     juce::Viewport viewport;
     Content content;
     juce::Array<juce::Component*> panels;
+    std::vector<int> panelTab;
+    std::vector<int> usedTabs;
+    juce::OwnedArray<juce::TextButton> tabButtons;
+    int activeTab = 0;
+    bool learnShown = false;
 };
 
 template <typename Callback, typename Dialog>
-static bool dockAlertPanels(Callback& callback, Dialog* dialog, const juce::String& title, int width)
+static bool dockAlertPanels(Callback& callback, Dialog* dialog, const juce::String& title, int width,
+                            std::initializer_list<int> tabs = {})
 {
     if (activeUiPalette != 7 || !callback || !callback({}, {}, 600, false)) return false;
     std::vector<juce::Component*> dockedPanels;
@@ -2016,6 +2049,11 @@ static bool dockAlertPanels(Callback& callback, Dialog* dialog, const juce::Stri
         dialog->removeCustomComponent(0);
     }
     delete dialog;
+    if (tabs.size() == dockedPanels.size())
+    {
+        size_t k = 0;
+        for (const auto tab : tabs) dockedPanels[k++]->getProperties().set("dockTab", tab);
+    }
     callback(title, std::move(dockedPanels), width, false);
     return true;
 }
@@ -7159,6 +7197,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
             ? std::function<void()>([safe] { if (safe != nullptr) safe->showNordEffectsEditor(); })
             : std::function<void()>{});
     auto* midiPanel = new LayerMidiLearnPanel(processor, index);
+    midiPanel->getProperties().set("learnPanel", true);
 
     class CenteredPanel final : public juce::Component
     {
@@ -7267,6 +7306,16 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
             dialog->removeCustomComponent(0);
         }
         delete dialog;
+        {
+            const auto kind = processor.layerType(index);
+            std::vector<int> tabs;
+            if (kind == ClassicPlayerAudioProcessor::LayerType::nord) tabs = { 0, 2, 0, 1, 0, 2, 0, 3 };
+            else if (kind == ClassicPlayerAudioProcessor::LayerType::nordSample) tabs = { 0, 2, 1, 0, 2, 0, 3 };
+            else tabs = { 0, 1, 0, 2, 0, 3 };
+            if (tabs.size() == dockedPanels.size())
+                for (size_t k = 0; k < tabs.size(); ++k)
+                    dockedPanels[k]->getProperties().set("dockTab", tabs[k]);
+        }
         dockCallback(layerTitle.getText(), std::move(dockedPanels), 930, false);
         return;
     }
@@ -9327,7 +9376,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     chordLabel.setText("-", juce::dontSendNotification);
     chordLabel.setFont(juce::FontOptions(36.0f, juce::Font::bold));
     chordLabel.setJustificationType(juce::Justification::centred);
-    chordLabel.setColour(juce::Label::backgroundColourId, juce::Colours::black);
+    chordLabel.setColour(juce::Label::backgroundColourId, activeUiPalette == 7 ? juce::Colour(0xff0b0d10) : juce::Colours::black);
     chordLabel.setColour(juce::Label::textColourId, chordColour);
     addAndMakeVisible(chordLabel);
     for (auto* modeButton : { &modeStageButton, &modeMixerButton, &modeLiveButton, &midiLearnModeButton })
@@ -9906,6 +9955,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         [safe] { if (safe != nullptr) safe->showCompressorEditor(); }, {},
         [safe] { if (safe != nullptr) safe->showEqEditor(); });
     auto* midiPanel = new LayerMidiLearnPanel(processor, index);
+    midiPanel->getProperties().set("learnPanel", true);
 
     class CenteredPanel final : public juce::Component
     {
@@ -9978,7 +10028,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
             safe->processor.setAnalogSynthConfig(safe->index, factoryConfig);
         }
     };
-    if (dockAlertPanels(dockCallback, dialog, layerTitle.getText(), 930)) return;
+    if (dockAlertPanels(dockCallback, dialog, layerTitle.getText(), 930, { 0, 0, 2, 2, 0, 3 })) return;
     dialog->setSize(actionWidth + 52, 720);
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();
@@ -10033,6 +10083,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
         [safe] { if (safe != nullptr) safe->showChorusEditor(); },
         [safe] { if (safe != nullptr) safe->showEqEditor(); });
     auto* midiPanel = new LayerMidiLearnPanel(processor, index);
+    midiPanel->getProperties().set("learnPanel", true);
 
     class CenteredPanel final : public juce::Component
     {
@@ -10122,7 +10173,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.
-    if (dockAlertPanels(dockCallback, dialog, layerTitle.getText(), 930)) return;
+    if (dockAlertPanels(dockCallback, dialog, layerTitle.getText(), 930, { 0, 1, 0, 0, 0, 2, 3 })) return;
     dialog->setSize(actionWidth + 52, 680);
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();
@@ -10629,6 +10680,7 @@ void ClassicPlayerAudioProcessorEditor::dockInspector(int layer, const juce::Str
     interfaceCanvas.addAndMakeVisible(*inspectorDock);
     applyUiSkinToComponentTree(*inspectorDock, uiPalettes[(size_t) activeUiPalette]);
     applyUiLanguageToComponentTree(*inspectorDock, activeUiLanguage.load());
+    static_cast<InspectorDock*>(inspectorDock.get())->setLearnShown(midiLearnMode);
     resized();
     repaint();
 }
@@ -11015,6 +11067,8 @@ void ClassicPlayerAudioProcessorEditor::refreshMidiLearnMode()
 {
     for (auto& strip : strips)
         if (strip != nullptr) strip->setLearnVisible(midiLearnMode);
+    if (inspectorDock != nullptr)
+        static_cast<InspectorDock*>(inspectorDock.get())->setLearnShown(midiLearnMode);
     refreshDisplayToggle();
     resized();
 }
@@ -11084,7 +11138,7 @@ void ClassicPlayerAudioProcessorEditor::ChordDisplay::refreshSpectrum(
 void ClassicPlayerAudioProcessorEditor::ChordDisplay::paint(juce::Graphics& g)
 {
     if (!spectrumMode) { juce::Label::paint(g); return; }
-    g.fillAll(juce::Colours::black);
+    g.fillAll(activeUiPalette == 7 ? juce::Colour(0xff0b0d10) : juce::Colours::black);
     const auto graph = getLocalBounds().toFloat().reduced(10.0f, 6.0f).withTrimmedBottom(12.0f);
     g.setColour(juce::Colours::white.withAlpha(0.1f));
     for (int line = 1; line < 4; ++line)
