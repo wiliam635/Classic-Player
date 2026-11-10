@@ -8417,6 +8417,25 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::paint(juce::Graphics& g)
                   : type == ClassicPlayerAudioProcessor::LayerType::vst ? "Synth"
                   : "Efeitos";
     drawCategoryArtwork(g, categoryArtworkBounds, category, accent);
+    if (activeUiPalette == 7 && !engineTagBounds.isEmpty())
+    {
+        const char* tag = "";
+        switch (type)
+        {
+            case ClassicPlayerAudioProcessor::LayerType::sf2: tag = "SF2"; break;
+            case ClassicPlayerAudioProcessor::LayerType::nord: tag = "NPNO"; break;
+            case ClassicPlayerAudioProcessor::LayerType::nordSample: tag = "NSMP"; break;
+            case ClassicPlayerAudioProcessor::LayerType::dx7: tag = "DX7"; break;
+            case ClassicPlayerAudioProcessor::LayerType::hammond: tag = "HAMMOND"; break;
+            case ClassicPlayerAudioProcessor::LayerType::analog: tag = "MOOG"; break;
+            case ClassicPlayerAudioProcessor::LayerType::nordOrgan: tag = "NORD ORGAN"; break;
+            case ClassicPlayerAudioProcessor::LayerType::vst: tag = "VST"; break;
+            default: break;
+        }
+        g.setColour(accent);
+        g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+        g.drawText(tag, engineTagBounds, juce::Justification::centredLeft);
+    }
     g.setColour(juce::Colour(mutedText));
     g.setFont(9.0f);
     const auto scaleX = gain.getRight() - 22;
@@ -8464,6 +8483,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     const auto type = processor.layerType(index);
     const bool isPadLayer = type == ClassicPlayerAudioProcessor::LayerType::drumPads
                          || type == ClassicPlayerAudioProcessor::LayerType::continuousPads;
+    engineTagBounds = {};
+    if (activeUiPalette == 7 && !isPadLayer) engineTagBounds = area.removeFromTop(16).reduced(2, 0);
     area.removeFromTop(5);
     if (isPadLayer)
         categoryArtworkBounds = {};
@@ -10672,6 +10693,13 @@ void ClassicPlayerAudioProcessorEditor::dockInspector(int layer, const juce::Str
                                                       int preferredWidth, bool scaleToFit)
 {
     dockPreferredWidth = preferredWidth;
+    if (inspectorDock != nullptr && selectedLayer == layer)
+    {
+        // Clicking the selected strip again closes its inspector.
+        for (auto* unused : panels) delete unused;
+        closeInspector();
+        return;
+    }
     selectedLayer = layer;
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
         if (strips[(size_t) i] != nullptr) strips[(size_t) i]->setSelected(i == layer);

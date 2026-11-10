@@ -250,6 +250,7 @@ private:
 
         juce::Label layerTitle;
         juce::Rectangle<int> categoryArtworkBounds;
+        juce::Rectangle<int> engineTagBounds;
         juce::TextButton muteButton { "M" };
         juce::TextButton soloButton { "S" };
         juce::TextButton resetButton { "RESET" };
