@@ -1888,7 +1888,20 @@ public:
                                 | (k + 1 < usedTabs.size() ? juce::Button::ConnectedOnRight : 0);
                 button->setConnectedEdges(edges);
                 const int tabValue = usedTabs[k];
-                button->onClick = [this, tabValue] { if (inSub) leaveSubPage(); activeTab = tabValue; resized(); };
+                button->onClick = [this, tabValue]
+                {
+                    if (inSub) leaveSubPage();
+                    activeTab = tabValue;
+                    resized();
+                    if (onTabSelected)
+                    {
+                        const juce::Component::SafePointer<juce::Component> safeDock(this);
+                        juce::MessageManager::callAsync([this, safeDock, tabValue]
+                        {
+                            if (safeDock != nullptr && onTabSelected) onTabSelected(tabValue);
+                        });
+                    }
+                };
                 addAndMakeVisible(button);
             }
             activeTab = usedTabs.front();
@@ -1926,9 +1939,12 @@ public:
     }
 
     // Secondary editors (ADSR, reverb, EQ ...) replace the tab content, with a back button.
+    std::function<void(int)> onTabSelected;
+
     void setSubPage(const juce::String& heading, std::vector<juce::Component*> comps)
     {
         subPanels.clear();
+        subRow = !comps.empty() && static_cast<bool>(comps.front()->getProperties().getWithDefault("dockRow", false));
         for (auto* c : comps)
         {
             subPanels.add(c);
@@ -2053,6 +2069,22 @@ private:
             y += c->getHeight() + gap;
             applyLearnVisibility(*c, learnShown);
         }
+        if (subRow && subPanels.size() > 0)
+        {
+            const int n = subPanels.size();
+            const int each = (columnWidth - gap * (n - 1)) / n;
+            int rowHeight = 0;
+            for (auto* c : subPanels) rowHeight = juce::jmax(rowHeight, c->getHeight());
+            for (int k = 0; k < n; ++k)
+            {
+                auto* c = subPanels[k];
+                c->setVisible(true);
+                c->setBounds(gap + k * (each + gap), y, each, rowHeight);
+                content.cards.push_back(c->getBounds());
+            }
+            y += rowHeight + gap;
+        }
+        else
         for (auto* c : subPanels)
         {
             c->setVisible(true);
@@ -2083,6 +2115,7 @@ private:
     juce::TextButton backButton;
     juce::OwnedArray<juce::Component> subPanels;
     bool inSub = false;
+    bool subRow = false;
     juce::String subTitle;
     juce::Viewport viewport;
     Content content;
@@ -7966,6 +7999,15 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showChorusEditor()
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
 
+void ClassicPlayerAudioProcessorEditor::LayerStrip::openTabPage(int tab)
+{
+    const auto type = processor.layerType(index);
+    const bool nordType = type == ClassicPlayerAudioProcessor::LayerType::nord
+                       || type == ClassicPlayerAudioProcessor::LayerType::nordSample;
+    if (tab == 1 && (nordType || type == ClassicPlayerAudioProcessor::LayerType::sf2)) showAdsrEditor();
+    else if (tab == 3 && nordType) showNordEffectsEditor();
+}
+
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectsEditor()
 {
     const auto type = processor.layerType(index);
@@ -7975,6 +8017,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectsEditor()
     {
         std::vector<juce::Component*> all;
         for (int effect = 1; effect <= 4; ++effect) showNordEffectEditor(effect, &all);
+        if (!all.empty()) all.front()->getProperties().set("dockRow", true);
         dockCallback("EFEITOS NORD", std::move(all), -1, false);
         return;
     }
@@ -8088,18 +8131,42 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int eff
     dialog->fitCustomComponentsVertically();
     if (collect != nullptr)
     {
-        // Gathered into one docked page (all four effects stacked).
-        auto* heading = new juce::Label({}, names[effect]);
-        heading->setFont(juce::FontOptions(12.0f, juce::Font::bold));
-        heading->setColour(juce::Label::textColourId, juce::Colour(teal));
-        heading->setSize(560, 20);
-        collect->push_back(heading);
+        // One column per effect, shown side by side in the docked page.
+        struct EffectColumn final : public juce::Component
+        {
+            EffectColumn(const juce::String& name, std::vector<juce::Component*> parts)
+            {
+                heading.setText(name, juce::dontSendNotification);
+                heading.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+                heading.setJustificationType(juce::Justification::centred);
+                heading.setColour(juce::Label::textColourId, juce::Colour(teal));
+                addAndMakeVisible(heading);
+                int h = 28;
+                for (auto* part : parts) { owned.add(part); addAndMakeVisible(part); h += part->getHeight() + 6; }
+                setSize(300, h);
+            }
+            void resized() override
+            {
+                auto area = getLocalBounds();
+                heading.setBounds(area.removeFromTop(22));
+                area.removeFromTop(6);
+                for (auto* part : owned)
+                {
+                    part->setBounds(area.removeFromTop(part->getHeight()));
+                    area.removeFromTop(6);
+                }
+            }
+            juce::Label heading;
+            juce::OwnedArray<juce::Component> owned;
+        };
+        std::vector<juce::Component*> parts;
         while (dialog->getNumCustomComponents() > 0)
         {
-            collect->push_back(dialog->getCustomComponent(0));
+            parts.push_back(dialog->getCustomComponent(0));
             dialog->removeCustomComponent(0);
         }
         delete dialog;
+        collect->push_back(new EffectColumn(names[effect], std::move(parts)));
         return;
     }
     if (dockSubAlert(dockCallback, dialog, "EFEITO NORD")) return;
@@ -10833,6 +10900,12 @@ void ClassicPlayerAudioProcessorEditor::dockInspector(int layer, const juce::Str
         inspectorDock = std::make_unique<InspectorDock>(title, panels.front(), closeAction);
     else
         inspectorDock = std::make_unique<InspectorDock>(title, std::move(panels), closeAction);
+    static_cast<InspectorDock*>(inspectorDock.get())->onTabSelected = [safe, layer](int tab)
+    {
+        if (safe != nullptr && juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)
+            && safe->strips[(size_t) layer] != nullptr)
+            safe->strips[(size_t) layer]->openTabPage(tab);
+    };
     static_cast<InspectorDock*>(inspectorDock.get())->setResetAction([safe, layer]
     {
         if (safe != nullptr && juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)

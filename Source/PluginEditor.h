@@ -175,6 +175,7 @@ private:
         bool isSolo() const { return solo; }
         bool isExpanded() const { return expanded; }
         void triggerReset() { resetButton.triggerClick(); }
+        void openTabPage(int tab);
         void setLearnVisible(bool shouldShow) { if (learnModeVisible != shouldShow) { learnModeVisible = shouldShow; updateSourceTypeVisibility(); } }
         void setSelected(bool shouldSelect) { if (selected != shouldSelect) { selected = shouldSelect; repaint(); } }
         void setRemoveCallback(std::function<void()> callback) { removeLayerCallback = std::move(callback); }
