@@ -8426,10 +8426,18 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseUp(const juce::MouseEve
         else
             if (auto* parent = getParentComponent()) parent->resized();
     }
-    if (clickToOpen)
+    if (clickToOpen && !openClickPending)
     {
+        // The strip also listens to its descendants, so one click can reach mouseUp twice;
+        // opening twice would toggle the inspector straight back closed.
+        openClickPending = true;
         const juce::Component::SafePointer<LayerStrip> safe(this);
-        juce::MessageManager::callAsync([safe] { if (safe != nullptr) safe->editButton.triggerClick(); });
+        juce::MessageManager::callAsync([safe]
+        {
+            if (safe == nullptr) return;
+            safe->openClickPending = false;
+            safe->editButton.triggerClick();
+        });
     }
 }
 

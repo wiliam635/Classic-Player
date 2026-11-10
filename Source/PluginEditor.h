@@ -241,6 +241,7 @@ private:
         bool solo = false;
         bool expanded = false;
         bool selected = false;
+        bool openClickPending = false;
         bool learnModeVisible = false;
         std::vector<Sf2Engine::Preset> presets;
         juce::Array<juce::File> libraryFiles;
