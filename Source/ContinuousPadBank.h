@@ -123,6 +123,22 @@ public:
     }
     void midi(const juce::MidiMessage& message)
     {
+        // Hardware pads commonly send Note On rather than CC. Store notes as
+        // 128 + note number so existing CC mappings and saved banks stay valid.
+        if (message.isNoteOn())
+        {
+            const juce::ScopedTryLock guard(lock);
+            if (!guard.isLocked()) return;
+            const int key = 128 + message.getNoteNumber();
+            if (assignLearnedCC(key, message.getChannel())) return;
+            if (stopCC.load() == key) { stop(); return; }
+            for (int i = 0; i < count; ++i)
+                if (pads[(size_t)i].cc == key
+                    && (pads[(size_t)i].ccChannel == 0
+                        || pads[(size_t)i].ccChannel == message.getChannel()))
+                { trigger(i); break; }
+            return;
+        }
         if(!message.isController())return;
         const int cc=message.getControllerNumber(),channel=message.getChannel()-1;
         if(cc==64 || cc>=120)return;
@@ -390,7 +406,7 @@ private:
     }
 
     struct Pad {std::shared_ptr<SampleData> audio;juce::String path;double position=0;float level=0;int cc=-1;int ccChannel=0;};
-    static int validCC(int cc){return cc>=0&&cc<120&&cc!=64?cc:-1;}
+    static int validCC(int cc){return ((cc>=0&&cc<120&&cc!=64)||(cc>=128&&cc<=255))?cc:-1;}
     static float read(const Pad& p,int ch,double pos)
     {const int i=juce::jlimit(0,p.audio->frames-1,(int)pos);
      const int j=juce::jmin(i+1,p.audio->frames-1);

@@ -248,6 +248,17 @@ static void continuousPadRegression()
     const auto saved=bank.save();bank.restore(saved);block();check(bank.selected()==-1&&audio.getMagnitude(0,128)==0,"restore autoplays");
     check(bank.mapping(0)==21&&bank.mapping(ContinuousPadBank::count)==48
           &&bank.path(0)==fixture.getFile().getFullPathName(),"pad settings lost");
+    bank.learn(1);
+    bank.midi(juce::MidiMessage::noteOn(2,60,(juce::uint8)100));block();
+    check(bank.mapping(1)==188 && bank.selected()==-1,"Note Learn failed or autoplayed");
+    bank.midi(juce::MidiMessage::noteOn(3,60,(juce::uint8)100));block();
+    check(bank.selected()==-1,"learned note ignored its MIDI channel");
+    bank.midi(juce::MidiMessage::noteOn(2,60,(juce::uint8)100));block();
+    check(bank.selected()==1,"learned note did not trigger pad");
+    bank.midi(juce::MidiMessage::noteOff(2,60));block();
+    check(bank.selected()==1,"note release stopped continuous pad");
+    const auto noteSaved=bank.save();bank.restore(noteSaved);block();
+    check(bank.mapping(1)==188,"note mapping lost on restore");
     auto p=std::make_unique<ClassicPlayerAudioProcessor>();
     p->setLayerType(1,ClassicPlayerAudioProcessor::LayerType::continuousPads);
     for (int pad = 0; pad < ContinuousPadBank::count; ++pad)

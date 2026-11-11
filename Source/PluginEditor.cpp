@@ -553,7 +553,7 @@ static constexpr UiTranslation uiTranslations[] {
     { "LEARN M", "LEARN MUTE", "APRENDER MUTE" },
     { "VOLUME: MOVA O CC", "VOLUME: MOVE A CC", "VOLUMEN: MUEVE UN CC" },
     { "MUTE: MOVA O CC", "MUTE: MOVE A CC", "MUTE: MUEVE UN CC" },
-    { "STOP: MOVA O CC", "STOP: MOVE A CC", "STOP: MUEVE UN CC" },
+    { "STOP: ENVIE NOTA OU CC", "STOP: MOVE A CC", "STOP: MUEVE UN CC" },
     { "MOVA O CC", "MOVE A CC", "MUEVE UN CC" },
     { "MOVA UM CC", "MOVE A CC", "MUEVE UN CC" },
     { "MOVE CC", "MOVE CC", "MUEVE UN CC" },
@@ -6344,8 +6344,8 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
     {
         const int cc=processor.continuousPads(layerIndex).mapping(12);
         setButtonTextIfChanged(stopLearn, localizedUiText(
-            processor.continuousPads(layerIndex).learningTarget()==12 ? "STOP: MOVA O CC"
-                : cc>=0 ? "STOP: CC "+juce::String(cc) : "LEARN STOP",
+            processor.continuousPads(layerIndex).learningTarget()==12 ? "STOP: ENVIE NOTA OU CC"
+                : cc>=0 ? "STOP: "+juce::String(cc>=128?"NOTA ":"CC ")+juce::String(cc>=128?cc-128:cc) : "LEARN STOP",
             activeUiLanguage.load()));
     }
     for (int pad = 0; pad < padCount(); ++pad)
@@ -6361,7 +6361,7 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
                           active ? juce::Colour(yellow) : drumPadColour(pad));
         setButtonColourIfChanged(trigger, juce::TextButton::textColourOffId, juce::Colour(0xff101820));
         const int cc=continuous()?processor.continuousPads(layerIndex).mapping(pad):-1;
-        const auto mapping = continuous() ? (cc>=0?"CC "+juce::String(cc):juce::String{}) : processor.drumPadMidiMapping(pad);
+        const auto mapping = continuous() ? (cc>=0?juce::String(cc>=128?"NOTA ":"CC ")+juce::String(cc>=128?cc-128:cc):juce::String{}) : processor.drumPadMidiMapping(pad);
         setButtonTextIfChanged(learnButtons[(size_t) pad], localizedUiText(
             (continuous()?processor.continuousPads(layerIndex).learningTarget()==pad:processor.isDrumPadMidiLearning(pad)) ? "MOVA PAD"
             : mapping.isNotEmpty() ? mapping : "LEARN", activeUiLanguage.load()));

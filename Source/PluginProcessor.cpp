@@ -1037,7 +1037,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         {const auto message=event.getMessage();
          // Pad CC Learn stores the controller's own MIDI channel. Keep those
          // assignments usable even when note input uses another channel.
-         if(message.isController()||bank.learningTarget()>=0
+         if(message.isController()||message.isNoteOn()||bank.learningTarget()>=0
             ||config.midiChannel==0||message.getChannel()==config.midiChannel)
              bank.midi(message);}};
         inspect(midi);inspect(routedMidiBuffers[(size_t)layer]);
