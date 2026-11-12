@@ -132,3 +132,13 @@ private:
     bool waiting = false;
     int ticks = 0;
 };
+
+// Button that only reacts to the left mouse button; the right button is free for MIDI assignment.
+class LeftClickOnlyButton final : public juce::TextButton
+{
+public:
+    using juce::TextButton::TextButton;
+    void mouseDown(const juce::MouseEvent& e) override { if (!e.mods.isPopupMenu()) juce::TextButton::mouseDown(e); }
+    void mouseUp(const juce::MouseEvent& e) override { if (!e.mods.isPopupMenu()) juce::TextButton::mouseUp(e); }
+    void mouseDrag(const juce::MouseEvent& e) override { if (!e.mods.isPopupMenu()) juce::TextButton::mouseDrag(e); }
+};

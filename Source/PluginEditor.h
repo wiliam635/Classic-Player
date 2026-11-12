@@ -137,11 +137,11 @@ private:
         int layerIndex;
         bool continuous() const {return processor.layerType(layerIndex)==ClassicPlayerAudioProcessor::LayerType::continuousPads;}
         int padCount() const {return continuous()?12:8;}
-        std::array<juce::TextButton, 12> pads;
+        std::array<LeftClickOnlyButton, 12> pads;
         std::array<juce::TextButton, 12> loadButtons;
         std::array<MidiLearnButton, 12> learnButtons;
         std::array<juce::Slider, 12> padVolumes;
-        juce::TextButton stopButton{"STOP"};
+        LeftClickOnlyButton stopButton{"STOP"};
         MidiLearnButton stopLearn{"LEARN STOP"}, volumeLearnButton{"LEARN VOLUME"},
                         cutoffLearnButton{"LEARN CUTOFF"}, muteLearnButton{"LEARN MUTE"};
         juce::Slider fadeSlider, cutoffSlider;
