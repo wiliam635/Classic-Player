@@ -2591,6 +2591,33 @@ void ClassicPlayerAudioProcessor::processGenericMidi(int cc, int channel, int va
     }
 }
 
+bool ClassicPlayerAudioProcessor::popRawCC(int& cc, int& channel, int& value)
+{
+    const juce::SpinLock::ScopedLockType lock(rawCCLock);
+    if (rawCCRead == rawCCWrite) return false;
+    const auto packed = rawCCRing[(size_t) rawCCRead];
+    rawCCRead = (rawCCRead + 1) % (int) rawCCRing.size();
+    cc = (int) (packed >> 16) & 0xff;
+    channel = (int) (packed >> 8) & 0xff;
+    value = (int) packed & 0xff;
+    return true;
+}
+
+juce::String ClassicPlayerAudioProcessor::uiMidiMapString() const
+{
+    const juce::ScopedLock lock(uiMidiMapLock);
+    return uiMidiMapText;
+}
+
+void ClassicPlayerAudioProcessor::setUiMidiMapString(const juce::String& text)
+{
+    {
+        const juce::ScopedLock lock(uiMidiMapLock);
+        uiMidiMapText = text;
+    }
+    uiMidiRevision.fetch_add(1);
+}
+
 void ClassicPlayerAudioProcessor::flushParameterMidiUpdates()
 {
     if (!genericMidiAnyDirty.exchange(false, std::memory_order_acq_rel)) return;
@@ -2830,6 +2857,23 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
             return;
         }
         processGenericMidi(cc, channel, controllerValue);
+    }
+
+    if (uiMidiWanted.load(std::memory_order_relaxed) || uiMidiLearnActive.load(std::memory_order_relaxed))
+    {
+        {
+            const juce::SpinLock::ScopedLockType lock(rawCCLock);
+            const auto next = (rawCCWrite + 1) % (int) rawCCRing.size();
+            if (next != rawCCRead)
+            {
+                rawCCRing[(size_t) rawCCWrite] = ((uint32_t) cc << 16) | ((uint32_t) channel << 8)
+                                                  | (uint32_t) controllerValue;
+                rawCCWrite = next;
+            }
+        }
+        // While the user is assigning a slider, that CC must not also move
+        // anything it happens to be mapped to already.
+        if (uiMidiLearnActive.load(std::memory_order_relaxed)) return;
     }
 
     if (active >= 0)
@@ -4505,6 +4549,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
                 map << genericMidiParams[i]->paramID << "=" << cc << ":" << genericMidiChannel[i].load() << ";";
         }
         state.setProperty("parameterMidiMap", map, nullptr);
+        state.setProperty("uiMidiMap", uiMidiMapString(), nullptr);
     }
     state.setProperty("stateVersion", 174, nullptr);
     state.setProperty("activeLayers", activeLayerCount(), nullptr);
@@ -4825,6 +4870,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 pendingMasterEq[(size_t) band].store(-1.0f);
                 realtimeMasterEq[(size_t) band].store(-1.0f);
             }
+            if (state.hasProperty("uiMidiMap"))
+                setUiMidiMapString(state.getProperty("uiMidiMap").toString());
             if (state.hasProperty("parameterMidiMap"))
             {
                 for (size_t i = 0; i < genericMidiParams.size(); ++i)

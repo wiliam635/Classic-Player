@@ -204,6 +204,13 @@ public:
     int parameterMidiCC(const juce::String& parameterId) const;
     int parameterMidiChannel(const juce::String& parameterId) const;
     void flushParameterMidiUpdates();
+    // Raw CC feed for sliders that are not APVTS parameters (editor-side map).
+    void setUiMidiWanted(bool wanted) { uiMidiWanted.store(wanted); }
+    void setUiMidiLearnActive(bool active) { uiMidiLearnActive.store(active); }
+    bool popRawCC(int& cc, int& channel, int& value);
+    juce::String uiMidiMapString() const;
+    void setUiMidiMapString(const juce::String& text);
+    int uiMidiMapRevision() const noexcept { return uiMidiRevision.load(); }
     void attachStandaloneMidiRouting(juce::AudioDeviceManager&, juce::MidiInputCallback& defaultCallback);
     void refreshStandaloneMidiInputs();
     void refreshStandaloneMidiInputs(const juce::Array<juce::MidiDeviceInfo>& devices);
@@ -488,6 +495,13 @@ private:
     std::unique_ptr<std::atomic<bool>[]> genericMidiDirty;
     std::atomic<int> genericMidiLearnIndex { -1 };
     std::atomic<bool> genericMidiAnyDirty { false };
+    std::atomic<bool> uiMidiWanted { false }, uiMidiLearnActive { false };
+    std::atomic<int> uiMidiRevision { 0 };
+    juce::SpinLock rawCCLock;
+    std::array<uint32_t, 512> rawCCRing {};
+    int rawCCRead = 0, rawCCWrite = 0;
+    mutable juce::CriticalSection uiMidiMapLock;
+    juce::String uiMidiMapText;
     void buildGenericMidiTables();
     void processGenericMidi(int cc, int channel, int value);
     std::array<std::array<std::atomic<int>, learnTargetCount>, Sf2Engine::layerCount> learnedChannels {};

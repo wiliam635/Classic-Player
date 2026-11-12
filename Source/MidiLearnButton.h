@@ -40,6 +40,7 @@ public:
           mapping(std::move(mappingText)), learning(std::move(isLearning))
     {
         target.addMouseListener(this, true);
+        target.getProperties().set("midiDedicated", true);
     }
 
     ~RightClickMidiLearn() override
@@ -143,32 +144,29 @@ public:
         std::function<juce::String(const juce::String&)> mapping;      // "CC 7 C1" or empty
         std::function<bool(const juce::String&)> isLearning;
         std::function<void(const juce::String&)> begin, clear;
+        // Finds the slider under a right-click and the id its assignment is stored under.
+        std::function<juce::Component*(juce::Component*, juce::String&)> resolve;
     };
 
-    ParameterMidiMenu(juce::Component& root, Hooks h) : owner(root), hooks(std::move(h))
+    explicit ParameterMidiMenu(Hooks h) : hooks(std::move(h))
     {
-        owner.addMouseListener(this, true);
+        // Global listener: also sees knobs inside separate dialog windows.
+        juce::Desktop::getInstance().addGlobalMouseListener(this);
     }
 
     ~ParameterMidiMenu() override
     {
         *alive = false;
-        owner.removeMouseListener(this);
+        juce::Desktop::getInstance().removeGlobalMouseListener(this);
         hideToast();
     }
 
     void mouseDown(const juce::MouseEvent& event) override
     {
         if (!event.mods.isPopupMenu()) return;
-        juce::Component* found = nullptr;
         juce::String id;
-        for (auto* c = event.originalComponent; c != nullptr && c != &owner; c = c->getParentComponent())
-        {
-            id = c->getProperties().getWithDefault("midiParameter",
-                     c->getProperties().getWithDefault("conceptParameter", juce::var())).toString();
-            if (id.isNotEmpty()) { found = c; break; }
-        }
-        if (found == nullptr) return;
+        auto* found = hooks.resolve(event.originalComponent, id);
+        if (found == nullptr || id.isEmpty()) return;
         target = found;
         paramId = id;
         const auto current = hooks.mapping(id);
@@ -243,7 +241,6 @@ private:
 
     void hideToast() { toast.reset(); }
 
-    juce::Component& owner;
     Hooks hooks;
     juce::Component::SafePointer<juce::Component> target;
     juce::String paramId;

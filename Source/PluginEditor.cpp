@@ -2204,6 +2204,9 @@ public:
 
     void userTriedToCloseWindow() override { exitModalState(0); }
 
+    const juce::String& title() const noexcept { return sourceTitle; }
+    int midiLayer = -1;
+
     void applyLanguage()
     {
         setName(localizedUiText(sourceTitle, activeUiLanguage.load()));
@@ -5031,6 +5034,7 @@ static void showParametricLayerEqEditor(
     auto* dialog = new LayerEditorWindow(
         "EQ DA LAYER", "Equalizador parametrico de tres bandas: frequencia e ganho independentes.",
         juce::MessageBoxIconType::NoIcon);
+    dialog->midiLayer = layer;
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto value = [&processor, prefix](const juce::String& suffix, float fallback)
     {
@@ -7328,6 +7332,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     auto* dialog = new LayerEditorWindow(
         "EDITAR LAYER", "Ajuste os controles desta layer sem expandir o canal.",
         juce::MessageBoxIconType::NoIcon);
+    dialog->midiLayer = index;
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto valueOf = [this](const juce::String& id, float fallback)
     {
@@ -7556,6 +7561,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAdsrEditor()
     auto* dialog = new LayerEditorWindow("ENVELOPE ADSR",
         juce::String::fromUTF8("Attack e Release usam a escala de 0 a 100 da layer; Decay é medido em ms e Sustain em %."),
         juce::MessageBoxIconType::NoIcon);
+    dialog->midiLayer = index;
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* graph = new AdsrEnvelopeGraph(
         processor.parameters.getRawParameterValue(prefix + "Attack"),
@@ -7599,6 +7605,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showVelocityEditor()
     auto* dialog = new LayerEditorWindow("CURVA DE VELOCITY",
         "Ajuste a resposta ao toque ou desenhe uma curva. Entrada e saida MIDI: 1 a 127.",
         juce::MessageBoxIconType::NoIcon);
+    dialog->midiLayer = index;
     dialog->setLookAndFeel(&classicLookAndFeel);
     dialog->addCustomComponent(new VelocityCurveEditorPanel(processor, index));
     const juce::Component::SafePointer<LayerStrip> safe(this);
@@ -7614,6 +7621,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showReverbEditor()
     auto* dialog = new LayerEditorWindow(
         "REVERB DA LAYER", "O knob REVERB controla a quantidade. Ajuste o carater da sala abaixo.",
         juce::MessageBoxIconType::NoIcon);
+    dialog->midiLayer = index;
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* knobs = new KnobEditorPanel({
         { "TAMANHO", processor.parameters.getRawParameterValue(prefix + "ReverbSize")->load(), 0.0f, 100.0f, 1.0f, 0 },
@@ -7901,6 +7909,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
     auto* dialog = new LayerEditorWindow(
         "COMPRESSOR DA LAYER", "O knob COMP controla a mistura. Ajuste a dinamica abaixo.",
         juce::MessageBoxIconType::NoIcon);
+    dialog->midiLayer = index;
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* knobs = new KnobEditorPanel({
         { "THRESHOLD dB", processor.parameters.getRawParameterValue(prefix + "CompThreshold")->load(), -60.0f, 0.0f, 0.1f, 1 },
@@ -7999,6 +8008,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
 {
     if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::drumPads && processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::continuousPads) return;
     auto* dialog = new LayerEditorWindow(processor.layerType(index)==ClassicPlayerAudioProcessor::LayerType::continuousPads ? "PADS CONTINUOS" : "DRUM PADS", {}, juce::MessageBoxIconType::NoIcon);
+    dialog->midiLayer = index;
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* pads = new DrumPadPanel(processor,index);
     pads->setControlsVisible(true);
@@ -8039,6 +8049,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showChorusEditor()
                 ? "CHORUS DA LAYER HAMMOND" : "CHORUS DA LAYER SF2",
             "Ajuste a intensidade, velocidade e profundidade do chorus.",
             juce::MessageBoxIconType::NoIcon);
+    dialog->midiLayer = index;
         dialog->setLookAndFeel(&classicLookAndFeel);
         auto* knobs = new KnobEditorPanel({
             { "MIX %", processor.parameters.getRawParameterValue(prefix + "Sf2Chorus")->load(),
@@ -8061,6 +8072,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showChorusEditor()
     }
     auto* dialog = new LayerEditorWindow(
         "CHORUS DA LAYER DX7", "Ajuste o chorus em tempo real.", juce::MessageBoxIconType::NoIcon);
+    dialog->midiLayer = index;
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* knobs = new KnobEditorPanel({
         { "MIX", processor.parameters.getRawParameterValue(prefix + "Dx7Chorus")->load(),
@@ -8106,6 +8118,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectsEditor()
     auto* dialog = new LayerEditorWindow(
         "EFEITOS NORD", "Selecione o efeito para ajustar nesta layer.",
         juce::MessageBoxIconType::NoIcon);
+    dialog->midiLayer = index;
     dialog->setLookAndFeel(&classicLookAndFeel);
     const juce::Component::SafePointer<LayerStrip> safe(this);
     const juce::Component::SafePointer<LayerEditorWindow> selector(dialog);
@@ -8146,6 +8159,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int eff
     auto* dialog = new LayerEditorWindow(
         names[effect] + " NORD", effect == 2 ? "Tempo por TAP ou BPM manual." : "Ajuste o efeito desta layer.",
         juce::MessageBoxIconType::NoIcon);
+    dialog->midiLayer = index;
     dialog->setLookAndFeel(&classicLookAndFeel);
     KnobEditorPanel* knobs = nullptr;
     switch (effect)
@@ -10098,19 +10112,58 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
         },
         [this] { return classicProcessor.isMasterMidiLearning(); });
     {
+        uiMidiMapLoad();
         ParameterMidiMenu::Hooks hooks;
+        hooks.resolve = [this](juce::Component* source, juce::String& id) { return resolveMidiSlider(source, id); };
         hooks.mapping = [this](const juce::String& id)
         {
-            const auto cc = classicProcessor.parameterMidiCC(id);
+            int cc = -1, channel = -1;
+            if (id.startsWith("ui:"))
+            {
+                const auto found = uiMidiMap.find(id);
+                if (found != uiMidiMap.end()) { cc = found->second.first; channel = found->second.second; }
+            }
+            else
+            {
+                cc = classicProcessor.parameterMidiCC(id);
+                channel = classicProcessor.parameterMidiChannel(id);
+            }
             if (cc < 0) return juce::String();
-            const auto channel = classicProcessor.parameterMidiChannel(id);
             return "CC " + juce::String(cc) + (channel > 0 ? " C" + juce::String(channel) : juce::String());
         };
-        hooks.isLearning = [this](const juce::String& id) { return classicProcessor.isParameterMidiLearning(id); };
-        hooks.begin = [this](const juce::String& id) { classicProcessor.beginParameterMidiLearn(id); };
-        hooks.clear = [this](const juce::String& id) { classicProcessor.clearParameterMidiLearn(id); };
-        parameterMidiMenu = std::make_unique<ParameterMidiMenu>(*this, std::move(hooks));
+        hooks.isLearning = [this](const juce::String& id)
+        {
+            return id.startsWith("ui:") ? uiMidiLearnKey == id : classicProcessor.isParameterMidiLearning(id);
+        };
+        hooks.begin = [this](const juce::String& id)
+        {
+            if (id.startsWith("ui:"))
+            {
+                uiMidiLearnKey = id;
+                classicProcessor.setUiMidiLearnActive(true);
+                int cc, ch, v;
+                while (classicProcessor.popRawCC(cc, ch, v)) {}
+            }
+            else
+            {
+                uiMidiLearnKey = {};
+                classicProcessor.setUiMidiLearnActive(false);
+                classicProcessor.beginParameterMidiLearn(id);
+            }
+        };
+        hooks.clear = [this](const juce::String& id)
+        {
+            if (id.startsWith("ui:"))
+            {
+                uiMidiMap.erase(id);
+                if (uiMidiLearnKey == id) { uiMidiLearnKey = {}; classicProcessor.setUiMidiLearnActive(false); }
+                uiMidiMapSave();
+            }
+            else classicProcessor.clearParameterMidiLearn(id);
+        };
+        parameterMidiMenu = std::make_unique<ParameterMidiMenu>(std::move(hooks));
     }
+
     addAndMakeVisible(masterLearnButton);
     addAndMakeVisible(masterMeter);
     cpuMeter.setTooltip(juce::String::fromUTF8("Carga do processamento de áudio do Classic Player. 100% indica que o tempo disponível para o buffer foi consumido."));
@@ -10242,9 +10295,133 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     startTimerHz(15);
 }
 
+// ---- MIDI assignment for sliders that are not APVTS parameters -------------------------
+juce::Component* ClassicPlayerAudioProcessorEditor::resolveMidiSlider(juce::Component* source, juce::String& id)
+{
+    juce::Slider* slider = nullptr;
+    for (auto* c = source; c != nullptr; c = c->getParentComponent())
+    {
+        if (c->getProperties().contains("midiDedicated")) return nullptr;
+        if (auto* candidate = dynamic_cast<juce::Slider*>(c)) { slider = candidate; break; }
+    }
+    if (slider == nullptr || !slider->isEnabled()) return nullptr;
+    {
+        const auto& props = slider->getProperties();
+        if (props.contains("midiDedicated")) return nullptr;
+        auto parameter = props.getWithDefault("midiParameter",
+            props.getWithDefault("conceptParameter", juce::var())).toString();
+        if (parameter.isNotEmpty()) { id = parameter; return slider; }
+    }
+    id = autoMidiKey(*slider);
+    uiMidiSliders[id] = slider;
+    return slider;
+}
+
+juce::String ClassicPlayerAudioProcessorEditor::autoMidiKey(juce::Component& slider)
+{
+    juce::String path;
+    juce::String anchor = "main";
+    int layer = -1;
+    for (auto* c = &slider; c != nullptr; c = c->getParentComponent())
+    {
+        if (auto* window = dynamic_cast<LayerEditorWindow*>(c))
+        {
+            anchor = "W" + window->title().retainCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
+            if (layer < 0) layer = window->midiLayer;
+            break;
+        }
+        if (auto* strip = dynamic_cast<LayerStrip*>(c)) { layer = strip->layerNumber(); anchor = "S"; break; }
+        if (auto* pads = dynamic_cast<DrumPadPanel*>(c)) { layer = pads->layerNumber(); anchor = "P"; break; }
+        if (auto* parent = c->getParentComponent())
+            path = juce::String(parent->getIndexOfChildComponent(c)) + (path.isEmpty() ? "" : ".") + path;
+    }
+    return "ui:" + anchor + "/L" + juce::String(layer) + "/" + path;
+}
+
+void ClassicPlayerAudioProcessorEditor::uiMidiMapLoad()
+{
+    uiMidiMap.clear();
+    for (const auto& entry : juce::StringArray::fromTokens(classicProcessor.uiMidiMapString(), ";", ""))
+    {
+        const auto eq = entry.lastIndexOfChar('=');
+        const auto colon = entry.lastIndexOfChar(':');
+        if (eq <= 0 || colon <= eq) continue;
+        uiMidiMap[entry.substring(0, eq)] = { juce::jlimit(-1, 119, entry.substring(eq + 1, colon).getIntValue()),
+                                              juce::jlimit(-1, 16, entry.substring(colon + 1).getIntValue()) };
+    }
+    uiMidiSeenRevision = classicProcessor.uiMidiMapRevision();
+    classicProcessor.setUiMidiWanted(!uiMidiMap.empty());
+}
+
+void ClassicPlayerAudioProcessorEditor::uiMidiMapSave()
+{
+    juce::String text;
+    for (const auto& item : uiMidiMap)
+        text << item.first << "=" << item.second.first << ":" << item.second.second << ";";
+    classicProcessor.setUiMidiMapString(text);
+    uiMidiSeenRevision = classicProcessor.uiMidiMapRevision();
+    classicProcessor.setUiMidiWanted(!uiMidiMap.empty());
+}
+
+void ClassicPlayerAudioProcessorEditor::collectMidiSliders(juce::Component& root)
+{
+    if (auto* slider = dynamic_cast<juce::Slider*>(&root))
+    {
+        if (!slider->getProperties().contains("midiDedicated")
+            && !slider->getProperties().contains("midiParameter")
+            && !slider->getProperties().contains("conceptParameter"))
+            uiMidiSliders[autoMidiKey(*slider)] = slider;
+        return;
+    }
+    for (auto* child : root.getChildren())
+        collectMidiSliders(*child);
+}
+
+void ClassicPlayerAudioProcessorEditor::drainUiMidi()
+{
+    if (uiMidiSeenRevision != classicProcessor.uiMidiMapRevision()) uiMidiMapLoad();
+    int cc, channel, value;
+    while (classicProcessor.popRawCC(cc, channel, value))
+    {
+        if (uiMidiLearnKey.isNotEmpty())
+        {
+            for (auto it = uiMidiMap.begin(); it != uiMidiMap.end();)
+                it = (it->second.first == cc && it->first != uiMidiLearnKey) ? uiMidiMap.erase(it) : std::next(it);
+            uiMidiMap[uiMidiLearnKey] = { cc, channel };
+            uiMidiLearnKey = {};
+            classicProcessor.setUiMidiLearnActive(false);
+            uiMidiMapSave();
+            int a, b, c;
+            while (classicProcessor.popRawCC(a, b, c)) {}
+            return;
+        }
+        for (const auto& item : uiMidiMap)
+        {
+            if (item.second.first != cc || (item.second.second > 0 && item.second.second != channel)) continue;
+            auto found = uiMidiSliders.find(item.first);
+            if ((found == uiMidiSliders.end() || found->second == nullptr)
+                && juce::Time::getMillisecondCounterHiRes() - uiMidiLastScan > 750.0)
+            {
+                // The panel holding this slider was reopened: find the new instance.
+                uiMidiLastScan = juce::Time::getMillisecondCounterHiRes();
+                auto& desktop = juce::Desktop::getInstance();
+                for (int i = 0; i < desktop.getNumComponents(); ++i)
+                    if (auto* top = desktop.getComponent(i)) collectMidiSliders(*top);
+                found = uiMidiSliders.find(item.first);
+            }
+            if (found == uiMidiSliders.end() || found->second == nullptr) continue;
+            auto& slider = *found->second;
+            slider.setValue(slider.proportionOfLengthToValue(juce::jlimit(0.0, 1.0, value / 127.0)),
+                            juce::sendNotificationSync);
+        }
+    }
+}
+
 ClassicPlayerAudioProcessorEditor::~ClassicPlayerAudioProcessorEditor()
 {
     backupJobs.removeAllJobs(true, -1);
+    parameterMidiMenu.reset();
+    classicProcessor.setUiMidiLearnActive(false);
     classicProcessor.setSpectrumCaptureEnabled(false);
     ++liveSetSwitchGeneration;
     classicProcessor.cancelLiveSetFade();
@@ -10264,6 +10441,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     auto* dialog = new LayerEditorWindow(
         "Classic Keys Analog", "Selecione o preset desta camada.",
         juce::MessageBoxIconType::NoIcon);
+    dialog->midiLayer = index;
     dialog->setLookAndFeel(&classicLookAndFeel);
 
     // The Analog layer intentionally follows the compact DX7 editor: one
@@ -10373,6 +10551,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     const auto prefix = "layer" + juce::String(index + 1);
     auto* dialog = new LayerEditorWindow(
         "DX7", "Selecione o banco e o timbre desta camada.", juce::MessageBoxIconType::NoIcon);
+    dialog->midiLayer = index;
     dialog->setLookAndFeel(&classicLookAndFeel);
     const auto actionWidth = editorContentWidth(this, 1100);
     auto* dx7Panel = new Dx7EditorPanel(processor, index);
@@ -10612,6 +10791,7 @@ void ClassicPlayerAudioProcessorEditor::showMasterEqEditor()
     auto* dialog = new LayerEditorWindow(
         "EQ MASTER", "EQ de cinco estagios: corte baixo, tres bandas e corte alto.",
         juce::MessageBoxIconType::NoIcon);
+    dialog->midiLayer = -1;
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto* knobs = new KnobEditorPanel({
         { "LOW CUT Hz", classicProcessor.masterEqValue("masterEqLowCut"), 20.0f, 250.0f, 1.0f, 0 },
@@ -10651,6 +10831,7 @@ void ClassicPlayerAudioProcessorEditor::showMasterLimiterEditor()
 {
     auto* dialog = new LayerEditorWindow("LIMITER MASTER", "Protecao da saida master. OUTPUT define o teto em dBFS.",
                                         juce::MessageBoxIconType::NoIcon);
+    dialog->midiLayer = -1;
     dialog->setLookAndFeel(&classicLookAndFeel);
     auto& state = classicProcessor.parameters;
     const auto current = [&state](const char* id) { return state.getRawParameterValue(id)->load(); };
@@ -11185,6 +11366,7 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
             juce::dontSendNotification);
     classicProcessor.consumeMidiControlUpdates();
     classicProcessor.flushParameterMidiUpdates();
+    drainUiMidi();
     if (showingLiveSet)
         refreshLiveSetVolumeIndicators();
     if (classicProcessor.consumeLiveSetSlotMidiLearnChanged())

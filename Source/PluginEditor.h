@@ -1,4 +1,5 @@
 #pragma once
+#include <map>
 
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <juce_audio_utils/juce_audio_utils.h>
@@ -130,6 +131,7 @@ private:
         void resized() override;
         void refresh();
         void setControlsVisible(bool shouldShow);
+        int layerNumber() const noexcept { return layerIndex; }
     private:
         void chooseSample(int pad);
         void timerCallback() override { if (isShowing()) refresh(); }
@@ -156,6 +158,7 @@ private:
     public:
         LayerStrip(ClassicPlayerAudioProcessor&, int layerIndex, std::function<void()> mixChanged);
         void prepareForNewLayer();
+        int layerNumber() const noexcept { return index; }
         void paint(juce::Graphics&) override;
         void resized() override;
         void mouseDown(const juce::MouseEvent&) override;
@@ -426,6 +429,17 @@ private:
     MidiLearnButton masterLearnButton { "LEARN" };
     std::unique_ptr<RightClickMidiLearn> masterRightClickLearn;
     std::unique_ptr<ParameterMidiMenu> parameterMidiMenu;
+    std::map<juce::String, std::pair<int, int>> uiMidiMap;
+    std::map<juce::String, juce::Component::SafePointer<juce::Slider>> uiMidiSliders;
+    juce::String uiMidiLearnKey;
+    int uiMidiSeenRevision = -1;
+    double uiMidiLastScan = 0.0;
+    juce::Component* resolveMidiSlider(juce::Component* source, juce::String& id);
+    juce::String autoMidiKey(juce::Component& slider);
+    void uiMidiMapLoad();
+    void uiMidiMapSave();
+    void collectMidiSliders(juce::Component& root);
+    void drainUiMidi();
     LevelMeter masterMeter;
     CpuMeter cpuMeter;
     juce::TextButton updateButton { "ATUALIZACOES" };
