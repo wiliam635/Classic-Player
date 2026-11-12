@@ -11433,8 +11433,10 @@ void ClassicPlayerAudioProcessorEditor::ChordDisplay::refreshSpectrum(
         window.multiplyWithWindowingTable(fftData.data(), fftSize);
         std::fill(fftData.begin() + fftSize, fftData.end(), 0.0f);
         fft.performFrequencyOnlyForwardTransform(fftData.data());
+        bool visibleChange = false;
         for (size_t bar = 0; bar < levels.size(); ++bar)
         {
+            const auto oldLevel = levels[bar], oldPeak = peaks[bar];
             float magnitude = 0.0f;
             for (int bin = firstBins[bar]; bin <= lastBins[bar]; ++bin)
                 magnitude = juce::jmax(magnitude, fftData[(size_t) bin]);
@@ -11442,9 +11444,12 @@ void ClassicPlayerAudioProcessorEditor::ChordDisplay::refreshSpectrum(
             const auto target = juce::jlimit(0.0f, 1.0f, (db + 72.0f) / 72.0f);
             levels[bar] += (target - levels[bar]) * (target > levels[bar] ? 0.65f : 0.18f);
             peaks[bar] = juce::jmax(levels[bar], peaks[bar] - 0.015f);
+            // Only repaint when a bar moved by at least one pixel-ish step; silence repaints nothing.
+            visibleChange = visibleChange || std::abs(levels[bar] - oldLevel) > 0.004f
+                                          || std::abs(peaks[bar] - oldPeak) > 0.004f;
         }
         lastSpectrumRevision = revision;
-        repaint();
+        if (visibleChange) repaint();
         return;
     }
 
@@ -11474,9 +11479,17 @@ void ClassicPlayerAudioProcessorEditor::ChordDisplay::paint(juce::Graphics& g)
                                                  0.8f, 1.0f, 1.0f);
         const auto x = graph.getX() + (float) bar * width;
         const auto height = graph.getHeight() * levels[bar];
-        g.setGradientFill(juce::ColourGradient(colour.darker(0.6f), x, graph.getBottom(),
-                                              colour, x, graph.getBottom() - height, false));
-        g.fillRoundedRectangle(x, graph.getBottom() - height, juce::jmax(1.0f, width - 2.0f), height, 1.0f);
+        if (flatUi)
+        {
+            g.setColour(colour.darker(0.15f));
+            g.fillRect(x, graph.getBottom() - height, juce::jmax(1.0f, width - 2.0f), height);
+        }
+        else
+        {
+            g.setGradientFill(juce::ColourGradient(colour.darker(0.6f), x, graph.getBottom(),
+                                                  colour, x, graph.getBottom() - height, false));
+            g.fillRoundedRectangle(x, graph.getBottom() - height, juce::jmax(1.0f, width - 2.0f), height, 1.0f);
+        }
         g.setColour(colour.withAlpha(0.75f));
         g.fillRect(x, graph.getBottom() - graph.getHeight() * peaks[bar],
                    juce::jmax(1.0f, width - 2.0f), 1.0f);
