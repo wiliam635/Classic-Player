@@ -34,3 +34,4 @@ O Oboe 1.9.3 é obtido da fonte oficial durante a compilação, com verificaçã
 `LicenseManager` já mantém token, nome/e-mail da conta e uma janela offline de 30 dias; a tela de login e a validação HTTP serão conectadas ao serviço na próxima integração.
  A tela de login Android foi adicionada e envia as credenciais para `/v1/auth/login`; após sucesso, o Mixer é aberto e a sessão fica disponível offline.
  Ao voltar para o app, a sessão é validada em `/v1/license/validate`; falhas de rede preservam o modo offline, enquanto uma rejeição explícita exige novo login.
+
