@@ -59,7 +59,8 @@ final class EditorUi {
     static final class Panel {
         /** Set right before creating an editor panel: the next Panel docks on the right edge (desktop inspector behaviour). */
         static boolean dockNext;
-        static int dockWidth(Context c){android.util.DisplayMetrics m=c.getResources().getDisplayMetrics();return Math.min(Math.round(m.widthPixels*.46f),dp(c,520));}
+        /** Like the desktop: a narrow layer strip + master on the left, everything else is the inspector. */
+        static int dockWidth(Context c){android.util.DisplayMetrics m=c.getResources().getDisplayMetrics();return Math.max(Math.round(m.widthPixels*.5f),m.widthPixels-dp(c,320));}
         static java.util.function.Consumer<Panel> dockHook;
         static long dockClosedAt;
         final boolean docked;Runnable onClose;

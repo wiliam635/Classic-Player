@@ -1919,23 +1919,31 @@ public final class MainActivity extends Activity {
                 EditorUi.addButton(EditorUi.gridRow(body),"BIBLIOTECA NPNO",()->{panel.dialog.dismiss();openNordEditor(layer);});
             }
             if (!analog && ("SF2".equals(engine) || "DX7".equals(engine) || "NPNO".equals(engine))) {
-                TextView routing=EditorUi.label(this,"MIDI · MODO, CANAL E FAIXA",10);routing.setTextColor(EditorUi.MUTED);body.addView(routing);
-                buildRoutingControls(layer,body);
-                TextView quick=EditorUi.label(this,"CONTROLES DA LAYER",10);quick.setTextColor(EditorUi.MUTED);body.addView(quick);
+                // Desktop layout: PARAMETROS GERAIS and CONTROLES DA CAMADA as two boxes side by side.
+                LinearLayout rightBox=body;
+                if(panel.docked){
+                    LinearLayout two=new LinearLayout(this);two.setOrientation(LinearLayout.HORIZONTAL);body.addView(two,new LinearLayout.LayoutParams(-1,-2));
+                    LinearLayout leftBox=desktopBox("PARAMETROS GERAIS",two);rightBox=desktopBox("CONTROLES DA CAMADA",two);
+                    buildRoutingControls(layer,leftBox);
+                }else{
+                    TextView routing=EditorUi.label(this,"MIDI · MODO, CANAL E FAIXA",10);routing.setTextColor(EditorUi.MUTED);body.addView(routing);
+                    buildRoutingControls(layer,body);
+                    TextView quick=EditorUi.label(this,"CONTROLES DA LAYER",10);quick.setTextColor(EditorUi.MUTED);body.addView(quick);
+                }
                 // Same grid as the desktop CONTROLES DA CAMADA box.
                 final boolean sf2Env="SF2".equals(engine);
-                LinearLayout row=EditorUi.knobRow(body);
+                LinearLayout row=EditorUi.knobRow(rightBox);
                 layerMidiKnobs[layer][0]=EditorUi.knob(row,"VOLUME",screen.layerVolumes[layer]*100f,0,100," %",v->screen.setLearnedVolume(layer,v/100f));
                 EditorUi.knob(row,sf2Env?"ATTACK +ms":"ATTACK ms",screen.layerAttack[layer]*1000f,sf2Env?0f:.1f,100," ms",v->screen.setLayerEnvelope(layer,v/1000f,screen.layerRelease[layer]));
                 EditorUi.knob(row,sf2Env?"RELEASE +ms":"RELEASE ms",screen.layerRelease[layer]*1000f,0f,"NPNO".equals(engine)?2000:100," ms",v->screen.setLayerEnvelope(layer,screen.layerAttack[layer],v/1000f));
                 layerMidiKnobs[layer][1]=EditorUi.knob(row,"CUTOFF",screen.layerCutoff[layer],0,100," %",v->screen.setLayerTone(layer,v,screen.layerReverb[layer],screen.layerCompMix[layer],screen.layerChorus[layer]));
-                row=EditorUi.knobRow(body);
+                row=EditorUi.knobRow(rightBox);
                 layerMidiKnobs[layer][2]=EditorUi.knob(row,"REVERB",screen.layerReverb[layer]*100f,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],v/100f,screen.layerCompMix[layer],screen.layerChorus[layer]));
                 layerMidiKnobs[layer][3]=EditorUi.knob(row,"COMP",screen.layerCompMix[layer]*100f,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],v/100f,screen.layerChorus[layer]));
                 EditorUi.knob(row,"CHORUS",screen.layerChorus[layer]*100,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],screen.layerCompMix[layer],v/100));
                 EditorUi.knob(row,"PAN",screen.layerPan[layer]*100,-100,100,"",v->screen.setLayerPan(layer,v/100));
-                EditorUi.selector(body,"MUTE",new String[]{"SOM ATIVO","MUTE"},screen.muted[layer]?1:0,i->setLayerMuted(layer,i==1));
-                EditorUi.selector(body,"SOLO",new String[]{"NORMAL","SOLO"},screen.solo[layer]?1:0,i->{screen.solo[layer]=i==1;prefs.edit().putBoolean("solo_"+layer,screen.solo[layer]).apply();screen.applyLayerGains();screen.invalidate();});
+                EditorUi.selector(rightBox,"MUTE",new String[]{"SOM ATIVO","MUTE"},screen.muted[layer]?1:0,i->setLayerMuted(layer,i==1));
+                EditorUi.selector(rightBox,"SOLO",new String[]{"NORMAL","SOLO"},screen.solo[layer]?1:0,i->{screen.solo[layer]=i==1;prefs.edit().putBoolean("solo_"+layer,screen.solo[layer]).apply();screen.applyLayerGains();screen.invalidate();});
             }
         }else if(analog&&page==1){
             buildAnalogFilterControls(layer,body);
@@ -2018,6 +2026,15 @@ public final class MainActivity extends Activity {
         armKnobLearn(layer);
     }
 
+    /** Rounded section box with a small caption, used by the docked inspector like the desktop panels. */
+    private LinearLayout desktopBox(String title,LinearLayout parent){
+        LinearLayout box=EditorUi.column(this);box.setBackground(EditorUi.background(EditorUi.SURFACE));
+        int pad=EditorUi.dp(this,8);box.setPadding(pad,pad,pad,pad);
+        TextView caption=EditorUi.label(this,title,10);caption.setGravity(Gravity.START);caption.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+        box.addView(caption,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,24)));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMargins(EditorUi.dp(this,3),EditorUi.dp(this,6),EditorUi.dp(this,3),EditorUi.dp(this,4));
+        parent.addView(box,lp);return box;
+    }
     private void buildRoutingControls(int layer,LinearLayout body){
         final int l=layer;final int channelSelection=screen.routeChannel[l]+1;LinearLayout row=EditorUi.gridRow(body);
         String[] channels=new String[17];channels[0]="OMNI";for(int i=1;i<17;i++)channels[i]="CH "+i;
