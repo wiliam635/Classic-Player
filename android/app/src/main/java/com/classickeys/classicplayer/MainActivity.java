@@ -1175,9 +1175,11 @@ public final class MainActivity extends Activity {
         setMixerRightInset(0);
         screen.setOnlyLayer(-1);
     }
+    /** The header stays full width, like the desktop; only the area below it is shared with the inspector. */
     private void setMixerRightInset(int px){
-        android.view.ViewGroup.LayoutParams lp=screen.getLayoutParams();
-        if(lp instanceof android.view.ViewGroup.MarginLayoutParams&&((android.view.ViewGroup.MarginLayoutParams)lp).rightMargin!=px){((android.view.ViewGroup.MarginLayoutParams)lp).rightMargin=px;screen.setLayoutParams(lp);}
+        screen.setDockInset(px);
+        EditorUi.Panel.dockTop=Math.round(screen.getHeight()*.15f);
+        EditorUi.Panel.dockHeight=Math.round(screen.getHeight()*.865f)-EditorUi.Panel.dockTop;
     }
     private void openLayerEditor(int layer) {
         if (screen.muted[layer]) { screen.setAudioStatus("DESMUTE A LAYER "+(layer+1)+" PARA EDITAR O MOTOR"); return; }
@@ -2579,7 +2581,7 @@ public final class MainActivity extends Activity {
             }
 
             if (!liveSet) {
-                drawMixer(canvas, w, h, text, teal, panel);
+                drawMixer(canvas, w-dockInset, h, text, teal, panel);
                 return;
             }
             final float tabTop = h * .14f, tabs = w / 8f;
@@ -2604,6 +2606,8 @@ public final class MainActivity extends Activity {
 
         /** While the inspector is docked only the selected layer strip stays in the mixer, like the desktop. */
         private int onlyLayer=-1;
+        private int dockInset=0;
+        void setDockInset(int px){if(dockInset!=px){dockInset=px;layerScrollX=0;invalidate();}}
         void setOnlyLayer(int layer){onlyLayer=layer;layerScrollX=0;if(layer>=0)focusedLayer=layer;invalidate();}
         private int allLayerCount(){int count=0;for(String engine:engineNames)if(!"VAZIA".equals(engine))count++;return count;}
         private int activeLayerCount() {
@@ -2780,13 +2784,13 @@ public final class MainActivity extends Activity {
         };
         /** Returns {layer,target} (target 0 volume, 4 mute) under the finger, or null. */
         private int[] learnHit(float x,float y){
-            final float w=getWidth(),h=getHeight();
+            final float w=getWidth(),h=getHeight(),mw=w-dockInset;
             if(liveSet||settings||y<=h*.17f||y>=h*.93f)return null;
-            float masterW=mixerMasterWidth(),masterX=w-EditorUi.dp(getContext(),18)-masterW;
+            float masterW=mixerMasterWidth(),masterX=mw-EditorUi.dp(getContext(),18)-masterW;
             if(x>=masterX)return null;
             float tx=x+layerScrollX;
             for(int p=0;p<activeLayerCount();p++){
-                int layer=activeLayerAt(p);float cardX=mixerCardX(p,w),cardW=mixerCardWidth(layer,w);
+                int layer=activeLayerAt(p);float cardX=mixerCardX(p,mw),cardW=mixerCardWidth(layer,mw);
                 if(tx<cardX||tx>cardX+cardW)continue;
                 if(y>=h*.17f+h*.016f&&y<=h*.17f+h*.063f)return tx>=cardX+cardW*.54f&&tx<=cardX+cardW*.70f?new int[]{layer,4}:null;
                 if(isPadLayer(layer)){
@@ -2810,7 +2814,7 @@ public final class MainActivity extends Activity {
         @Override public boolean onTouchEvent(MotionEvent event) {
             final int action = event.getActionMasked();
             final boolean tap = action == MotionEvent.ACTION_UP;
-            final float w = getWidth(), h = getHeight();
+            final float w = getWidth(), h = getHeight(), mw = w - dockInset;
             if(action==MotionEvent.ACTION_DOWN){
                 learnFired=false;removeCallbacks(longLearnTask);pendingLearnHit=learnHit(event.getX(),event.getY());
                 if(pendingLearnHit!=null){learnDownX=event.getX();learnDownY=event.getY();postDelayed(longLearnTask,ViewConfiguration.getLongPressTimeout());}
@@ -2824,17 +2828,17 @@ public final class MainActivity extends Activity {
             }
             if(learnFired)return true;
             if(action==MotionEvent.ACTION_CANCEL){mixerScrollCandidate=false;mixerScrollGesture=false;mixerScrollbarDrag=false;return true;}
-            float viewportLeft=EditorUi.dp(getContext(),18),viewportRight=mixerViewportRight(w);
-            if(action==MotionEvent.ACTION_DOWN&&!liveSet&&!settings&&mixerMaxScroll(w)>0
+            float viewportLeft=EditorUi.dp(getContext(),18),viewportRight=mixerViewportRight(mw);
+            if(action==MotionEvent.ACTION_DOWN&&!liveSet&&!settings&&mixerMaxScroll(mw)>0
                     &&event.getX()>=viewportLeft&&event.getX()<=viewportRight
                     &&event.getY()>=h*.924f&&event.getY()<=h*.955f){
                 mixerScrollbarDrag=true;
             }
             if(mixerScrollbarDrag){
                 float viewportWidth=viewportRight-viewportLeft;
-                float thumbWidth=Math.max(EditorUi.dp(getContext(),28),viewportWidth*viewportWidth/Math.max(viewportWidth,mixerContentWidth(w)));
+                float thumbWidth=Math.max(EditorUi.dp(getContext(),28),viewportWidth*viewportWidth/Math.max(viewportWidth,mixerContentWidth(mw)));
                 float fraction=(event.getX()-viewportLeft-thumbWidth*.5f)/Math.max(1f,viewportWidth-thumbWidth);
-                layerScrollX=Math.max(0f,Math.min(mixerMaxScroll(w),fraction*mixerMaxScroll(w)));
+                layerScrollX=Math.max(0f,Math.min(mixerMaxScroll(mw),fraction*mixerMaxScroll(mw)));
                 if(tap)mixerScrollbarDrag=false;
                 invalidate();return true;
             }
@@ -2843,7 +2847,7 @@ public final class MainActivity extends Activity {
             }else if(action==MotionEvent.ACTION_MOVE&&mixerScrollCandidate){
                 float dx=event.getX()-mixerDownX,dy=event.getY()-mixerDownY;
                 if(!mixerScrollGesture&&Math.abs(dx)>EditorUi.dp(getContext(),8)&&Math.abs(dx)>Math.abs(dy)*1.2f)mixerScrollGesture=true;
-                if(mixerScrollGesture){layerScrollX=Math.max(0,Math.min(mixerMaxScroll(w),mixerScrollStart-dx));invalidate();return true;}
+                if(mixerScrollGesture){layerScrollX=Math.max(0,Math.min(mixerMaxScroll(mw),mixerScrollStart-dx));invalidate();return true;}
                 if(Math.abs(dx)<EditorUi.dp(getContext(),8)&&Math.abs(dy)<EditorUi.dp(getContext(),8))return true;
             }
             if(tap&&mixerScrollGesture){mixerScrollCandidate=false;mixerScrollGesture=false;return true;}
@@ -2896,7 +2900,7 @@ public final class MainActivity extends Activity {
                 if (event.getX() >= w*.88f && event.getX() <= w-18) { panicMidiState(); invalidate(); return true; }
             }
             if (!liveSet && dragging && event.getY() > h * .17f && event.getY() < h * .93f) {
-                float masterW=mixerMasterWidth(),masterX=w-EditorUi.dp(getContext(),18)-masterW;
+                float masterW=mixerMasterWidth(),masterX=mw-EditorUi.dp(getContext(),18)-masterW;
                 if (event.getX() >= masterX && event.getX() <= masterX+masterW) {
                     float railTop = h*.17f+h*.12f, railBottom = h*.17f+h*.76f-h*.09f;
                     if (event.getY() >= railTop-h*.035f && event.getY() <= railBottom+h*.035f) {
@@ -2910,12 +2914,12 @@ public final class MainActivity extends Activity {
                 int position=-1,layer=-1;
                 float layerTouchX=event.getX()+layerScrollX;
                 for(int p=0;p<activeLayerCount();p++){
-                    int candidate=activeLayerAt(p);float cardX=mixerCardX(p,w),cardW=mixerCardWidth(candidate,w);
+                    int candidate=activeLayerAt(p);float cardX=mixerCardX(p,mw),cardW=mixerCardWidth(candidate,mw);
                     if(layerTouchX>=cardX&&layerTouchX<=cardX+cardW){position=p;layer=candidate;break;}
                 }
                 if (layer >= 0) {
                     focusedLayer=layer;
-                    float cardX=mixerCardX(position,w),cardW=mixerCardWidth(layer,w);
+                    float cardX=mixerCardX(position,mw),cardW=mixerCardWidth(layer,mw);
                     if (tap && event.getY() >= h*.17f+h*.016f && event.getY() <= h*.17f+h*.063f) {
                         if (layerTouchX >= cardX+cardW*.54f && layerTouchX <= cardX+cardW*.70f) { setLayerMuted(layer,!muted[layer]); return true; }
                         else if (layerTouchX >= cardX+cardW*.74f && layerTouchX <= cardX+cardW*.90f) solo[layer] = !solo[layer];

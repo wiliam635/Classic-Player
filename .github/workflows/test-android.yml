@@ -33,6 +33,7 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 29
+          profile: pixel_c
           arch: x86_64
           target: default
           ndk: 26.3.11579264

@@ -63,6 +63,7 @@ final class EditorUi {
         static int dockWidth(Context c){android.util.DisplayMetrics m=c.getResources().getDisplayMetrics();return Math.max(Math.round(m.widthPixels*.5f),m.widthPixels-dp(c,320));}
         static java.util.function.Consumer<Panel> dockHook;
         static long dockClosedAt;
+        static int dockTop,dockHeight;
         final boolean docked;Runnable onClose;
         final Dialog dialog;
         final LinearLayout body,footer,tabs;
@@ -100,8 +101,8 @@ final class EditorUi {
                 dialog.show();android.view.Window dw=dialog.getWindow();
                 if(dw!=null){dw.setBackgroundDrawableResource(android.R.color.transparent);dw.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
                     dw.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL);
-                    android.view.WindowManager.LayoutParams lp=dw.getAttributes();lp.gravity=Gravity.END|Gravity.TOP;lp.dimAmount=0f;lp.x=0;lp.y=0;dw.setAttributes(lp);
-                    dw.setLayout(dockWidth(body.getContext()),ViewGroup.LayoutParams.MATCH_PARENT);}
+                    android.view.WindowManager.LayoutParams lp=dw.getAttributes();lp.gravity=Gravity.END|Gravity.TOP;lp.dimAmount=0f;lp.x=dp(body.getContext(),6);lp.y=dockTop;dw.setAttributes(lp);
+                    dw.setLayout(dockWidth(body.getContext())-dp(body.getContext(),6),dockHeight>0?dockHeight:ViewGroup.LayoutParams.MATCH_PARENT);}
                 return;
             }
             dialog.show();android.view.Window w=dialog.getWindow();if(w!=null){
