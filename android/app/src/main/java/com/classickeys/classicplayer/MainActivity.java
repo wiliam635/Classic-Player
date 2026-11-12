@@ -1845,8 +1845,11 @@ public final class MainActivity extends Activity {
     private void showPresetEditor(final int layer,String title,String subtitle,String[] items,int selected,
                                   PresetSelection selection,String secondaryLabel,Runnable secondaryAction) {
         EditorUi.Panel panel=new EditorUi.Panel(this,title,subtitle);
-        final String[] tabNames=screen.engineName(layer).equals("ANALOG")?new String[]{"OSCILADORES","FILTRO / ADSR","CONTROLES","EFEITOS","MIDI"}:new String[]{"LAYER","CONTROLES","EFEITOS","MIDI"};
-        class PageNav { void show(int page){panel.setTabs(tabNames,page,this::show);renderLayerEditorPage(layer,panel,page,items,selected,selection,secondaryLabel,secondaryAction);} }
+        final String[] tabNames=screen.engineName(layer).equals("ANALOG")?new String[]{"OSCILADORES","FILTRO / ADSR","CONTROLES","EFEITOS","MIDI"}:new String[]{"SOM","ENVELOPE","MIDI","EFEITOS","VELOCIDADE"};
+        final boolean analogEngine=screen.engineName(layer).equals("ANALOG");
+        class PageNav { void show(int page){panel.setTabs(tabNames,page,this::show);
+            if(analogEngine)renderLayerEditorPage(layer,panel,page,items,selected,selection,secondaryLabel,secondaryAction);
+            else renderDesktopStylePage(layer,panel,page,items,selected,selection,secondaryLabel,secondaryAction);} }
         PageNav nav=new PageNav();nav.show(0);
         EditorUi.addButton(panel.footer,"FECHAR",panel.dialog::dismiss);
         panel.show();
@@ -1882,13 +1885,10 @@ public final class MainActivity extends Activity {
                 TextView quick=EditorUi.label(this,"CONTROLES DA LAYER",10);quick.setTextColor(EditorUi.MUTED);body.addView(quick);
                 LinearLayout row=EditorUi.knobRow(body);
                 layerMidiKnobs[layer][0]=EditorUi.knob(row,"VOLUME",screen.layerVolumes[layer]*100f,0,100," %",v->screen.setLearnedVolume(layer,v/100f));
-                boolean sf2Envelope="SF2".equals(engine);EditorUi.knob(row,sf2Envelope?"ATTACK +ms":"ATTACK ms",screen.layerAttack[layer]*1000f,sf2Envelope?0f:.1f,100," ms",v->screen.setLayerEnvelope(layer,v/1000f,screen.layerRelease[layer]));
-                EditorUi.knob(row,sf2Envelope?"RELEASE +ms":"RELEASE ms",screen.layerRelease[layer]*1000f,sf2Envelope?0f:0f,"NPNO".equals(engine)?2000:100," ms",v->screen.setLayerEnvelope(layer,screen.layerAttack[layer],v/1000f));
-                row=EditorUi.knobRow(body);
                 layerMidiKnobs[layer][1]=EditorUi.knob(row,"CUTOFF",screen.layerCutoff[layer],0,100," %",v->screen.setLayerTone(layer,v,screen.layerReverb[layer],screen.layerCompMix[layer],screen.layerChorus[layer]));
-                layerMidiKnobs[layer][2]=EditorUi.knob(row,"REVERB",screen.layerReverb[layer]*100f,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],v/100f,screen.layerCompMix[layer],screen.layerChorus[layer]));
-                layerMidiKnobs[layer][3]=EditorUi.knob(row,"COMP",screen.layerCompMix[layer]*100f,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],v/100f,screen.layerChorus[layer]));
-                row=EditorUi.gridRow(body);EditorUi.addButton(row,"EDITAR REVERB",()->showEffectEditor(layer,"REVERB"));EditorUi.addButton(row,"EDITAR COMP",()->showEffectEditor(layer,"COMP"));EditorUi.addButton(row,"EDITAR EQ",()->showEffectEditor(layer,"EQ"));
+                EditorUi.knob(row,"PAN",screen.layerPan[layer]*100,-100,100,"",v->screen.setLayerPan(layer,v/100));
+                EditorUi.selector(body,"MUTE",new String[]{"SOM ATIVO","MUTE"},screen.muted[layer]?1:0,i->setLayerMuted(layer,i==1));
+                EditorUi.selector(body,"SOLO",new String[]{"NORMAL","SOLO"},screen.solo[layer]?1:0,i->{screen.solo[layer]=i==1;prefs.edit().putBoolean("solo_"+layer,screen.solo[layer]).apply();screen.applyLayerGains();screen.invalidate();});
             }
         }else if(analog&&page==1){
             buildAnalogFilterControls(layer,body);
@@ -1924,6 +1924,49 @@ public final class MainActivity extends Activity {
                 final int layerIndex=layer,targetIndex=t;Button learnButton=EditorUi.button(this,layerLearnLabel(layerIndex,targetIndex),()->{});learnButton.setOnClickListener(v->toggleLayerMidiLearn(layerIndex,targetIndex,learnButton));line.addView(learnButton,new LinearLayout.LayoutParams(0,EditorUi.dp(this,44),1));
                 EditorUi.addButton(line,"LIMPAR",()->clearLayerMidiLearn(layerIndex,targetIndex,learnButton));
             }
+        }
+        armKnobLearn(layer);
+    }
+
+
+    private final int[] effectsInlineView=new int[6];
+    /** Desktop Conceito D tabs: SOM | ENVELOPE | MIDI | EFEITOS | VELOCIDADE (SF2, DX7 and NPNO layers). */
+    private void renderDesktopStylePage(final int layer,final EditorUi.Panel panel,int page,String[] items,int selected,
+                                        PresetSelection selection,String secondaryLabel,Runnable secondaryAction){
+        final LinearLayout body=panel.body;final String engine=screen.engineName(layer);
+        if(page==0){renderLayerEditorPage(layer,panel,0,items,selected,selection,secondaryLabel,secondaryAction);return;}
+        if(page==2){renderLayerEditorPage(layer,panel,3,items,selected,selection,secondaryLabel,secondaryAction);return;}
+        body.removeAllViews();java.util.Arrays.fill(layerMidiKnobs[layer],null);
+        if(page==1){
+            final boolean sf2Envelope="SF2".equals(engine);
+            TextView note=EditorUi.label(this,"ENVELOPE ADSR · ataque e liberação da layer",11);note.setTextColor(EditorUi.MUTED);body.addView(note,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,26)));
+            LinearLayout row=EditorUi.knobRow(body);
+            EditorUi.knob(row,sf2Envelope?"ATTACK +ms":"ATTACK ms",screen.layerAttack[layer]*1000f,sf2Envelope?0f:.1f,100," ms",v->screen.setLayerEnvelope(layer,v/1000f,screen.layerRelease[layer]));
+            EditorUi.knob(row,sf2Envelope?"RELEASE +ms":"RELEASE ms",screen.layerRelease[layer]*1000f,0f,"NPNO".equals(engine)?2000:100," ms",v->screen.setLayerEnvelope(layer,screen.layerAttack[layer],v/1000f));
+        }else if(page==3){
+            // EFEITOS opens with Reverb already selected, inline instead of in a second window.
+            final String[] effects={"REVERB","COMP","EQ","CHORUS"};
+            final int shown=Math.max(0,Math.min(effects.length-1,effectsInlineView[layer]));
+            LinearLayout picker=EditorUi.gridRow(body);
+            for(int i=0;i<effects.length;i++){
+                final int index=i;
+                Button b=EditorUi.button(this,effects[i],()->{effectsInlineView[layer]=index;renderDesktopStylePage(layer,panel,3,items,selected,selection,secondaryLabel,secondaryAction);});
+                b.setBackground(EditorUi.background(i==shown?EditorUi.ACCENT:EditorUi.SURFACE));b.setTextColor(i==shown?EditorUi.ACCENT_TEXT:EditorUi.TEXT);
+                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,EditorUi.dp(this,44),1);p.setMargins(2,1,2,1);picker.addView(b,p);
+            }
+            LinearLayout host=EditorUi.column(this);body.addView(host,new LinearLayout.LayoutParams(-1,-2));
+            renderEffectEditorBody(layer,effects[shown],host,0,()->renderDesktopStylePage(layer,panel,3,items,selected,selection,secondaryLabel,secondaryAction),()->{});
+        }else{
+            // VELOCIDADE: velocity curve and, for NPNO, the adaptive calibration.
+            TextView note=EditorUi.label(this,"CURVA DE VELOCITY · como a força da tecla vira volume",11);note.setTextColor(EditorUi.MUTED);body.addView(note,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,26)));
+            final boolean nord="NPNO".equals(engine);
+            String[] velocity=nord?new String[]{"LINEAR","SUAVE","FORTE","ADAPTATIVA"}:new String[]{"LINEAR","SUAVE","FORTE"};
+            LinearLayout row=EditorUi.gridRow(body);
+            EditorUi.selectorCell(row,"VELOCIDADE",velocity,Math.min(screen.routeVelocity[layer],velocity.length-1),i->{
+                if(nord&&i==3&&!getSharedPreferences("nord_velocity",MODE_PRIVATE).contains(nordVelocityProfileKey()+"soft"))startNordVelocityCalibration(layer);
+                else screen.setLayerRouting(layer,screen.routeChannel[layer],screen.routeOctave[layer],i,screen.routeSustain[layer]);
+            });
+            if(nord)EditorUi.addButton(EditorUi.gridRow(body),"CALIBRAR VELOCIDADE DO TECLADO",()->startNordVelocityCalibration(layer));
         }
         armKnobLearn(layer);
     }
@@ -1987,7 +2030,11 @@ public final class MainActivity extends Activity {
     }
 
     private void renderEffectEditorPage(final int layer,final String effect,EditorUi.Panel panel,int page,Runnable showAdjustments,Runnable showPresets){
-        LinearLayout body=panel.body;body.removeAllViews();
+        renderEffectEditorBody(layer,effect,panel.body,page,showAdjustments,showPresets);
+    }
+
+    private void renderEffectEditorBody(final int layer,final String effect,LinearLayout body,int page,Runnable showAdjustments,Runnable showPresets){
+        body.removeAllViews();
         if(page==2){
             TextView tip=EditorUi.label(this,"Presets portáteis do Android · formato JSON",10);tip.setTextColor(EditorUi.MUTED);body.addView(tip,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,22)));
             LinearLayout row=EditorUi.gridRow(body);EditorUi.addButton(row,"EXPORTAR PRESET",()->exportEffectPreset(layer,effect));EditorUi.addButton(row,"IMPORTAR PRESET",()->importEffectPreset(layer,effect));return;
