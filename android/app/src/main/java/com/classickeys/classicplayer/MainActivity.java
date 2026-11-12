@@ -374,7 +374,7 @@ public final class MainActivity extends Activity {
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         screen = new ClassicPlayerView(this);
         setContentView(screen);
-        EditorUi.Panel.dockHook=p->{dockedInspector=p;p.onClose=()->{if(dockedInspector==p){dockedInspector=null;setMixerRightInset(0);}};};
+        EditorUi.Panel.dockHook=p->{dockedInspector=p;setMixerRightInset(EditorUi.Panel.dockWidth(this));p.onClose=()->{if(dockedInspector==p){dockedInspector=null;setMixerRightInset(0);}};};
         midiManager = (MidiManager) getSystemService(MIDI_SERVICE);
         audioEngine = new PolySynthEngine(this);
         SharedPreferences audioPrefs=getSharedPreferences("audio",MODE_PRIVATE);
@@ -1174,8 +1174,8 @@ public final class MainActivity extends Activity {
         setMixerRightInset(0);
     }
     private void setMixerRightInset(int px){
-        ViewGroup.LayoutParams lp=screen.getLayoutParams();
-        if(lp instanceof ViewGroup.MarginLayoutParams&&((ViewGroup.MarginLayoutParams)lp).rightMargin!=px){((ViewGroup.MarginLayoutParams)lp).rightMargin=px;screen.setLayoutParams(lp);}
+        android.view.ViewGroup.LayoutParams lp=screen.getLayoutParams();
+        if(lp instanceof android.view.ViewGroup.MarginLayoutParams&&((android.view.ViewGroup.MarginLayoutParams)lp).rightMargin!=px){((android.view.ViewGroup.MarginLayoutParams)lp).rightMargin=px;screen.setLayoutParams(lp);}
     }
     private void openLayerEditor(int layer) {
         if (screen.muted[layer]) { screen.setAudioStatus("DESMUTE A LAYER "+(layer+1)+" PARA EDITAR O MOTOR"); return; }

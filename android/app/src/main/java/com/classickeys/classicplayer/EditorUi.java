@@ -61,13 +61,15 @@ final class EditorUi {
         static boolean dockNext;
         static int dockWidth(Context c){android.util.DisplayMetrics m=c.getResources().getDisplayMetrics();return Math.min(Math.round(m.widthPixels*.46f),dp(c,520));}
         static java.util.function.Consumer<Panel> dockHook;
+        static long dockClosedAt;
         final boolean docked;Runnable onClose;
         final Dialog dialog;
         final LinearLayout body,footer,tabs;
         final BoundedScrollView scroll;
         Panel(Activity a,String title,String subtitle){
-            docked=dockNext;dockNext=false;
-            dialog=new Dialog(a);dialog.setOnDismissListener(d->{if(onClose!=null)onClose.run();});dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+            docked=dockNext||(dockClosedAt!=0&&android.os.SystemClock.uptimeMillis()-dockClosedAt<400);dockNext=false;
+            final boolean wasDocked=docked;
+            dialog=new Dialog(a);dialog.setOnDismissListener(d->{if(wasDocked)dockClosedAt=android.os.SystemClock.uptimeMillis();if(onClose!=null)onClose.run();});dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
             LinearLayout root=column(a);root.setPadding(dp(a,7),dp(a,4),dp(a,7),dp(a,4));root.setBackground(background(PANEL));
             TextView heading=label(a,title,16);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setSingleLine(true);heading.setEllipsize(android.text.TextUtils.TruncateAt.END);root.addView(heading,new LinearLayout.LayoutParams(-1,dp(a,28)));
             if(subtitle!=null){TextView hint=label(a,subtitle,11);hint.setSingleLine(true);hint.setEllipsize(android.text.TextUtils.TruncateAt.END);hint.setTextColor(MUTED);root.addView(hint,new LinearLayout.LayoutParams(-1,dp(a,20)));}
@@ -84,7 +86,7 @@ final class EditorUi {
             // screens; the footer stays fixed and never covers the last row.
                 scroll.maxHeight=Math.max(dp(body.getContext(),64),m.heightPixels-dp(body.getContext(),220));
             if(docked){
-                if(dockHook!=null)dockHook.accept(this);
+                dockClosedAt=0;if(dockHook!=null)dockHook.accept(this);
                 scroll.maxHeight=0;dialog.setCanceledOnTouchOutside(false);
                 dialog.show();android.view.Window dw=dialog.getWindow();
                 if(dw!=null){dw.setBackgroundDrawableResource(android.R.color.transparent);dw.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
