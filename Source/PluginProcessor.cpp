@@ -291,6 +291,7 @@ void ClassicPlayerAudioProcessor::processMasterMidiMessage(const juce::MidiMessa
 void ClassicPlayerAudioProcessor::timerCallback()
 {
     consumeMidiControlUpdates();
+    flushParameterMidiUpdates();
     if (pendingPanic.exchange(false)) panic();
     // Message-thread updates and file I/O work even with the editor closed.
     if (startupSettingsDirty.exchange(false)) saveStartupSettings();
@@ -302,6 +303,7 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
       programStorageRoot(std::move(programStorageOverride))
 {
     drumPadFormats.registerBasicFormats();
+    buildGenericMidiTables();
     // APVTS parameter objects survive replaceState. Resolve their atomic values
     // once so the audio callback never builds names or searches the parameter map.
     for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
@@ -2512,8 +2514,94 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     return true;
 }
 
+void ClassicPlayerAudioProcessor::buildGenericMidiTables()
+{
+    for (auto* parameter : getParameters())
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(parameter))
+        {
+            genericMidiIndex[ranged->paramID] = (int) genericMidiParams.size();
+            genericMidiParams.push_back(ranged);
+        }
+    const auto count = genericMidiParams.size();
+    genericMidiCC.reset(new std::atomic<int>[count]);
+    genericMidiChannel.reset(new std::atomic<int>[count]);
+    genericMidiDirty.reset(new std::atomic<bool>[count]);
+    for (size_t i = 0; i < count; ++i)
+    {
+        genericMidiCC[i].store(-1);
+        genericMidiChannel[i].store(-1);
+        genericMidiDirty[i].store(false);
+    }
+}
+
+void ClassicPlayerAudioProcessor::beginParameterMidiLearn(const juce::String& parameterId)
+{
+    const auto found = genericMidiIndex.find(parameterId);
+    if (found == genericMidiIndex.end()) return;
+    activeMasterEqLearn.store(-1);
+    masterLearning.store(false);
+    panicLearning.store(false);
+    activeMidiLearn.store(-1, std::memory_order_relaxed);
+    genericMidiLearnIndex.store(genericMidiLearnIndex.load() == found->second ? -1 : found->second);
+}
+
+void ClassicPlayerAudioProcessor::clearParameterMidiLearn(const juce::String& parameterId)
+{
+    const auto found = genericMidiIndex.find(parameterId);
+    if (found == genericMidiIndex.end()) return;
+    genericMidiCC[(size_t) found->second].store(-1);
+    genericMidiChannel[(size_t) found->second].store(-1);
+    auto active = found->second;
+    genericMidiLearnIndex.compare_exchange_strong(active, -1);
+}
+
+bool ClassicPlayerAudioProcessor::isParameterMidiLearning(const juce::String& parameterId) const
+{
+    const auto found = genericMidiIndex.find(parameterId);
+    return found != genericMidiIndex.end() && genericMidiLearnIndex.load() == found->second;
+}
+
+int ClassicPlayerAudioProcessor::parameterMidiCC(const juce::String& parameterId) const
+{
+    const auto found = genericMidiIndex.find(parameterId);
+    return found == genericMidiIndex.end() ? -1 : genericMidiCC[(size_t) found->second].load();
+}
+
+int ClassicPlayerAudioProcessor::parameterMidiChannel(const juce::String& parameterId) const
+{
+    const auto found = genericMidiIndex.find(parameterId);
+    return found == genericMidiIndex.end() ? -1 : genericMidiChannel[(size_t) found->second].load();
+}
+
+void ClassicPlayerAudioProcessor::processGenericMidi(int cc, int channel, int value)
+{
+    const auto count = genericMidiParams.size();
+    const auto normalised = juce::jlimit(0.0f, 1.0f, (float) value / 127.0f);
+    for (size_t i = 0; i < count; ++i)
+    {
+        if (genericMidiCC[i].load(std::memory_order_relaxed) != cc) continue;
+        const auto learnedChannel = genericMidiChannel[i].load(std::memory_order_relaxed);
+        if (learnedChannel >= 0 && learnedChannel != channel) continue;
+        auto* parameter = genericMidiParams[i];
+        parameter->setValue(normalised);
+        if (auto* raw = parameters.getRawParameterValue(parameter->paramID))
+            raw->store(parameter->convertFrom0to1(normalised), std::memory_order_release);
+        genericMidiDirty[i].store(true, std::memory_order_release);
+        genericMidiAnyDirty.store(true, std::memory_order_release);
+    }
+}
+
+void ClassicPlayerAudioProcessor::flushParameterMidiUpdates()
+{
+    if (!genericMidiAnyDirty.exchange(false, std::memory_order_acq_rel)) return;
+    for (size_t i = 0; i < genericMidiParams.size(); ++i)
+        if (genericMidiDirty[i].exchange(false, std::memory_order_acq_rel))
+            genericMidiParams[i]->setValueNotifyingHost(genericMidiParams[i]->getValue());
+}
+
 void ClassicPlayerAudioProcessor::beginMidiLearn(int layer, LearnTarget target)
 {
+    genericMidiLearnIndex.store(-1);
     activeMasterEqLearn.store(-1);
     masterLearning.store(false);
     panicLearning.store(false);
@@ -2720,6 +2808,28 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
         if (active >= 0)
             juce::Logger::writeToLog("MIDI Learn ignores CC64 because it is reserved for sustain");
         return;
+    }
+
+    {
+        auto genericLearn = genericMidiLearnIndex.load(std::memory_order_relaxed);
+        if (genericLearn >= 0 && (size_t) genericLearn < genericMidiParams.size())
+        {
+            // A CC already owned by another generic control moves to this one.
+            for (size_t i = 0; i < genericMidiParams.size(); ++i)
+                if (genericMidiCC[i].load() == cc && (int) i != genericLearn)
+                {
+                    genericMidiCC[i].store(-1);
+                    genericMidiChannel[i].store(-1);
+                }
+            const auto learnedIndex = (size_t) genericLearn;
+            genericMidiCC[learnedIndex].store(cc);
+            genericMidiChannel[learnedIndex].store(channel);
+            genericMidiLearnIndex.compare_exchange_strong(genericLearn, -1);
+            juce::Logger::writeToLog("MIDI Learn: " + genericMidiParams[learnedIndex]->paramID
+                                     + " CC=" + juce::String(cc) + " canal=" + juce::String(channel));
+            return;
+        }
+        processGenericMidi(cc, channel, controllerValue);
     }
 
     if (active >= 0)
@@ -4386,6 +4496,16 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
     }
     state.setProperty("panicLearnCC", panicCC.load(), nullptr);
     state.setProperty("panicLearnChannel", panicCCChannel.load(), nullptr);
+    {
+        juce::String map;
+        for (size_t i = 0; i < genericMidiParams.size(); ++i)
+        {
+            const auto cc = genericMidiCC[i].load();
+            if (cc >= 0)
+                map << genericMidiParams[i]->paramID << "=" << cc << ":" << genericMidiChannel[i].load() << ";";
+        }
+        state.setProperty("parameterMidiMap", map, nullptr);
+    }
     state.setProperty("stateVersion", 174, nullptr);
     state.setProperty("activeLayers", activeLayerCount(), nullptr);
     for (int position = 0; position < Sf2Engine::layerCount; ++position)
@@ -4704,6 +4824,24 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 masterEqCCChannel[(size_t) band].store(juce::jlimit(-1, 16, (int) state.getProperty("masterEqLearnChannel" + juce::String(band), -1)));
                 pendingMasterEq[(size_t) band].store(-1.0f);
                 realtimeMasterEq[(size_t) band].store(-1.0f);
+            }
+            if (state.hasProperty("parameterMidiMap"))
+            {
+                for (size_t i = 0; i < genericMidiParams.size(); ++i)
+                {
+                    genericMidiCC[i].store(-1);
+                    genericMidiChannel[i].store(-1);
+                }
+                for (const auto& entry : juce::StringArray::fromTokens(state.getProperty("parameterMidiMap").toString(), ";", ""))
+                {
+                    const auto eq = entry.indexOfChar('=');
+                    const auto colon = entry.indexOfChar(':');
+                    if (eq <= 0 || colon <= eq) continue;
+                    const auto found = genericMidiIndex.find(entry.substring(0, eq));
+                    if (found == genericMidiIndex.end()) continue;
+                    genericMidiCC[(size_t) found->second].store(juce::jlimit(-1, 119, entry.substring(eq + 1, colon).getIntValue()));
+                    genericMidiChannel[(size_t) found->second].store(juce::jlimit(-1, 16, entry.substring(colon + 1).getIntValue()));
+                }
             }
             panicCC.store(juce::jlimit(-1, 119, (int) state.getProperty("panicLearnCC", -1)));
             panicCCChannel.store(juce::jlimit(-1, 16, (int) state.getProperty("panicLearnChannel", -1)));

@@ -425,6 +425,7 @@ private:
     juce::TextButton masterLimiterButton { "LIM" };
     MidiLearnButton masterLearnButton { "LEARN" };
     std::unique_ptr<RightClickMidiLearn> masterRightClickLearn;
+    std::unique_ptr<ParameterMidiMenu> parameterMidiMenu;
     LevelMeter masterMeter;
     CpuMeter cpuMeter;
     juce::TextButton updateButton { "ATUALIZACOES" };

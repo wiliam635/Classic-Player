@@ -7125,6 +7125,8 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     }
     attack.setRange(0.0, 100.0, 0.1);
     release.setRange(0.0, 100.0, 1.0);
+    attack.getProperties().set("midiParameter", parameterPrefix + "Attack");
+    release.getProperties().set("midiParameter", parameterPrefix + "Release");
     attackAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor.parameters, parameterPrefix + "Attack", attack);
     releaseAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
@@ -7155,6 +7157,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     chorus.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     chorus.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 54, 16);
     addAndMakeVisible(chorus);
+    chorus.getProperties().set("midiParameter", parameterPrefix + "Dx7Chorus");
     chorusAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor.parameters, parameterPrefix + "Dx7Chorus", chorus);
     addAndMakeVisible(meter);
@@ -10089,6 +10092,20 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
             return "CC " + juce::String(cc) + (channel > 0 ? " C" + juce::String(channel) : juce::String());
         },
         [this] { return classicProcessor.isMasterMidiLearning(); });
+    {
+        ParameterMidiMenu::Hooks hooks;
+        hooks.mapping = [this](const juce::String& id)
+        {
+            const auto cc = classicProcessor.parameterMidiCC(id);
+            if (cc < 0) return juce::String();
+            const auto channel = classicProcessor.parameterMidiChannel(id);
+            return "CC " + juce::String(cc) + (channel > 0 ? " C" + juce::String(channel) : juce::String());
+        };
+        hooks.isLearning = [this](const juce::String& id) { return classicProcessor.isParameterMidiLearning(id); };
+        hooks.begin = [this](const juce::String& id) { classicProcessor.beginParameterMidiLearn(id); };
+        hooks.clear = [this](const juce::String& id) { classicProcessor.clearParameterMidiLearn(id); };
+        parameterMidiMenu = std::make_unique<ParameterMidiMenu>(*this, std::move(hooks));
+    }
     addAndMakeVisible(masterLearnButton);
     addAndMakeVisible(masterMeter);
     cpuMeter.setTooltip(juce::String::fromUTF8("Carga do processamento de áudio do Classic Player. 100% indica que o tempo disponível para o buffer foi consumido."));
@@ -11162,6 +11179,7 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
             : masterCC < 0 ? "VOLUME" : "VOLUME / CC " + juce::String(masterCC), activeUiLanguage.load()),
             juce::dontSendNotification);
     classicProcessor.consumeMidiControlUpdates();
+    classicProcessor.flushParameterMidiUpdates();
     if (showingLiveSet)
         refreshLiveSetVolumeIndicators();
     if (classicProcessor.consumeLiveSetSlotMidiLearnChanged())

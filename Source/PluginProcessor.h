@@ -1,4 +1,7 @@
 #pragma once
+#include <map>
+#include <vector>
+#include <memory>
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_utils/juce_audio_utils.h>
@@ -194,6 +197,13 @@ public:
     int midiLearnChannel(int layer, LearnTarget target) const;
     bool isMidiLearning(int layer, LearnTarget target) const;
     void consumeMidiControlUpdates();
+    // Generic CC assignment for any APVTS parameter (right-click on a knob).
+    void beginParameterMidiLearn(const juce::String& parameterId);
+    void clearParameterMidiLearn(const juce::String& parameterId);
+    bool isParameterMidiLearning(const juce::String& parameterId) const;
+    int parameterMidiCC(const juce::String& parameterId) const;
+    int parameterMidiChannel(const juce::String& parameterId) const;
+    void flushParameterMidiUpdates();
     void attachStandaloneMidiRouting(juce::AudioDeviceManager&, juce::MidiInputCallback& defaultCallback);
     void refreshStandaloneMidiInputs();
     void refreshStandaloneMidiInputs(const juce::Array<juce::MidiDeviceInfo>& devices);
@@ -471,6 +481,15 @@ private:
     // A MIDI controller is identified by CC *and* channel. Some keyboards
     // send the same CC from several faders on different Part channels.
     std::array<std::array<std::atomic<int>, learnTargetCount>, Sf2Engine::layerCount> learnedCCs {};
+    // Generic parameter MIDI map. The tables are sized once in the constructor.
+    std::vector<juce::RangedAudioParameter*> genericMidiParams;
+    std::map<juce::String, int> genericMidiIndex;
+    std::unique_ptr<std::atomic<int>[]> genericMidiCC, genericMidiChannel;
+    std::unique_ptr<std::atomic<bool>[]> genericMidiDirty;
+    std::atomic<int> genericMidiLearnIndex { -1 };
+    std::atomic<bool> genericMidiAnyDirty { false };
+    void buildGenericMidiTables();
+    void processGenericMidi(int cc, int channel, int value);
     std::array<std::array<std::atomic<int>, learnTargetCount>, Sf2Engine::layerCount> learnedChannels {};
     // Keep audio and UI delivery independent so a timer tick cannot consume
     // a learned value before the next audio block applies it.
