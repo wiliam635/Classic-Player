@@ -1200,7 +1200,7 @@ void remapComponentColour(juce::Component& component, int colourId, const UiPale
         const std::array<std::pair<juce::uint32, juce::uint32>, 8> replacements {{
             { sourcePalette.background, newPalette.background }, { sourcePalette.panel, newPalette.panel },
             { sourcePalette.panelLight, newPalette.panelLight }, { sourcePalette.line, newPalette.line },
-            { sourcePalette.accent, newPalette.accent }, { sourcePalette.highlight, newPalette.highlight },
+            { sourcePalette.accent, sourcePalette.accent }, { sourcePalette.highlight, newPalette.highlight }, // accent is the same amber in every theme
             { sourcePalette.text, newPalette.text }, { sourcePalette.mutedText, newPalette.mutedText }
         }};
         for (const auto& [sourceColour, targetColour] : replacements)
@@ -1245,10 +1245,7 @@ void applyUiSkinToComponentTree(juce::Component& component, const UiPalette& new
                                      juce::TextButton::textColourOffId, juce::TextButton::textColourOnId })
             remapComponentColour(component, colourId, newPalette);
         if (usesPaletteAccent)
-            component.setColour(juce::TextButton::textColourOnId,
-                                juce::Colour(newPalette.accent == uiPalettes[3].accent
-                                          || newPalette.accent == uiPalettes[4].accent
-                                    ? newPalette.text : newPalette.background));
+            component.setColour(juce::TextButton::textColourOnId, juce::Colour(0xff0f1114));
     }
     if (dynamic_cast<juce::ComboBox*>(&component) != nullptr)
     {
