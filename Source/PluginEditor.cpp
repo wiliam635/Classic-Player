@@ -8267,7 +8267,12 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDown(const juce::MouseE
         // its context menu, so the recursive listener must not open another.
         for (auto* source = event.originalComponent; source != nullptr && source != this;
              source = source->getParentComponent())
-            if (dynamic_cast<MidiLearnButton*>(source) != nullptr)
+            if (dynamic_cast<MidiLearnButton*>(source) != nullptr
+                || dynamic_cast<juce::Slider*>(source) != nullptr
+                || dynamic_cast<LeftClickOnlyButton*>(source) != nullptr
+                || source == &muteButton
+                || source->getProperties().contains("midiParameter")
+                || source->getProperties().contains("conceptParameter"))
                 return;
         juce::PopupMenu menu;
         juce::PopupMenu outlineMenu;
