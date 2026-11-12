@@ -6713,6 +6713,38 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
     muteLearnButton.setTooltip("Aprender um CC para alternar o mute desta layer");
     muteLearnButton.onClick=[this]{processor.beginMidiLearn(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::mute);refresh();};
     muteLearnButton.onClearMapping=[this]{processor.clearMidiLearn(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::mute);refresh();};
+    for (int pad = 0; pad < 12; ++pad)
+        rightClickLearn.push_back(std::make_unique<RightClickMidiLearn>(pads[(size_t) pad], learnButtons[(size_t) pad],
+            [this, pad]
+            {
+                if (pad >= padCount()) return juce::String();
+                if (continuous())
+                {
+                    const int cc = processor.continuousPads(layerIndex).mapping(pad);
+                    return cc >= 0 ? "CC " + juce::String(cc) : juce::String();
+                }
+                return processor.drumPadMidiMapping(pad);
+            },
+            [this, pad] { return continuous() ? processor.continuousPads(layerIndex).learningTarget() == pad
+                                              : processor.isDrumPadMidiLearning(pad); }));
+    rightClickLearn.push_back(std::make_unique<RightClickMidiLearn>(stopButton, stopLearn,
+        [this] { const int cc = continuous() ? processor.continuousPads(layerIndex).mapping(12) : -1;
+                 return cc >= 0 ? "CC " + juce::String(cc) : juce::String(); },
+        [this] { return continuous() && processor.continuousPads(layerIndex).learningTarget() == 12; }));
+    {
+        using Target = ClassicPlayerAudioProcessor::LearnTarget;
+        auto levelMapping = [this](Target t)
+        {
+            const auto cc = processor.midiLearnCC(layerIndex, t);
+            return cc >= 0 ? "CC " + juce::String(cc) : juce::String();
+        };
+        rightClickLearn.push_back(std::make_unique<RightClickMidiLearn>(fadeSlider, volumeLearnButton,
+            [levelMapping] { return levelMapping(Target::volume); },
+            [this] { return processor.isMidiLearning(layerIndex, Target::volume); }));
+        rightClickLearn.push_back(std::make_unique<RightClickMidiLearn>(cutoffSlider, cutoffLearnButton,
+            [levelMapping] { return levelMapping(Target::cutoff); },
+            [this] { return processor.isMidiLearning(layerIndex, Target::cutoff); }));
+    }
     cutoffSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     cutoffSlider.setRange(0.0, 100.0, 1.0);
     cutoffSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 48, 18);
@@ -7192,6 +7224,27 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
         updateMidiLearnState();
     };
     addAndMakeVisible(muteLearn);
+
+    {
+        using Target = ClassicPlayerAudioProcessor::LearnTarget;
+        auto makeRightClick = [this](juce::Component& control, MidiLearnButton& learnButton, Target t)
+        {
+            rightClickLearn.push_back(std::make_unique<RightClickMidiLearn>(control, learnButton,
+                [this, t]
+                {
+                    const auto cc = processor.midiLearnCC(index, t);
+                    if (cc < 0) return juce::String();
+                    const auto channel = processor.midiLearnChannel(index, t);
+                    return "CC " + juce::String(cc) + (channel > 0 ? " C" + juce::String(channel) : juce::String());
+                },
+                [this, t] { return processor.isMidiLearning(index, t); }));
+        };
+        makeRightClick(gain, volumeLearn, Target::volume);
+        makeRightClick(cutoff, cutoffLearn, Target::cutoff);
+        makeRightClick(reverb, reverbLearn, Target::reverb);
+        makeRightClick(compressor, compressorLearn, Target::compressor);
+        makeRightClick(muteButton, muteLearn, Target::mute);
+    }
 
     initialiseComboBoxes();
     refresh();
@@ -10039,6 +10092,15 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
             classicProcessor.beginMasterMidiLearn();
     };
     masterLearnButton.onClearMapping = [this] { classicProcessor.resetMasterMidiLearn(); };
+    masterRightClickLearn = std::make_unique<RightClickMidiLearn>(master, masterLearnButton,
+        [this]
+        {
+            const auto cc = classicProcessor.masterMidiLearnCC();
+            if (cc < 0) return juce::String();
+            const auto channel = classicProcessor.masterMidiLearnChannel();
+            return "CC " + juce::String(cc) + (channel > 0 ? " C" + juce::String(channel) : juce::String());
+        },
+        [this] { return classicProcessor.isMasterMidiLearning(); });
     addAndMakeVisible(masterLearnButton);
     addAndMakeVisible(masterMeter);
     cpuMeter.setTooltip(juce::String::fromUTF8("Carga do processamento de áudio do Classic Player. 100% indica que o tempo disponível para o buffer foi consumido."));

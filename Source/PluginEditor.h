@@ -148,6 +148,7 @@ private:
         juce::Label cutoffLabel;
         std::unique_ptr<juce::FileChooser> fileChooser;
         bool controlsVisible = true;
+        std::vector<std::unique_ptr<RightClickMidiLearn>> rightClickLearn;
     };
 
     class LayerStrip final : public juce::Component
@@ -316,6 +317,7 @@ private:
         DrumPadPanel drumPadPanel;
         juce::String midiDeviceFingerprint;
         juce::Array<juce::MidiDeviceInfo> midiDevices;
+        std::vector<std::unique_ptr<RightClickMidiLearn>> rightClickLearn; // last: detaches before the controls die
     };
 
     void timerCallback() override;
@@ -424,6 +426,7 @@ private:
     juce::TextButton masterEqButton { "EQ MASTER" };
     juce::TextButton masterLimiterButton { "LIM" };
     MidiLearnButton masterLearnButton { "LEARN" };
+    std::unique_ptr<RightClickMidiLearn> masterRightClickLearn;
     LevelMeter masterMeter;
     CpuMeter cpuMeter;
     juce::TextButton updateButton { "ATUALIZACOES" };
