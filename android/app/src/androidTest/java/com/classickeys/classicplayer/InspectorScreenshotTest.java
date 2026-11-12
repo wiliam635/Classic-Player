@@ -20,19 +20,13 @@ import static org.junit.Assert.*;
 /** Emulates the tablet flow: load a layer, tap it, and capture the docked inspector. */
 @RunWith(AndroidJUnit4.class)
 public class InspectorScreenshotTest {
-    private void shell(String command) throws Exception {
-        try (ParcelFileDescriptorReader ignored = new ParcelFileDescriptorReader(
-                InstrumentationRegistry.getInstrumentation().getUiAutomation().executeShellCommand(command))) {}
-    }
-    private static final class ParcelFileDescriptorReader implements Closeable {
-        final android.os.ParcelFileDescriptor fd;
-        ParcelFileDescriptorReader(android.os.ParcelFileDescriptor fd) throws IOException {
-            this.fd = fd;
-            try (InputStream in = new android.os.ParcelFileDescriptor.AutoCloseInputStream(fd)) {
-                byte[] buffer = new byte[1024]; while (in.read(buffer) != -1) {}
-            }
+    private String shell(String command) throws Exception {
+        android.os.ParcelFileDescriptor fd = InstrumentationRegistry.getInstrumentation().getUiAutomation().executeShellCommand(command);
+        StringBuilder out = new StringBuilder();
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(new android.os.ParcelFileDescriptor.AutoCloseInputStream(fd)))) {
+            String line; while ((line = in.readLine()) != null) out.append(line).append('\n');
         }
-        @Override public void close() {}
+        return out.toString();
     }
     private void shot(String name, File dir) throws Exception {
         Instrumentation i = InstrumentationRegistry.getInstrumentation();
@@ -57,11 +51,16 @@ public class InspectorScreenshotTest {
         String additional = InstrumentationRegistry.getArguments().getString("additionalTestOutputDir");
         File dir = new File(additional == null ? context.getExternalFilesDir(null).getPath() : additional, "audio-regression");
         assertTrue(dir.isDirectory() || dir.mkdirs());
-        shell("wm size 2000x1200"); shell("wm density 240");
+        String log = shell("wm size 2000x1200") + shell("wm density 240") + shell("wm size") + shell("wm density");
+        try (FileWriter w = new FileWriter(new File(dir, "wm.txt"))) { w.write(log); }
+        Thread.sleep(1500);
         Activity activity = null;
         try {
             activity = instrumentation.startActivitySync(new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             final MainActivity main = (MainActivity) activity;
+            Method login = MainActivity.class.getDeclaredMethod("showMixerAfterLogin", String.class);
+            login.setAccessible(true);
+            instrumentation.runOnMainSync(() -> { try { login.invoke(main, ""); } catch (Exception e) { throw new RuntimeException(e); } });
             Method activate = MainActivity.class.getDeclaredMethod("activateBundledDx7", int.class, int.class, String.class);
             activate.setAccessible(true);
             instrumentation.runOnMainSync(() -> { try { activate.invoke(main, 0, R.raw.dx7_bank_1, "Divine Masquerade 1"); } catch (Exception e) { throw new RuntimeException(e); } });
