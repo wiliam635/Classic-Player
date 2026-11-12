@@ -1467,10 +1467,10 @@ public:
         setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
         setColour(juce::ComboBox::outlineColourId, juce::Colour(paletteLine));
         setColour(juce::ComboBox::textColourId, juce::Colour(text));
-        setColour(juce::ComboBox::arrowColourId, juce::Colour(teal));
+        setColour(juce::ComboBox::arrowColourId, juce::Colour(onAccent));
         setColour(juce::PopupMenu::backgroundColourId, juce::Colour(panel));
         setColour(juce::PopupMenu::textColourId, juce::Colour(text));
-        setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(teal));
+        setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(onAccent));
         setColour(juce::PopupMenu::highlightedTextColourId,
                   juce::Colour(activeUiPalette == 3 || activeUiPalette == 4 ? text : background));
         setColour(juce::Slider::textBoxTextColourId, juce::Colour(text));
@@ -1567,14 +1567,14 @@ public:
             const bool active = button.getProperties()["liveActive"];
             g.setColour(juce::Colour(background).brighter(shouldDrawButtonAsDown ? 0.18f : shouldDrawButtonAsHighlighted ? 0.10f : 0.0f));
             g.fillRoundedRectangle(bounds, 6.0f);
-            g.setColour(juce::Colour(active ? teal : paletteLine));
+            g.setColour(juce::Colour(active ? onAccent : paletteLine));
             g.drawRoundedRectangle(bounds, 6.0f, active ? 2.0f : 1.0f);
             const float w = (float)button.getWidth(), h = (float)button.getHeight();
-            g.setColour(juce::Colour(teal));
+            g.setColour(juce::Colour(onAccent));
             g.setFont(juce::FontOptions(juce::jlimit(30.0f, 64.0f, h * 0.27f), juce::Font::bold));
             g.drawText(button.getProperties()["liveNumber"].toString(),
                        juce::Rectangle<float>(12, h * 0.06f, w - 24, h * 0.34f), juce::Justification::centred);
-            g.setColour(juce::Colour(active ? yellow : teal).withAlpha(active ? 1.0f : 0.65f));
+            g.setColour(juce::Colour(active ? yellow : onAccent).withAlpha(active ? 1.0f : 0.65f));
             g.fillRect(juce::Rectangle<float>(18, h * 0.43f, w - 36, active ? 3.0f : 1.0f));
             g.setColour(juce::Colour(text));
             g.setFont(juce::FontOptions(juce::jlimit(17.0f, 28.0f, w * 0.085f), juce::Font::bold));
@@ -1603,7 +1603,7 @@ public:
                     layers.lineTo(iconX+10,iconY+offset+5);
                     layers.lineTo(iconX+20,iconY+offset);
                 }
-                g.setColour(juce::Colour(teal));
+                g.setColour(juce::Colour(onAccent));
                 g.strokePath(layers,juce::PathStrokeType(1.3f));
                 summaryBounds=juce::Rectangle<float>(w*0.5f-40.0f,summaryBounds.getY(),110.0f,summaryBounds.getHeight());
             }
@@ -1632,7 +1632,7 @@ public:
                         g.setColour(juce::Colour(0xff253943));
                         g.fillRect(juce::Rectangle<float>(x, bars.getY(), barWidth, bars.getHeight()));
                         const auto isMoving = (movingLayers & (1 << layer)) != 0;
-                        g.setColour(juce::Colour(isMoving ? yellow : teal));
+                        g.setColour(juce::Colour(isMoving ? yellow : onAccent));
                         g.fillRect(juce::Rectangle<float>(x, bars.getBottom() - bars.getHeight() * amount,
                                                           barWidth, bars.getHeight() * amount));
                         g.setColour(juce::Colour(text));
@@ -1699,7 +1699,7 @@ public:
             g.drawRoundedRectangle(bounds.reduced(2.0f), 5.0f, 0.7f);
         }
         const auto outline = isDrumPad ? colour.brighter(0.35f)
-                                       : juce::Colour(teal).interpolatedWith(backgroundColour, 0.35f);
+                                       : juce::Colour(onAccent).interpolatedWith(backgroundColour, 0.35f);
         g.setColour(outline.withAlpha(0.28f));
         g.drawRoundedRectangle(bounds.reduced(1.0f), isDrumPad ? 8.0f : 5.0f, 3.0f);
         g.setColour(outline.withAlpha(0.92f));
@@ -1715,7 +1715,7 @@ public:
         {
             g.setColour(face);
             g.fillRoundedRectangle(bounds, 4.0f);
-            g.setColour(box.hasKeyboardFocus(true) ? juce::Colour(teal) : box.findColour(juce::ComboBox::outlineColourId));
+            g.setColour(box.hasKeyboardFocus(true) ? juce::Colour(onAccent) : box.findColour(juce::ComboBox::outlineColourId));
             g.drawRoundedRectangle(bounds, 4.0f, 1.0f);
             const float fx = width - 12.0f, fy = height * 0.5f;
             juce::Path chevron;
@@ -1754,7 +1754,7 @@ public:
             flatArc.addCentredArc(centre.x, centre.y, radius + 2.0f, radius + 2.0f, 0.0f, startAngle, angle, true);
             g.setColour(juce::Colour(paletteLine));
             g.strokePath(flatTrack, juce::PathStrokeType(2.5f));
-            g.setColour(juce::Colour(teal));
+            g.setColour(juce::Colour(onAccent));
             g.strokePath(flatArc, juce::PathStrokeType(2.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             g.setColour(juce::Colour(panelLight));
             g.fillEllipse(bounds.reduced(2.0f));
@@ -1780,18 +1780,18 @@ public:
         juce::Path track;
         track.addCentredArc(centre.x, centre.y, radius + 3.0f, radius + 3.0f,
                            0.0f, startAngle, endAngle, true);
-        g.setColour(juce::Colour(teal).withAlpha(0.18f));
+        g.setColour(juce::Colour(onAccent).withAlpha(0.18f));
         g.strokePath(track, juce::PathStrokeType(3.0f));
         juce::Path arc;
         arc.addCentredArc(centre.x, centre.y, radius + 3.0f, radius + 3.0f, 0.0f,
                           startAngle, angle, true);
-        g.setColour(juce::Colour(teal));
+        g.setColour(juce::Colour(onAccent));
         g.strokePath(arc, juce::PathStrokeType(2.6f, juce::PathStrokeType::curved,
                                                juce::PathStrokeType::rounded));
 
         const auto pointer = juce::Point<float>(centre.x + std::sin(angle) * radius * 0.66f,
                                                 centre.y - std::cos(angle) * radius * 0.66f);
-        g.setColour(juce::Colour(teal));
+        g.setColour(juce::Colour(onAccent));
         g.drawLine(centre.x, centre.y, pointer.x, pointer.y, 2.2f);
         g.fillEllipse(pointer.x - 2.0f, pointer.y - 2.0f, 4.0f, 4.0f);
     }
@@ -2199,7 +2199,7 @@ public:
         paintHeaderRibbon(g, { 8.0f, 8.0f, ribbonWidth, 60.0f });
         paintHeaderRibbon(g, { getWidth() - ribbonWidth - 8.0f, 8.0f, ribbonWidth, 60.0f });
         if (sourceTitle == "DX7")
-            drawCategoryArtwork(g, { getWidth() - 160, 8, 144, 55 }, "DX7", juce::Colour(teal));
+            drawCategoryArtwork(g, { getWidth() - 160, 8, 144, 55 }, "DX7", juce::Colour(onAccent));
         for (int i = 0; i < getNumCustomComponents(); ++i)
             if (auto* child = getCustomComponent(i))
                 paintControlCard(g, child->getBoundsInParent().toFloat().expanded(3.0f, 2.0f));
@@ -2323,7 +2323,7 @@ public:
             knob->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
             knob->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 20);
             knob->setLookAndFeel(&classicLookAndFeel);
-            knob->setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(teal));
+            knob->setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(onAccent));
             addAndMakeVisible(knob);
         }
 
@@ -2336,7 +2336,7 @@ public:
         const auto bounds = getLocalBounds().toFloat().reduced(0.5f);
         g.setColour(juce::Colour(background).withAlpha(0.35f));
         g.fillRoundedRectangle(bounds, 10.0f);
-        g.setColour(juce::Colour(teal).withAlpha(0.45f));
+        g.setColour(juce::Colour(onAccent).withAlpha(0.45f));
         g.drawRoundedRectangle(bounds, 10.0f, 1.0f);
         for (int column = 1; column < columns; ++column)
         {
@@ -2728,10 +2728,10 @@ public:
         envelope.lineTo(x4, yBottom);
         auto filled = envelope;
         filled.closeSubPath();
-        g.setGradientFill(juce::ColourGradient(juce::Colour(teal).withAlpha(0.25f), x0, yTop,
-                                               juce::Colour(teal).withAlpha(0.01f), x0, yBottom, false));
+        g.setGradientFill(juce::ColourGradient(juce::Colour(onAccent).withAlpha(0.25f), x0, yTop,
+                                               juce::Colour(onAccent).withAlpha(0.01f), x0, yBottom, false));
         g.fillPath(filled);
-        g.setColour(juce::Colour(teal));
+        g.setColour(juce::Colour(onAccent));
         g.strokePath(envelope, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved,
                                                      juce::PathStrokeType::rounded));
 
@@ -3053,11 +3053,11 @@ private:
             {
                 const auto x = bounds.getX() + (input - 1) * bounds.getWidth() / 126.0f;
                 const auto y = bounds.getBottom() - (table[(size_t) input] - 1) * bounds.getHeight() / 126.0f;
-                g.setColour(juce::Colour(teal).withAlpha(0.4f));
+                g.setColour(juce::Colour(onAccent).withAlpha(0.4f));
                 g.drawLine(x, bounds.getBottom(), x, y, 1.0f);
                 if (input == 1) outline.startNewSubPath(x, y); else outline.lineTo(x, y);
             }
-            g.setColour(juce::Colour(teal));
+            g.setColour(juce::Colour(onAccent));
             g.strokePath(outline, juce::PathStrokeType(2.0f));
             g.setColour(juce::Colour(mutedText));
             g.drawText("MIDI IN / OUT", bounds.withY(bounds.getBottom() + 16).withHeight(12), juce::Justification::centred);
@@ -3334,7 +3334,7 @@ public:
     void paint(juce::Graphics& g) override
     {
         paintControlCard(g, getLocalBounds().toFloat().reduced(1.0f));
-        drawCategoryArtwork(g, artwork, "Piano Acustico", juce::Colour(teal));
+        drawCategoryArtwork(g, artwork, "Piano Acustico", juce::Colour(onAccent));
     }
 private:
     std::unique_ptr<juce::Component> knobs;
@@ -3473,7 +3473,7 @@ public:
             g.setColour(juce::Colour(0xff7b8589)); g.drawRect(rail);
             const auto proportion = i == 1 ? juce::jlimit(0.0f, 1.0f, db / 24.0f)
                                            : juce::jlimit(0.0f, 1.0f, (db + 60.0f) / 60.0f);
-            g.setColour(i == 1 ? juce::Colour(0xffffd75c) : juce::Colour(teal));
+            g.setColour(i == 1 ? juce::Colour(0xffffd75c) : juce::Colour(onAccent));
             g.fillRect(rail.removeFromBottom(110.0f * proportion).reduced(2.0f, 0.0f));
         }
     }
@@ -4372,13 +4372,13 @@ public:
             if (i == 0) curve.startNewSubPath(point);
             else curve.lineTo(point);
         }
-        g.setColour(juce::Colour(teal).withAlpha(0.18f));
+        g.setColour(juce::Colour(onAccent).withAlpha(0.18f));
         juce::Path area = curve;
         area.lineTo(graph.getRight(), toY(0.0f));
         area.lineTo(graph.getX(), toY(0.0f));
         area.closeSubPath();
         g.fillPath(area);
-        g.setColour(juce::Colour(teal));
+        g.setColour(juce::Colour(onAccent));
         g.strokePath(curve, juce::PathStrokeType(2.2f));
 
         drawBandNode(g, graph, toX(lowFrequency), toY(lowGain), "1");
@@ -4722,13 +4722,13 @@ public:
             const auto point = juce::Point<float>(toX(input), toY(compressed));
             if (i == 0) curve.startNewSubPath(point); else curve.lineTo(point);
         }
-        g.setColour(juce::Colour(teal).withAlpha(0.22f));
+        g.setColour(juce::Colour(onAccent).withAlpha(0.22f));
         juce::Path filled = curve;
         filled.lineTo(toX(6.0f), toY(-60.0f));
         filled.lineTo(toX(-60.0f), toY(-60.0f));
         filled.closeSubPath();
         g.fillPath(filled);
-        g.setColour(juce::Colour(teal));
+        g.setColour(juce::Colour(onAccent));
         g.strokePath(curve, juce::PathStrokeType(2.0f));
         g.setColour(juce::Colour(yellow));
         g.drawLine(toX(threshold), graph.getY(), toX(threshold), graph.getBottom(), 1.5f);
@@ -5259,7 +5259,7 @@ public:
 
         g.setColour(juce::Colour(0xff16242f));
         g.fillRoundedRectangle(8.0f, 6.0f, (float) getWidth() - 16.0f, 48.0f, 7.0f);
-        g.setColour(juce::Colour(teal));
+        g.setColour(juce::Colour(onAccent));
         g.fillRoundedRectangle(18.0f, 44.0f, (float) getWidth() - 36.0f, 2.0f, 1.0f);
 
         g.setColour(juce::Colour(text));
@@ -8221,7 +8221,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int eff
                 heading.setText(name, juce::dontSendNotification);
                 heading.setFont(juce::FontOptions(12.0f, juce::Font::bold));
                 heading.setJustificationType(juce::Justification::centred);
-                heading.setColour(juce::Label::textColourId, juce::Colour(teal));
+                heading.setColour(juce::Label::textColourId, juce::Colour(onAccent));
                 addAndMakeVisible(heading);
                 int h = 28;
                 for (auto* part : parts) { owned.add(part); addAndMakeVisible(part); h += part->getHeight() + 6; }
@@ -10067,7 +10067,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
 
     master.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     master.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 64, 18);
-    master.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(teal));
+    master.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(onAccent));
     addAndMakeVisible(master);
     masterLabel.setText("MASTER", juce::dontSendNotification);
     masterLabel.setJustificationType(juce::Justification::centred);
@@ -11867,7 +11867,7 @@ void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
     title.setColour(juce::Label::textColourId, brandTextColour());
     subtitle.setText(localizedUiText(show ? "SONS QUE INSPIRAM" : "CLASSIC KEYS SF2 WORKSTATION",
                                      activeUiLanguage.load()), juce::dontSendNotification);
-    subtitle.setColour(juce::Label::textColourId, juce::Colour(show ? teal : mutedText));
+    subtitle.setColour(juce::Label::textColourId, juce::Colour(show ? onAccent : mutedText));
     liveSetButton.setButtonText(localizedUiText(show ? "VOLTAR" : "LIVE SET", activeUiLanguage.load()));
     layerViewport.setVisible(!show);
     keyboard.setVisible(!show && virtualKeyboardVisible);
@@ -11941,7 +11941,7 @@ void ClassicPlayerAudioProcessorEditor::refreshLiveSet()
         button.setColour(juce::TextButton::buttonColourId,
                          active ? juce::Colour(yellow) : juce::Colour(panel));
         button.setColour(juce::TextButton::buttonOnColourId,
-                         active ? juce::Colour(yellow) : juce::Colour(teal));
+                         active ? juce::Colour(yellow) : juce::Colour(onAccent));
         button.setColour(juce::TextButton::textColourOffId,
                          active ? juce::Colour(background) : juce::Colour(text));
         button.setTooltip(localizedUiText(editingLiveSet ? juce::String::fromUTF8("Clique para atribuir uma programação salva")
@@ -11955,7 +11955,7 @@ void ClassicPlayerAudioProcessorEditor::refreshLiveSet()
             learning ? "AGUARDANDO..." : (cc >= 0 ? "CC " + juce::String(cc) : "LEARN CC"),
             activeUiLanguage.load()));
         learnButton.setColour(juce::TextButton::buttonColourId,
-                              learning ? juce::Colour(teal) : juce::Colour(panelLight));
+                              learning ? juce::Colour(onAccent) : juce::Colour(panelLight));
         learnButton.setColour(juce::TextButton::textColourOffId,
                               learning ? juce::Colour(background) : juce::Colour(text));
         learnButton.setTooltip(learning ? "Mova agora um controle MIDI CC"
