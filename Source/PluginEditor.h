@@ -393,8 +393,6 @@ private:
     juce::TextButton refreshExternalInstrumentButton { "ATUALIZAR VST" };
     juce::ComboBox accidentalStyleBox;
     juce::ComboBox programBox;
-    std::array<juce::TextButton, 5> menuBarButtons;
-    void showMenuBar(int index);
     juce::TextButton newProgramButton { "NOVO" };
     juce::TextButton saveProgramButton { "SALVAR" };
     juce::TextButton exportProgramButton { "EXPORTAR" };

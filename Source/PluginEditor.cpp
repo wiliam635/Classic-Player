@@ -9815,20 +9815,11 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
                 else if (choice == 2) showNordBundleLibrary(safe->classicProcessor, safe);
             });
     };
-    for (auto* b : { &newProgramButton, &saveProgramButton, &exportProgramButton,
-                     &deleteProgramButton, &importProgramButton })
-        addChildComponent(b); // actions now live in the menu bar below
-    {
-        const char* names[] = { "PROGRAMA", "", "VER", "", "AJUDA" };
-        for (int i = 0; i < 5; ++i)
-        {
-            auto& mb = menuBarButtons[(size_t) i];
-            mb.setButtonText(juce::String::fromUTF8(names[i]) + juce::String::fromUTF8(" \xe2\x96\xbe"));
-            flatButton(mb);
-            mb.onClick = [this, i] { showMenuBar(i); };
-            if (i == 1 || i == 3) addChildComponent(mb); else addAndMakeVisible(mb);
-        }
-    }
+    addAndMakeVisible(newProgramButton);
+    addAndMakeVisible(saveProgramButton);
+    addAndMakeVisible(exportProgramButton);
+    addAndMakeVisible(deleteProgramButton);
+    addAndMakeVisible(importProgramButton);
     refreshProgramLibrary();
 
     flatButton(addLayerButton);
@@ -10794,12 +10785,14 @@ void ClassicPlayerAudioProcessorEditor::resized()
     auto programActions = header.removeFromRight(programActionsWidth);
     const auto actionWidth = programActions.getWidth() / 2;
     auto actionRow = programActions.removeFromTop(27);
-    menuBarButtons[0].setBounds(actionRow.removeFromLeft(actionWidth).reduced(1));
-    menuBarButtons[2].setBounds(actionRow.reduced(1));
+    importProgramButton.setBounds(actionRow.removeFromLeft(actionWidth).reduced(1));
+    newProgramButton.setBounds(actionRow.reduced(1));
     actionRow = programActions.removeFromTop(27);
-    menuBarButtons[4].setBounds(actionRow.removeFromLeft(actionWidth).reduced(1));
+    saveProgramButton.setBounds(actionRow.removeFromLeft(actionWidth).reduced(1));
+    deleteProgramButton.setBounds(actionRow.reduced(1));
+    actionRow = programActions.removeFromTop(27);
+    exportProgramButton.setBounds(actionRow.removeFromLeft(actionWidth).reduced(1));
     accidentalStyleBox.setBounds(actionRow.reduced(1));
-    programActions.removeFromTop(27);
     languageSelector.setBounds(programActions.removeFromTop(32).reduced(1));
     languageSelector.setVisible(true);
     header.removeFromRight(5);
@@ -11867,50 +11860,6 @@ void ClassicPlayerAudioProcessorEditor::applyUiLanguage()
     }
 }
 
-void ClassicPlayerAudioProcessorEditor::showMenuBar(int index)
-{
-    juce::PopupMenu menu;
-    auto u = [](const char* s) { return juce::String::fromUTF8(s); };
-    std::vector<std::function<void()>> actions;
-    auto add = [&](const juce::String& text, std::function<void()> fn)
-    {
-        actions.push_back(std::move(fn));
-        menu.addItem((int) actions.size(), text);
-    };
-    switch (index)
-    {
-        case 0:
-            add(u("Novo"), [this] { newProgramButton.triggerClick(); });
-            add(u("Salvar"), [this] { saveProgramButton.triggerClick(); });
-            menu.addSeparator();
-            add(u("Importar performance Classic"), [this] { importProgramFile(); });
-            add(u("Bancos Nord / importar bundle"), [this] { showNordBundleLibrary(classicProcessor, this); });
-            add(u("Exportar"), [this] { exportProgramButton.triggerClick(); });
-            menu.addSeparator();
-            add(u("Excluir"), [this] { deleteProgramButton.triggerClick(); });
-            break;
-        case 2:
-            add(u("Palco"), [this] { modeStageButton.triggerClick(); });
-            add(u("Mixer"), [this] { modeMixerButton.triggerClick(); });
-            add(u("Live Set"), [this] { modeLiveButton.triggerClick(); });
-            menu.addSeparator();
-            add(u("MIDI Learn"), [this] { midiLearnModeButton.triggerClick(); });
-            add(u("Cor do acorde"), [this] { chordColourButton.triggerClick(); });
-            add(u("Cor das teclas"), [this] { keyColourButton.triggerClick(); });
-            break;
-        default:
-            add(u("Verificar atualizações"), [this] { updateButton.triggerClick(); });
-            break;
-    }
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&menuBarButtons[(size_t) index]),
-        [safe = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this),
-         actions = std::move(actions)](int choice)
-        {
-            if (safe != nullptr && choice > 0 && choice <= (int) actions.size())
-                actions[(size_t) choice - 1]();
-        });
-}
-
 void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
 {
     if (show) closeInspector();
@@ -11925,7 +11874,11 @@ void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
     keyboardVisibilityButton.setVisible(false);
     programBox.setVisible(!show);
     addLayerButton.setVisible(!show);
-    for (size_t i : { (size_t) 0, (size_t) 2, (size_t) 4 }) menuBarButtons[i].setVisible(!show);
+    newProgramButton.setVisible(!show);
+    saveProgramButton.setVisible(!show);
+    exportProgramButton.setVisible(!show);
+    deleteProgramButton.setVisible(!show);
+    importProgramButton.setVisible(!show);
     for (juce::Component* component : std::initializer_list<juce::Component*>{
              &chordLabel, &chordCaption, &chordColourButton, &keyColourButton,
              &accidentalStyleBox, &masterMeter, &masterEqButton, &masterLimiterButton, &masterLearnButton })
