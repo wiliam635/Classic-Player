@@ -1919,9 +1919,17 @@ public final class MainActivity extends Activity {
                 TextView routing=EditorUi.label(this,"MIDI · MODO, CANAL E FAIXA",10);routing.setTextColor(EditorUi.MUTED);body.addView(routing);
                 buildRoutingControls(layer,body);
                 TextView quick=EditorUi.label(this,"CONTROLES DA LAYER",10);quick.setTextColor(EditorUi.MUTED);body.addView(quick);
+                // Same grid as the desktop CONTROLES DA CAMADA box.
+                final boolean sf2Env="SF2".equals(engine);
                 LinearLayout row=EditorUi.knobRow(body);
                 layerMidiKnobs[layer][0]=EditorUi.knob(row,"VOLUME",screen.layerVolumes[layer]*100f,0,100," %",v->screen.setLearnedVolume(layer,v/100f));
+                EditorUi.knob(row,sf2Env?"ATTACK +ms":"ATTACK ms",screen.layerAttack[layer]*1000f,sf2Env?0f:.1f,100," ms",v->screen.setLayerEnvelope(layer,v/1000f,screen.layerRelease[layer]));
+                EditorUi.knob(row,sf2Env?"RELEASE +ms":"RELEASE ms",screen.layerRelease[layer]*1000f,0f,"NPNO".equals(engine)?2000:100," ms",v->screen.setLayerEnvelope(layer,screen.layerAttack[layer],v/1000f));
                 layerMidiKnobs[layer][1]=EditorUi.knob(row,"CUTOFF",screen.layerCutoff[layer],0,100," %",v->screen.setLayerTone(layer,v,screen.layerReverb[layer],screen.layerCompMix[layer],screen.layerChorus[layer]));
+                row=EditorUi.knobRow(body);
+                layerMidiKnobs[layer][2]=EditorUi.knob(row,"REVERB",screen.layerReverb[layer]*100f,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],v/100f,screen.layerCompMix[layer],screen.layerChorus[layer]));
+                layerMidiKnobs[layer][3]=EditorUi.knob(row,"COMP",screen.layerCompMix[layer]*100f,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],v/100f,screen.layerChorus[layer]));
+                EditorUi.knob(row,"CHORUS",screen.layerChorus[layer]*100,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],screen.layerCompMix[layer],v/100));
                 EditorUi.knob(row,"PAN",screen.layerPan[layer]*100,-100,100,"",v->screen.setLayerPan(layer,v/100));
                 EditorUi.selector(body,"MUTE",new String[]{"SOM ATIVO","MUTE"},screen.muted[layer]?1:0,i->setLayerMuted(layer,i==1));
                 EditorUi.selector(body,"SOLO",new String[]{"NORMAL","SOLO"},screen.solo[layer]?1:0,i->{screen.solo[layer]=i==1;prefs.edit().putBoolean("solo_"+layer,screen.solo[layer]).apply();screen.applyLayerGains();screen.invalidate();});
@@ -2508,7 +2516,11 @@ public final class MainActivity extends Activity {
             text(canvas, "CLASSIC KEYS", 94, h * .05f, h * .023f, teal);
             text(canvas, "CLASSIC PLAYER", 94, h * .095f, h * .047f, text);
             if (!account.isEmpty()) text(canvas, account, 94, h * .125f, h * .015f, EditorUi.ACCENT);
-            fittedText(canvas, liveSet ? "LIVE SET" : settings ? "ÁUDIO / MIDI" : "MIXER",
+            // With the inspector docked the view is narrow: drop the centred
+            // title instead of letting it print over the product name.
+            paint.setTextSize(h * .047f);paint.setFakeBoldText(true);
+            final float nameEnd=94+paint.measureText("CLASSIC PLAYER");paint.setFakeBoldText(false);
+            if(w*.38f>nameEnd+EditorUi.dp(getContext(),16))fittedText(canvas, liveSet ? "LIVE SET" : settings ? "ÁUDIO / MIDI" : "MIXER",
                     w * .38f, w * .57f, h * .078f, h * .052f, text);
             float statusLeft = w * .61f, statusRight = w * .99f;
             fittedText(canvas, midiStatus, statusLeft, statusRight, h * .05f, h * .018f, EditorUi.MUTED);
