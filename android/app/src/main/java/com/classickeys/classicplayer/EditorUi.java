@@ -71,7 +71,15 @@ final class EditorUi {
             final boolean wasDocked=docked;
             dialog=new Dialog(a);dialog.setOnDismissListener(d->{if(wasDocked)dockClosedAt=android.os.SystemClock.uptimeMillis();if(onClose!=null)onClose.run();});dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
             LinearLayout root=column(a);root.setPadding(dp(a,7),dp(a,4),dp(a,7),dp(a,4));root.setBackground(background(PANEL));
-            TextView heading=label(a,title,16);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setSingleLine(true);heading.setEllipsize(android.text.TextUtils.TruncateAt.END);root.addView(heading,new LinearLayout.LayoutParams(-1,dp(a,28)));
+            TextView heading=label(a,title,16);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setSingleLine(true);heading.setEllipsize(android.text.TextUtils.TruncateAt.END);if(docked){
+                // Desktop inspector header: title on the left, FECHAR on the right.
+                heading.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
+                LinearLayout top=new LinearLayout(a);top.setGravity(Gravity.CENTER_VERTICAL);
+                top.addView(heading,new LinearLayout.LayoutParams(0,dp(a,40),1));
+                Button close=button(a,"FECHAR",()->dialog.dismiss());close.setTextSize(10);close.setMinHeight(dp(a,36));close.setMinimumHeight(dp(a,36));
+                top.addView(close,new LinearLayout.LayoutParams(dp(a,96),dp(a,40)));
+                root.addView(top,new LinearLayout.LayoutParams(-1,dp(a,44)));
+            }else root.addView(heading,new LinearLayout.LayoutParams(-1,dp(a,28)));
             if(subtitle!=null){TextView hint=label(a,subtitle,11);hint.setSingleLine(true);hint.setEllipsize(android.text.TextUtils.TruncateAt.END);hint.setTextColor(MUTED);root.addView(hint,new LinearLayout.LayoutParams(-1,dp(a,20)));}
             HorizontalScrollView tabScroller=new HorizontalScrollView(a);tabScroller.setHorizontalScrollBarEnabled(false);tabScroller.setFillViewport(true);
             tabs=new LinearLayout(a);tabs.setGravity(Gravity.CENTER);tabScroller.addView(tabs,new HorizontalScrollView.LayoutParams(-2,dp(a,42)));

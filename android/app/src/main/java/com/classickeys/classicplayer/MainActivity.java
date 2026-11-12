@@ -374,7 +374,7 @@ public final class MainActivity extends Activity {
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         screen = new ClassicPlayerView(this);
         setContentView(screen);
-        EditorUi.Panel.dockHook=p->{dockedInspector=p;setMixerRightInset(EditorUi.Panel.dockWidth(this));p.onClose=()->{if(dockedInspector==p){dockedInspector=null;setMixerRightInset(0);}};};
+        EditorUi.Panel.dockHook=p->{dockedInspector=p;setMixerRightInset(EditorUi.Panel.dockWidth(this));screen.setOnlyLayer(dockedLayer);p.onClose=()->{if(dockedInspector==p){dockedInspector=null;setMixerRightInset(0);screen.setOnlyLayer(-1);}};};
         midiManager = (MidiManager) getSystemService(MIDI_SERVICE);
         audioEngine = new PolySynthEngine(this);
         SharedPreferences audioPrefs=getSharedPreferences("audio",MODE_PRIVATE);
@@ -1167,11 +1167,13 @@ public final class MainActivity extends Activity {
     }
 
     private EditorUi.Panel dockedInspector;
+    private int dockedLayer=-1;
     /** Closes the docked inspector (if any) and gives the whole width back to the mixer. */
     private void closeDockedInspector(){
         EditorUi.Panel old=dockedInspector;dockedInspector=null;
         if(old!=null){old.onClose=null;try{old.dialog.dismiss();}catch(RuntimeException ignored){}}
         setMixerRightInset(0);
+        screen.setOnlyLayer(-1);
     }
     private void setMixerRightInset(int px){
         android.view.ViewGroup.LayoutParams lp=screen.getLayoutParams();
@@ -1180,12 +1182,13 @@ public final class MainActivity extends Activity {
     private void openLayerEditor(int layer) {
         if (screen.muted[layer]) { screen.setAudioStatus("DESMUTE A LAYER "+(layer+1)+" PARA EDITAR O MOTOR"); return; }
         closeDockedInspector();
-        screen.focusLayer(layer);
+        dockedLayer=layer;
         setMixerRightInset(EditorUi.Panel.dockWidth(this));
+        screen.setOnlyLayer(layer);
         EditorUi.Panel.dockNext=true;
         try{openLayerEditorNow(layer);}finally{
             EditorUi.Panel.dockNext=false;
-            if(dockedInspector==null)setMixerRightInset(0);
+            if(dockedInspector==null){setMixerRightInset(0);screen.setOnlyLayer(-1);}
         }
     }
     private void openLayerEditorNow(int layer) {
@@ -2582,12 +2585,18 @@ public final class MainActivity extends Activity {
             button(canvas, savingLiveSlot?"CANCELAR SALVAMENTO":"SALVAR SLOT", margin, h*.915f, margin+260, h*.975f, savingLiveSlot);
         }
 
+        /** While the inspector is docked only the selected layer strip stays in the mixer, like the desktop. */
+        private int onlyLayer=-1;
+        void setOnlyLayer(int layer){onlyLayer=layer;layerScrollX=0;if(layer>=0)focusedLayer=layer;invalidate();}
+        private int allLayerCount(){int count=0;for(String engine:engineNames)if(!"VAZIA".equals(engine))count++;return count;}
         private int activeLayerCount() {
+            if(onlyLayer>=0&&onlyLayer<engineNames.length&&!"VAZIA".equals(engineNames[onlyLayer]))return 1;
             int count = 0;
             for (String engine : engineNames) if (!"VAZIA".equals(engine)) count++;
             return count;
         }
         private int activeLayerAt(int position) {
+            if(onlyLayer>=0&&onlyLayer<engineNames.length&&!"VAZIA".equals(engineNames[onlyLayer]))return position==0?onlyLayer:-1;
             for (int i : layerOrder) {
                 if (!"VAZIA".equals(engineNames[i]) && position-- == 0) return i;
             }
@@ -2656,7 +2665,7 @@ public final class MainActivity extends Activity {
             if(focusedLayer<0&&activeCount>0)focusedLayer=activeLayerAt(0);
             layerScrollX=Math.max(0,Math.min(mixerMaxScroll(w),layerScrollX));
             String focusText=focusedLayer>=0&&focusedLayer<6&&!"VAZIA".equals(engineNames[focusedLayer])?" · FOCO LAYER "+(focusedLayer+1):"";
-            fittedText(canvas, "MIXER · " + activeCount + " / 6 LAYERS"+focusText, left, w-EditorUi.dp(getContext(),18), h * .16f, h * .024f, EditorUi.MUTED);
+            fittedText(canvas, "MIXER · " + allLayerCount() + " / 6 LAYERS"+focusText, left, w-EditorUi.dp(getContext(),18), h * .16f, h * .024f, EditorUi.MUTED);
             setContentDescription("Mixer, "+activeCount+" layers. Deslize horizontalmente para percorrer as layers; master permanece fixo à direita.");
             if (activeCount == 0)
                 text(canvas, "TOQUE EM + LAYER PARA ADICIONAR UM MOTOR", left + 12, h * .36f, h * .024f, EditorUi.MUTED);
