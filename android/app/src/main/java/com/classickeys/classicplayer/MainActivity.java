@@ -284,6 +284,7 @@ public final class MainActivity extends Activity {
         if(target==4)learnedMuteCcDown[layer][candidate.channel][candidate.cc]=candidate.last>=64;
         if(button!=null)button.setText(layerLearnLabel(layer,target));
         screen.setMidiStatus("MIDI: layer "+(layer+1)+" "+candidate.label()+" aprendido");
+        android.widget.Toast.makeText(this,"ATRIBUÍDO: "+candidate.label(),android.widget.Toast.LENGTH_SHORT).show();
     }
 
     private void resetLayerLearnCapture(){
@@ -319,6 +320,23 @@ public final class MainActivity extends Activity {
         resetLayerLearnCapture();pendingLayerLearn=layer;pendingLayerLearnTarget=target;pendingLayerLearnButton=button;button.setText("MOVA CC");
         screen.setMidiStatus(midiInput==null?"MIDI: aguardando entrada MIDI; verifique o controlador":"MIDI: mova o controle CC para aprender");
     }
+
+    /** Long-press on a knob: assign a CC (MIDI Learn) or clear it, showing the mapped CC. */
+    private void showKnobLearnMenu(final int layer,final int target){
+        final String[] names={"VOLUME","CUTOFF","REVERB","COMP","MUTE"};
+        final String current=layerLearnLabel(layer,target);
+        final boolean mapped=!"LEARN".equals(current);
+        String[] items=mapped?new String[]{"Atribuir MIDI (mova o controle físico)","Excluir mapeamento"}:new String[]{"Atribuir MIDI (mova o controle físico)"};
+        new AlertDialog.Builder(this).setTitle(names[target]+" · "+(mapped?"mapeado: "+current:"sem mapeamento MIDI"))
+                .setItems(items,(dialog,which)->{
+                    final Button holder=new Button(this);
+                    if(which==0){toggleLayerMidiLearn(layer,target,holder);android.widget.Toast.makeText(this,"MOVA O CONTROLE MIDI…",android.widget.Toast.LENGTH_SHORT).show();}
+                    else{clearLayerMidiLearn(layer,target,holder);android.widget.Toast.makeText(this,"MAPEAMENTO EXCLUÍDO",android.widget.Toast.LENGTH_SHORT).show();}
+                }).setNegativeButton("CANCELAR",null).show();
+    }
+    private void armKnobLearn(final int layer){
+        for(int t=0;t<4;t++){final int target=t;if(layerMidiKnobs[layer][t]!=null)layerMidiKnobs[layer][t].onLongPress=()->showKnobLearnMenu(layer,target);}
+    }
     private void clearLayerMidiLearn(int layer,int target,Button button){
         MidiLearnMapping.clear(getSharedPreferences("midi_learn",MODE_PRIVATE),layer,target);
         if(pendingLayerLearn==layer&&pendingLayerLearnTarget==target)resetLayerLearnCapture();
@@ -343,7 +361,11 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        EditorUi.applyTheme(getSharedPreferences("appearance",MODE_PRIVATE).getInt("theme",0));
+        {
+            SharedPreferences appearance=getSharedPreferences("appearance",MODE_PRIVATE);
+            int saved=appearance.contains("themeV2")?appearance.getInt("themeV2",0):EditorUi.migrateSavedTheme(appearance.getInt("theme",-1));
+            EditorUi.applyTheme(saved);
+        }
         midiDiagnosticsEnabled=BuildConfig.DEBUG&&getSharedPreferences("midi_diagnostics",MODE_PRIVATE).getBoolean("enabled",false);
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         final Window window = getWindow();
@@ -677,7 +699,7 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("TEMA DE CORES")
                 .setSingleChoiceItems(EditorUi.THEME_NAMES,EditorUi.themeIndex,(dialog,which)->{
                     EditorUi.applyTheme(which);
-                    getSharedPreferences("appearance",MODE_PRIVATE).edit().putInt("theme",which).apply();
+                    getSharedPreferences("appearance",MODE_PRIVATE).edit().putInt("themeV2",which).apply();
                     dialog.dismiss();
                     if(screen!=null)screen.invalidate();
                 }).setNegativeButton("CANCELAR",null).show();
@@ -1903,6 +1925,7 @@ public final class MainActivity extends Activity {
                 EditorUi.addButton(line,"LIMPAR",()->clearLayerMidiLearn(layerIndex,targetIndex,learnButton));
             }
         }
+        armKnobLearn(layer);
     }
 
     private void buildRoutingControls(int layer,LinearLayout body){

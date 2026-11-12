@@ -22,18 +22,20 @@ import java.util.Locale;
 /** Touch-sized version of the desktop editor's charcoal panels and teal knobs. */
 final class EditorUi {
     // Shared default palette from the desktop editor; touch targets stay larger.
-    static final String[] THEME_NAMES={"PADRÃO","PRETO","VERMELHO","AZUL ROXO","BRANCO AZUL","PRATEADO","AÇO ESCURO"};
+    static final String[] THEME_NAMES={"GRAFITE ÂMBAR","CLÁSSICO","PRETO","VERMELHO","AZUL ROXO"};
+    /** On-state / graph / knob-arc colour: amber in every theme (matches desktop Conceito D). */
+    static final int AMBER=0xfff5a524;
     // Keep the seven desktop palettes in the same order so a theme selected
     // on either platform has the same visual identity.
     private static final int[][] PALETTES={
-            {0xff091018,0xff151f28,0xff202c35,0xff33414c,0xff13b8ad,0xffffd84a,0xffedf4f7,0xff9eabb5,0xff0b151e},
-            {0xff050608,0xff101216,0xff1c2025,0xff565e66,0xffbec5cc,0xfff3f5f6,0xfff6f7f8,0xffb1b7bd,0xff090b0e},
-            {0xff22040b,0xff3b0912,0xff60101e,0xff8d7f82,0xffd51b38,0xffbec3c8,0xfffaf7f8,0xffc9bfc2,0xff28060e},
-            {0xff0d1027,0xff151a35,0xff202747,0xff5d5b88,0xff6549cf,0xfff5f2ff,0xfffbfaff,0xffc8c4df,0xff10132d},
-            {0xffe9eef4,0xfff6f8fb,0xffd6e0ec,0xff6c849d,0xff126dbe,0xff3b92dd,0xff14273b,0xff4c6073,0xffe1eaf4},
-            {0xff9fa5ad,0xffc8cdd2,0xffe0e3e7,0xff717982,0xff245e83,0xffe9bc36,0xff16222c,0xff394853,0xffb4bcc4},
-            {0xff24292e,0xff30363d,0xff424a53,0xff74818c,0xff9ac9df,0xffffd84a,0xfff1f4f6,0xffbbc4cc,0xff252b31}
+            {0xff0f1114,0xff171a1f,0xff1f242b,0xff2b3239,AMBER,0xff4cc9f0,0xffe8ecf1,0xff8b95a1,0xff0b0d10},
+            {0xff091018,0xff151f28,0xff202c35,0xff33414c,AMBER,0xffffd84a,0xffedf4f7,0xff9eabb5,0xff0b151e},
+            {0xff050608,0xff101216,0xff1c2025,0xff565e66,AMBER,0xfff3f5f6,0xfff6f7f8,0xffb1b7bd,0xff090b0e},
+            {0xff22040b,0xff3b0912,0xff60101e,0xff8d7f82,AMBER,0xffbec3c8,0xfffaf7f8,0xffc9bfc2,0xff28060e},
+            {0xff0d1027,0xff151a35,0xff202747,0xff5d5b88,AMBER,0xfff5f2ff,0xfffbfaff,0xffc8c4df,0xff10132d}
     };
+    /** Saved index from builds that still had the 7 old themes (0 teal,1 black,2 red,3 purple,4-6 light/steel). */
+    static int migrateSavedTheme(int oldIndex){return oldIndex>=0&&oldIndex<=3?oldIndex+1:0;}
     static int BACKGROUND=PALETTES[0][0],PANEL=PALETTES[0][1],SURFACE=PALETTES[0][2],
             BORDER=PALETTES[0][3],ACCENT=PALETTES[0][4],HIGHLIGHT=PALETTES[0][5],
             TEXT=PALETTES[0][6],MUTED=PALETTES[0][7],FIELD=PALETTES[0][8],ACCENT_TEXT=0xff091018;
@@ -41,8 +43,8 @@ final class EditorUi {
     static void applyTheme(int index){
         themeIndex=Math.max(0,Math.min(PALETTES.length-1,index));int[] p=PALETTES[themeIndex];
         BACKGROUND=p[0];PANEL=p[1];SURFACE=p[2];BORDER=p[3];ACCENT=p[4];HIGHLIGHT=p[5];TEXT=p[6];MUTED=p[7];FIELD=p[8];
-        int brightness=(Color.red(ACCENT)*299+Color.green(ACCENT)*587+Color.blue(ACCENT)*114)/1000;
-        ACCENT_TEXT=brightness<150?0xffffffff:0xff091018;
+
+        ACCENT_TEXT=0xff0f1114;
     }
     static final int[] LAYER_ACCENTS={0xff138cff,0xffd94cff,0xff18d6a4,
             0xffff9b42,0xffff4f7b,0xfff2d13d};
@@ -144,6 +146,9 @@ final class EditorUi {
     static final class Knob extends View {
         final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);final String label,unit;final float min,max;final Change action;
         float value,downX,downY,start;int pointer=-1,dragAxis;final int touchSlop;
+        /** Long-press (without dragging) hook used for MIDI Learn assignment. */
+        Runnable onLongPress;boolean longPressed;
+        final Runnable longPressTask=()->{if(pointer>=0&&dragAxis==0&&onLongPress!=null){longPressed=true;performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);onLongPress.run();}};
         Knob(Context c,String label,float value,float min,float max,String unit,Change action){super(c);this.label=label;this.min=min;this.max=max;this.unit=unit;this.value=Math.max(min,Math.min(max,value));this.action=action;touchSlop=ViewConfiguration.get(c).getScaledTouchSlop();setFocusable(true);describe();}
         void describe(){setContentDescription(label+" "+format()+". Arraste na horizontal para ajustar; na vertical para rolar a tela.");}
         void setValue(float next){value=Math.max(min,Math.min(max,next));describe();invalidate();}
@@ -155,10 +160,10 @@ final class EditorUi {
             p.setStyle(Paint.Style.FILL);p.setColor(FIELD);float bottom=cy+r+dp(getContext(),2);c.drawRect(Math.max(3,cx-dp(getContext(),34)),bottom,Math.min(w-3,cx+dp(getContext(),34)),bottom+dp(getContext(),14),p);p.setColor(TEXT);p.setTextSize(dp(getContext(),9));c.drawText(format(),cx,bottom+dp(getContext(),11),p);
         }
         @Override public boolean onTouchEvent(MotionEvent e){switch(e.getActionMasked()){
-            case MotionEvent.ACTION_DOWN:pointer=e.getPointerId(0);downX=e.getX();downY=e.getY();start=value;dragAxis=0;return true;
-            case MotionEvent.ACTION_MOVE:int i=e.findPointerIndex(pointer);if(i<0)return true;float dx=e.getX(i)-downX,dy=downY-e.getY(i);if(dragAxis==0){if(Math.abs(dx)>touchSlop&&Math.abs(dx)>Math.abs(dy)){dragAxis=1;getParent().requestDisallowInterceptTouchEvent(true);}else if(Math.abs(dy)>touchSlop){if(canScrollParent(dy)){return true;}dragAxis=2;getParent().requestDisallowInterceptTouchEvent(true);}}if(dragAxis!=0){float delta=dragAxis==1?dx:dy;value=Math.max(min,Math.min(max,start+delta/dp(getContext(),180)*(max-min)));action.set(value);describe();invalidate();}return true;
-            case MotionEvent.ACTION_UP:if(dragAxis==0)performClick();pointer=-1;dragAxis=0;getParent().requestDisallowInterceptTouchEvent(false);return true;
-            case MotionEvent.ACTION_CANCEL:pointer=-1;dragAxis=0;getParent().requestDisallowInterceptTouchEvent(false);return true;
+            case MotionEvent.ACTION_DOWN:pointer=e.getPointerId(0);downX=e.getX();downY=e.getY();start=value;dragAxis=0;longPressed=false;removeCallbacks(longPressTask);if(onLongPress!=null)postDelayed(longPressTask,ViewConfiguration.getLongPressTimeout());return true;
+            case MotionEvent.ACTION_MOVE:int i=e.findPointerIndex(pointer);if(i<0)return true;if(longPressed)return true;float dx=e.getX(i)-downX,dy=downY-e.getY(i);if(Math.abs(dx)>touchSlop||Math.abs(dy)>touchSlop)removeCallbacks(longPressTask);if(dragAxis==0){if(Math.abs(dx)>touchSlop&&Math.abs(dx)>Math.abs(dy)){dragAxis=1;getParent().requestDisallowInterceptTouchEvent(true);}else if(Math.abs(dy)>touchSlop){if(canScrollParent(dy)){return true;}dragAxis=2;getParent().requestDisallowInterceptTouchEvent(true);}}if(dragAxis!=0){float delta=dragAxis==1?dx:dy;value=Math.max(min,Math.min(max,start+delta/dp(getContext(),180)*(max-min)));action.set(value);describe();invalidate();}return true;
+            case MotionEvent.ACTION_UP:removeCallbacks(longPressTask);if(dragAxis==0&&!longPressed)performClick();pointer=-1;dragAxis=0;getParent().requestDisallowInterceptTouchEvent(false);return true;
+            case MotionEvent.ACTION_CANCEL:removeCallbacks(longPressTask);pointer=-1;dragAxis=0;getParent().requestDisallowInterceptTouchEvent(false);return true;
             default:return true;}}
         @Override public boolean performClick(){super.performClick();return true;}
         private boolean canScrollParent(float fingerDelta){ViewParent parent=getParent();while(parent!=null){if(parent instanceof ScrollView)return ((ScrollView)parent).canScrollVertically(fingerDelta>0?1:-1);if(parent instanceof View)parent=parent.getParent();else break;}return false;}
