@@ -184,7 +184,12 @@ bool load(const std::string& path,size_t budget,Instrument& out,std::string& err
 void noteOn(Layer& layer,int note,int velocity,int channel,bool sustain,int voiceBudget,float attackSeconds){
     if(!layer.instrument||note<0||note>127||velocity<1)return;
     const auto& piano=*layer.instrument;int root=piano.keyMap[(size_t)note];if(root==0xff)return;
-    int bank=sustain?1:0,limit=((127-velocity)*piano.velocityScale)/127;
+    // The pedal-down bank (bank 1) is a pronounced reflection that lingers like
+    // reverb and then drops when the pedal is lifted. The desktop engine only
+    // uses it as an explicit opt-in (pianoPedalResonance, off by default), so
+    // Android plays the dry bank 0 unless that opt-in is added here later.
+    (void)sustain;
+    int bank=0,limit=((127-velocity)*piano.velocityScale)/127;
     int chosen=-1,best=-1;
     for(size_t i=0;i<piano.strokes.size();++i){const auto& s=piano.strokes[i];if(s.root==root&&s.bank==bank&&s.velocityLayer<=limit&&s.velocityLayer>best){chosen=(int)i;best=s.velocityLayer;}}
     if(chosen<0&&bank==1)for(size_t i=0;i<piano.strokes.size();++i){const auto& s=piano.strokes[i];if(s.root==root&&s.bank==0&&s.velocityLayer<=limit&&s.velocityLayer>best){chosen=(int)i;best=s.velocityLayer;}}
@@ -219,11 +224,9 @@ void noteOff(Layer& layer,int note,int channel,bool sustain,float releaseSeconds
     }
 }
 void pedalUp(Layer& layer,int channel,float releaseSeconds){
-    // The release is exponential down to -80 dB, so a 250 ms time fell
-    // -32 dB within the first 100 ms and sounded like a sudden volume drop
-    // when the sustain pedal was lifted. 700 ms falls about -11 dB in the
-    // first 100 ms and reaches -40 dB at 350 ms: a damper-like tail, not a cut.
-    const float smoothRelease=std::clamp(std::max(releaseSeconds,.7f),.005f,5.0f);
+    // NPNO samples need a short damper tail; 50 ms reaches near silence
+    // too quickly and sounds like a hard volume cut when a chord is released.
+    const float smoothRelease=std::clamp(std::max(releaseSeconds,.25f),.005f,5.0f);
     for(auto& v:layer.voices)if(v.active&&v.channel==channel&&v.waitingForSustain){
         v.keyDown=false;v.waitingForSustain=false;v.released=true;v.releaseSeconds=smoothRelease;
     }
