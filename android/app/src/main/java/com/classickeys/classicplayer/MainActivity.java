@@ -37,6 +37,7 @@ import android.provider.Settings;
 import android.provider.OpenableColumns;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.Gravity;
@@ -2695,10 +2696,49 @@ public final class MainActivity extends Activity {
             postInvalidateDelayed(70);
         }
 
+        // Long-press on a mixer fader or M button assigns a MIDI CC (MIDI Learn).
+        private int[] pendingLearnHit;private boolean learnFired;private float learnDownX,learnDownY;
+        private final Runnable longLearnTask=()->{
+            if(pendingLearnHit==null)return;
+            learnFired=true;performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+            showKnobLearnMenu(pendingLearnHit[0],pendingLearnHit[1]);
+        };
+        /** Returns {layer,target} (target 0 volume, 4 mute) under the finger, or null. */
+        private int[] learnHit(float x,float y){
+            final float w=getWidth(),h=getHeight();
+            if(liveSet||settings||y<=h*.17f||y>=h*.93f)return null;
+            float masterW=mixerMasterWidth(),masterX=w-EditorUi.dp(getContext(),18)-masterW;
+            if(x>=masterX)return null;
+            float tx=x+layerScrollX;
+            for(int p=0;p<activeLayerCount();p++){
+                int layer=activeLayerAt(p);float cardX=mixerCardX(p,w),cardW=mixerCardWidth(layer,w);
+                if(tx<cardX||tx>cardX+cardW)continue;
+                if(y>=h*.17f+h*.016f&&y<=h*.17f+h*.063f)return tx>=cardX+cardW*.54f&&tx<=cardX+cardW*.70f?new int[]{layer,4}:null;
+                if(isPadLayer(layer)){
+                    float railTop=h*.17f+h*.185f,railBottom=h*.17f+h*.76f-h*.09f;
+                    return tx>=cardX+cardW*.82f&&y>=railTop-h*.035f&&y<=railBottom+h*.035f?new int[]{layer,0}:null;
+                }
+                float railTop=h*.17f+h*.16f+EditorUi.dp(getContext(),48)+EditorUi.dp(getContext(),10),railBottom=h*.17f+h*.76f-h*.09f;
+                return y>=railTop-h*.035f&&y<=railBottom+h*.035f?new int[]{layer,0}:null;
+            }
+            return null;
+        }
         @Override public boolean onTouchEvent(MotionEvent event) {
             final int action = event.getActionMasked();
             final boolean tap = action == MotionEvent.ACTION_UP;
             final float w = getWidth(), h = getHeight();
+            if(action==MotionEvent.ACTION_DOWN){
+                learnFired=false;removeCallbacks(longLearnTask);pendingLearnHit=learnHit(event.getX(),event.getY());
+                if(pendingLearnHit!=null){learnDownX=event.getX();learnDownY=event.getY();postDelayed(longLearnTask,ViewConfiguration.getLongPressTimeout());}
+            }else if(action==MotionEvent.ACTION_MOVE&&pendingLearnHit!=null&&!learnFired){
+                float slop=ViewConfiguration.get(getContext()).getScaledTouchSlop();
+                if(Math.abs(event.getX()-learnDownX)>slop||Math.abs(event.getY()-learnDownY)>slop){removeCallbacks(longLearnTask);pendingLearnHit=null;}
+            }
+            if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){
+                removeCallbacks(longLearnTask);pendingLearnHit=null;
+                if(learnFired){learnFired=false;mixerScrollCandidate=false;mixerScrollGesture=false;return true;}
+            }
+            if(learnFired)return true;
             if(action==MotionEvent.ACTION_CANCEL){mixerScrollCandidate=false;mixerScrollGesture=false;mixerScrollbarDrag=false;return true;}
             float viewportLeft=EditorUi.dp(getContext(),18),viewportRight=mixerViewportRight(w);
             if(action==MotionEvent.ACTION_DOWN&&!liveSet&&!settings&&mixerMaxScroll(w)>0
