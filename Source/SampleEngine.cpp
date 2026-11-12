@@ -234,13 +234,13 @@ std::shared_ptr<NordPianoDecoder::Instrument> SampleEngine::cachePiano(
     for (auto entry = pianoCacheLive.begin(); entry != pianoCacheLive.end();)
         if (entry->second.expired()) entry = pianoCacheLive.erase(entry); else ++entry;
     pianoCacheLive[keyString] = decoded;
-    if (bytes > decodedCacheLimitBytes) return decoded;
+    if (bytes > decodedCacheLimitBytes()) return decoded;
     if (const auto found = pianoCache.find(keyString); found != pianoCache.end())
     {
         found->second.lastUse = ++pianoCacheClock;
         return found->second.instrument;
     }
-    while (pianoCacheBytes + bytes > decodedCacheLimitBytes && !pianoCache.empty())
+    while (pianoCacheBytes + bytes > decodedCacheLimitBytes() && !pianoCache.empty())
     {
         const auto oldest = std::min_element(pianoCache.begin(), pianoCache.end(),
             [](const auto& left, const auto& right)

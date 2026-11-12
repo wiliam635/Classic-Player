@@ -6,6 +6,7 @@
 #include "LayerEffects.h"
 #include <array>
 #include <atomic>
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <limits>
@@ -147,7 +148,15 @@ private:
     // An XL Nord piano can exceed 600 MiB decoded. Keep enough room for one
     // such piano plus the other instruments in a Live Set bank; otherwise the
     // background preload silently discards it and every switch decodes again.
-    static constexpr size_t decodedCacheLimitBytes = 1024u * 1024u * 1024u;
+    // Scales with installed RAM (a quarter, between 1 and 3 GiB) so a Live Set bank can keep
+    // two XL pianos (~800 MB decoded each) resident on machines with enough memory.
+    static size_t decodedCacheLimitBytes()
+    {
+        const auto ramMiB = static_cast<std::uint64_t>(juce::jmax<juce::int64>(0, juce::SystemStats::getMemorySizeInMegabytes()));
+        const auto quarter = ramMiB * 1024ull * 1024ull / 4ull;
+        return static_cast<size_t>(std::clamp<std::uint64_t>(quarter, 1024ull * 1024ull * 1024ull,
+                                                             3ull * 1024ull * 1024ull * 1024ull));
+    }
     std::mutex pianoCacheMutex;
     std::unordered_map<std::string, CachedPiano> pianoCache;
     // Weak index reuses instruments held by live layers after LRU eviction.
