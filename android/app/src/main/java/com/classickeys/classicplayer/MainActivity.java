@@ -166,7 +166,7 @@ public final class MainActivity extends Activity {
             }
             if(pendingPadCcLearn>=0&&first!=64){
                 getSharedPreferences("pads",MODE_PRIVATE).edit().putInt(pendingPadCcLearn==12?"pad_stop_cc":"pad_cc_"+pendingPadCcLearn,first).apply();
-                screen.setMidiStatus(pendingPadCcLearn==12?"MIDI: STOP CC "+first+" aprendido":"MIDI: PAD "+(pendingPadCcLearn+1)+" CC "+first+" aprendido");pendingPadCcLearn=-1;return;
+                screen.setMidiStatus(pendingPadCcLearn==12?"MIDI: STOP CC "+first+" aprendido":"MIDI: PAD "+(pendingPadCcLearn+1)+" CC "+first+" aprendido");final String padToast="ATRIBUÍDO: CC "+first;mainHandler.post(()->android.widget.Toast.makeText(this,padToast,android.widget.Toast.LENGTH_SHORT).show());pendingPadCcLearn=-1;return;
             }
             // Learn is handled before the reserved MIDI CC filters so STOP
             // can intentionally use CC 120/123 when a controller provides it.
@@ -225,7 +225,7 @@ public final class MainActivity extends Activity {
         screen.setMidiSignal();
         if (type == 0x90 && second > 0) {
             captureNordCalibration(second);
-            if(pendingPadMidiLearn>=0){getSharedPreferences("pads",MODE_PRIVATE).edit().putInt("pad_note_"+pendingPadMidiLearn,first).apply();screen.setMidiStatus("MIDI: PAD "+(pendingPadMidiLearn+1)+" nota "+first+" aprendida");pendingPadMidiLearn=-1;return;}
+            if(pendingPadMidiLearn>=0){getSharedPreferences("pads",MODE_PRIVATE).edit().putInt("pad_note_"+pendingPadMidiLearn,first).apply();screen.setMidiStatus("MIDI: PAD "+(pendingPadMidiLearn+1)+" nota "+first+" aprendida");final String noteToast="ATRIBUÍDO: NOTA "+first;mainHandler.post(()->android.widget.Toast.makeText(this,noteToast,android.widget.Toast.LENGTH_SHORT).show());pendingPadMidiLearn=-1;return;}
             // Some controllers resend Note On before a missing release. Kill
             // the previous instance first so the voice can never accumulate.
             if (midiHeld[channel][first]) audioEngine.noteOff(first,channel);
@@ -1478,6 +1478,19 @@ public final class MainActivity extends Activity {
             public void onStopTrackingTouch(SeekBar s){}
         });
     }
+
+    /** Long-press on a pad in the mixer: assign (or clear) its CC / note. */
+    private void showPadLearnMenu(final int pad,final boolean continuous){
+        final SharedPreferences mapping=getSharedPreferences("pads",MODE_PRIVATE);
+        final int learned=mapping.getInt((continuous?"pad_cc_":"pad_note_")+pad,continuous?-1:36+pad);
+        final String current=learned<0?"sem mapeamento MIDI":"mapeado: "+(continuous?"CC ":"NOTA ")+learned;
+        final boolean mapped=continuous?learned>=0:mapping.contains("pad_note_"+pad);
+        String[] items=mapped?new String[]{"Atribuir MIDI (toque/mova o controle físico)","Excluir mapeamento"}:new String[]{"Atribuir MIDI (toque/mova o controle físico)"};
+        new AlertDialog.Builder(this).setTitle("PAD "+(pad+1)+" · "+current).setItems(items,(dialog,which)->{
+            if(which==0){beginPadMappingLearn(pad,continuous);android.widget.Toast.makeText(this,"MOVA O CONTROLE MIDI…",android.widget.Toast.LENGTH_SHORT).show();}
+            else{clearPadMapping(pad,continuous);android.widget.Toast.makeText(this,"MAPEAMENTO EXCLUÍDO",android.widget.Toast.LENGTH_SHORT).show();}
+        }).setNegativeButton("CANCELAR",null).show();
+    }
     private void beginPadStopLearn(){pendingPadCcLearn=pendingPadCcLearn==12?-1:12;pendingPadMidiLearn=-1;screen.setMidiStatus(pendingPadCcLearn==12?"MIDI: mova agora o controle STOP":"MIDI: STOP Learn cancelado");}
     private void clearPadMapping(int target,boolean continuous){SharedPreferences.Editor e=getSharedPreferences("pads",MODE_PRIVATE).edit();if(target==12)e.remove("pad_stop_cc");else e.remove((continuous?"pad_cc_":"pad_note_")+target);e.apply();if(pendingPadMidiLearn==target)pendingPadMidiLearn=-1;if(pendingPadCcLearn==target)pendingPadCcLearn=-1;}
     private void addPadLayerLearnRow(LinearLayout body,int layer,int target,String title){LinearLayout row=EditorUi.gridRow(body);TextView label=EditorUi.label(this,title,10);label.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);row.addView(label,new LinearLayout.LayoutParams(0,EditorUi.dp(this,44),1));final int layerIndex=layer,targetIndex=target;Button learn=EditorUi.button(this,layerLearnLabel(layerIndex,targetIndex),()->{});learn.setOnClickListener(v->toggleLayerMidiLearn(layerIndex,targetIndex,learn));row.addView(learn,new LinearLayout.LayoutParams(0,EditorUi.dp(this,44),1));EditorUi.addButton(row,"LIMPAR",()->clearLayerMidiLearn(layerIndex,targetIndex,learn));}
@@ -2701,7 +2714,8 @@ public final class MainActivity extends Activity {
         private final Runnable longLearnTask=()->{
             if(pendingLearnHit==null)return;
             learnFired=true;performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
-            showKnobLearnMenu(pendingLearnHit[0],pendingLearnHit[1]);
+            if(pendingLearnHit[1]>=100)showPadLearnMenu(pendingLearnHit[1]-100,engineNames[pendingLearnHit[0]].startsWith("CONT"));
+            else showKnobLearnMenu(pendingLearnHit[0],pendingLearnHit[1]);
         };
         /** Returns {layer,target} (target 0 volume, 4 mute) under the finger, or null. */
         private int[] learnHit(float x,float y){
@@ -2715,6 +2729,15 @@ public final class MainActivity extends Activity {
                 if(tx<cardX||tx>cardX+cardW)continue;
                 if(y>=h*.17f+h*.016f&&y<=h*.17f+h*.063f)return tx>=cardX+cardW*.54f&&tx<=cardX+cardW*.70f?new int[]{layer,4}:null;
                 if(isPadLayer(layer)){
+                    boolean continuous=engineNames[layer].startsWith("CONT");int columns=continuous?3:2;
+                    float gridLeft=cardX+EditorUi.dp(getContext(),10),gridRight=cardX+cardW*.78f;
+                    float gridTop=h*.17f+h*.185f,gridBottom=h*.17f+h*.76f-h*(continuous?.12f:.06f);
+                    if(tx>=gridLeft&&tx<=gridRight&&y>=gridTop&&y<=gridBottom){
+                        float padGap=EditorUi.dp(getContext(),5),cellW=(gridRight-gridLeft-(columns-1)*padGap)/columns,cellH=(gridBottom-gridTop-3*EditorUi.dp(getContext(),7))/4;
+                        int column=(int)((tx-gridLeft)/(cellW+padGap)),row=(int)((y-gridTop)/(cellH+EditorUi.dp(getContext(),7)));
+                        int pad=row*columns+column;
+                        if(column<columns&&row<4&&pad<(continuous?12:8))return new int[]{layer,100+pad};
+                    }
                     float railTop=h*.17f+h*.185f,railBottom=h*.17f+h*.76f-h*.09f;
                     return tx>=cardX+cardW*.82f&&y>=railTop-h*.035f&&y<=railBottom+h*.035f?new int[]{layer,0}:null;
                 }
