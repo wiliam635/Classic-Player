@@ -682,6 +682,15 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // activation refresh must never make the MIDI UI appear disconnected.
     keyboardState.processNextMidiBuffer(midi, 0, buffer.getNumSamples(), true);
 
+    // After a Live Set switch, keys that are still held (hardware or on-screen) continue in the
+    // new sound. The state was just updated with this block's note-offs, so a key released
+    // during the switch is never restarted; keys released later send a normal note-off.
+    if (replayHeldNotesOnNextBlock.exchange(false, std::memory_order_acq_rel))
+        for (int channel = 1; channel <= 16; ++channel)
+            for (int note = 0; note < 128 && channel != 10; ++note) // channel 10 = drum pads: never re-hit
+                if (keyboardState.isNoteOn(channel, note))
+                    midi.addEvent(juce::MidiMessage::noteOn(channel, note, (juce::uint8) 90), 0);
+
     if (midiRecordingActive.load(std::memory_order_acquire))
         recordMidiBuffer(midi, recordedMidiSamples);
 
@@ -3764,9 +3773,13 @@ juce::Result ClassicPlayerAudioProcessor::loadLiveSetSlot(int bank, int slot)
     const auto program = liveSetSlotProgram(bank, slot);
     if (!program.existsAsFile())
         return juce::Result::fail("Esta posicao do Live Set nao possui uma programacao salva.");
+    const auto startedMs = juce::Time::getMillisecondCounterHiRes();
     const auto result = loadProgram(program);
+    juce::Logger::writeToLog("Live Set: programa carregado em "
+        + juce::String(juce::Time::getMillisecondCounterHiRes() - startedMs, 1) + " ms");
     {
         const juce::ScopedLock callbackLock(getCallbackLock());
+        if (result.wasOk()) replayHeldNotesOnNextBlock.store(true, std::memory_order_release);
         liveSetFadingOut = false;
         liveSetFadingIn = true;
         liveSetFadePosition = 0;

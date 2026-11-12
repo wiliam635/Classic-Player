@@ -440,6 +440,9 @@ private:
     std::atomic<double> analyserSampleRate { 48000.0 };
     // Output ramp is applied after rendering; no old voice or pedal state is
     // carried into the next program. Protected by the audio callback lock.
+    // Set after a Live Set switch: notes still physically held are re-started in the new
+    // program on the next audio block (audio thread, so a release can never be missed).
+    std::atomic<bool> replayHeldNotesOnNextBlock { false };
     int liveSetFadePosition = 0;
     int liveSetFadeFrames = 0;
     bool liveSetFadingOut = false;
