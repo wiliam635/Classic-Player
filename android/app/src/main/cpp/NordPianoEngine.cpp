@@ -219,9 +219,11 @@ void noteOff(Layer& layer,int note,int channel,bool sustain,float releaseSeconds
     }
 }
 void pedalUp(Layer& layer,int channel,float releaseSeconds){
-    // NPNO samples need a short damper tail; 50 ms reaches near silence
-    // too quickly and sounds like a hard volume cut when a chord is released.
-    const float smoothRelease=std::clamp(std::max(releaseSeconds,.25f),.005f,5.0f);
+    // The release is exponential down to -80 dB, so a 250 ms time fell
+    // -32 dB within the first 100 ms and sounded like a sudden volume drop
+    // when the sustain pedal was lifted. 700 ms falls about -11 dB in the
+    // first 100 ms and reaches -40 dB at 350 ms: a damper-like tail, not a cut.
+    const float smoothRelease=std::clamp(std::max(releaseSeconds,.7f),.005f,5.0f);
     for(auto& v:layer.voices)if(v.active&&v.channel==channel&&v.waitingForSustain){
         v.keyDown=false;v.waitingForSustain=false;v.released=true;v.releaseSeconds=smoothRelease;
     }
