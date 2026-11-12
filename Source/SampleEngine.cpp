@@ -1,5 +1,6 @@
 #include "SampleEngine.h"
 #include "LayerEffects.h"
+#include "FastLoadCache.h"
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -180,10 +181,17 @@ juce::Result SampleEngine::prepareSample(const juce::File& file,
             : juce::Result::fail("Este piano Nord excede a memória restante para carregar o preset.");
     }
     decoded = std::make_shared<NordPianoDecoder::Instrument>();
+    // Fast path: a previous import already stored the decoded and prepared instrument.
+    if (FastLoadCache::loadPiano(file, *decoded, maxDecodedBytes))
+    {
+        decoded = cachePiano(file, std::move(decoded));
+        return juce::Result::ok();
+    }
     if (const auto result = NordPianoDecoder::decodeFile(file, *decoded, maxDecodedBytes); result.failed())
     { decoded.reset(); return result; }
     if (file.getParentDirectory().getFileName() != "Organ") preparePianoLoops(*decoded);
     decoded = cachePiano(file, std::move(decoded));
+    FastLoadCache::storePiano(file, decoded);
     return juce::Result::ok();
 }
 

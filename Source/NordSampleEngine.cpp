@@ -1,5 +1,6 @@
 #include "NordSampleEngine.h"
 #include "NordLegacySampleDecoder.h"
+#include "FastLoadCache.h"
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -121,12 +122,19 @@ juce::Result NordSampleEngine::prepareSample(const juce::File& file,
             : juce::Result::fail("Este timbre Nord excede a memória restante para carregar o preset.");
     }
     decoded = std::make_shared<NordSampleDecoder::Instrument>();
+    // Fast path: a previous import already stored the decoded and prepared instrument.
+    if (FastLoadCache::loadSample(file, *decoded, maxDecodedBytes))
+    {
+        decoded = cacheInstrument(file, std::move(decoded));
+        return juce::Result::ok();
+    }
     const auto result = file.hasFileExtension(".nsmp4")
         ? NordSampleDecoder::decode(file, *decoded, maxDecodedBytes)
         : NordLegacySampleDecoder::decodeFile(file, *decoded, maxDecodedBytes);
     if (result.failed()) { decoded.reset(); return result; }
     prepareLoopCrossfades(*decoded);
     decoded = cacheInstrument(file, std::move(decoded));
+    FastLoadCache::storeSample(file, decoded);
     return juce::Result::ok();
 }
 
