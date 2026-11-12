@@ -23,6 +23,16 @@ if [ ! -f "$VST3/Contents/Resources/moduleinfo.json" ]; then
   echo "Erro: manifesto VST3 ausente: $VST3/Contents/Resources/moduleinfo.json" >&2
   exit 1
 fi
+VST3_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$VST3/Contents/Info.plist")
+if [ "$VST3_VERSION" != "3.0.3" ]; then
+  echo "Erro: VST3 com versão $VST3_VERSION; esperado 3.0.3: $VST3" >&2
+  exit 1
+fi
+AU_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$AU/Contents/Info.plist")
+if [ "$AU_VERSION" != "3.0.3" ]; then
+  echo "Erro: Audio Unit com versão $AU_VERSION; esperado 3.0.3: $AU" >&2
+  exit 1
+fi
 OUTPUT="${OUTPUT_DIR:-$ROOT/../../outputs/installers}"
 PACKAGE_VERSION="3.0.3"
 DOWNLOAD_VERSION="${DOWNLOAD_VERSION:-$PACKAGE_VERSION}"
@@ -67,6 +77,7 @@ pkgutil --payload-files "$PACKAGES/ClassicPlayer-standalone.pkg" > "$WORK/payloa
 grep -Fq "Applications/Classic Player.app/Contents/Resources/AppIcon.icns" "$WORK/payload-files.txt"
 grep -Fq "Library/Audio/Plug-Ins/VST3/Classic Player.vst3/Contents/MacOS/Classic Player" "$WORK/payload-files.txt"
 grep -Fq "Library/Audio/Plug-Ins/Components/Classic Player.component/Contents/MacOS/Classic Player" "$WORK/payload-files.txt"
+grep -Fq "Library/Audio/Plug-Ins/VST3/Classic Player.vst3/Contents/Info.plist" "$WORK/payload-files.txt"
 
 productbuild \
   --distribution "$ROOT/installer/macos/distribution-compat.xml" \

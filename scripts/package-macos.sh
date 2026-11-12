@@ -16,6 +16,15 @@ ditto "$BUILD/Standalone/Classic Player.app" "$STAGE/Applications/Classic Player
 ditto "$BUILD/VST3/Classic Player.vst3" "$STAGE/Library/Audio/Plug-Ins/VST3/Classic Player.vst3"
 ditto "$BUILD/AU/Classic Player.component" "$STAGE/Library/Audio/Plug-Ins/Components/Classic Player.component"
 
+for bundle in "$STAGE/Library/Audio/Plug-Ins/VST3/Classic Player.vst3" \
+              "$STAGE/Library/Audio/Plug-Ins/Components/Classic Player.component"; do
+  version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$bundle/Contents/Info.plist")
+  if [[ "$version" != "3.0.3" ]]; then
+    echo "Erro: plugin com versão $version; esperado 3.0.3: $bundle" >&2
+    exit 1
+  fi
+done
+
 if [[ -n "${APPLE_SIGN_IDENTITY:-}" ]]; then
   codesign --force --deep --options runtime --timestamp --sign "$APPLE_SIGN_IDENTITY" "$STAGE/Applications/Classic Player.app"
   codesign --force --deep --options runtime --timestamp --sign "$APPLE_SIGN_IDENTITY" "$STAGE/Library/Audio/Plug-Ins/VST3/Classic Player.vst3"

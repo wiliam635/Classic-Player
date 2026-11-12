@@ -35,6 +35,10 @@ Source: "{#BuildRoot}\Standalone\Resources\ContinuousPads\*"; DestDir: "{app}\Re
 Source: "{#BuildRoot}\WebView2Bootstrapper.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist
 Source: "{#BuildRoot}\VST3\Classic Player.vst3\*"; DestDir: "{commoncf64}\VST3\Classic Player.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[InstallDelete]
+; Remove the previous bundle completely so obsolete files cannot remain after upgrade.
+Type: filesandordirs; Name: "{commoncf64}\VST3\Classic Player.vst3"
+
 [Icons]
 Name: "{group}\Classic Player"; Filename: "{app}\Classic Player.exe"
 Name: "{autodesktop}\Classic Player"; Filename: "{app}\Classic Player.exe"

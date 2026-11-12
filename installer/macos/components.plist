@@ -5,22 +5,22 @@
   <dict>
     <key>BundleHasStrictIdentifier</key><true/>
     <key>BundleIsRelocatable</key><false/>
-    <key>BundleIsVersionChecked</key><true/>
-    <key>BundleOverwriteAction</key><string>upgrade</string>
+    <key>BundleIsVersionChecked</key><false/>
+    <key>BundleOverwriteAction</key><string>replace</string>
     <key>RootRelativeBundlePath</key><string>Library/Audio/Plug-Ins/VST3/Classic Player.vst3</string>
   </dict>
   <dict>
     <key>BundleHasStrictIdentifier</key><true/>
     <key>BundleIsRelocatable</key><false/>
-    <key>BundleIsVersionChecked</key><true/>
-    <key>BundleOverwriteAction</key><string>upgrade</string>
+    <key>BundleIsVersionChecked</key><false/>
+    <key>BundleOverwriteAction</key><string>replace</string>
     <key>RootRelativeBundlePath</key><string>Library/Audio/Plug-Ins/Components/Classic Player.component</string>
   </dict>
   <dict>
     <key>BundleHasStrictIdentifier</key><true/>
     <key>BundleIsRelocatable</key><false/>
-    <key>BundleIsVersionChecked</key><true/>
-    <key>BundleOverwriteAction</key><string>upgrade</string>
+    <key>BundleIsVersionChecked</key><false/>
+    <key>BundleOverwriteAction</key><string>replace</string>
     <key>RootRelativeBundlePath</key><string>Applications/Classic Player.app</string>
   </dict>
 </array>
