@@ -32,5 +32,5 @@ target_include_directories(classic_player_native PRIVATE ${MSFA_DIR})
 target_compile_features(classic_player_native PRIVATE cxx_std_17)
 # The distributed test APK is debug, but its real-time DSP must not run at
 # -O0. Preserve debug symbols and floating-point semantics (no fast-math).
-target_compile_options(classic_player_native PRIVATE -O3)
+target_compile_options(classic_player_native PRIVATE -O3 -fno-math-errno)
 target_link_libraries(classic_player_native oboe android log m)

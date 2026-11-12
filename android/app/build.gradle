@@ -15,6 +15,7 @@ android {
         versionCode 112
         versionName '3.0.3'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        externalNativeBuild { cmake { arguments '-DANDROID_ARM_NEON=TRUE' } }
         ndk {
             // Most Android 6+ tablets in use today are 64-bit ARM. Keeping this
             // ABI explicit ensures the real native SoundFont renderer is shipped.

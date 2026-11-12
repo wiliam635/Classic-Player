@@ -59,7 +59,7 @@ public:
                     block.fill(0);
                 }
                 for(int i=0;i<count;++i){
-                    const size_t destination=static_cast<size_t>((sourceFrames+i)%kSourceRing)*2;
+                    const size_t destination=static_cast<size_t>((sourceFrames+i)&(kSourceRing-1))*2;
                     sourceRing[destination]=block[(size_t)i*2];
                     sourceRing[destination+1]=block[(size_t)i*2+1];
                 }
@@ -71,7 +71,7 @@ public:
                 double value=0.0;
                 for(int tap=0;tap<kTaps;++tap){
                     const int64_t index=center+tap-kHalfTaps+1;
-                    if(index>=0)value+=coefficients[phase][tap]*sourceRing[static_cast<size_t>(index%kSourceRing)*2+channel];
+                    if(index>=0)value+=coefficients[phase][tap]*sourceRing[static_cast<size_t>(index&(kSourceRing-1))*2+channel]; // kSourceRing is a power of two; index>=0
                 }
                 output[(size_t)frame*2+channel]=static_cast<int16_t>(std::clamp(std::lround(value),-32768L,32767L));
             }

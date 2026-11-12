@@ -1441,7 +1441,9 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
             const float detector=magnitude>compressorEnvelope[li]?attackDetector:releaseDetector;
             compressorEnvelope[li]=detector*compressorEnvelope[li]+(1.0f-detector)*magnitude;
             const float envelope=std::max(0.000001f,compressorEnvelope[li]);
-            const float compressionGain=envelope>threshold
+            // The envelope above always advances; the gain (with its division)
+            // is only needed when the compressor mix actually uses it.
+            const float compressionGain=(!originalSf2&&layerCompressorMix[li]>0.0f&&envelope>threshold)
                     ?(threshold+(envelope-threshold)/compressorRatio[li])/envelope:1.0f;
             const float side=engineTypes[li]==EngineType::hammond?hammondSide[(size_t)frame]:0.0f;
             for(int channel=0;channel<2;++channel){
@@ -1487,20 +1489,28 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
     smoothedMasterGain = masterGain;
     float renderedMasterPeak = 0.0f;
     bool clippedThisBlock=false;
+    // Loop-invariant reverb geometry is hoisted out of the per-sample loop and
+    // the ring-buffer wraps use compare/subtract instead of integer division;
+    // the delay taps and every output sample are numerically unchanged.
+    const int reverbSize=(int)reverbBuffer.size();
+    const int reverbBaseDelay=(int)(reverbDelayMs*kSampleRate/1000.0f);
+    const int reverbWidthExtra=(int)(reverbStereoWidth*kSampleRate*.018f);
     for (int sample = 0; sample < samples; ++sample) {
         // Preserve the summed signal's natural dynamics. Do not apply a soft
         // limiter here; only saturate at final PCM conversion if the mix truly
         // exceeds the representable output range.
-        const int baseDelay=(int)(reverbDelayMs*kSampleRate/1000.0f);
-        const int delay=baseDelay+((sample&1)!=0?(int)(reverbStereoWidth*kSampleRate*.018f):0);
-        const int read = (effectCursor + (int)reverbBuffer.size() - delay + (int)reverbBuffer.size()) % (int)reverbBuffer.size();
+        const int delay=reverbBaseDelay+((sample&1)!=0?reverbWidthExtra:0);
+        int read = effectCursor + reverbSize - delay + reverbSize;
+        while(read>=reverbSize)read-=reverbSize;
         const float delayed = reverbBuffer[(size_t)read];
-        const float chorus = reverbBuffer[(size_t)((effectCursor + (int)reverbBuffer.size() - 960 + (sample & 3) * 24) % (int)reverbBuffer.size())];
+        int chorusRead = effectCursor + reverbSize - 960 + (sample & 3) * 24;
+        while(chorusRead>=reverbSize)chorusRead-=reverbSize;
+        const float chorus = reverbBuffer[(size_t)chorusRead];
         const float dry = mix[(size_t)sample];
         const float send=reverbSend[(size_t)sample]+dry*reverbMix;
         const float effected = dry + delayed * 0.55f + (chorus - dry) * chorusMix * 0.22f;
         reverbBuffer[(size_t)effectCursor] = send + delayed * reverbFeedback;
-        effectCursor = (effectCursor + 1) % (int)reverbBuffer.size();
+        if(++effectCursor>=reverbSize)effectCursor=0;
         clippedThisBlock=clippedThisBlock||effected>1.f||effected< -1.f;
         const float pcm=std::clamp(effected*32767.0f,-32768.0f,32767.0f);
         output[sample]=static_cast<short>(pcm);
