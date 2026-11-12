@@ -2882,6 +2882,10 @@ public:
         }
         minimum.setValue(config.velocityOutputMin, juce::dontSendNotification);
         maximum.setValue(config.velocityOutputMax, juce::dontSendNotification);
+        minimum.getProperties().set("midiKey", "pk:vel:" + juce::String(index) + ":min");
+        maximum.getProperties().set("midiKey", "pk:vel:" + juce::String(index) + ":max");
+        slope.getProperties().set("midiKey", "pk:vel:" + juce::String(index) + ":slope");
+        timbreFloor.getProperties().set("midiKey", "pk:vel:" + juce::String(index) + ":floor");
         minimum.onValueChange = [this] { updateShaper(); };
         maximum.onValueChange = [this] { updateShaper(); };
         slope.setRange(-100, 100, 1);
@@ -5124,7 +5128,7 @@ static void showParametricLayerEqEditor(
 class AnalogSynthEditorPanel final : public juce::Component, private juce::Timer
 {
 public:
-    explicit AnalogSynthEditorPanel(const AnalogSynthEngine::Config& source)
+    explicit AnalogSynthEditorPanel(const AnalogSynthEngine::Config& source, int layer = -1)
         : initial(source),
           sourceAtOpen(source),
           waves { source.oscillator1Wave, source.oscillator2Wave, source.oscillator3Wave },
@@ -5187,6 +5191,9 @@ public:
         addAndMakeVisible(oscillator3On);
         addAndMakeVisible(pinkNoise);
         addAndMakeVisible(monoPoly);
+        if (layer >= 0)
+            for (int k = 0; k < 19; ++k)
+                knobs.setItemProperty(k, "midiKey", "pk:ana:" + juce::String(layer) + ":" + juce::String(k));
         knobs.useAnalogHardwareLayout(true);
         knobs.setOnValueChange([this] { if (onConfigChanged) onConfigChanged(config()); });
         for (auto* button : { &oscillator1On, &oscillator2On, &oscillator3On, &pinkNoise })
@@ -10483,7 +10490,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     // oscillator controls remain implemented in the engine but are not exposed
     // in this window, avoiding a second, oversized editor layout.
     const auto actionWidth = editorContentWidth(this, 1100);
-    auto* controls = new AnalogSynthEditorPanel(processor.analogSynthConfig(index));
+    auto* controls = new AnalogSynthEditorPanel(processor.analogSynthConfig(index), index);
     controls->setPresetOnlyMode();
     auto* routing = new LayerRoutingEditorPanel(processor, index);
     auto* common = createAnalogCommonControls(processor, index).release();

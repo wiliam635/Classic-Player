@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "VelocityCurve.h"
 #include "NordBundleProgram.h"
 #include "OutputSafety.h"
 #include "AnalogBrowserPresets.h"
@@ -2632,6 +2633,55 @@ bool ClassicPlayerAudioProcessor::applyUiMidiTarget(const juce::String& key, flo
         else if (field == "chorusMix") f.chorusMix = lerp(0.0f, 100.0f);
         else return false;
         setLayerConfig(number, config);
+        return true;
+    }
+    if (kind == "vel" && parts.size() >= 4)
+    {
+        auto config = layerConfig(number);
+        const auto field = parts[3];
+        if (field == "floor") config.pianoTimbreFloor = juce::roundToInt(lerp(1.0f, 127.0f));
+        else
+        {
+            if (field == "min") config.velocityOutputMin = juce::jlimit(1, 127, juce::roundToInt(lerp(1.0f, 127.0f)));
+            else if (field == "max") config.velocityOutputMax = juce::jlimit(1, 127, juce::roundToInt(lerp(1.0f, 127.0f)));
+            else if (field == "slope") config.velocitySlope = lerp(-100.0f, 100.0f);
+            else return false;
+            config.velocityOutputMax = juce::jmax(config.velocityOutputMin, config.velocityOutputMax);
+            config.velocityEditorMode = 0;
+            config.velocityTable = shapedVelocityTable(config.velocityOutputMin, config.velocityOutputMax,
+                                                       config.velocitySlope);
+            config.velocityCurve = 4;
+        }
+        setLayerConfig(number, config);
+        return true;
+    }
+    if (kind == "ana" && parts.size() >= 4)
+    {
+        auto c = analogSynthConfig(number);
+        switch (parts[3].getIntValue())
+        {
+            case 0: c.oscillator1Level = n; break;
+            case 1: c.oscillator2Level = n; break;
+            case 2: c.oscillator3Level = n; break;
+            case 3: c.oscillator2Semitones = std::round(lerp(-24.0f, 24.0f)); break;
+            case 4: c.oscillator3Semitones = std::round(lerp(-24.0f, 24.0f)); break;
+            case 5: c.noiseLevel = n; break;
+            case 6: c.cutoff = lerp(0.0f, 100.0f); break;
+            case 7: c.resonance = n; break;
+            case 8: c.filterEnvelopeAmount = n; break;
+            case 9: c.ampAttackMs = std::round(lerp(1.0f, 2000.0f)); break;
+            case 10: c.ampDecayMs = std::round(lerp(1.0f, 5000.0f)); break;
+            case 11: c.ampSustain = n; break;
+            case 12: c.ampReleaseMs = std::round(lerp(0.0f, 5000.0f)); break;
+            case 13: c.lfoRateHz = lerp(0.05f, 20.0f); break;
+            case 14: c.lfoToPitch = lerp(0.0f, 12.0f); break;
+            case 15: c.lfoToFilter = lerp(0.0f, 100.0f); break;
+            case 16: c.mixerDrive = n; break;
+            case 17: c.filterKeyboardTracking = n; break;
+            case 18: c.modWheelToFilter = n; break;
+            default: return false;
+        }
+        setAnalogSynthConfig(number, c);
         return true;
     }
     if (kind == "ham" && parts.size() >= 4)
