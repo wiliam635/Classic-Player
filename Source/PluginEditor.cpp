@@ -2361,6 +2361,11 @@ public:
             knobs[item]->setValue(newValue, juce::dontSendNotification);
     }
 
+    void setItemProperty(int item, const char* name, const juce::String& value)
+    {
+        if (juce::isPositiveAndBelow(item, knobs.size())) knobs[item]->getProperties().set(name, value);
+    }
+
     void setOnValueChange(std::function<void()> callback)
     {
         onValueChange = std::move(callback);
@@ -5101,6 +5106,15 @@ static void showParametricLayerEqEditor(
         processor.setLayerConfig(layer, config);
     };
     knobs->setOnValueChange(apply);
+    {
+        const std::array<const char*, 9> eqNames {
+            "EqLowFrequency", "EqLow", "EqLowQ", "EqMidFrequency", "EqMid", "EqMidQ",
+            "EqHighFrequency", "EqHigh", "EqHighQ"
+        };
+        for (int i = 0; i < 9; ++i) knobs->setItemProperty(i, "midiParameter", prefix + eqNames[(size_t) i]);
+        knobs->setItemProperty(9, "midiKey", "pk:hpf:" + juce::String(layer));
+        knobs->setItemProperty(10, "midiKey", "pk:lpf:" + juce::String(layer));
+    }
     dialog->fitWithinApp(owner);
     if (dockSubAlert(dock, dialog, "EQ")) return;
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(
@@ -6694,6 +6708,7 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
         padVolume.setTextBoxStyle(juce::Slider::TextBoxRight, false, 44, 18);
         padVolume.setTextValueSuffix("%");
         padVolume.setTooltip("Volume individual deste pad");
+        padVolume.getProperties().set("midiKey", "pk:pad:" + juce::String(pad));
         padVolume.onValueChange = [this, pad]
         {
             if (!continuous())
@@ -8181,6 +8196,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int eff
             { "RATE Hz", fx.chorusRate, 0.05f, 5, 0.05f, 2 },
             { "MIX %", fx.chorusMix, 0, 100, 1, 0 }
         }, 2); break;
+    }
+    {
+        static const char* fields[5][3] = { {}, { "tremoloRate", "tremoloMix" }, { "delayBpm", "delayFeedback", "delayMix" },
+                                            { "flangerRate", "flangerMix" }, { "chorusRate", "chorusMix" } };
+        const int slot = (effect >= 1 && effect <= 4) ? effect : 4;
+        for (int k = 0; k < 3 && fields[slot][k] != nullptr; ++k)
+            knobs->setItemProperty(k, "midiKey", "pk:nfx:" + juce::String(index) + ":" + fields[slot][k]);
     }
     knobs->useDenseGrid(true);
     const juce::Component::SafePointer<LayerStrip> safe(this);
@@ -10113,6 +10135,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
         [this] { return classicProcessor.isMasterMidiLearning(); });
     {
         uiMidiMapLoad();
+        classicProcessor.setUiEditorDraining(true);
         ParameterMidiMenu::Hooks hooks;
         hooks.resolve = [this](juce::Component* source, juce::String& id) { return resolveMidiSlider(source, id); };
         hooks.mapping = [this](const juce::String& id)
@@ -10308,6 +10331,8 @@ juce::Component* ClassicPlayerAudioProcessorEditor::resolveMidiSlider(juce::Comp
     {
         const auto& props = slider->getProperties();
         if (props.contains("midiDedicated")) return nullptr;
+        const auto key = props.getWithDefault("midiKey", juce::var()).toString();
+        if (key.isNotEmpty()) { id = key; uiMidiSliders[id] = slider; return slider; }
         auto parameter = props.getWithDefault("midiParameter",
             props.getWithDefault("conceptParameter", juce::var())).toString();
         if (parameter.isNotEmpty()) { id = parameter; return slider; }
@@ -10367,7 +10392,9 @@ void ClassicPlayerAudioProcessorEditor::collectMidiSliders(juce::Component& root
 {
     if (auto* slider = dynamic_cast<juce::Slider*>(&root))
     {
-        if (!slider->getProperties().contains("midiDedicated")
+        if (slider->getProperties().contains("midiKey"))
+            uiMidiSliders[slider->getProperties()["midiKey"].toString()] = slider;
+        else if (!slider->getProperties().contains("midiDedicated")
             && !slider->getProperties().contains("midiParameter")
             && !slider->getProperties().contains("conceptParameter"))
             uiMidiSliders[autoMidiKey(*slider)] = slider;
@@ -10400,6 +10427,7 @@ void ClassicPlayerAudioProcessorEditor::drainUiMidi()
             if (item.second.first != cc || (item.second.second > 0 && item.second.second != channel)) continue;
             auto found = uiMidiSliders.find(item.first);
             if ((found == uiMidiSliders.end() || found->second == nullptr)
+                && !item.first.startsWith("pk:")
                 && juce::Time::getMillisecondCounterHiRes() - uiMidiLastScan > 750.0)
             {
                 // The panel holding this slider was reopened: find the new instance.
@@ -10409,7 +10437,12 @@ void ClassicPlayerAudioProcessorEditor::drainUiMidi()
                     if (auto* top = desktop.getComponent(i)) collectMidiSliders(*top);
                 found = uiMidiSliders.find(item.first);
             }
-            if (found == uiMidiSliders.end() || found->second == nullptr) continue;
+            if (found == uiMidiSliders.end() || found->second == nullptr)
+            {
+                if (item.first.startsWith("pk:"))
+                    classicProcessor.applyUiMidiTarget(item.first, value / 127.0f);
+                continue;
+            }
             auto& slider = *found->second;
             slider.setValue(slider.proportionOfLengthToValue(juce::jlimit(0.0, 1.0, value / 127.0)),
                             juce::sendNotificationSync);
@@ -10421,6 +10454,7 @@ ClassicPlayerAudioProcessorEditor::~ClassicPlayerAudioProcessorEditor()
 {
     backupJobs.removeAllJobs(true, -1);
     parameterMidiMenu.reset();
+    classicProcessor.setUiEditorDraining(false);
     classicProcessor.setUiMidiLearnActive(false);
     classicProcessor.setSpectrumCaptureEnabled(false);
     ++liveSetSwitchGeneration;

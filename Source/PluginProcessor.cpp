@@ -292,6 +292,7 @@ void ClassicPlayerAudioProcessor::timerCallback()
 {
     consumeMidiControlUpdates();
     flushParameterMidiUpdates();
+    drainHeadlessUiMidi();
     if (pendingPanic.exchange(false)) panic();
     // Message-thread updates and file I/O work even with the editor closed.
     if (startupSettingsDirty.exchange(false)) saveStartupSettings();
@@ -2591,6 +2592,95 @@ void ClassicPlayerAudioProcessor::processGenericMidi(int cc, int channel, int va
     }
 }
 
+bool ClassicPlayerAudioProcessor::applyUiMidiTarget(const juce::String& key, float n)
+{
+    n = juce::jlimit(0.0f, 1.0f, n);
+    const auto parts = juce::StringArray::fromTokens(key, ":", "");
+    // pk:<kind>:<layer or index>[:<field>]
+    if (parts.size() < 3 || parts[0] != "pk") return false;
+    const auto kind = parts[1];
+    const auto number = parts[2].getIntValue();
+    const auto lerp = [n](float lo, float hi) { return lo + n * (hi - lo); };
+    if (kind == "pad")
+    {
+        if (!juce::isPositiveAndBelow(number, 12)) return false;
+        setDrumPadVolume(number, n);
+        return true;
+    }
+    if (!juce::isPositiveAndBelow(number, Sf2Engine::layerCount)) return false;
+    if (kind == "hpf" || kind == "lpf")
+    {
+        auto config = layerConfig(number);
+        if (kind == "hpf") config.highPassHz = lerp(20.0f, 250.0f);
+        else config.lowPassHz = lerp(2000.0f, 20000.0f);
+        setLayerConfig(number, config);
+        return true;
+    }
+    if (kind == "nfx" && parts.size() >= 4)
+    {
+        auto config = layerConfig(number);
+        auto& f = config.nordFx;
+        const auto field = parts[3];
+        if (field == "tremoloRate") f.tremoloRate = lerp(0.2f, 12.0f);
+        else if (field == "tremoloMix") f.tremoloMix = lerp(0.0f, 100.0f);
+        else if (field == "delayBpm") f.delayBpm = lerp(40.0f, 240.0f);
+        else if (field == "delayFeedback") f.delayFeedback = lerp(0.0f, 80.0f);
+        else if (field == "delayMix") f.delayMix = lerp(0.0f, 100.0f);
+        else if (field == "flangerRate") f.flangerRate = lerp(0.05f, 5.0f);
+        else if (field == "flangerMix") f.flangerMix = lerp(0.0f, 100.0f);
+        else if (field == "chorusRate") f.chorusRate = lerp(0.05f, 5.0f);
+        else if (field == "chorusMix") f.chorusMix = lerp(0.0f, 100.0f);
+        else return false;
+        setLayerConfig(number, config);
+        return true;
+    }
+    if (kind == "ham" && parts.size() >= 4)
+    {
+        auto c = hammondConfig(number);
+        const auto field = parts[3];
+        if (field.startsWith("bar"))
+        {
+            const auto bar = field.substring(3).getIntValue();
+            if (!juce::isPositiveAndBelow(bar, 9)) return false;
+            const auto value = juce::roundToInt(n * 8.0f);
+            if (c.bars[(size_t) bar] == value) return true;
+            c.bars[(size_t) bar] = value;
+            c.preset = -1;
+        }
+        else if (field == "click") { c.click = n; c.preset = -1; }
+        else if (field == "leakage") { c.leakage = n; c.preset = -1; }
+        else if (field == "drive") { c.drive = n; c.preset = -1; }
+        else if (field == "level") c.level = n;
+        else return false;
+        setHammondConfig(number, c);
+        return true;
+    }
+    return false;
+}
+
+void ClassicPlayerAudioProcessor::drainHeadlessUiMidi()
+{
+    if (uiEditorDraining.load()) return;
+    if (headlessMapRevision != uiMidiRevision.load())
+    {
+        headlessMapRevision = uiMidiRevision.load();
+        headlessMidiMap.clear();
+        for (const auto& entry : juce::StringArray::fromTokens(uiMidiMapString(), ";", ""))
+        {
+            const auto eq = entry.lastIndexOfChar('=');
+            const auto colon = entry.lastIndexOfChar(':');
+            if (eq <= 0 || colon <= eq || !entry.startsWith("pk:")) continue;
+            headlessMidiMap.push_back({ entry.substring(0, eq), entry.substring(eq + 1, colon).getIntValue(),
+                                        entry.substring(colon + 1).getIntValue() });
+        }
+    }
+    int cc, channel, value;
+    while (popRawCC(cc, channel, value))
+        for (const auto& entry : headlessMidiMap)
+            if (entry.cc == cc && (entry.channel <= 0 || entry.channel == channel))
+                applyUiMidiTarget(entry.key, (float) value / 127.0f);
+}
+
 bool ClassicPlayerAudioProcessor::popRawCC(int& cc, int& channel, int& value)
 {
     const juce::SpinLock::ScopedLockType lock(rawCCLock);
@@ -2615,6 +2705,7 @@ void ClassicPlayerAudioProcessor::setUiMidiMapString(const juce::String& text)
         const juce::ScopedLock lock(uiMidiMapLock);
         uiMidiMapText = text;
     }
+    uiMidiWanted.store(text.isNotEmpty());
     uiMidiRevision.fetch_add(1);
 }
 

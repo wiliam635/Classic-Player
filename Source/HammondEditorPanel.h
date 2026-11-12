@@ -88,6 +88,7 @@ public:
             bars[i].setSliderStyle(juce::Slider::LinearVertical);bars[i].setRange(0,8,1);
             bars[i].getProperties().set("drawbarColour", i < 2 ? 0 : (i == 4 || i == 6 || i == 7 ? 2 : 1));
             bars[i].setLookAndFeel(&drawbarLook);
+            bars[i].getProperties().set("midiKey", "pk:ham:" + juce::String(index) + ":bar" + juce::String((int) i));
             bars[i].setTextBoxStyle(juce::Slider::TextBoxBelow,false,42,18);
             addAndMakeVisible(bars[i]);
             bars[i].onValueChange=[this,i]{auto c=processor.hammondConfig(index);const auto value=(int)bars[i].getValue();if(c.bars[i]==value)return;c.bars[i]=value;c.preset=-1;processor.setHammondConfig(index,c);};
@@ -119,6 +120,11 @@ public:
             knobLabels[i].setText(knobNames[i],juce::dontSendNotification);
             knobLabels[i].setJustificationType(juce::Justification::centred);
             knobLabels[i].setFont(juce::FontOptions(9.0f,juce::Font::bold));addAndMakeVisible(knobLabels[i]);
+            {
+                static const char* hammondKnobKeys[] { "click", "leakage", "drive", "level" };
+                if (i < 4) knobs[i].getProperties().set("midiKey", "pk:ham:" + juce::String(index) + ":" + hammondKnobKeys[i]);
+                else knobs[i].getProperties().set("midiParameter", "layer" + juce::String(index + 1) + "Sf2Chorus");
+            }
             knobs[i].setRange(0,100,1);knobs[i].setSliderStyle(juce::Slider::LinearHorizontal);
             knobs[i].setTextBoxStyle(juce::Slider::TextBoxBelow,false,52,18);knobs[i].setTextValueSuffix(" %");
             addAndMakeVisible(knobs[i]);

@@ -211,6 +211,10 @@ public:
     juce::String uiMidiMapString() const;
     void setUiMidiMapString(const juce::String& text);
     int uiMidiMapRevision() const noexcept { return uiMidiRevision.load(); }
+    void setUiEditorDraining(bool draining) { uiEditorDraining.store(draining); }
+    // Applies a 0..1 CC value to a control that has a processor-side setter ("pk:" keys).
+    // Works without any editor open. Message thread only.
+    bool applyUiMidiTarget(const juce::String& key, float normalised);
     void attachStandaloneMidiRouting(juce::AudioDeviceManager&, juce::MidiInputCallback& defaultCallback);
     void refreshStandaloneMidiInputs();
     void refreshStandaloneMidiInputs(const juce::Array<juce::MidiDeviceInfo>& devices);
@@ -497,6 +501,11 @@ private:
     std::atomic<bool> genericMidiAnyDirty { false };
     std::atomic<bool> uiMidiWanted { false }, uiMidiLearnActive { false };
     std::atomic<int> uiMidiRevision { 0 };
+    std::atomic<bool> uiEditorDraining { false };
+    int headlessMapRevision = -1;
+    struct HeadlessMidiEntry { juce::String key; int cc, channel; };
+    std::vector<HeadlessMidiEntry> headlessMidiMap;
+    void drainHeadlessUiMidi();
     juce::SpinLock rawCCLock;
     std::array<uint32_t, 512> rawCCRing {};
     int rawCCRead = 0, rawCCWrite = 0;
