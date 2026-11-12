@@ -96,7 +96,7 @@ final class EditorUi {
             // screens; the footer stays fixed and never covers the last row.
                 scroll.maxHeight=Math.max(dp(body.getContext(),64),m.heightPixels-dp(body.getContext(),220));
             if(docked){
-                dockClosedAt=0;if(dockHook!=null)dockHook.accept(this);
+                dockClosedAt=0;footer.setVisibility(View.GONE);if(dockHook!=null)dockHook.accept(this);
                 scroll.maxHeight=0;dialog.setCanceledOnTouchOutside(false);
                 dialog.show();android.view.Window dw=dialog.getWindow();
                 if(dw!=null){dw.setBackgroundDrawableResource(android.R.color.transparent);dw.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);

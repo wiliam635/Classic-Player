@@ -65,6 +65,8 @@ public class InspectorScreenshotTest {
             activate.setAccessible(true);
             instrumentation.runOnMainSync(() -> { try { activate.invoke(main, 0, R.raw.dx7_bank_1, "Divine Masquerade 1"); } catch (Exception e) { throw new RuntimeException(e); } });
             Thread.sleep(1500);
+            tap(1160, 302); // dismiss the emulator's "Viewing full screen" hint
+            Thread.sleep(800);
             shot("inspector-0-mixer.png", dir);
             View content = activity.findViewById(android.R.id.content);
             int[] at = new int[2]; content.getLocationOnScreen(at);

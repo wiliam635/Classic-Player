@@ -1912,6 +1912,11 @@ public final class MainActivity extends Activity {
             if("HAMMOND".equals(engine))buildHammondControls(layer,body);
             if(analog)buildAnalogOscillatorControls(layer,body);
             LinearLayout presets=EditorUi.gridRow(body);EditorUi.addButton(presets,"EXPORTAR PRESET…",()->exportLayerPreset(layer));EditorUi.addButton(presets,"IMPORTAR PRESET…",()->importLayerPreset(layer));
+            if(panel.docked&&!analog&&source.getParent()==body){
+                // Desktop packs bank buttons and preset import/export in one row.
+                while(presets.getChildCount()>0){View b=presets.getChildAt(0);presets.removeViewAt(0);source.addView(b);}
+                body.removeView(presets);
+            }
             if("NPNO".equals(engine)){
                 int eqMode=prefs.getInt("nord_eq_mode_"+layer,1);
                 EditorUi.selector(body,"EQUALIZER",new String[]{"SOFT","MID","BRIGHT"},eqMode,which->{
