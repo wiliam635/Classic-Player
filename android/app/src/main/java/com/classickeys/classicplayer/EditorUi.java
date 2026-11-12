@@ -57,18 +57,24 @@ final class EditorUi {
     static Button button(Context c,String text,Runnable action){Button b=new Button(c);b.setText(text);b.setTextSize(11);b.setAllCaps(false);b.setSingleLine(true);b.setTextColor(TEXT);b.setMinHeight(dp(c,44));b.setMinimumHeight(dp(c,44));b.setPadding(dp(c,6),0,dp(c,6),0);b.setBackground(background(SURFACE));b.setOnClickListener(v->action.run());return b;}
     static void addButton(LinearLayout row,String text,Runnable action){Button b=button(row.getContext(),text,action);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(row.getContext(),44),1);p.setMargins(2,1,2,1);row.addView(b,p);}
     static final class Panel {
+        /** Set right before creating an editor panel: the next Panel docks on the right edge (desktop inspector behaviour). */
+        static boolean dockNext;
+        static int dockWidth(Context c){android.util.DisplayMetrics m=c.getResources().getDisplayMetrics();return Math.min(Math.round(m.widthPixels*.46f),dp(c,520));}
+        static java.util.function.Consumer<Panel> dockHook;
+        final boolean docked;Runnable onClose;
         final Dialog dialog;
         final LinearLayout body,footer,tabs;
         final BoundedScrollView scroll;
         Panel(Activity a,String title,String subtitle){
-            dialog=new Dialog(a);dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+            docked=dockNext;dockNext=false;
+            dialog=new Dialog(a);dialog.setOnDismissListener(d->{if(onClose!=null)onClose.run();});dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
             LinearLayout root=column(a);root.setPadding(dp(a,7),dp(a,4),dp(a,7),dp(a,4));root.setBackground(background(PANEL));
             TextView heading=label(a,title,16);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setSingleLine(true);heading.setEllipsize(android.text.TextUtils.TruncateAt.END);root.addView(heading,new LinearLayout.LayoutParams(-1,dp(a,28)));
             if(subtitle!=null){TextView hint=label(a,subtitle,11);hint.setSingleLine(true);hint.setEllipsize(android.text.TextUtils.TruncateAt.END);hint.setTextColor(MUTED);root.addView(hint,new LinearLayout.LayoutParams(-1,dp(a,20)));}
             HorizontalScrollView tabScroller=new HorizontalScrollView(a);tabScroller.setHorizontalScrollBarEnabled(false);tabScroller.setFillViewport(true);
             tabs=new LinearLayout(a);tabs.setGravity(Gravity.CENTER);tabScroller.addView(tabs,new HorizontalScrollView.LayoutParams(-2,dp(a,42)));
             root.addView(tabScroller,new LinearLayout.LayoutParams(-1,dp(a,42)));
-            scroll=new BoundedScrollView(a);scroll.setVerticalScrollBarEnabled(true);scroll.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);body=column(a);body.setPadding(0,0,0,dp(a,8));scroll.addView(body,new ScrollView.LayoutParams(-1,-2));root.addView(scroll,new LinearLayout.LayoutParams(-1,-2));
+            scroll=new BoundedScrollView(a);scroll.setVerticalScrollBarEnabled(true);scroll.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);body=column(a);body.setPadding(0,0,0,dp(a,8));scroll.addView(body,new ScrollView.LayoutParams(-1,-2));root.addView(scroll,docked?new LinearLayout.LayoutParams(-1,0,1):new LinearLayout.LayoutParams(-1,-2));
             footer=new LinearLayout(a);footer.setGravity(Gravity.END);root.addView(footer,new LinearLayout.LayoutParams(-1,dp(a,48)));
             dialog.setContentView(root);
         }
@@ -77,6 +83,16 @@ final class EditorUi {
             // Keep the body inside the usable app area on short landscape
             // screens; the footer stays fixed and never covers the last row.
                 scroll.maxHeight=Math.max(dp(body.getContext(),64),m.heightPixels-dp(body.getContext(),220));
+            if(docked){
+                if(dockHook!=null)dockHook.accept(this);
+                scroll.maxHeight=0;dialog.setCanceledOnTouchOutside(false);
+                dialog.show();android.view.Window dw=dialog.getWindow();
+                if(dw!=null){dw.setBackgroundDrawableResource(android.R.color.transparent);dw.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+                    dw.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL);
+                    android.view.WindowManager.LayoutParams lp=dw.getAttributes();lp.gravity=Gravity.END|Gravity.TOP;lp.dimAmount=0f;lp.x=0;lp.y=0;dw.setAttributes(lp);
+                    dw.setLayout(dockWidth(body.getContext()),ViewGroup.LayoutParams.MATCH_PARENT);}
+                return;
+            }
             dialog.show();android.view.Window w=dialog.getWindow();if(w!=null){
                 w.setBackgroundDrawableResource(android.R.color.transparent);
                 // Compact desktop-like panels; never impose a minimum wider

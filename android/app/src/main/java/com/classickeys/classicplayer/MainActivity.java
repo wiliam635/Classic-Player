@@ -374,6 +374,7 @@ public final class MainActivity extends Activity {
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         screen = new ClassicPlayerView(this);
         setContentView(screen);
+        EditorUi.Panel.dockHook=p->{dockedInspector=p;p.onClose=()->{if(dockedInspector==p){dockedInspector=null;setMixerRightInset(0);}};};
         midiManager = (MidiManager) getSystemService(MIDI_SERVICE);
         audioEngine = new PolySynthEngine(this);
         SharedPreferences audioPrefs=getSharedPreferences("audio",MODE_PRIVATE);
@@ -1165,8 +1166,29 @@ public final class MainActivity extends Activity {
         EditorUi.addButton(panel.footer,"CANCELAR",panel.dialog::dismiss);panel.show();
     }
 
+    private EditorUi.Panel dockedInspector;
+    /** Closes the docked inspector (if any) and gives the whole width back to the mixer. */
+    private void closeDockedInspector(){
+        EditorUi.Panel old=dockedInspector;dockedInspector=null;
+        if(old!=null){old.onClose=null;try{old.dialog.dismiss();}catch(RuntimeException ignored){}}
+        setMixerRightInset(0);
+    }
+    private void setMixerRightInset(int px){
+        ViewGroup.LayoutParams lp=screen.getLayoutParams();
+        if(lp instanceof ViewGroup.MarginLayoutParams&&((ViewGroup.MarginLayoutParams)lp).rightMargin!=px){((ViewGroup.MarginLayoutParams)lp).rightMargin=px;screen.setLayoutParams(lp);}
+    }
     private void openLayerEditor(int layer) {
         if (screen.muted[layer]) { screen.setAudioStatus("DESMUTE A LAYER "+(layer+1)+" PARA EDITAR O MOTOR"); return; }
+        closeDockedInspector();
+        screen.focusLayer(layer);
+        setMixerRightInset(EditorUi.Panel.dockWidth(this));
+        EditorUi.Panel.dockNext=true;
+        try{openLayerEditorNow(layer);}finally{
+            EditorUi.Panel.dockNext=false;
+            if(dockedInspector==null)setMixerRightInset(0);
+        }
+    }
+    private void openLayerEditorNow(int layer) {
         String engine=screen.engineName(layer);
         if(engine.equals("DX7"))openDx7Editor(layer);
         else if(engine.equals("NPNO"))openNordEditor(layer);
@@ -2222,6 +2244,7 @@ public final class MainActivity extends Activity {
         private boolean savingLiveSlot;
         private int liveBank;
         private int focusedLayer=-1;
+        void focusLayer(int layer){focusedLayer=layer;invalidate();}
         private float layerScrollX;
         private float mixerDownX,mixerDownY,mixerScrollStart;
         private boolean mixerScrollCandidate,mixerScrollGesture,mixerScrollbarDrag;
@@ -2898,7 +2921,7 @@ public final class MainActivity extends Activity {
                         return true;
                     }
                     float artTop=h*.17f+h*.16f,artBottom=artTop+EditorUi.dp(getContext(),48);
-                    if(tap&&event.getY()>=artTop&&event.getY()<=artBottom){openLayerEditor(layer);return true;}
+                    if(tap){openLayerEditor(layer);return true;}
                 }
             }
             return true;
