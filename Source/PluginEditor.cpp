@@ -11087,7 +11087,11 @@ void ClassicPlayerAudioProcessorEditor::resized()
     // the space left after reserving the remaining controls.
     const auto statusWidth = juce::jlimit(140, 230, footerRow.getWidth() - 778);
     recordingStatus.setBounds(footerRow.removeFromLeft(statusWidth).reduced(6, 0));
-    keyboardVisibilityButton.setBounds({}); // the PALCO / MIXER modes now control the virtual keyboard
+    // Keep the hidden control's empty bounds in the footer sequence. The
+    // PALCO / MIXER modes control the virtual keyboard, but placing this
+    // component at (0, 0) makes layout/hit-test ordering regressions look like
+    // footer overlap.
+    keyboardVisibilityButton.setBounds(footerRow.removeFromLeft(0));
     audioMidiSettingsButton.setBounds(footerRow.removeFromLeft(140).reduced(2, 0));
     skinCaption.setBounds(footerRow.removeFromLeft(48).reduced(2, 0));
     skinSelector.setBounds(footerRow.removeFromLeft(150).reduced(2, 0));
