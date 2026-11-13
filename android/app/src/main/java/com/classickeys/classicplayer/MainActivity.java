@@ -2235,7 +2235,41 @@ public final class MainActivity extends Activity {
         }
     }
 
+    /** Segmented buttons (selected = light), like the desktop LESLIE ROTOR / PERCUSSION controls. */
+    private void segmented(LinearLayout parent,String caption,String[] options,int selected,java.util.function.IntConsumer onSelect){
+        LinearLayout cell=EditorUi.column(this);TextView title=EditorUi.label(this,caption,8);title.setGravity(Gravity.START);cell.addView(title,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,14)));
+        LinearLayout row=new LinearLayout(this);final Button[] buttons=new Button[options.length];
+        for(int i=0;i<options.length;i++){
+            final int index=i;buttons[i]=EditorUi.button(this,options[i],()->{});
+            buttons[i].setOnClickListener(v->{for(int j=0;j<buttons.length;j++){buttons[j].setBackground(EditorUi.background(j==index?EditorUi.TEXT:EditorUi.SURFACE));buttons[j].setTextColor(j==index?EditorUi.BACKGROUND:EditorUi.TEXT);}onSelect.accept(index);});
+            buttons[i].setBackground(EditorUi.background(i==selected?EditorUi.TEXT:EditorUi.SURFACE));buttons[i].setTextColor(i==selected?EditorUi.BACKGROUND:EditorUi.TEXT);buttons[i].setTextSize(10);buttons[i].setMinHeight(EditorUi.dp(this,32));buttons[i].setMinimumHeight(EditorUi.dp(this,32));
+            LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(0,EditorUi.dp(this,34),1);bp.setMargins(1,0,1,0);row.addView(buttons[i],bp);
+        }
+        cell.addView(row,new LinearLayout.LayoutParams(-1,-2));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,-2,1);cp.setMargins(3,2,3,2);parent.addView(cell,cp);
+    }
+    /** Caption above a slider with a percentage box, for the organ extras. */
+    private void sliderCell(LinearLayout parent,String caption,int value,java.util.function.IntConsumer onChange){
+        LinearLayout cell=EditorUi.column(this);TextView title=EditorUi.label(this,caption,8);title.setGravity(Gravity.START);cell.addView(title,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,14)));
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+        SeekBar bar=new SeekBar(this);bar.setMax(100);bar.setProgress(value);bar.setProgressTintList(android.content.res.ColorStateList.valueOf(EditorUi.ACCENT));bar.setThumbTintList(android.content.res.ColorStateList.valueOf(EditorUi.ACCENT));
+        row.addView(bar,new LinearLayout.LayoutParams(0,EditorUi.dp(this,34),1));
+        final TextView readout=EditorUi.label(this,value+" %",10);readout.setBackground(EditorUi.background(EditorUi.FIELD));row.addView(readout,new LinearLayout.LayoutParams(EditorUi.dp(this,50),EditorUi.dp(this,28)));
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar s,int v,boolean user){readout.setText(v+" %");if(user)onChange.accept(v);}public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){}});
+        cell.addView(row,new LinearLayout.LayoutParams(-1,-2));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,-2,1);cp.setMargins(3,2,3,2);parent.addView(cell,cp);
+    }
+    private void buildHammondControlsDesktop(int layer,LinearLayout body){
+        final int l=layer;
+        final EffectGraphs.Drawbars bars=new EffectGraphs.Drawbars(this);bars.set(screen.hammondBars[l]);
+        bars.listener=(bar,value)->screen.setHammondBar(l,bar,value);
+        body.addView(bars,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,230)));
+        LinearLayout opts=EditorUi.gridRow(body);
+        segmented(opts,"LESLIE ROTOR",new String[]{"PARAR","CHORALE","FAST"},screen.hammondLeslie[l],i->screen.setHammondOption(l,true,i));
+        segmented(opts,"PERCUSSION",new String[]{"OFF","2ND","3RD"},screen.hammondPercussion[l],i->screen.setHammondOption(l,false,i));
+        LinearLayout extras=EditorUi.gridRow(body);String[] labels={"KEY CLICK","LEAKAGE","DRIVE","LEVEL"};
+        for(int i=0;i<4;i++){final int index=i;sliderCell(extras,labels[i],Math.round(screen.hammondExtras[l][i]*100),v->screen.setHammondExtra(l,index,v/100f));}
+    }
     private void buildHammondControls(int layer,LinearLayout body){
+        if(EditorUi.compact){buildHammondControlsDesktop(layer,body);return;}
         final int l=layer;String[] barNames={"16′","5⅓′","8′","4′","2⅔′","2′","1⅗′","1⅓′","1′"};
         for(int rowIndex=0;rowIndex<3;rowIndex++){LinearLayout row=EditorUi.gridRow(body);for(int col=0;col<3;col++){
             final int bar=rowIndex*3+col;LinearLayout cell=EditorUi.column(this);cell.setPadding(EditorUi.dp(this,3),0,EditorUi.dp(this,3),0);TextView label=EditorUi.label(this,barNames[bar]+"  "+screen.hammondBars[l][bar],9);cell.addView(label,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,17)));
@@ -2351,7 +2385,15 @@ public final class MainActivity extends Activity {
             if(!EditorUi.compact){LinearLayout files=EditorUi.gridRow(body);EditorUi.addButton(files,"EXPORTAR COMP",()->exportEffectPreset(layer,effect));EditorUi.addButton(files,"IMPORTAR COMP",()->importEffectPreset(layer,effect));}return;
         }
         if(effect.equals("REVERB")){
-            LinearLayout row=EditorUi.knobRow(body);EditorUi.knob(row,"TEMPO",screen.reverbSize[layer],0,100," %",v->screen.setLayerReverb(layer,v,screen.reverbDamping[layer],screen.reverbWidth[layer]));
+            LinearLayout reverbHost=body;
+            if(EditorUi.compact){
+                // Desktop: instrument picture on the left, knob box on the right.
+                LinearLayout split=new LinearLayout(this);split.setOrientation(LinearLayout.HORIZONTAL);split.setGravity(Gravity.CENTER_VERTICAL);body.addView(split,new LinearLayout.LayoutParams(-1,-2));
+                android.widget.ImageView art=new android.widget.ImageView(this);art.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);art.setImageResource(screen.artworkResourceForLayer(layer));art.setBackground(EditorUi.outlined(EditorUi.PANEL,EditorUi.CYAN_OUTLINE,1,this));art.setClipToOutline(true);
+                LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(EditorUi.dp(this,170),EditorUi.dp(this,170));ap.setMargins(0,0,EditorUi.dp(this,10),0);split.addView(art,ap);
+                reverbHost=EditorUi.column(this);split.addView(reverbHost,new LinearLayout.LayoutParams(0,-2,1));
+            }
+            LinearLayout row=EditorUi.knobRow(reverbHost);EditorUi.knob(row,"TEMPO",screen.reverbSize[layer],0,100," %",v->screen.setLayerReverb(layer,v,screen.reverbDamping[layer],screen.reverbWidth[layer]));
             EditorUi.knob(row,"DIFUSÃO",100-screen.reverbDamping[layer],0,100," %",v->screen.setLayerReverb(layer,screen.reverbSize[layer],100-v,screen.reverbWidth[layer]));
             EditorUi.knob(row,"LARGURA",screen.reverbWidth[layer],0,100," %",v->screen.setLayerReverb(layer,screen.reverbSize[layer],screen.reverbDamping[layer],v));
             EditorUi.knob(row,"MIX",screen.layerReverb[layer]*100,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],v/100,screen.layerCompMix[layer],screen.layerChorus[layer]));
@@ -2851,7 +2893,7 @@ public final class MainActivity extends Activity {
         private float mixerViewportRight(float w){return w-EditorUi.dp(getContext(),18)-mixerMasterWidth()-EditorUi.dp(getContext(),10);}
         private float mixerContentWidth(float w){int count=activeLayerCount();if(count==0)return 0;float width=0,gap=EditorUi.dp(getContext(),8);for(int p=0;p<count;p++)width+=mixerCardWidth(activeLayerAt(p),w);return width+gap*(count-1);}
         private float mixerMaxScroll(float w){return Math.max(0,mixerContentWidth(w)-(mixerViewportRight(w)-EditorUi.dp(getContext(),18)));}
-        private int artworkResourceForLayer(int layer){
+        int artworkResourceForLayer(int layer){
             String engine=engineNames[layer]==null?"":engineNames[layer].toUpperCase(java.util.Locale.ROOT);
             String name=layerNames[layer]==null?"":layerNames[layer].toLowerCase(java.util.Locale.ROOT);
             if(engine.startsWith("CONT")||engine.contains("DRUM"))return R.drawable.category_pad;

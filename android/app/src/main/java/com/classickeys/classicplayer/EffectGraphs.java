@@ -151,4 +151,46 @@ final class EffectGraphs {
             return true;
         }
     }
+
+    /** Nine vertical drawbars (8 at the top, 0 at the bottom) with Hammond cap colours, like the desktop panel. */
+    static final class Drawbars extends View {
+        interface Listener { void changed(int bar, int value); }
+        static final String[] NAMES = {"16 ft", "5 1/3 ft", "8 ft", "4 ft", "2 2/3 ft", "2 ft", "1 3/5 ft", "1 1/3 ft", "1 ft"};
+        static final int[] CAPS = {0xffc4302b, 0xffc4302b, 0xfff0ece4, 0xfff0ece4, 0xff262626, 0xfff0ece4, 0xff262626, 0xff262626, 0xfff0ece4};
+        final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        final int[] values = new int[9];
+        Listener listener;
+        private int drag = -1;
+        Drawbars(Context c) { super(c); }
+        void set(int[] v) { for (int i = 0; i < 9; i++) values[i] = Math.max(0, Math.min(8, v[i])); invalidate(); }
+        private float trackTop() { return EditorUi.dp(getContext(), 30); }
+        private float trackBottom() { return getHeight() - EditorUi.dp(getContext(), 34); }
+        private float yOf(int value) { return trackBottom() - (trackBottom() - trackTop()) * value / 8f; }
+        @Override protected void onDraw(Canvas c) {
+            Context k = getContext(); float w = getWidth(), colW = w / 9f, top = trackTop(), bottom = trackBottom();
+            for (int i = 0; i < 9; i++) {
+                float cx = colW * (i + .5f);
+                p.setStyle(Paint.Style.FILL); p.setColor(EditorUi.FIELD); c.drawRoundRect(new RectF(cx - colW * .46f, 0, cx + colW * .46f, getHeight()), EditorUi.dp(k, 5), EditorUi.dp(k, 5), p);
+                p.setColor(EditorUi.TEXT); p.setTextAlign(Paint.Align.CENTER); p.setTextSize(EditorUi.dp(k, 10)); p.setFakeBoldText(true); c.drawText(NAMES[i], cx, EditorUi.dp(k, 16), p); p.setFakeBoldText(false);
+                p.setColor(0xff0c0e11); c.drawRoundRect(new RectF(cx - EditorUi.dp(k, 4), top, cx + EditorUi.dp(k, 4), bottom), EditorUi.dp(k, 4), EditorUi.dp(k, 4), p);
+                p.setColor(EditorUi.MUTED); p.setTextSize(EditorUi.dp(k, 8)); p.setTextAlign(Paint.Align.LEFT);
+                for (int n = 0; n <= 8; n++) c.drawText(String.valueOf(n), cx + EditorUi.dp(k, 12), yOf(n) + EditorUi.dp(k, 3), p);
+                float cy = yOf(values[i]), capW = Math.min(colW * .34f, EditorUi.dp(k, 26)), capH = EditorUi.dp(k, 22);
+                p.setStyle(Paint.Style.FILL); p.setColor(CAPS[i]); c.drawRoundRect(new RectF(cx - capW, cy - capH / 2f, cx + capW, cy + capH / 2f), EditorUi.dp(k, 3), EditorUi.dp(k, 3), p);
+                p.setColor(0x55000000); c.drawRect(cx - capW + EditorUi.dp(k, 3), cy - EditorUi.dp(k, 1), cx + capW - EditorUi.dp(k, 3), cy + EditorUi.dp(k, 1), p);
+                p.setColor(EditorUi.BACKGROUND); c.drawRoundRect(new RectF(cx - EditorUi.dp(k, 16), bottom + EditorUi.dp(k, 6), cx + EditorUi.dp(k, 16), bottom + EditorUi.dp(k, 26)), EditorUi.dp(k, 3), EditorUi.dp(k, 3), p);
+                p.setColor(EditorUi.TEXT); p.setTextAlign(Paint.Align.CENTER); p.setTextSize(EditorUi.dp(k, 11)); c.drawText(String.valueOf(values[i]), cx, bottom + EditorUi.dp(k, 21), p);
+            }
+        }
+        @Override public boolean onTouchEvent(MotionEvent e) {
+            float colW = getWidth() / 9f;
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN) { drag = Math.max(0, Math.min(8, (int) (e.getX() / colW))); getParent().requestDisallowInterceptTouchEvent(true); }
+            if (drag < 0) return false;
+            if (e.getActionMasked() == MotionEvent.ACTION_UP || e.getActionMasked() == MotionEvent.ACTION_CANCEL) { drag = -1; getParent().requestDisallowInterceptTouchEvent(false); return true; }
+            float fraction = (trackBottom() - e.getY()) / Math.max(1f, trackBottom() - trackTop());
+            int v = Math.max(0, Math.min(8, Math.round(fraction * 8f)));
+            if (v != values[drag]) { values[drag] = v; if (listener != null) listener.changed(drag, v); invalidate(); }
+            return true;
+        }
+    }
 }

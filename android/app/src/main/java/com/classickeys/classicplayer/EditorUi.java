@@ -173,6 +173,7 @@ final class EditorUi {
     static LinearLayout gridRow(LinearLayout parent){LinearLayout row=new LinearLayout(parent.getContext());row.setGravity(Gravity.CENTER_VERTICAL);parent.addView(row,new LinearLayout.LayoutParams(-1,-2));return row;}
     static LinearLayout knobRow(LinearLayout parent){LinearLayout row=new LinearLayout(parent.getContext());row.setGravity(Gravity.CENTER);row.setPadding(0,dp(parent.getContext(),2),0,dp(parent.getContext(),2));parent.addView(row,new LinearLayout.LayoutParams(-1,-2));return row;}
     /** Knob row height in dp: taller while the desktop-style inspector is open. */
+    static final int CYAN_OUTLINE=0xff2bb8e6;
     static int knobDp=68;
     /** Tighter controls while the desktop-style inspector is open. */
     static boolean compact=false;
