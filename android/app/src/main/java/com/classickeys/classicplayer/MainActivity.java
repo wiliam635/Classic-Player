@@ -375,7 +375,7 @@ public final class MainActivity extends Activity {
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         screen = new ClassicPlayerView(this);
         setContentView(screen);
-        EditorUi.Panel.dockHook=p->{dockedInspector=p;setMixerRightInset(EditorUi.Panel.dockWidth(this));screen.setOnlyLayer(dockedLayer);p.onClose=()->{if(dockedInspector==p){dockedInspector=null;setMixerRightInset(0);screen.setOnlyLayer(-1);}};};
+        EditorUi.Panel.dockHook=p->{EditorUi.knobDp=92;dockedInspector=p;setMixerRightInset(EditorUi.Panel.dockWidth(this));screen.setOnlyLayer(dockedLayer);p.onClose=()->{if(dockedInspector==p){dockedInspector=null;EditorUi.knobDp=68;setMixerRightInset(0);screen.setOnlyLayer(-1);}};};
         midiManager = (MidiManager) getSystemService(MIDI_SERVICE);
         audioEngine = new PolySynthEngine(this);
         SharedPreferences audioPrefs=getSharedPreferences("audio",MODE_PRIVATE);
@@ -1176,7 +1176,7 @@ public final class MainActivity extends Activity {
     private void closeDockedInspector(){
         EditorUi.Panel old=dockedInspector;dockedInspector=null;
         if(old!=null){old.onClose=null;try{old.dialog.dismiss();}catch(RuntimeException ignored){}}
-        setMixerRightInset(0);
+        EditorUi.knobDp=68;setMixerRightInset(0);
         screen.setOnlyLayer(-1);
     }
     /** The header stays full width, like the desktop; only the area below it is shared with the inspector. */
@@ -2232,7 +2232,7 @@ public final class MainActivity extends Activity {
             EditorUi.knob(row,"DIFUSÃO",100-screen.reverbDamping[layer],0,100," %",v->screen.setLayerReverb(layer,screen.reverbSize[layer],100-v,screen.reverbWidth[layer]));
             EditorUi.knob(row,"LARGURA",screen.reverbWidth[layer],0,100," %",v->screen.setLayerReverb(layer,screen.reverbSize[layer],screen.reverbDamping[layer],v));
             EditorUi.knob(row,"MIX",screen.layerReverb[layer]*100,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],v/100,screen.layerCompMix[layer],screen.layerChorus[layer]));
-            LinearLayout files=EditorUi.gridRow(body);EditorUi.addButton(files,"EXPORTAR REVERB",()->exportEffectPreset(layer,effect));EditorUi.addButton(files,"IMPORTAR REVERB",()->importEffectPreset(layer,effect));return;
+            if(!EditorUi.knobDocked()){LinearLayout files=EditorUi.gridRow(body);EditorUi.addButton(files,"EXPORTAR REVERB",()->exportEffectPreset(layer,effect));EditorUi.addButton(files,"IMPORTAR REVERB",()->importEffectPreset(layer,effect));}return;
         }
         LinearLayout row=EditorUi.knobRow(body);EditorUi.knob(row,"CHORUS MIX",screen.layerChorus[layer]*100,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],screen.layerCompMix[layer],v/100));
     }

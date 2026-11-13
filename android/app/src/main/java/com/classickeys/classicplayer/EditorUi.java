@@ -83,7 +83,7 @@ final class EditorUi {
                 top.addView(close,new LinearLayout.LayoutParams(dp(a,96),dp(a,40)));
                 root.addView(top,new LinearLayout.LayoutParams(-1,dp(a,44)));
             }else root.addView(heading,new LinearLayout.LayoutParams(-1,dp(a,28)));
-            if(subtitle!=null){TextView hint=label(a,subtitle,11);hint.setSingleLine(true);hint.setEllipsize(android.text.TextUtils.TruncateAt.END);hint.setTextColor(MUTED);root.addView(hint,new LinearLayout.LayoutParams(-1,dp(a,20)));}
+            if(subtitle!=null&&!docked){TextView hint=label(a,subtitle,11);hint.setSingleLine(true);hint.setEllipsize(android.text.TextUtils.TruncateAt.END);hint.setTextColor(MUTED);root.addView(hint,new LinearLayout.LayoutParams(-1,dp(a,20)));}
             HorizontalScrollView tabScroller=new HorizontalScrollView(a);tabScroller.setHorizontalScrollBarEnabled(false);tabScroller.setFillViewport(true);
             tabs=new LinearLayout(a);tabs.setGravity(docked?Gravity.START|Gravity.CENTER_VERTICAL:Gravity.CENTER);tabScroller.addView(tabs,new HorizontalScrollView.LayoutParams(-2,dp(a,docked?36:42)));
             root.addView(tabScroller,new LinearLayout.LayoutParams(-1,dp(a,docked?36:42)));
@@ -171,7 +171,10 @@ final class EditorUi {
     }
     static LinearLayout gridRow(LinearLayout parent){LinearLayout row=new LinearLayout(parent.getContext());row.setGravity(Gravity.CENTER_VERTICAL);parent.addView(row,new LinearLayout.LayoutParams(-1,-2));return row;}
     static LinearLayout knobRow(LinearLayout parent){LinearLayout row=new LinearLayout(parent.getContext());row.setGravity(Gravity.CENTER);row.setPadding(0,dp(parent.getContext(),2),0,dp(parent.getContext(),2));parent.addView(row,new LinearLayout.LayoutParams(-1,-2));return row;}
-    static Knob knob(LinearLayout row,String label,float value,float min,float max,String unit,Change action){Knob knob=new Knob(row.getContext(),label,value,min,max,unit,action);row.addView(knob,new LinearLayout.LayoutParams(0,dp(row.getContext(),68),1));return knob;}
+    /** Knob row height in dp: taller while the desktop-style inspector is open. */
+    static int knobDp=68;
+    static boolean knobDocked(){return knobDp>68;}
+    static Knob knob(LinearLayout row,String label,float value,float min,float max,String unit,Change action){Knob knob=new Knob(row.getContext(),label,value,min,max,unit,action);row.addView(knob,new LinearLayout.LayoutParams(0,dp(row.getContext(),knobDp),1));return knob;}
     static final class Knob extends View {
         final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);final String label,unit;final float min,max;final Change action;
         float value,downX,downY,start;int pointer=-1,dragAxis;final int touchSlop;
