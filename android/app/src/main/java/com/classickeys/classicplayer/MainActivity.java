@@ -2007,12 +2007,33 @@ public final class MainActivity extends Activity {
         if(page==1){
             final boolean sf2Envelope="SF2".equals(engine);
             TextView note=EditorUi.label(this,"ENVELOPE ADSR · ataque e liberação da layer",11);note.setTextColor(EditorUi.MUTED);body.addView(note,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,26)));
-            final float maxRelease="NPNO".equals(engine)?2000f:100f;
-            final EditorUi.EnvelopeGraph envelopeGraph=new EditorUi.EnvelopeGraph(this,screen.layerAttack[layer]*1000f,screen.layerRelease[layer]*1000f,100f,maxRelease);
-            body.addView(envelopeGraph,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,150)));
+            final float maxRelease="NPNO".equals(engine)?2000f:100f;final LayerVelocity env=velocity();
+            final EditorUi.EnvelopeGraph envelopeGraph=new EditorUi.EnvelopeGraph(this,screen.layerAttack[layer]*1000f,env.decayMs[layer],env.sustainPercent[layer],screen.layerRelease[layer]*1000f,100f,maxRelease);
+            body.addView(envelopeGraph,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,190)));
+            final Runnable[] knobsRefresh={null};
+            LinearLayout presetRow=EditorUi.gridRow(body);
+            final String[][] adsrNames={{"PIANO NATURAL","PIANO SUAVE","PLUCK / STACCATO","ORGAO","STRINGS / CORDAS","PAD AMBIENTE"}};
+            final float[][] adsrValues={{0,0,100,19},{4,260,72,28},{0,220,0,5},{0,0,100,5},{24,700,82,48},{62,1800,78,78}};
+            String[] adsrChoices=new String[adsrNames[0].length+1];adsrChoices[0]="ESCOLHER PRESET";System.arraycopy(adsrNames[0],0,adsrChoices,1,adsrNames[0].length);
+            EditorUi.selectorCell(presetRow,"",adsrChoices,0,i->{
+                if(i==0)return;float[] v=adsrValues[i-1];
+                // Desktop presets use its 0-100 attack/release scale; convert with the same laws.
+                double attackSeconds=v[0]<=50?v[0]*.001:.05*Math.pow(40.0,(v[0]-50)/50.0);
+                double releaseSeconds=v[3]<=50?Math.max(.005,v[3]*.01):.5*Math.pow(20.0,(v[3]-50)/50.0);
+                float attackMs=(float)Math.min(100.0,attackSeconds*1000.0),releaseMs=(float)Math.min((double)maxRelease,releaseSeconds*1000.0);
+                screen.setLayerEnvelope(layer,attackMs/1000f,releaseMs/1000f);env.decayMs[layer]=v[1];env.sustainPercent[layer]=v[2];env.save(layer);env.apply(audioEngine,layer);
+                renderDesktopStylePage(layer,panel,1,items,selected,selection,secondaryLabel,secondaryAction);
+            });
+            EditorUi.addButton(presetRow,"SALVAR CONFIG",()->{getSharedPreferences("adsr_saved",MODE_PRIVATE).edit().putFloat("attack",screen.layerAttack[layer]).putFloat("release",screen.layerRelease[layer]).putFloat("decay",env.decayMs[layer]).putFloat("sustain",env.sustainPercent[layer]).apply();android.widget.Toast.makeText(this,"Configuração ADSR salva",android.widget.Toast.LENGTH_SHORT).show();});
+            EditorUi.addButton(presetRow,"CARREGAR CONFIG",()->{SharedPreferences saved=getSharedPreferences("adsr_saved",MODE_PRIVATE);
+                if(!saved.contains("attack")){android.widget.Toast.makeText(this,"Nenhuma configuração salva",android.widget.Toast.LENGTH_SHORT).show();return;}
+                screen.setLayerEnvelope(layer,saved.getFloat("attack",0f),saved.getFloat("release",.05f));env.decayMs[layer]=saved.getFloat("decay",0f);env.sustainPercent[layer]=saved.getFloat("sustain",100f);env.save(layer);env.apply(audioEngine,layer);
+                renderDesktopStylePage(layer,panel,1,items,selected,selection,secondaryLabel,secondaryAction);});
             LinearLayout row=EditorUi.knobRow(body);
-            EditorUi.knob(row,sf2Envelope?"ATTACK +ms":"ATTACK ms",screen.layerAttack[layer]*1000f,sf2Envelope?0f:.1f,100," ms",v->{screen.setLayerEnvelope(layer,v/1000f,screen.layerRelease[layer]);envelopeGraph.set(v,screen.layerRelease[layer]*1000f);});
-            EditorUi.knob(row,sf2Envelope?"RELEASE +ms":"RELEASE ms",screen.layerRelease[layer]*1000f,0f,maxRelease," ms",v->{screen.setLayerEnvelope(layer,screen.layerAttack[layer],v/1000f);envelopeGraph.set(screen.layerAttack[layer]*1000f,v);});
+            EditorUi.knob(row,sf2Envelope?"ATTACK +ms":"ATTACK ms",screen.layerAttack[layer]*1000f,sf2Envelope?0f:.1f,100," ms",v->{screen.setLayerEnvelope(layer,v/1000f,screen.layerRelease[layer]);envelopeGraph.set(v,env.decayMs[layer],env.sustainPercent[layer],screen.layerRelease[layer]*1000f);});
+            EditorUi.knob(row,"DECAY ms",env.decayMs[layer],0,5000," ms",v->{env.decayMs[layer]=v;env.save(layer);env.apply(audioEngine,layer);envelopeGraph.set(screen.layerAttack[layer]*1000f,v,env.sustainPercent[layer],screen.layerRelease[layer]*1000f);});
+            EditorUi.knob(row,"SUSTAIN %",env.sustainPercent[layer],0,100," %",v->{env.sustainPercent[layer]=v;env.save(layer);env.apply(audioEngine,layer);envelopeGraph.set(screen.layerAttack[layer]*1000f,env.decayMs[layer],v,screen.layerRelease[layer]*1000f);});
+            EditorUi.knob(row,sf2Envelope?"RELEASE +ms":"RELEASE ms",screen.layerRelease[layer]*1000f,0f,maxRelease," ms",v->{screen.setLayerEnvelope(layer,screen.layerAttack[layer],v/1000f);envelopeGraph.set(screen.layerAttack[layer]*1000f,env.decayMs[layer],env.sustainPercent[layer],v);});
         }else if(page==3){
             // Desktop EFEITOS page: EDITAR buttons, PRESET row, EXPORTAR/IMPORTAR row, then the effect editor.
             final boolean nordEngine="NPNO".equals(engine);

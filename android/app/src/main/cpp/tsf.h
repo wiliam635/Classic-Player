@@ -235,6 +235,7 @@ TSFDEF void tsf_channel_sounds_off_all(tsf* f, int channel); //end immediately
 TSFDEF int tsf_channel_midi_control(tsf* f, int channel, int controller, int control_value);
 // Add editor envelope offsets in seconds to each region's native SF2 amp envelope.
 TSFDEF int tsf_channel_set_amp_envelope_offsets(tsf* f, int channel, float attack_offset, float release_offset);
+TSFDEF int tsf_channel_set_amp_decay(tsf* f, int channel, float decay_ms, float sustain_percent);
 
 // Get current values set on the channels
 TSFDEF int tsf_channel_get_preset_index(tsf* f, int channel);
@@ -475,6 +476,7 @@ struct tsf_voice
 	float  noteGainDB, panFactorLeft, panFactorRight;
 	unsigned int playIndex, loopStart, loopEnd;
 	struct tsf_voice_envelope ampenv, modenv;
+	float extraGain, extraStep, extraTarget; /* additional DECAY / SUSTAIN stage on top of the SoundFont envelope */
 	struct tsf_voice_lowpass lowpass;
 	struct tsf_voice_lfo modlfo, viblfo;
 };
@@ -482,7 +484,7 @@ struct tsf_voice
 struct tsf_channel
 {
 	unsigned short presetIndex, bank, pitchWheel, midiPan, midiVolume, midiExpression, midiRPN, midiData : 14, sustain : 1;
-	float panOffset, gainDB, pitchRange, tuning, ampAttackOffset, ampReleaseOffset;
+	float panOffset, gainDB, pitchRange, tuning, ampAttackOffset, ampReleaseOffset, ampDecayMs, ampSustainPct;
 };
 
 struct tsf_channels
@@ -1296,7 +1298,12 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 		if (dynamicGain)
 			noteGain = tsf_decibelsToGain(v->noteGainDB + (v->modlfo.level * tmpModLfoToVolume));
 
-		gainMono = noteGain * v->ampenv.level;
+		if (v->extraStep > 0.0f && v->ampenv.segment >= TSF_SEGMENT_DECAY && v->ampenv.segment < TSF_SEGMENT_RELEASE)
+		{
+			v->extraGain -= v->extraStep * (float)blockSamples;
+			if (v->extraGain < v->extraTarget) v->extraGain = v->extraTarget;
+		}
+		gainMono = noteGain * v->ampenv.level * v->extraGain;
 
 		// Update EG.
 		tsf_voice_envelope_process(&v->ampenv, blockSamples, tmpSampleRate);
@@ -1739,6 +1746,16 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 			if (ampParameters.release < 0.0f) ampParameters.release = 0.0f;
 		}
 		tsf_voice_envelope_setup(&voice->ampenv, &ampParameters, key, midiVelocity, TSF_TRUE, f->outSampleRate);
+		voice->extraGain = 1.0f; voice->extraStep = 0.0f; voice->extraTarget = 1.0f;
+		if (f->channels && voice->playingChannel >= 0 && voice->playingChannel < f->channels->channelNum)
+		{
+			const struct tsf_channel* extraChannel = &f->channels->channels[voice->playingChannel];
+			if (extraChannel->ampDecayMs > 0.0f)
+			{
+				voice->extraTarget = extraChannel->ampSustainPct * 0.01f;
+				voice->extraStep = (1.0f - voice->extraTarget) / (extraChannel->ampDecayMs * 0.001f * f->outSampleRate);
+			}
+		}
 		tsf_voice_envelope_setup(&voice->modenv, &region->modenv, key, midiVelocity, TSF_FALSE, f->outSampleRate);
 
 		// Setup lowpass filter.
@@ -1888,6 +1905,7 @@ static struct tsf_channel* tsf_channel_init(tsf* f, int channel)
 		c->pitchRange = 2.0f;
 		c->tuning = 0.0f;
 		c->ampAttackOffset = c->ampReleaseOffset = 0.0f;
+		c->ampDecayMs = 0.0f; c->ampSustainPct = 100.0f;
 	}
 	return &f->channels->channels[channel];
 }
@@ -2138,6 +2156,15 @@ TSFDEF int tsf_channel_set_amp_envelope_offsets(tsf* f, int channel, float attac
 	if (!c) return 0;
 	c->ampAttackOffset = attack_offset;
 	c->ampReleaseOffset = release_offset;
+	return 1;
+}
+
+TSFDEF int tsf_channel_set_amp_decay(tsf* f, int channel, float decay_ms, float sustain_percent)
+{
+	struct tsf_channel* c = tsf_channel_init(f, channel);
+	if (!c) return 0;
+	c->ampDecayMs = decay_ms < 0.0f ? 0.0f : decay_ms;
+	c->ampSustainPct = sustain_percent < 0.0f ? 0.0f : (sustain_percent > 100.0f ? 100.0f : sustain_percent);
 	return 1;
 }
 

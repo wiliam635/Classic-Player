@@ -230,23 +230,28 @@ final class EditorUi {
         }
     }
 
-    /** Envelope cycle drawing (attack, hold, release) for the ENVELOPE tab; only the parameters the Android engine has. */
+    /** ADSR cycle drawing like the desktop "Gráfico do Ciclo ADSR": attack, decay, sustain while the key is held, release. */
     static final class EnvelopeGraph extends View {
-        final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);float attackMs,releaseMs;final float maxAttack,maxRelease;
-        EnvelopeGraph(Context c,float attackMs,float releaseMs,float maxAttack,float maxRelease){super(c);this.attackMs=attackMs;this.releaseMs=releaseMs;this.maxAttack=maxAttack;this.maxRelease=maxRelease;}
-        void set(float attackMs,float releaseMs){this.attackMs=attackMs;this.releaseMs=releaseMs;invalidate();}
+        final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);float attackMs,decayMs,sustainPercent,releaseMs;final float maxAttack,maxRelease;
+        EnvelopeGraph(Context c,float attackMs,float decayMs,float sustainPercent,float releaseMs,float maxAttack,float maxRelease){super(c);this.maxAttack=maxAttack;this.maxRelease=maxRelease;set(attackMs,decayMs,sustainPercent,releaseMs);}
+        void set(float attackMs,float decayMs,float sustainPercent,float releaseMs){this.attackMs=attackMs;this.decayMs=decayMs;this.sustainPercent=sustainPercent;this.releaseMs=releaseMs;invalidate();}
         @Override protected void onDraw(Canvas c){
-            float w=getWidth(),h=getHeight(),l=dp(getContext(),14),r=w-dp(getContext(),14),t=dp(getContext(),30),b=h-dp(getContext(),26);
-            p.setStyle(Paint.Style.FILL);p.setColor(FIELD);c.drawRoundRect(new RectF(0,0,w,h),dp(getContext(),5),dp(getContext(),5),p);
-            p.setColor(MUTED);p.setTextSize(dp(getContext(),10));p.setTextAlign(Paint.Align.LEFT);c.drawText("CICLO DO ENVELOPE",l,dp(getContext(),18),p);
-            p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(dp(getContext(),1));p.setColor(BORDER);
-            for(int i=0;i<=4;i++){float y=t+(b-t)*i/4f;c.drawLine(l,y,r,y,p);}
-            float span=r-l,a=Math.max(.03f,Math.min(.32f,attackMs/Math.max(1f,maxAttack)*.32f)),hold=.28f,rel=Math.max(.03f,Math.min(.4f,releaseMs/Math.max(1f,maxRelease)*.4f));
-            float x0=l,x1=l+span*a,x2=x1+span*hold,x3=Math.min(r,x2+span*rel);
-            p.setColor(ACCENT);p.setStrokeWidth(dp(getContext(),2));
-            android.graphics.Path path=new android.graphics.Path();path.moveTo(x0,b);path.lineTo(x1,t);path.lineTo(x2,t);path.lineTo(x3,b);c.drawPath(path,p);
-            p.setStyle(Paint.Style.FILL);p.setColor(MUTED);p.setTextSize(dp(getContext(),9));p.setTextAlign(Paint.Align.CENTER);
-            c.drawText("ATTACK "+Math.round(attackMs)+" ms",(x0+x1)/2f+dp(getContext(),30),h-dp(getContext(),8),p);c.drawText("RELEASE "+Math.round(releaseMs)+" ms",(x2+x3)/2f,h-dp(getContext(),8),p);
+            Context k=getContext();float w=getWidth(),h=getHeight(),l=dp(k,34),r=w-dp(k,14),t=dp(k,38),b=h-dp(k,34);
+            p.setStyle(Paint.Style.FILL);p.setColor(FIELD);c.drawRoundRect(new RectF(0,0,w,h),dp(k,5),dp(k,5),p);
+            p.setColor(TEXT);p.setTextSize(dp(k,14));p.setTextAlign(Paint.Align.LEFT);p.setFakeBoldText(true);c.drawText("Gráfico do Ciclo ADSR",dp(k,14),dp(k,22),p);p.setFakeBoldText(false);
+            p.setColor(MUTED);p.setTextSize(dp(k,9));c.drawText("100%",dp(k,4),t+dp(k,3),p);c.drawText("0%",dp(k,10),b,p);
+            p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(dp(k,1));p.setColor(BORDER);c.drawLine(l,b,r,b,p);c.drawLine(l,t,r,t,p);
+            float span=r-l,aw=Math.max(.05f,Math.min(.2f,attackMs/Math.max(1f,maxAttack)*.2f)),dw=decayMs>0?Math.max(.05f,Math.min(.22f,decayMs/2000f*.22f)):.0f,sw=.34f,rw=Math.max(.06f,Math.min(.3f,releaseMs/Math.max(1f,maxRelease)*.3f));
+            float level=decayMs>0?Math.max(0f,Math.min(1f,sustainPercent*.01f)):1f;float sustainY=b-(b-t)*level;
+            float x0=l,x1=x0+span*aw,x2=x1+span*dw,x3=x2+span*sw,x4=Math.min(r,x3+span*rw);
+            android.graphics.Path path=new android.graphics.Path();path.moveTo(x0,b);path.lineTo(x1,t);path.lineTo(x2,sustainY);path.lineTo(x3,sustainY);path.lineTo(x4,b);
+            android.graphics.Path fill=new android.graphics.Path(path);fill.lineTo(x0,b);fill.close();
+            p.setStyle(Paint.Style.FILL);p.setColor(0x33f5a524);c.drawPath(fill,p);
+            p.setStyle(Paint.Style.STROKE);p.setColor(ACCENT);p.setStrokeWidth(dp(k,2));c.drawPath(path,p);
+            p.setStyle(Paint.Style.FILL);p.setColor(0xffe5483c);c.drawCircle(x1,t,dp(k,5),p);p.setColor(ACCENT);c.drawCircle(x2,sustainY,dp(k,5),p);p.setColor(0xff3cc46a);c.drawCircle(x3,sustainY,dp(k,5),p);
+            p.setColor(MUTED);p.setTextSize(dp(k,9));p.setTextAlign(Paint.Align.CENTER);
+            c.drawText("Ataque",(x0+x1)/2f,b+dp(k,13),p);c.drawText("Decaimento",(x1+x2)/2f+dp(k,10),b+dp(k,13),p);c.drawText("Sustentação (Tecla Pressionada)",(x2+x3)/2f,b+dp(k,13),p);c.drawText("Liberação",(x3+x4)/2f,b+dp(k,13),p);
+            p.setTextAlign(Paint.Align.LEFT);p.setColor(0xff4b8bff);c.drawText("Note On",l,b+dp(k,26),p);p.setColor(0xffe5483c);p.setTextAlign(Paint.Align.CENTER);c.drawText("Note Off",x3,b+dp(k,26),p);
         }
     }
 

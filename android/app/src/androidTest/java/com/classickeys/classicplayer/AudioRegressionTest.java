@@ -67,6 +67,31 @@ public class AudioRegressionTest {
         }
     }
 
+    /** Measures the additional DECAY / SUSTAIN stage: held-note level must fall to about the sustain percentage, and 0 ms decay must change nothing. */
+    private double heldLevelAfterOneSecond(int type, float decayMs, float sustainPercent) throws Exception {
+        for (int i = 0; i < 6; i++) engine.clearLayer(i);
+        activate(type, 0);
+        engine.setLayerAdsr(0, decayMs, sustainPercent);
+        engine.noteOn(60, 100, 0);
+        pcm(RATE);                       // let attack and decay finish
+        double level = rms(pcm(RATE / 4));
+        engine.noteOff(60, 0); pcm(RATE * 2);
+        return level;
+    }
+    private void assertAdsrStage(int type, String name) throws Exception {
+        double plain = heldLevelAfterOneSecond(type, 0f, 100f);
+        double neutral = heldLevelAfterOneSecond(type, 0f, 20f);        // 0 ms decay bypasses the stage even with 20 %
+        double shaped = heldLevelAfterOneSecond(type, 300f, 20f);
+        try (FileWriter w = new FileWriter(new File(reports, "adsr-" + name + ".json"))) {
+            w.write("{\"plain\":" + plain + ",\"neutral\":" + neutral + ",\"shaped\":" + shaped + ",\"ratio\":" + (shaped / plain) + "}");
+        }
+        assertEquals(name + " 0 ms decay must be a bypass", plain, neutral, plain * 0.02);
+        double ratio = shaped / plain;
+        assertTrue(name + " decay to 20 % sustain, got ratio " + ratio, ratio > 0.12 && ratio < 0.32);
+    }
+    @Test public void sf2DecaySustainStage() throws Exception { assertAdsrStage(1, "sf2"); }
+    @Test public void dx7DecaySustainStage() throws Exception { assertAdsrStage(2, "dx7"); }
+
     @Test public void fullSustainedPoolAcceptsNewKey() throws Exception {
         activate(1,0);engine.setSustain(0,true);
         assertEquals("A single active layer receives the full app budget",256,engine.voiceBudget(0));

@@ -69,6 +69,8 @@ std::array<std::array<std::array<int,128>,16>,kLayerCount> routedNotes {};
 // SoundFont envelope; never infer a fake 5/50 ms envelope for the preset.
 std::array<float, kLayerCount> layerAttack { 0.005f,0.005f,0.005f,0.005f,0.005f,0.005f };
 std::array<float, kLayerCount> layerRelease { 0.05f,0.05f,0.05f,0.05f,0.05f,0.05f };
+// Additional DECAY / SUSTAIN stage (desktop ADSR). 0 ms bypasses it, so existing sounds are unchanged.
+std::array<float, kLayerCount> layerDecayMs {}, layerSustainPercent { 100.0f,100.0f,100.0f,100.0f,100.0f,100.0f };
 std::array<float,kLayerCount> layerCutoff {100,100,100,100,100,100},layerReverbSend {},layerCompressorMix {},layerChorusMix {};
 std::array<float,kLayerCount> layerReverbSize {55,55,55,55,55,55},layerReverbDamping {45,45,45,45,45,45},layerReverbWidth {100,100,100,100,100,100};
 std::array<float,kLayerCount> compressorAttack {0.0001f,0.0001f,0.0001f,0.0001f,0.0001f,0.0001f},compressorRelease {0.005f,0.005f,0.005f,0.005f,0.005f,0.005f},compressorMakeupDb {};
@@ -226,6 +228,9 @@ struct DxVoice
     std::unique_ptr<Dx7Note> synth;
     std::array<int32_t, N> samples {};
     int read = N;
+    bool released = false;
+    float decayGain = 1.0f;
+    uint64_t age = 0;
 };
 struct DxLayer
 {
@@ -476,7 +481,7 @@ void sendAllNotesOff()
     for(auto& layer:routedNotes)for(auto& channel:layer)channel.fill(0);
     for (int layer=0;layer<kLayerCount;++layer) {
         if(fonts[(size_t)layer]!=nullptr)for(int ch=0;ch<16;++ch){tsf_channel_set_sustain(fonts[(size_t)layer],ch,0);tsf_channel_note_off_all(fonts[(size_t)layer],ch);}
-        for(auto& voice:dxLayers[(size_t)layer].voices)if(voice.active&&voice.synth)voice.synth->keyup();
+        for(auto& voice:dxLayers[(size_t)layer].voices)if(voice.active&&voice.synth){voice.synth->keyup();voice.released=true;}
         // Panic must be immediate; a lost MIDI note-off must never leave an
         // oscillator running while changing screens/devices.
         for(auto& voice:analogLayers[(size_t)layer].voices)voice={};
@@ -539,7 +544,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadLayer(
     std::lock_guard<std::mutex> lock(synthMutex);
     layerAttack[(size_t)layer]=0.0f;
     layerRelease[(size_t)layer]=0.0f;
-    for(int ch=0;ch<16;++ch)tsf_channel_set_amp_envelope_offsets(loaded,ch,0.0f,0.0f);
+    for(int ch=0;ch<16;++ch){tsf_channel_set_amp_envelope_offsets(loaded,ch,0.0f,0.0f);tsf_channel_set_amp_decay(loaded,ch,layerDecayMs[(size_t)layer],layerSustainPercent[(size_t)layer]);}
     releaseLayer(layer);
     fonts[(size_t) layer] = loaded;
     engineTypes[(size_t) layer] = EngineType::sf2;
@@ -715,7 +720,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetDx7Patch(JNIEnv*,jcl
         // The DX7 pool is allocated before any note is played. A fresh
         // Dx7Note has uninitialized envelopes, so keyup() is only valid for
         // voices whose note-on has initialized those envelopes.
-        if(voice.active&&voice.synth)voice.synth->keyup();
+        if(voice.active&&voice.synth){voice.synth->keyup();voice.released=true;}
         voice.active=false;voice.note=-1;voice.read=N;
     }
     return JNI_TRUE;
@@ -876,6 +881,14 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerEnvelope(JNIEnv
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerAdsr(JNIEnv*,jclass,jint layer,jfloat decayMs,jfloat sustainPercent)
+{
+    if(layer<0||layer>=kLayerCount)return;std::lock_guard<std::mutex> lock(synthMutex);
+    const auto i=(size_t)layer;layerDecayMs[i]=std::clamp((float)decayMs,0.0f,5000.0f);layerSustainPercent[i]=std::clamp((float)sustainPercent,0.0f,100.0f);
+    if(fonts[i]!=nullptr)for(int channel=0;channel<16;++channel)tsf_channel_set_amp_decay(fonts[i],channel,layerDecayMs[i],layerSustainPercent[i]);
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetSf2OriginalSound(JNIEnv*, jclass, jint layer, jboolean original)
 {
     if(layer<0||layer>=kLayerCount)return;
@@ -1009,7 +1022,7 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
         if(layerMidiMode[li]!=0||(engineTypes[li]==EngineType::analog&&analogLayers[li].monophonic)){
             if(engineTypes[li]==EngineType::sf2&&fonts[li]!=nullptr){tsf_channel_note_off_all(fonts[li],midiChannel);routedNotes[li][(size_t)midiChannel].fill(0);}
             for(auto& old:dxLayers[li].voices){
-                if(old.active&&old.synth)old.synth->keyup();
+                if(old.active&&old.synth){old.synth->keyup();old.released=true;}
                 old.active=false;old.note=-1;old.read=N;
             }
             for(auto& old:hammondLayers[li].voices)old={};
@@ -1027,7 +1040,7 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
             for(int i=0;i<voiceBudget;++i)if(!dx.voices[(size_t)i].active){target=&dx.voices[(size_t)i];break;}
             if(target==nullptr){target=&dx.voices[0];for(int i=1;i<voiceBudget;++i){auto& voice=dx.voices[(size_t)i];if(voice.serial<target->serial)target=&voice;}}
             target->serial=++dx.serial;
-            target->active=true; target->note=routedNote; target->channel=midiChannel; target->read=N; target->samples.fill(0);
+            target->active=true; target->note=routedNote; target->channel=midiChannel; target->read=N; target->samples.fill(0); target->released=false; target->decayGain=1.0f; target->age=0;
             if(!target->synth){target->active=false;continue;}
             target->synth->init(dx.patches[(size_t)dx.selected].data(),routedNote,routedVelocity,1,&controllers);
         }
@@ -1116,7 +1129,7 @@ static void applyNoteOff(jint note, jint midiChannel)
             tsf_channel_note_off(fonts[li], 0, routedNote);
         if (type == EngineType::dx7)
             for (auto& voice: dxLayers[li].voices)
-                if (voice.active && voice.note == routedNote && voice.channel==midiChannel && voice.synth) voice.synth->keyup();
+                if (voice.active && voice.note == routedNote && voice.channel==midiChannel && voice.synth) {voice.synth->keyup();voice.released=true;}
         // With no sustain hold, close the custom-engine envelope normally.
         if (type == EngineType::analog)
             for (auto& voice: analogLayers[(size_t)layer].voices)
@@ -1186,7 +1199,7 @@ static void applyControl(jint controller, jint value, jint midiChannel)
                             if (voice.active && voice.note == routedNote && voice.channel==midiChannel) releaseHammondVoice(voice);
                     } else if (engineTypes[li] == EngineType::dx7) {
                         for (auto& voice: dxLayers[li].voices)
-                            if (voice.active && voice.note == routedNote && voice.channel==midiChannel && voice.synth) voice.synth->keyup();
+                            if (voice.active && voice.note == routedNote && voice.channel==midiChannel && voice.synth) {voice.synth->keyup();voice.released=true;}
                     }
                 }
             }
@@ -1283,12 +1296,15 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
         if(engineTypes[(size_t)layer]==EngineType::sf2 && font!=nullptr) tsf_render_float(font, scratch.data(), frames, TSF_FALSE);
         else if(engineTypes[li]==EngineType::nord)
             nord_android::render(nordLayers[li],scratch.data(),frames,kSampleRate,
-                    layerVoiceBudgets[li],layerAttack[li]);
+                    layerVoiceBudgets[li],layerAttack[li],layerDecayMs[li],layerSustainPercent[li]);
         else if(engineTypes[(size_t)layer]==EngineType::dx7) {
             auto& dx=dxLayers[(size_t)layer];
             // Traverse the voice pool once per block instead of once per
             // sample. Mix in the same voice order and preserve MSFA's N-frame
             // buffering, including envelope termination at compute boundaries.
+            const float dxDecayTarget=std::clamp(layerSustainPercent[li]*.01f,0.0f,1.0f);
+            const float dxDecayStep=layerDecayMs[li]>0.0f?(1.0f-dxDecayTarget)/std::max(1.0f,layerDecayMs[li]*.001f*kSampleRate):0.0f;
+            const uint64_t dxAttackSamples=(uint64_t)std::max(0.0f,layerAttack[li]*kSampleRate);
             for(int voiceIndex=0;voiceIndex<layerVoiceBudgets[li];++voiceIndex) {
                 auto& voice=dx.voices[(size_t)voiceIndex];
                 if(!voice.active||!voice.synth)continue;
@@ -1297,7 +1313,9 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
                         if(!voice.synth->isPlaying()){voice.active=false;voice.read=N;break;}
                         voice.samples.fill(0); voice.synth->compute(voice.samples.data(),1<<23,1<<24,&controllers); voice.read=0;
                     }
-                    const float value=(float)voice.samples[(size_t)voice.read++]/(float)(1<<24)*0.024f;
+                    if(dxDecayStep>0.0f&&!voice.released&&voice.age>=dxAttackSamples)voice.decayGain=std::max(dxDecayTarget,voice.decayGain-dxDecayStep);
+                    ++voice.age;
+                    const float value=(float)voice.samples[(size_t)voice.read++]/(float)(1<<24)*0.024f*voice.decayGain;
                     scratch[(size_t)sample*2]+=value;
                 }
             }

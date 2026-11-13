@@ -231,11 +231,13 @@ void pedalUp(Layer& layer,int channel,float releaseSeconds){
         v.keyDown=false;v.waitingForSustain=false;v.released=true;v.releaseSeconds=smoothRelease;
     }
 }
-void render(Layer& layer,float* stereo,int frames,int outputRate,int budget,float attackSeconds){
+void render(Layer& layer,float* stereo,int frames,int outputRate,int budget,float attackSeconds,float decayMs,float sustainPercent){
     if(!layer.instrument||!stereo)return;const auto& piano=*layer.instrument;
     const int voices=std::clamp(budget,0,maxVoices);
     const float attackStep=attackSeconds>0?1.f/std::max(1.f,attackSeconds*outputRate):1.f;
     const uint64_t maxAge=(uint64_t)(outputRate*15.0);
+    const float decayTarget=std::clamp(sustainPercent*.01f,0.f,1.f);
+    const float decayStep=decayMs>0?(1.f-decayTarget)/std::max(1.f,decayMs*.001f*outputRate):0.f;
     for(int vi=0;vi<voices;++vi){auto& v=layer.voices[(size_t)vi];if(!v.active||v.stroke<0)continue;
         const auto& s=piano.strokes[(size_t)v.stroke];int total=(int)(s.pcm.size()/size_t(piano.channels));
         const float releaseFactor=std::exp(std::log(.0001f)/std::max(1.f,std::max(.005f,v.releaseSeconds)*outputRate));
@@ -249,7 +251,8 @@ void render(Layer& layer,float* stereo,int frames,int outputRate,int budget,floa
             if(v.releaseGain<.0001f){v={};break;}
             float remaining=std::max(0.f,1.f-float(v.age)/float(outputRate*15));
             float decay=layer.finitePiano?remaining*remaining:1.f;
-            float gain=v.level*v.attackGain*v.releaseGain*decay;
+            if(decayStep>0&&!v.released&&v.attackGain>=1.f)v.decayGain=std::max(decayTarget,v.decayGain-decayStep);
+            float gain=v.level*v.attackGain*v.releaseGain*decay*v.decayGain;
             float left,right;sampleStereo(s,piano.channels,v.position,left,right);
             stereo[(size_t)f*2]+=left*gain;
             stereo[(size_t)f*2+1]+=right*gain;

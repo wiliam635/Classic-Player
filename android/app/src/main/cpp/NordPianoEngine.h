@@ -37,7 +37,7 @@ struct Voice {
     int note = -1, channel = 0, stroke = -1;
     uint64_t serial = 0, age = 0;
     double position = 0, increment = 1;
-    float level = 0, attackGain = 1, releaseGain = 1, releaseSeconds = 0.04f;
+    float level = 0, attackGain = 1, releaseGain = 1, releaseSeconds = 0.04f, decayGain = 1;
 };
 
 struct Layer {
@@ -55,6 +55,6 @@ void noteOff(Layer& layer, int note, int channel, bool sustain,
              float releaseSeconds = 0.04f);
 void pedalUp(Layer& layer, int channel, float releaseSeconds = 0.04f);
 void render(Layer& layer, float* stereo, int frames, int outputRate,
-            int voiceBudget, float attackSeconds);
+            int voiceBudget, float attackSeconds, float decayMs = 0.0f, float sustainPercent = 100.0f);
 int activeVoices(const Layer& layer);
 }

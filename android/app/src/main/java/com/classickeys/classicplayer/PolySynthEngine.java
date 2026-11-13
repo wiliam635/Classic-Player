@@ -180,6 +180,7 @@ final class PolySynthEngine {
     private static native void nativeSetLayerEq(int layer,float lowDb,float midDb,float highDb,float lowFrequency,float midFrequency,float highFrequency,float lowQ,float midQ,float highQ,float highPassHz,float lowPassHz);
     private static native void nativeSetLayerCompressor(int layer,float threshold,float ratio,float attackMs,float releaseMs,float makeupDb);
     private static native void nativeSetLayerReverb(int layer,float size,float damping,float width);
+    private static native void nativeSetLayerAdsr(int layer,float decayMs,float sustainPercent);
     private static native void nativeSetLayerVelocity(int layer,int low,int high,boolean sensitivityOff,int outMin,int outMax,float slope,int timbreFloor);
     private static native void nativeSetLayerRouting(int layer,int channel,int octave,int lowNote,int highNote,int velocityCurve,boolean sustainEnabled,int mode);
     private static native void nativeSetLayerModulationEnabled(int layer,boolean enabled);
@@ -322,6 +323,7 @@ final class PolySynthEngine {
     void setLayerEq(int layer,float low,float mid,float high,float lowFrequency,float midFrequency,float highFrequency,float lowQ,float midQ,float highQ,float highPassHz,float lowPassHz){nativeSetLayerEq(layer,low,mid,high,lowFrequency,midFrequency,highFrequency,lowQ,midQ,highQ,highPassHz,lowPassHz);}
     void setLayerCompressor(int layer,float threshold,float ratio,float attack,float release,float makeup){nativeSetLayerCompressor(layer,threshold,ratio,attack,release,makeup);}
     void setLayerReverb(int layer,float size,float damping,float width){nativeSetLayerReverb(layer,size,damping,width);}
+    void setLayerAdsr(int layer,float decayMs,float sustainPercent){nativeSetLayerAdsr(layer,decayMs,sustainPercent);}
     void setLayerVelocity(int layer,int low,int high,boolean sensitivityOff,int outMin,int outMax,float slope,int timbreFloor){nativeSetLayerVelocity(layer,low,high,sensitivityOff,outMin,outMax,slope,timbreFloor);}
     void setLayerRouting(int layer,int channel,int octave,int low,int high,int velocityCurve,boolean sustain,int mode){nativeSetLayerRouting(layer,channel,octave,low,high,velocityCurve,sustain,mode);}
     void setLayerModulationEnabled(int layer,boolean enabled){nativeSetLayerModulationEnabled(layer,enabled);}
