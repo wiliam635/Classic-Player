@@ -93,6 +93,8 @@ jobs:
 
       - name: Install vcpkg dependencies
         uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 39344dff01c5a5a0134caf2624cdd492f05d30ea
 
       - name: Configure with Visual Studio 2022 x64
         shell: pwsh
