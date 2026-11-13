@@ -71,8 +71,9 @@ final class EditorUi {
         final BoundedScrollView scroll;
         Panel(Activity a,String title,String subtitle){
             docked=dockNext||(dockClosedAt!=0&&android.os.SystemClock.uptimeMillis()-dockClosedAt<400);dockNext=false;
+            if(docked){knobDp=92;compact=true;}
             final boolean wasDocked=docked;
-            dialog=new Dialog(a);dialog.setOnDismissListener(d->{if(wasDocked)dockClosedAt=android.os.SystemClock.uptimeMillis();if(onClose!=null)onClose.run();});dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+            dialog=new Dialog(a);dialog.setOnDismissListener(d->{if(wasDocked){dockClosedAt=android.os.SystemClock.uptimeMillis();knobDp=68;compact=false;}if(onClose!=null)onClose.run();});dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
             LinearLayout root=column(a);root.setPadding(dp(a,7),dp(a,4),dp(a,7),dp(a,4));root.setBackground(background(PANEL));
             TextView heading=label(a,title,16);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setSingleLine(true);heading.setEllipsize(android.text.TextUtils.TruncateAt.END);if(docked){
                 // Desktop inspector header: title on the left, FECHAR on the right.

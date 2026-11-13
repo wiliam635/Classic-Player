@@ -2304,23 +2304,31 @@ public final class MainActivity extends Activity {
         if(effect.equals("EQ")){
             EditorUi.ResponseGraph graph=new EditorUi.ResponseGraph(this,false,screen.eqLow[layer],screen.eqMid[layer],screen.eqHigh[layer]);
             graph.setParametricValues(screen.eqLowFreq[layer],screen.eqMidFreq[layer],screen.eqHighFreq[layer],screen.eqLowQ[layer],screen.eqMidQ[layer],screen.eqHighQ[layer],screen.eqHighPass[layer],screen.eqLowPass[layer]);
-            LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(-1,EditorUi.dp(this,84));gp.setMargins(0,2,0,3);body.addView(graph,gp);
-            LinearLayout row=EditorUi.knobRow(body);addEqKnob(layer,row,graph,"LOW Hz",0);addEqKnob(layer,row,graph,"LOW dB",1);addEqKnob(layer,row,graph,"LOW Q",2);
-            row=EditorUi.knobRow(body);addEqKnob(layer,row,graph,"MID Hz",3);addEqKnob(layer,row,graph,"MID dB",4);addEqKnob(layer,row,graph,"MID Q",5);
-            row=EditorUi.knobRow(body);addEqKnob(layer,row,graph,"HIGH Hz",6);addEqKnob(layer,row,graph,"HIGH dB",7);addEqKnob(layer,row,graph,"HIGH Q",8);
-            row=EditorUi.knobRow(body);addEqKnob(layer,row,graph,"LOW CUT",9);addEqKnob(layer,row,graph,"HIGH CUT",10);
-            LinearLayout files=EditorUi.gridRow(body);EditorUi.addButton(files,"EXPORTAR EQ",()->exportEffectPreset(layer,effect));EditorUi.addButton(files,"IMPORTAR EQ",()->importEffectPreset(layer,effect));return;
+            LinearLayout knobHost=body;
+            if(EditorUi.compact){LinearLayout split=new LinearLayout(this);split.setOrientation(LinearLayout.HORIZONTAL);body.addView(split,new LinearLayout.LayoutParams(-1,-2));
+                LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(0,EditorUi.dp(this,250),1.7f);gp.setMargins(0,2,EditorUi.dp(this,6),3);split.addView(graph,gp);
+                knobHost=EditorUi.column(this);split.addView(knobHost,new LinearLayout.LayoutParams(0,-2,1.3f));}
+            else{LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(-1,EditorUi.dp(this,84));gp.setMargins(0,2,0,3);body.addView(graph,gp);}
+            LinearLayout row=EditorUi.knobRow(knobHost);addEqKnob(layer,row,graph,"LOW Hz",0);addEqKnob(layer,row,graph,"LOW dB",1);addEqKnob(layer,row,graph,"LOW Q",2);
+            row=EditorUi.knobRow(knobHost);addEqKnob(layer,row,graph,"MID Hz",3);addEqKnob(layer,row,graph,"MID dB",4);addEqKnob(layer,row,graph,"MID Q",5);
+            row=EditorUi.knobRow(knobHost);addEqKnob(layer,row,graph,"HIGH Hz",6);addEqKnob(layer,row,graph,"HIGH dB",7);addEqKnob(layer,row,graph,"HIGH Q",8);
+            row=EditorUi.knobRow(knobHost);addEqKnob(layer,row,graph,"LOW CUT",9);addEqKnob(layer,row,graph,"HIGH CUT",10);
+            if(!EditorUi.compact){LinearLayout files=EditorUi.gridRow(body);EditorUi.addButton(files,"EXPORTAR EQ",()->exportEffectPreset(layer,effect));EditorUi.addButton(files,"IMPORTAR EQ",()->importEffectPreset(layer,effect));}return;
         }
         if(effect.equals("COMP")){
             final EditorUi.ResponseGraph graph=new EditorUi.ResponseGraph(this,true,screen.compressorThreshold[layer],screen.compressorRatio[layer],0);
-            LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(-1,EditorUi.dp(this,84));gp.setMargins(0,2,0,3);body.addView(graph,gp);
-            LinearLayout row=EditorUi.knobRow(body);EditorUi.knob(row,"THRESHOLD dB",(float)(20*Math.log10(Math.max(.001f,screen.compressorThreshold[layer]))),-60,0," dB",v->{screen.setLayerCompressor(layer,(float)Math.pow(10,v/20f),screen.compressorRatio[layer],screen.compressorAttackMs[layer],screen.compressorReleaseMs[layer],screen.compressorMakeupDb[layer]);graph.setValues(screen.compressorThreshold[layer],screen.compressorRatio[layer],0);});
+            LinearLayout knobHost=body;
+            if(EditorUi.compact){LinearLayout split=new LinearLayout(this);split.setOrientation(LinearLayout.HORIZONTAL);body.addView(split,new LinearLayout.LayoutParams(-1,-2));
+                LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(0,EditorUi.dp(this,250),1.7f);gp.setMargins(0,2,EditorUi.dp(this,6),3);split.addView(graph,gp);
+                knobHost=EditorUi.column(this);split.addView(knobHost,new LinearLayout.LayoutParams(0,-2,1.3f));}
+            else{LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(-1,EditorUi.dp(this,84));gp.setMargins(0,2,0,3);body.addView(graph,gp);}
+            LinearLayout row=EditorUi.knobRow(knobHost);EditorUi.knob(row,"THRESHOLD dB",(float)(20*Math.log10(Math.max(.001f,screen.compressorThreshold[layer]))),-60,0," dB",v->{screen.setLayerCompressor(layer,(float)Math.pow(10,v/20f),screen.compressorRatio[layer],screen.compressorAttackMs[layer],screen.compressorReleaseMs[layer],screen.compressorMakeupDb[layer]);graph.setValues(screen.compressorThreshold[layer],screen.compressorRatio[layer],0);});
             EditorUi.knob(row,"RATIO",screen.compressorRatio[layer],1,20,":1",v->{screen.setLayerCompressor(layer,screen.compressorThreshold[layer],v,screen.compressorAttackMs[layer],screen.compressorReleaseMs[layer],screen.compressorMakeupDb[layer]);graph.setValues(screen.compressorThreshold[layer],screen.compressorRatio[layer],0);});
             EditorUi.knob(row,"MIX",screen.layerCompMix[layer]*100,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],v/100,screen.layerChorus[layer]));
-            row=EditorUi.knobRow(body);EditorUi.knob(row,"ATTACK ms",screen.compressorAttackMs[layer],.1f,100," ms",v->screen.setLayerCompressor(layer,screen.compressorThreshold[layer],screen.compressorRatio[layer],v,screen.compressorReleaseMs[layer],screen.compressorMakeupDb[layer]));
+            row=EditorUi.knobRow(knobHost);EditorUi.knob(row,"ATTACK ms",screen.compressorAttackMs[layer],.1f,100," ms",v->screen.setLayerCompressor(layer,screen.compressorThreshold[layer],screen.compressorRatio[layer],v,screen.compressorReleaseMs[layer],screen.compressorMakeupDb[layer]));
             EditorUi.knob(row,"RELEASE ms",screen.compressorReleaseMs[layer],5,1000," ms",v->screen.setLayerCompressor(layer,screen.compressorThreshold[layer],screen.compressorRatio[layer],screen.compressorAttackMs[layer],v,screen.compressorMakeupDb[layer]));
             EditorUi.knob(row,"MAKEUP dB",screen.compressorMakeupDb[layer],0,24," dB",v->screen.setLayerCompressor(layer,screen.compressorThreshold[layer],screen.compressorRatio[layer],screen.compressorAttackMs[layer],screen.compressorReleaseMs[layer],v));
-            LinearLayout files=EditorUi.gridRow(body);EditorUi.addButton(files,"EXPORTAR COMP",()->exportEffectPreset(layer,effect));EditorUi.addButton(files,"IMPORTAR COMP",()->importEffectPreset(layer,effect));return;
+            if(!EditorUi.compact){LinearLayout files=EditorUi.gridRow(body);EditorUi.addButton(files,"EXPORTAR COMP",()->exportEffectPreset(layer,effect));EditorUi.addButton(files,"IMPORTAR COMP",()->importEffectPreset(layer,effect));}return;
         }
         if(effect.equals("REVERB")){
             LinearLayout row=EditorUi.knobRow(body);EditorUi.knob(row,"TEMPO",screen.reverbSize[layer],0,100," %",v->screen.setLayerReverb(layer,v,screen.reverbDamping[layer],screen.reverbWidth[layer]));
