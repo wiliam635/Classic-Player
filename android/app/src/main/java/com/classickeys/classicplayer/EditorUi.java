@@ -158,21 +158,23 @@ final class EditorUi {
     }
     static Spinner selectorCell(LinearLayout parent,String caption,String[] values,int selected,Selection action){
         Context c=parent.getContext();LinearLayout cell=column(c);cell.setPadding(dp(c,2),dp(c,1),dp(c,2),dp(c,1));
-        TextView title=label(c,caption,10);title.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);cell.addView(title,new LinearLayout.LayoutParams(-1,dp(c,20)));
+        TextView title=label(c,caption,compact?8:10);title.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);title.setSingleLine(true);if(!caption.isEmpty())cell.addView(title,new LinearLayout.LayoutParams(-1,dp(c,compact?14:20)));
         Spinner spinner=new Spinner(c,Spinner.MODE_DROPDOWN);spinner.setBackground(background(FIELD));spinner.setPopupBackgroundDrawable(background(FIELD));
         ArrayAdapter<String> adapter=new ArrayAdapter<String>(c,android.R.layout.simple_spinner_item,values){
-            private View item(int position){TextView t=label(c,getItem(position)+" ▾",11);t.setGravity(Gravity.CENTER_VERTICAL|Gravity.START);t.setSingleLine(true);t.setEllipsize(android.text.TextUtils.TruncateAt.END);t.setPadding(dp(c,8),0,dp(c,6),0);t.setMinHeight(dp(c,44));return t;}
-            @Override public View getView(int p,View v,ViewGroup g){return item(p);}
-            @Override public View getDropDownView(int p,View v,ViewGroup g){return item(p);}
+            private View item(int position,boolean closed){TextView t=label(c,getItem(position)+" ▾",compact&&closed?10:11);t.setGravity(Gravity.CENTER_VERTICAL|Gravity.START);t.setSingleLine(true);t.setEllipsize(android.text.TextUtils.TruncateAt.END);t.setPadding(dp(c,8),0,dp(c,6),0);t.setMinHeight(dp(c,compact&&closed?32:44));return t;}
+            @Override public View getView(int p,View v,ViewGroup g){return item(p,true);}
+            @Override public View getDropDownView(int p,View v,ViewGroup g){return item(p,false);}
         };
         spinner.setAdapter(adapter);int initial=Math.max(0,Math.min(selected,values.length-1));spinner.setSelection(initial);
         final int[] previous={initial};spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){public void onNothingSelected(AdapterView<?> p){}public void onItemSelected(AdapterView<?> p,View v,int index,long id){if(index!=previous[0]){previous[0]=index;action.set(index);}}});
-        cell.addView(spinner,new LinearLayout.LayoutParams(-1,dp(c,44)));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,-2,1);cp.setMargins(2,1,2,1);parent.addView(cell,cp);return spinner;
+        cell.addView(spinner,new LinearLayout.LayoutParams(-1,dp(c,compact?32:44)));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,-2,1);cp.setMargins(2,1,2,1);parent.addView(cell,cp);return spinner;
     }
     static LinearLayout gridRow(LinearLayout parent){LinearLayout row=new LinearLayout(parent.getContext());row.setGravity(Gravity.CENTER_VERTICAL);parent.addView(row,new LinearLayout.LayoutParams(-1,-2));return row;}
     static LinearLayout knobRow(LinearLayout parent){LinearLayout row=new LinearLayout(parent.getContext());row.setGravity(Gravity.CENTER);row.setPadding(0,dp(parent.getContext(),2),0,dp(parent.getContext(),2));parent.addView(row,new LinearLayout.LayoutParams(-1,-2));return row;}
     /** Knob row height in dp: taller while the desktop-style inspector is open. */
     static int knobDp=68;
+    /** Tighter controls while the desktop-style inspector is open. */
+    static boolean compact=false;
     static boolean knobDocked(){return knobDp>68;}
     static Knob knob(LinearLayout row,String label,float value,float min,float max,String unit,Change action){Knob knob=new Knob(row.getContext(),label,value,min,max,unit,action);row.addView(knob,new LinearLayout.LayoutParams(0,dp(row.getContext(),knobDp),1));return knob;}
     static final class Knob extends View {

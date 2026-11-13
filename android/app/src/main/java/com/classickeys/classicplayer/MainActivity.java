@@ -375,7 +375,7 @@ public final class MainActivity extends Activity {
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         screen = new ClassicPlayerView(this);
         setContentView(screen);
-        EditorUi.Panel.dockHook=p->{EditorUi.knobDp=92;dockedInspector=p;setMixerRightInset(EditorUi.Panel.dockWidth(this));screen.setOnlyLayer(dockedLayer);p.onClose=()->{if(dockedInspector==p){dockedInspector=null;EditorUi.knobDp=68;setMixerRightInset(0);screen.setOnlyLayer(-1);}};};
+        EditorUi.Panel.dockHook=p->{EditorUi.knobDp=92;EditorUi.compact=true;dockedInspector=p;setMixerRightInset(EditorUi.Panel.dockWidth(this));screen.setOnlyLayer(dockedLayer);p.onClose=()->{if(dockedInspector==p){dockedInspector=null;EditorUi.knobDp=68;EditorUi.compact=false;setMixerRightInset(0);screen.setOnlyLayer(-1);}};};
         midiManager = (MidiManager) getSystemService(MIDI_SERVICE);
         audioEngine = new PolySynthEngine(this);
         SharedPreferences audioPrefs=getSharedPreferences("audio",MODE_PRIVATE);
@@ -1176,7 +1176,7 @@ public final class MainActivity extends Activity {
     private void closeDockedInspector(){
         EditorUi.Panel old=dockedInspector;dockedInspector=null;
         if(old!=null){old.onClose=null;try{old.dialog.dismiss();}catch(RuntimeException ignored){}}
-        EditorUi.knobDp=68;setMixerRightInset(0);
+        EditorUi.knobDp=68;EditorUi.compact=false;setMixerRightInset(0);
         screen.setOnlyLayer(-1);
     }
     /** The header stays full width, like the desktop; only the area below it is shared with the inspector. */
@@ -1933,29 +1933,51 @@ public final class MainActivity extends Activity {
             if (!analog && ("SF2".equals(engine) || "DX7".equals(engine) || "NPNO".equals(engine))) {
                 // Desktop layout: PARAMETROS GERAIS and CONTROLES DA CAMADA as two boxes side by side.
                 LinearLayout rightBox=body;
+                final boolean stacked=panel.docked&&("SF2".equals(engine)||"NPNO".equals(engine));
                 if(panel.docked){
-                    LinearLayout two=new LinearLayout(this);two.setOrientation(LinearLayout.HORIZONTAL);body.addView(two,new LinearLayout.LayoutParams(-1,-2));
-                    LinearLayout leftBox=desktopBox("PARAMETROS GERAIS",two);rightBox=desktopBox("CONTROLES DA CAMADA",two);
-                    buildRoutingControls(layer,leftBox);
+                    LinearLayout leftBox,wrapParams=new LinearLayout(this);wrapParams.setOrientation(LinearLayout.HORIZONTAL);body.addView(wrapParams,new LinearLayout.LayoutParams(-1,-2));
+                    if(stacked){
+                        // SF2 / NPNO desktop layout: general parameters full width, then the knob box full width.
+                        leftBox=desktopBox("PARAMETROS GERAIS",wrapParams);buildDockedGeneralParams(layer,leftBox,5);
+                        LinearLayout presetsRow=EditorUi.gridRow(body);
+                        EditorUi.addButton(presetsRow,"EXPORTAR PRESET",()->exportLayerPreset(layer));EditorUi.addButton(presetsRow,"IMPORTAR PRESET",()->importLayerPreset(layer));
+                        LinearLayout wrapKnobs=new LinearLayout(this);wrapKnobs.setOrientation(LinearLayout.HORIZONTAL);body.addView(wrapKnobs,new LinearLayout.LayoutParams(-1,-2));
+                        rightBox=desktopBox("CONTROLES DA CAMADA",wrapKnobs);
+                    }else{
+                        leftBox=desktopBox("PARAMETROS GERAIS",wrapParams);rightBox=desktopBox("CONTROLES DA CAMADA",wrapParams);
+                        buildDockedGeneralParams(layer,leftBox,3);
+                    }
                 }else{
                     TextView routing=EditorUi.label(this,"MIDI · MODO, CANAL E FAIXA",10);routing.setTextColor(EditorUi.MUTED);body.addView(routing);
                     buildRoutingControls(layer,body);
                     TextView quick=EditorUi.label(this,"CONTROLES DA LAYER",10);quick.setTextColor(EditorUi.MUTED);body.addView(quick);
                 }
-                // Same grid as the desktop CONTROLES DA CAMADA box.
+                // Same grid as the desktop CONTROLES DA CAMADA box (5 x 2 for SF2/NPNO, 4 x 2 for DX7).
                 final boolean sf2Env="SF2".equals(engine);
                 LinearLayout row=EditorUi.knobRow(rightBox);
                 layerMidiKnobs[layer][0]=EditorUi.knob(row,"VOLUME",screen.layerVolumes[layer]*100f,0,100," %",v->screen.setLearnedVolume(layer,v/100f));
                 EditorUi.knob(row,sf2Env?"ATTACK +ms":"ATTACK ms",screen.layerAttack[layer]*1000f,sf2Env?0f:.1f,100," ms",v->screen.setLayerEnvelope(layer,v/1000f,screen.layerRelease[layer]));
                 EditorUi.knob(row,sf2Env?"RELEASE +ms":"RELEASE ms",screen.layerRelease[layer]*1000f,0f,"NPNO".equals(engine)?2000:100," ms",v->screen.setLayerEnvelope(layer,screen.layerAttack[layer],v/1000f));
                 layerMidiKnobs[layer][1]=EditorUi.knob(row,"CUTOFF",screen.layerCutoff[layer],0,100," %",v->screen.setLayerTone(layer,v,screen.layerReverb[layer],screen.layerCompMix[layer],screen.layerChorus[layer]));
-                row=EditorUi.knobRow(rightBox);
-                layerMidiKnobs[layer][2]=EditorUi.knob(row,"REVERB",screen.layerReverb[layer]*100f,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],v/100f,screen.layerCompMix[layer],screen.layerChorus[layer]));
-                layerMidiKnobs[layer][3]=EditorUi.knob(row,"COMP",screen.layerCompMix[layer]*100f,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],v/100f,screen.layerChorus[layer]));
-                EditorUi.knob(row,"CHORUS",screen.layerChorus[layer]*100,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],screen.layerCompMix[layer],v/100));
-                EditorUi.knob(row,"PAN",screen.layerPan[layer]*100,-100,100,"",v->screen.setLayerPan(layer,v/100));
-                EditorUi.selector(rightBox,"MUTE",new String[]{"SOM ATIVO","MUTE"},screen.muted[layer]?1:0,i->setLayerMuted(layer,i==1));
-                EditorUi.selector(rightBox,"SOLO",new String[]{"NORMAL","SOLO"},screen.solo[layer]?1:0,i->{screen.solo[layer]=i==1;prefs.edit().putBoolean("solo_"+layer,screen.solo[layer]).apply();screen.applyLayerGains();screen.invalidate();});
+                if(stacked){
+                    layerMidiKnobs[layer][2]=EditorUi.knob(row,"REVERB",screen.layerReverb[layer]*100f,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],v/100f,screen.layerCompMix[layer],screen.layerChorus[layer]));
+                    row=EditorUi.knobRow(rightBox);
+                    layerMidiKnobs[layer][3]=EditorUi.knob(row,"COMP",screen.layerCompMix[layer]*100f,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],v/100f,screen.layerChorus[layer]));
+                    EditorUi.knob(row,"EQ LOW dB",screen.eqLow[layer],-18,18," dB",v->{screen.eqLow[layer]=v;applyLayerEqFromScreen(layer);});
+                    EditorUi.knob(row,"EQ MID dB",screen.eqMid[layer],-18,18," dB",v->{screen.eqMid[layer]=v;applyLayerEqFromScreen(layer);});
+                    EditorUi.knob(row,"EQ HIGH dB",screen.eqHigh[layer],-18,18," dB",v->{screen.eqHigh[layer]=v;applyLayerEqFromScreen(layer);});
+                    EditorUi.knob(row,"PAN",screen.layerPan[layer]*100,-100,100,"",v->screen.setLayerPan(layer,v/100));
+                }else{
+                    row=EditorUi.knobRow(rightBox);
+                    layerMidiKnobs[layer][2]=EditorUi.knob(row,"REVERB",screen.layerReverb[layer]*100f,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],v/100f,screen.layerCompMix[layer],screen.layerChorus[layer]));
+                    layerMidiKnobs[layer][3]=EditorUi.knob(row,"COMP",screen.layerCompMix[layer]*100f,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],v/100f,screen.layerChorus[layer]));
+                    EditorUi.knob(row,"CHORUS",screen.layerChorus[layer]*100,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],screen.layerCompMix[layer],v/100));
+                    EditorUi.knob(row,"PAN",screen.layerPan[layer]*100,-100,100,"",v->screen.setLayerPan(layer,v/100));
+                }
+                if(!panel.docked){
+                    EditorUi.selector(rightBox,"MUTE",new String[]{"SOM ATIVO","MUTE"},screen.muted[layer]?1:0,i->setLayerMuted(layer,i==1));
+                    EditorUi.selector(rightBox,"SOLO",new String[]{"NORMAL","SOLO"},screen.solo[layer]?1:0,i->{screen.solo[layer]=i==1;prefs.edit().putBoolean("solo_"+layer,screen.solo[layer]).apply();screen.applyLayerGains();screen.invalidate();});
+                }
             }
         }else if(analog&&page==1){
             buildAnalogFilterControls(layer,body);
@@ -2112,6 +2134,59 @@ public final class MainActivity extends Activity {
             public void onProgressChanged(SeekBar b,int progress,boolean fromUser){readout.setText(String.valueOf(progress+min));if(fromUser)onChange.accept(progress+min);}
             public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}});
         parent.addView(row,new LinearLayout.LayoutParams(-1,-2));
+    }
+    private void applyLayerEqFromScreen(int layer){
+        screen.setLayerEq(layer,screen.eqLow[layer],screen.eqMid[layer],screen.eqHigh[layer],screen.eqLowFreq[layer],screen.eqMidFreq[layer],screen.eqHighFreq[layer],screen.eqLowQ[layer],screen.eqMidQ[layer],screen.eqHighQ[layer],screen.eqHighPass[layer],screen.eqLowPass[layer]);
+    }
+    /** Small caption + button cell, matching the compact selector cells. */
+    private void buttonCell(LinearLayout row,String caption,String text,Runnable action){
+        LinearLayout cell=EditorUi.column(this);cell.setPadding(EditorUi.dp(this,2),EditorUi.dp(this,1),EditorUi.dp(this,2),EditorUi.dp(this,1));
+        TextView title=EditorUi.label(this,caption,8);title.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);cell.addView(title,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,14)));
+        Button b=EditorUi.button(this,text,action);b.setTextSize(10);b.setMinHeight(EditorUi.dp(this,32));b.setMinimumHeight(EditorUi.dp(this,32));
+        cell.addView(b,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,32)));
+        LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,-2,1);cp.setMargins(2,1,2,1);row.addView(cell,cp);
+    }
+    /** Desktop PARAMETROS GERAIS box: compact cells in rows of {@code columns}. */
+    private void buildDockedGeneralParams(final int l,LinearLayout box,int columns){
+        final LayerVelocity lv=velocity();final boolean nord="NPNO".equals(screen.engineName(l));
+        final java.util.ArrayList<java.util.function.Consumer<LinearLayout>> cells=new java.util.ArrayList<>();
+        final String[] modes={"POLI","MONO LEGATO","PORTAMENTO"};
+        cells.add(r->EditorUi.selectorCell(r,"MODO",modes,screen.routeMode[l],i->screen.setLayerRouting(l,screen.routeChannel[l],screen.routeOctave[l],screen.routeVelocity[l],screen.routeSustain[l],i)));
+        cells.add(r->EditorUi.selectorCell(r,"SUSTAIN",new String[]{"SUSTAIN ON","SUSTAIN OFF"},screen.routeSustain[l]?0:1,i->screen.setLayerRouting(l,screen.routeChannel[l],screen.routeOctave[l],screen.routeVelocity[l],i==0)));
+        final String[] channels=new String[17];channels[0]="MIDI OMNI";for(int i=1;i<17;i++)channels[i]="MIDI CH "+i;
+        cells.add(r->EditorUi.selectorCell(r,"CANAL MIDI",channels,screen.routeChannel[l]+1,i->screen.setLayerRouting(l,i-1,screen.routeOctave[l],screen.routeVelocity[l],screen.routeSustain[l])));
+        cells.add(r->buttonCell(r,"ENTRADA MIDI",selectedMidiName==null||selectedMidiName.isEmpty()?"TODOS OS CONTROLADORES":selectedMidiName,this::showMidiDeviceChooser));
+        final String[] octaves={"-4 OIT","-3 OIT","-2 OIT","-1 OIT","0 OIT","+1 OIT","+2 OIT","+3 OIT","+4 OIT"};
+        cells.add(r->EditorUi.selectorCell(r,"OITAVA",octaves,screen.routeOctave[l]+4,i->screen.setLayerRouting(l,screen.routeChannel[l],i-4,screen.routeVelocity[l],screen.routeSustain[l])));
+        final String[] curves=nord?new String[]{"LINEAR","SUAVE","FORTE","ADAPTATIVA","AJUSTAR CURVA"}:new String[]{"LINEAR","SUAVE","FORTE","AJUSTAR CURVA"};final int userIndex=nord?4:3;
+        cells.add(r->EditorUi.selectorCell(r,"VELOCIDADE",curves,screen.routeVelocity[l]==4?userIndex:Math.min(screen.routeVelocity[l],curves.length-1),i->{
+            if(nord&&i==3&&!getSharedPreferences("nord_velocity",MODE_PRIVATE).contains(nordVelocityProfileKey()+"soft")){startNordVelocityCalibration(l);return;}
+            screen.setLayerRouting(l,screen.routeChannel[l],screen.routeOctave[l],i==userIndex?4:i,screen.routeSustain[l]);lv.apply(audioEngine,l);}));
+        cells.add(r->buttonCell(r,"SENSIBILIDADE",lv.sensitivityOff[l]?"SENSIBILIDADE DESLIGADA":"DESLIGAR SENSIBILIDADE",()->{}));
+        final String[] noteNames=new String[128];final String[] pitch={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+        for(int n=0;n<128;n++)noteNames[n]=pitch[n%12]+(n/12-1);
+        cells.add(r->EditorUi.selectorCell(r,"NOTA BAIXA",noteNames,lv.noteLow[l],i->{lv.noteLow[l]=i;if(lv.noteHigh[l]<i)lv.noteHigh[l]=i;lv.save(l);screen.applyLayerRouting(l);}));
+        cells.add(r->EditorUi.selectorCell(r,"NOTA ALTA",noteNames,lv.noteHigh[l],i->{lv.noteHigh[l]=i;if(lv.noteLow[l]>i)lv.noteLow[l]=i;lv.save(l);screen.applyLayerRouting(l);}));
+        final String[] velValues=new String[127];for(int v=0;v<127;v++)velValues[v]=String.valueOf(v+1);
+        cells.add(r->EditorUi.selectorCell(r,"VEL. MIN",velValues,lv.low[l]-1,i->{lv.low[l]=i+1;if(lv.high[l]<lv.low[l])lv.high[l]=lv.low[l];lv.save(l);lv.apply(audioEngine,l);}));
+        cells.add(r->EditorUi.selectorCell(r,"VEL. MAX",velValues,lv.high[l]-1,i->{lv.high[l]=i+1;if(lv.low[l]>lv.high[l])lv.low[l]=lv.high[l];lv.save(l);lv.apply(audioEngine,l);}));
+        LinearLayout row=null;
+        for(int i=0;i<cells.size();i++){
+            if(i%columns==0)row=EditorUi.gridRow(box);
+            cells.get(i).accept(row);
+        }
+        // The sensitivity cell is a toggle: wire its click after the button exists.
+        for(int i=0;i<box.getChildCount();i++){
+            View child=box.getChildAt(i);
+            if(child instanceof LinearLayout)for(int j=0;j<((LinearLayout)child).getChildCount();j++){
+                View cell=((LinearLayout)child).getChildAt(j);
+                if(cell instanceof LinearLayout&&((LinearLayout)cell).getChildCount()==2&&((LinearLayout)cell).getChildAt(1) instanceof Button){
+                    final Button b=(Button)((LinearLayout)cell).getChildAt(1);
+                    CharSequence t=b.getText();
+                    if(t!=null&&t.toString().contains("SENSIBILIDADE"))b.setOnClickListener(v->{lv.sensitivityOff[l]=!lv.sensitivityOff[l];lv.save(l);lv.apply(audioEngine,l);b.setText(lv.sensitivityOff[l]?"SENSIBILIDADE DESLIGADA":"DESLIGAR SENSIBILIDADE");});
+                }
+            }
+        }
     }
     /** Rounded section box with a small caption, used by the docked inspector like the desktop panels. */
     private LinearLayout desktopBox(String title,LinearLayout parent){

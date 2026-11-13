@@ -144,6 +144,12 @@ public class InspectorScreenshotTest {
                     shell("input swipe 1300 900 1300 350 400"); Thread.sleep(700);
                     shot(base + "-scrolled.png", dir);
                     shell("input swipe 1300 350 1300 900 400"); Thread.sleep(500);
+                    if (tabs[t].equals("EFEITOS")) {
+                        for (String effect : new String[]{"EDITAR COMP", "EDITAR CHORUS", "EDITAR EQ"}) {
+                            if (clickText(effect)) { Thread.sleep(900); shot("L" + layer + "-" + names[layer] + "-fx-" + effect.replace("EDITAR ", "") + ".png", dir); }
+                        }
+                        clickText("EDITAR REVERB"); Thread.sleep(500);
+                    }
                 }
                 boolean closed = clickText("FECHAR");
                 report.append(names[layer]).append(" FECHAR ").append(closed ? "ok\n" : "NOT FOUND\n");
