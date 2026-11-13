@@ -51,6 +51,7 @@ final class EditorUi {
     interface Change { void set(float value); }
     interface Selection { void set(int index); }
     static int dp(Context c,float n){return Math.round(n*c.getResources().getDisplayMetrics().density);}
+    static GradientDrawable outlined(int fill,int stroke,int widthDp,Context c){GradientDrawable d=new GradientDrawable();d.setColor(fill);d.setCornerRadius(dp(c,6));d.setStroke(dp(c,widthDp),stroke);return d;}
     static GradientDrawable background(int color){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(7);d.setStroke(1,BORDER);return d;}
     static LinearLayout column(Context c){LinearLayout l=new LinearLayout(c);l.setOrientation(LinearLayout.VERTICAL);return l;}
     static TextView label(Context c,String text,int size){TextView t=new TextView(c);t.setText(text);t.setTextColor(TEXT);t.setTextSize(size);t.setGravity(Gravity.CENTER);return t;}
@@ -84,8 +85,8 @@ final class EditorUi {
             }else root.addView(heading,new LinearLayout.LayoutParams(-1,dp(a,28)));
             if(subtitle!=null){TextView hint=label(a,subtitle,11);hint.setSingleLine(true);hint.setEllipsize(android.text.TextUtils.TruncateAt.END);hint.setTextColor(MUTED);root.addView(hint,new LinearLayout.LayoutParams(-1,dp(a,20)));}
             HorizontalScrollView tabScroller=new HorizontalScrollView(a);tabScroller.setHorizontalScrollBarEnabled(false);tabScroller.setFillViewport(true);
-            tabs=new LinearLayout(a);tabs.setGravity(Gravity.CENTER);tabScroller.addView(tabs,new HorizontalScrollView.LayoutParams(-2,dp(a,42)));
-            root.addView(tabScroller,new LinearLayout.LayoutParams(-1,dp(a,42)));
+            tabs=new LinearLayout(a);tabs.setGravity(docked?Gravity.START|Gravity.CENTER_VERTICAL:Gravity.CENTER);tabScroller.addView(tabs,new HorizontalScrollView.LayoutParams(-2,dp(a,docked?36:42)));
+            root.addView(tabScroller,new LinearLayout.LayoutParams(-1,dp(a,docked?36:42)));
             scroll=new BoundedScrollView(a);scroll.setVerticalScrollBarEnabled(true);scroll.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);body=column(a);body.setPadding(0,0,0,dp(a,8));scroll.addView(body,new ScrollView.LayoutParams(-1,-2));root.addView(scroll,docked?new LinearLayout.LayoutParams(-1,0,1):new LinearLayout.LayoutParams(-1,-2));
             footer=new LinearLayout(a);footer.setGravity(Gravity.END);root.addView(footer,new LinearLayout.LayoutParams(-1,dp(a,48)));
             dialog.setContentView(root);
@@ -118,9 +119,9 @@ final class EditorUi {
             tabs.removeAllViews();
             for(int i=0;i<labels.length;i++){
                 final int index=i;Button b=button(tabs.getContext(),labels[i],()->onSelect.set(index));
-                b.setTextSize(10);b.setMinHeight(dp(tabs.getContext(),40));b.setMinimumHeight(dp(tabs.getContext(),40));
+                b.setTextSize(10);b.setMinHeight(dp(tabs.getContext(),docked?32:40));b.setMinimumHeight(dp(tabs.getContext(),docked?32:40));
                 b.setBackground(background(i==selected?ACCENT:SURFACE));b.setTextColor(i==selected?ACCENT_TEXT:TEXT);
-                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(tabs.getContext(),108),dp(tabs.getContext(),40));p.setMargins(2,1,2,1);tabs.addView(b,p);
+                LinearLayout.LayoutParams p=docked?new LinearLayout.LayoutParams(dp(tabs.getContext(),104),dp(tabs.getContext(),32)):new LinearLayout.LayoutParams(dp(tabs.getContext(),108),dp(tabs.getContext(),40));p.setMargins(2,1,2,1);tabs.addView(b,p);
             }
             tabs.setVisibility(labels.length==0?View.GONE:View.VISIBLE);
         }

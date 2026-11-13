@@ -2010,18 +2010,28 @@ public final class MainActivity extends Activity {
             EditorUi.knob(row,sf2Envelope?"ATTACK +ms":"ATTACK ms",screen.layerAttack[layer]*1000f,sf2Envelope?0f:.1f,100," ms",v->{screen.setLayerEnvelope(layer,v/1000f,screen.layerRelease[layer]);envelopeGraph.set(v,screen.layerRelease[layer]*1000f);});
             EditorUi.knob(row,sf2Envelope?"RELEASE +ms":"RELEASE ms",screen.layerRelease[layer]*1000f,0f,maxRelease," ms",v->{screen.setLayerEnvelope(layer,screen.layerAttack[layer],v/1000f);envelopeGraph.set(screen.layerAttack[layer]*1000f,v);});
         }else if(page==3){
-            // EFEITOS opens with Reverb already selected, inline instead of in a second window.
-            final String[] effects={"REVERB","COMP","EQ","CHORUS"};
-            final int shown=Math.max(0,Math.min(effects.length-1,effectsInlineView[layer]));
+            // Desktop EFEITOS page: EDITAR buttons, PRESET row, EXPORTAR/IMPORTAR row, then the effect editor.
+            final boolean nordEngine="NPNO".equals(engine);
+            final String[] effects=nordEngine?new String[]{"REVERB","COMP","EQ","CHORUS"}:new String[]{"REVERB","COMP","CHORUS","EQ"};
+            int shownIndex=Math.max(0,Math.min(effects.length-1,effectsInlineView[layer]));
+            final String shownEffect=effects[shownIndex];
             LinearLayout picker=EditorUi.gridRow(body);
             for(int i=0;i<effects.length;i++){
                 final int index=i;
-                Button b=EditorUi.button(this,effects[i],()->{effectsInlineView[layer]=index;renderDesktopStylePage(layer,panel,3,items,selected,selection,secondaryLabel,secondaryAction);});
-                b.setBackground(EditorUi.background(i==shown?EditorUi.ACCENT:EditorUi.SURFACE));b.setTextColor(i==shown?EditorUi.ACCENT_TEXT:EditorUi.TEXT);
+                Button b=EditorUi.button(this,"EDITAR "+effects[i],()->{effectsInlineView[layer]=index;renderDesktopStylePage(layer,panel,3,items,selected,selection,secondaryLabel,secondaryAction);});
+                b.setBackground(i==shownIndex?EditorUi.outlined(EditorUi.FIELD,EditorUi.ACCENT,2,this):EditorUi.outlined(EditorUi.SURFACE,EditorUi.BORDER,1,this));
                 LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,EditorUi.dp(this,44),1);p.setMargins(2,1,2,1);picker.addView(b,p);
             }
-            LinearLayout host=EditorUi.column(this);body.addView(host,new LinearLayout.LayoutParams(-1,-2));
-            renderEffectEditorBody(layer,effects[shown],host,0,()->renderDesktopStylePage(layer,panel,3,items,selected,selection,secondaryLabel,secondaryAction),()->{});
+            final String[] presetNames=effectPresetNames(shownEffect);
+            if(presetNames.length>0){
+                String[] choices=new String[presetNames.length+1];choices[0]="ESCOLHA UM PRESET";System.arraycopy(presetNames,0,choices,1,presetNames.length);
+                EditorUi.selector(body,"PRESET",choices,0,which->{if(which>0){applyEffectPreset(layer,shownEffect,which-1);renderDesktopStylePage(layer,panel,3,items,selected,selection,secondaryLabel,secondaryAction);}});
+            }
+            LinearLayout fileRow=EditorUi.gridRow(body);
+            EditorUi.addButton(fileRow,"EXPORTAR PRESET",()->exportEffectPreset(layer,shownEffect));EditorUi.addButton(fileRow,"IMPORTAR PRESET",()->importEffectPreset(layer,shownEffect));
+            LinearLayout host=EditorUi.column(this);host.setBackground(EditorUi.outlined(EditorUi.PANEL,EditorUi.ACCENT,1,this));host.setPadding(EditorUi.dp(this,8),EditorUi.dp(this,6),EditorUi.dp(this,8),EditorUi.dp(this,6));
+            LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(2,EditorUi.dp(this,6),2,0);body.addView(host,hp);
+            renderEffectEditorBody(layer,shownEffect,host,0,()->renderDesktopStylePage(layer,panel,3,items,selected,selection,secondaryLabel,secondaryAction),()->{});
         }else{
             // VELOCIDADE: velocity curve and, for NPNO, the adaptive calibration.
             TextView note=EditorUi.label(this,"CURVA DE VELOCITY · como a força da tecla vira volume",11);note.setTextColor(EditorUi.MUTED);body.addView(note,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,26)));
@@ -2179,6 +2189,14 @@ public final class MainActivity extends Activity {
         final float initial=value,lower=min,upper=max;EditorUi.knob(row,label,initial,lower,upper,unit,v->{float low=screen.eqLow[layer],mid=screen.eqMid[layer],high=screen.eqHigh[layer],lf=screen.eqLowFreq[layer],mf=screen.eqMidFreq[layer],hf=screen.eqHighFreq[layer],lq=screen.eqLowQ[layer],mq=screen.eqMidQ[layer],hq=screen.eqHighQ[layer],hp=screen.eqHighPass[layer],lp=screen.eqLowPass[layer];switch(control){case 0:lf=v;break;case 1:low=v;break;case 2:lq=v;break;case 3:mf=v;break;case 4:mid=v;break;case 5:mq=v;break;case 6:hf=v;break;case 7:high=v;break;case 8:hq=v;break;case 9:hp=v;break;default:lp=v;}screen.setLayerEq(layer,low,mid,high,lf,mf,hf,lq,mq,hq,hp,lp);graph.setValues(low,mid,high);graph.setParametricValues(lf,mf,hf,lq,mq,hq,hp,lp);});
     }
 
+    private static final String[] REVERB_PRESET_NAMES={"Piano Íntimo","Sala Clara","Worship Hall","Ambient Grande"};
+    private static final float[][] REVERB_PRESET_VALUES={{32,55,70,14},{45,75,85,18},{72,68,100,28},{92,82,100,42}};
+    private static final String[] COMP_PRESET_NAMES={"Piano Natural","Piano Presença","Worship Suave","Worship Sustentado"};
+    private static final float[][] COMP_PRESET_VALUES={{-9,2.5f,17,238,1,45},{-18,3.5f,7,180,4,55},{-14,2,25,260,2,50},{-22,4,35,360,4.5f,65}};
+    private String[] effectPresetNames(String effect){return effect.equals("REVERB")?REVERB_PRESET_NAMES:effect.equals("COMP")?COMP_PRESET_NAMES:new String[0];}
+    private void applyEffectPreset(int layer,String effect,int index){
+        if(effect.equals("REVERB"))applyReverbPreset(layer,REVERB_PRESET_VALUES[index]);else if(effect.equals("COMP"))applyCompressorPreset(layer,COMP_PRESET_VALUES[index]);
+    }
     private void applyReverbPreset(int layer,float[] preset){screen.setLayerReverb(layer,preset[0],100-preset[1],preset[2]);screen.setLayerTone(layer,screen.layerCutoff[layer],preset[3]/100f,screen.layerCompMix[layer],screen.layerChorus[layer]);}
     private void applyCompressorPreset(int layer,float[] preset){screen.setLayerCompressor(layer,(float)Math.pow(10,preset[0]/20f),preset[1],preset[2],preset[3],preset[4]);screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],preset[5]/100f,screen.layerChorus[layer]);}
 
