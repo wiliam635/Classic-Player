@@ -2006,7 +2006,6 @@ public final class MainActivity extends Activity {
         body.removeAllViews();java.util.Arrays.fill(layerMidiKnobs[layer],null);
         if(page==1){
             final boolean sf2Envelope="SF2".equals(engine);
-            TextView note=EditorUi.label(this,"ENVELOPE ADSR · ataque e liberação da layer",11);note.setTextColor(EditorUi.MUTED);body.addView(note,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,26)));
             final float maxRelease="NPNO".equals(engine)?2000f:100f;final LayerVelocity env=velocity();
             final EditorUi.EnvelopeGraph envelopeGraph=new EditorUi.EnvelopeGraph(this,screen.layerAttack[layer]*1000f,env.decayMs[layer],env.sustainPercent[layer],screen.layerRelease[layer]*1000f,100f,maxRelease);
             body.addView(envelopeGraph,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,190)));

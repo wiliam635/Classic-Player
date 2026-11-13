@@ -241,7 +241,7 @@ final class EditorUi {
             p.setColor(TEXT);p.setTextSize(dp(k,14));p.setTextAlign(Paint.Align.LEFT);p.setFakeBoldText(true);c.drawText("Gráfico do Ciclo ADSR",dp(k,14),dp(k,22),p);p.setFakeBoldText(false);
             p.setColor(MUTED);p.setTextSize(dp(k,9));c.drawText("100%",dp(k,4),t+dp(k,3),p);c.drawText("0%",dp(k,10),b,p);
             p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(dp(k,1));p.setColor(BORDER);c.drawLine(l,b,r,b,p);c.drawLine(l,t,r,t,p);
-            float span=r-l,aw=Math.max(.05f,Math.min(.2f,attackMs/Math.max(1f,maxAttack)*.2f)),dw=decayMs>0?Math.max(.05f,Math.min(.22f,decayMs/2000f*.22f)):.0f,sw=.34f,rw=Math.max(.06f,Math.min(.3f,releaseMs/Math.max(1f,maxRelease)*.3f));
+            float span=r-l,aw=Math.max(.05f,Math.min(.2f,attackMs/Math.max(1f,maxAttack)*.2f)),dw=decayMs>0?Math.max(.05f,Math.min(.22f,decayMs/2000f*.22f)):.0f,rw=Math.max(.12f,Math.min(.35f,releaseMs/Math.max(1f,maxRelease)*.35f)),sw=Math.max(.1f,1f-aw-dw-rw);
             float level=decayMs>0?Math.max(0f,Math.min(1f,sustainPercent*.01f)):1f;float sustainY=b-(b-t)*level;
             float x0=l,x1=x0+span*aw,x2=x1+span*dw,x3=x2+span*sw,x4=Math.min(r,x3+span*rw);
             android.graphics.Path path=new android.graphics.Path();path.moveTo(x0,b);path.lineTo(x1,t);path.lineTo(x2,sustainY);path.lineTo(x3,sustainY);path.lineTo(x4,b);
@@ -250,7 +250,7 @@ final class EditorUi {
             p.setStyle(Paint.Style.STROKE);p.setColor(ACCENT);p.setStrokeWidth(dp(k,2));c.drawPath(path,p);
             p.setStyle(Paint.Style.FILL);p.setColor(0xffe5483c);c.drawCircle(x1,t,dp(k,5),p);p.setColor(ACCENT);c.drawCircle(x2,sustainY,dp(k,5),p);p.setColor(0xff3cc46a);c.drawCircle(x3,sustainY,dp(k,5),p);
             p.setColor(MUTED);p.setTextSize(dp(k,9));p.setTextAlign(Paint.Align.CENTER);
-            c.drawText("Ataque",(x0+x1)/2f,b+dp(k,13),p);c.drawText("Decaimento",(x1+x2)/2f+dp(k,10),b+dp(k,13),p);c.drawText("Sustentação (Tecla Pressionada)",(x2+x3)/2f,b+dp(k,13),p);c.drawText("Liberação",(x3+x4)/2f,b+dp(k,13),p);
+            c.drawText("Ataque",(x0+x1)/2f,b+dp(k,13),p);if(decayMs>0)c.drawText("Decaimento",(x1+x2)/2f,b+dp(k,13),p);c.drawText("Sustentação (Tecla Pressionada)",(x2+x3)/2f,b+dp(k,13),p);c.drawText("Liberação",(x3+x4)/2f,b+dp(k,13),p);
             p.setTextAlign(Paint.Align.LEFT);p.setColor(0xff4b8bff);c.drawText("Note On",l,b+dp(k,26),p);p.setColor(0xffe5483c);p.setTextAlign(Paint.Align.CENTER);c.drawText("Note Off",x3,b+dp(k,26),p);
         }
     }
