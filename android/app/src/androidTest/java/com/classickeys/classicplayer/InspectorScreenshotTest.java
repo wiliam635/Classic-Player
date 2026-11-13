@@ -102,6 +102,7 @@ public class InspectorScreenshotTest {
         String additional = InstrumentationRegistry.getArguments().getString("additionalTestOutputDir");
         File dir = new File(additional == null ? context.getExternalFilesDir(null).getPath() : additional, "audio-regression");
         assertTrue(dir.isDirectory() || dir.mkdirs());
+        shell("settings put secure immersive_mode_confirmations confirmed");
         shell("wm size 2000x1200"); shell("wm density 240"); Thread.sleep(1500);
         File sf2 = new File(context.getCacheDir(), "inspector-sine.sf2"); SoundFontFixture.write(sf2);
         Activity activity = null;
@@ -122,7 +123,7 @@ public class InspectorScreenshotTest {
                 hammond.invoke(main, 3);
             } catch (Exception e) { throw new RuntimeException(e); } });
             Thread.sleep(2000);
-            tap(1160, 302); Thread.sleep(800);
+            for (int k = 0; k < 3; k++) { if (clickText("GOT IT")) Thread.sleep(800); }
             for (int k = 0; k < 3; k++) { if (clickText("FECHAR")) Thread.sleep(900); }
             shot("all-0-mixer.png", dir);
             View content = activity.findViewById(android.R.id.content);
@@ -132,6 +133,7 @@ public class InspectorScreenshotTest {
             String[] normalTabs = {"SOM", "ENVELOPE", "MIDI", "EFEITOS", "VELOCIDADE"};
             String[] analogTabs = {"OSCILADORES", "FILTRO / ADSR", "CONTROLES", "EFEITOS", "MIDI"};
             for (int layer = 0; layer < 4; layer++) {
+                if (clickText("GOT IT")) Thread.sleep(800);
                 tap(at[0] + (18 + layer * 150 + 60) * density, at[1] + h * .17f + h * .16f + 24 * density);
                 Thread.sleep(2000);
                 String[] tabs = names[layer].equals("ANALOG") ? analogTabs : normalTabs;
