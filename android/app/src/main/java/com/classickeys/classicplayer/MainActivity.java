@@ -231,6 +231,7 @@ public final class MainActivity extends Activity {
             if (midiHeld[channel][first]) audioEngine.noteOff(first,channel);
             midiHeld[channel][first] = true;
             if(padLayerActive){SharedPreferences padMap=getSharedPreferences("pads",MODE_PRIVATE);for(int pad=0;pad<(continuousPadActive?12:8);pad++)if(padMap.getInt("pad_note_"+pad,36+pad)==first){padEngine.trigger(pad,continuousPadActive);break;}}
+            lastIncomingVelocity=second;
             audioEngine.noteOn(first, second,channel);
         }
         else {
@@ -1166,6 +1167,9 @@ public final class MainActivity extends Activity {
         EditorUi.addButton(panel.footer,"CANCELAR",panel.dialog::dismiss);panel.show();
     }
 
+    volatile int lastIncomingVelocity=0;
+    private LayerVelocity layerVelocity;
+    LayerVelocity velocity(){if(layerVelocity==null)layerVelocity=new LayerVelocity(getSharedPreferences("velocity",MODE_PRIVATE));return layerVelocity;}
     private EditorUi.Panel dockedInspector;
     private int dockedLayer=-1;
     /** Closes the docked inspector (if any) and gives the whole width back to the mixer. */
@@ -2033,25 +2037,62 @@ public final class MainActivity extends Activity {
             LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(2,EditorUi.dp(this,6),2,0);body.addView(host,hp);
             renderEffectEditorBody(layer,shownEffect,host,0,()->renderDesktopStylePage(layer,panel,3,items,selected,selection,secondaryLabel,secondaryAction),()->{});
         }else{
-            // VELOCIDADE: velocity curve and, for NPNO, the adaptive calibration.
-            TextView note=EditorUi.label(this,"CURVA DE VELOCITY · como a força da tecla vira volume",11);note.setTextColor(EditorUi.MUTED);body.addView(note,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,26)));
-            final boolean nord="NPNO".equals(engine);
-            String[] velocity=nord?new String[]{"LINEAR","SUAVE","FORTE","ADAPTATIVA"}:new String[]{"LINEAR","SUAVE","FORTE"};
+            // VELOCIDADE like the desktop: curve preset, shaped curve (MIN / MAX / INCLINAÇÃO), reset/save/load, timbre floor and last hit.
+            final boolean nord="NPNO".equals(engine);final LayerVelocity lv=velocity();
+            final String[] curveNames=nord?new String[]{"LINEAR","SUAVE","FORTE","ADAPTATIVA","AJUSTAR CURVA"}:new String[]{"LINEAR","SUAVE","FORTE","AJUSTAR CURVA"};
             final SharedPreferences velocityProfile=getSharedPreferences("nord_velocity",MODE_PRIVATE);final String velocityKey=nord?nordVelocityProfileKey():"";
-            final EditorUi.VelocityGraph velocityGraph=new EditorUi.VelocityGraph(this,Math.min(screen.routeVelocity[layer],velocity.length-1),
-                    velocityProfile.getInt(velocityKey+"soft",0),velocityProfile.getInt(velocityKey+"mid",0),velocityProfile.getInt(velocityKey+"hard",0));
-            body.addView(velocityGraph,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,190)));
-            LinearLayout row=EditorUi.gridRow(body);
-            EditorUi.selectorCell(row,"VELOCIDADE",velocity,Math.min(screen.routeVelocity[layer],velocity.length-1),i->{
-                if(nord&&i==3&&!velocityProfile.contains(velocityKey+"soft"))startNordVelocityCalibration(layer);
-                else{screen.setLayerRouting(layer,screen.routeChannel[layer],screen.routeOctave[layer],i,screen.routeSustain[layer]);
-                    velocityGraph.set(i,velocityProfile.getInt(velocityKey+"soft",0),velocityProfile.getInt(velocityKey+"mid",0),velocityProfile.getInt(velocityKey+"hard",0));}
+            final int userCurve=nord?4:3;
+            int currentCurve=screen.routeVelocity[layer];int currentIndex=currentCurve==4?userCurve:Math.min(currentCurve,curveNames.length-1);
+            final EditorUi.VelocityGraph velocityGraph=new EditorUi.VelocityGraph(this,currentCurve,velocityProfile.getInt(velocityKey+"soft",0),velocityProfile.getInt(velocityKey+"mid",0),velocityProfile.getInt(velocityKey+"hard",0));
+            final Runnable refreshGraph=()->velocityGraph.setCurve(screen.routeVelocity[layer],velocityProfile.getInt(velocityKey+"soft",0),velocityProfile.getInt(velocityKey+"mid",0),velocityProfile.getInt(velocityKey+"hard",0),lv.outMin[layer],lv.outMax[layer],lv.slope[layer]);
+            refreshGraph.run();
+            final Runnable commit=()->{lv.save(layer);lv.apply(audioEngine,layer);refreshGraph.run();};
+            final Runnable useUserCurve=()->{screen.setLayerRouting(layer,screen.routeChannel[layer],screen.routeOctave[layer],4,screen.routeSustain[layer]);commit.run();};
+            LinearLayout curveRow=EditorUi.gridRow(body);
+            EditorUi.selectorCell(curveRow,"CURVAS / PRESETS",curveNames,currentIndex,i->{
+                if(i==userCurve){useUserCurve.run();return;}
+                if(nord&&i==3&&!velocityProfile.contains(velocityKey+"soft")){startNordVelocityCalibration(layer);return;}
+                screen.setLayerRouting(layer,screen.routeChannel[layer],screen.routeOctave[layer],i,screen.routeSustain[layer]);commit.run();
             });
-            if(nord)EditorUi.addButton(EditorUi.gridRow(body),"CALIBRAR VELOCIDADE DO TECLADO",()->startNordVelocityCalibration(layer));
+            Button useCurve=EditorUi.button(this,"USAR ESTA CURVA",useUserCurve);
+            LinearLayout.LayoutParams ucp=new LinearLayout.LayoutParams(EditorUi.dp(this,170),EditorUi.dp(this,44));ucp.gravity=Gravity.BOTTOM;curveRow.addView(useCurve,ucp);
+            body.addView(velocityGraph,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,190)));
+            addSeekRow(body,"MIN",1,127,lv.outMin[layer],v->{lv.outMin[layer]=Math.min(v,lv.outMax[layer]);if(screen.routeVelocity[layer]!=4)useUserCurve.run();else commit.run();});
+            addSeekRow(body,"MAX",1,127,lv.outMax[layer],v->{lv.outMax[layer]=Math.max(v,lv.outMin[layer]);if(screen.routeVelocity[layer]!=4)useUserCurve.run();else commit.run();});
+            addSeekRow(body,"INCLINAÇÃO",-100,100,Math.round(lv.slope[layer]),v->{lv.slope[layer]=v;if(screen.routeVelocity[layer]!=4)useUserCurve.run();else commit.run();});
+            LinearLayout curveFiles=EditorUi.gridRow(body);
+            EditorUi.addButton(curveFiles,"RESET LINEAR",()->{lv.resetCurve(layer);screen.setLayerRouting(layer,screen.routeChannel[layer],screen.routeOctave[layer],0,screen.routeSustain[layer]);commit.run();renderDesktopStylePage(layer,panel,4,items,selected,selection,secondaryLabel,secondaryAction);});
+            EditorUi.addButton(curveFiles,"SALVAR CURVA",()->{getSharedPreferences("velocity_saved",MODE_PRIVATE).edit().putInt("min",lv.outMin[layer]).putInt("max",lv.outMax[layer]).putFloat("slope",lv.slope[layer]).apply();Toast.makeText(this,"Curva salva",Toast.LENGTH_SHORT).show();});
+            EditorUi.addButton(curveFiles,"CARREGAR CURVA",()->{SharedPreferences saved=getSharedPreferences("velocity_saved",MODE_PRIVATE);
+                if(!saved.contains("min")){Toast.makeText(this,"Nenhuma curva salva",Toast.LENGTH_SHORT).show();return;}
+                lv.outMin[layer]=saved.getInt("min",1);lv.outMax[layer]=saved.getInt("max",127);lv.slope[layer]=saved.getFloat("slope",0f);useUserCurve.run();
+                renderDesktopStylePage(layer,panel,4,items,selected,selection,secondaryLabel,secondaryAction);});
+            if(nord){
+                addSeekRow(body,"PISO DE TIMBRE (NPNO)",1,127,lv.timbreFloor[layer],v->{lv.timbreFloor[layer]=v;commit.run();});
+                EditorUi.addButton(EditorUi.gridRow(body),"CALIBRAR VELOCIDADE DO TECLADO",()->startNordVelocityCalibration(layer));
+            }
+            final TextView lastHit=EditorUi.label(this,"ULTIMO TOQUE: toque uma nota para ver a velocity",11);lastHit.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
+            body.addView(lastHit,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,30)));
+            final Runnable[] refreshHit={null};
+            refreshHit[0]=()->{if(!lastHit.isAttachedToWindow())return;if(lastIncomingVelocity>0)lastHit.setText("ULTIMO TOQUE: velocity "+lastIncomingVelocity);lastHit.postDelayed(refreshHit[0],250);};
+            lastHit.post(refreshHit[0]);
         }
         armKnobLearn(layer);
     }
 
+    /** Labelled SeekBar with a numeric readout; amber like the other sliders. */
+    private void addSeekRow(LinearLayout parent,String caption,int min,int max,int value,java.util.function.IntConsumer onChange){
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title=EditorUi.label(this,caption,10);title.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);row.addView(title,new LinearLayout.LayoutParams(EditorUi.dp(this,110),EditorUi.dp(this,40)));
+        SeekBar bar=new SeekBar(this);bar.setMax(max-min);bar.setProgress(Math.max(0,Math.min(max-min,value-min)));
+        bar.setProgressTintList(android.content.res.ColorStateList.valueOf(EditorUi.ACCENT));bar.setThumbTintList(android.content.res.ColorStateList.valueOf(EditorUi.ACCENT));
+        row.addView(bar,new LinearLayout.LayoutParams(0,EditorUi.dp(this,40),1));
+        final TextView readout=EditorUi.label(this,String.valueOf(value),11);readout.setBackground(EditorUi.background(EditorUi.FIELD));row.addView(readout,new LinearLayout.LayoutParams(EditorUi.dp(this,56),EditorUi.dp(this,32)));
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onProgressChanged(SeekBar b,int progress,boolean fromUser){readout.setText(String.valueOf(progress+min));if(fromUser)onChange.accept(progress+min);}
+            public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}});
+        parent.addView(row,new LinearLayout.LayoutParams(-1,-2));
+    }
     /** Rounded section box with a small caption, used by the docked inspector like the desktop panels. */
     private LinearLayout desktopBox(String title,LinearLayout parent){
         LinearLayout box=EditorUi.column(this);box.setBackground(EditorUi.background(EditorUi.SURFACE));
@@ -2068,12 +2109,27 @@ public final class MainActivity extends Activity {
         String[] octaves={"−4","−3","−2","−1","0","+1","+2","+3","+4"};EditorUi.selectorCell(row,"OITAVA",octaves,screen.routeOctave[l]+4,i->screen.setLayerRouting(l,screen.routeChannel[l],i-4,screen.routeVelocity[l],screen.routeSustain[l]));
         row=EditorUi.gridRow(body);String[] modes={"POLIFÔNICO","MONO LEGATO","PORTAMENTO"};EditorUi.selectorCell(row,"MODO",modes,screen.routeMode[l],i->screen.setLayerRouting(l,screen.routeChannel[l],screen.routeOctave[l],screen.routeVelocity[l],screen.routeSustain[l],i));
         boolean nord="NPNO".equals(screen.engineName(l));
-        String[] velocity=nord?new String[]{"LINEAR","SUAVE","FORTE","ADAPTATIVA"}:new String[]{"LINEAR","SUAVE","FORTE"};
-        EditorUi.selectorCell(row,"VELOCIDADE",velocity,Math.min(screen.routeVelocity[l],velocity.length-1),i->{
+        String[] velocity=nord?new String[]{"LINEAR","SUAVE","FORTE","ADAPTATIVA","AJUSTAR CURVA"}:new String[]{"LINEAR","SUAVE","FORTE","AJUSTAR CURVA"};final int userCurveIndex=nord?4:3;
+        EditorUi.selectorCell(row,"VELOCIDADE",velocity,screen.routeVelocity[l]==4?userCurveIndex:Math.min(screen.routeVelocity[l],velocity.length-1),i->{
             if(nord&&i==3&&!getSharedPreferences("nord_velocity",MODE_PRIVATE).contains(nordVelocityProfileKey()+"soft"))startNordVelocityCalibration(l);
-            else screen.setLayerRouting(l,screen.routeChannel[l],screen.routeOctave[l],i,screen.routeSustain[l]);
+            else{screen.setLayerRouting(l,screen.routeChannel[l],screen.routeOctave[l],i==userCurveIndex?4:i,screen.routeSustain[l]);velocity().apply(audioEngine,l);}
         });
         EditorUi.selectorCell(row,"SUSTAIN",new String[]{"LIGADO","DESLIGADO"},screen.routeSustain[l]?0:1,i->screen.setLayerRouting(l,screen.routeChannel[l],screen.routeOctave[l],screen.routeVelocity[l],i==0));
+        // Desktop PARAMETROS GERAIS extras: sensitivity off, key split and the incoming velocity gate.
+        final LayerVelocity lv=velocity();
+        LinearLayout sensRow=EditorUi.gridRow(body);
+        final Button sensitivity=EditorUi.button(this,lv.sensitivityOff[l]?"SENSIBILIDADE: DESLIGADA":"DESLIGAR SENSIBILIDADE",()->{});
+        sensitivity.setOnClickListener(v->{lv.sensitivityOff[l]=!lv.sensitivityOff[l];lv.save(l);lv.apply(audioEngine,l);sensitivity.setText(lv.sensitivityOff[l]?"SENSIBILIDADE: DESLIGADA":"DESLIGAR SENSIBILIDADE");});
+        sensRow.addView(sensitivity,new LinearLayout.LayoutParams(0,EditorUi.dp(this,44),1));
+        String[] noteNames=new String[128];String[] pitch={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+        for(int n=0;n<128;n++)noteNames[n]=pitch[n%12]+(n/12-1);
+        LinearLayout noteRow=EditorUi.gridRow(body);
+        EditorUi.selectorCell(noteRow,"NOTA BAIXA",noteNames,lv.noteLow[l],i->{lv.noteLow[l]=i;if(lv.noteHigh[l]<i)lv.noteHigh[l]=i;lv.save(l);screen.applyLayerRouting(l);});
+        EditorUi.selectorCell(noteRow,"NOTA ALTA",noteNames,lv.noteHigh[l],i->{lv.noteHigh[l]=i;if(lv.noteLow[l]>i)lv.noteLow[l]=i;lv.save(l);screen.applyLayerRouting(l);});
+        String[] velValues=new String[127];for(int v=0;v<127;v++)velValues[v]=String.valueOf(v+1);
+        LinearLayout gateRow=EditorUi.gridRow(body);
+        EditorUi.selectorCell(gateRow,"VEL. MIN",velValues,lv.low[l]-1,i->{lv.low[l]=i+1;if(lv.high[l]<lv.low[l])lv.high[l]=lv.low[l];lv.save(l);lv.apply(audioEngine,l);});
+        EditorUi.selectorCell(gateRow,"VEL. MAX",velValues,lv.high[l]-1,i->{lv.high[l]=i+1;if(lv.low[l]>lv.high[l])lv.low[l]=lv.high[l];lv.save(l);lv.apply(audioEngine,l);});
         if(nord)EditorUi.addButton(EditorUi.gridRow(body),"CALIBRAR VELOCIDADE DO TECLADO",()->startNordVelocityCalibration(l));
         row=EditorUi.gridRow(body);TextView device=EditorUi.label(this,screen.midiStatus,9);device.setTextColor(EditorUi.MUTED);device.setGravity(Gravity.CENTER_VERTICAL|Gravity.START);row.addView(device,new LinearLayout.LayoutParams(0,EditorUi.dp(this,32),2));EditorUi.addButton(row,"ESCOLHER ENTRADA MIDI",this::showMidiDeviceChooser);
         TextView selected=EditorUi.label(this,"ENTRADA: "+selectedMidiName+" · porta "+selectedMidiPort+" ("+selectedMidiPortName+")",9);selected.setGravity(Gravity.CENTER_VERTICAL|Gravity.START);selected.setSingleLine(true);selected.setEllipsize(android.text.TextUtils.TruncateAt.END);selected.setTextColor(EditorUi.MUTED);body.addView(selected,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,23)));
@@ -2424,8 +2480,8 @@ public final class MainActivity extends Activity {
         void setLayerReverb(int layer,float size,float damping,float width){if(layer<0||layer>=6)return;reverbSize[layer]=size;reverbDamping[layer]=damping;reverbWidth[layer]=width;getSharedPreferences("layers",MODE_PRIVATE).edit().putFloat("reverb_size_"+layer,size).putFloat("reverb_damping_"+layer,damping).putFloat("reverb_width_"+layer,width).apply();if(audioEngine!=null)audioEngine.setLayerReverb(layer,size,damping,width);}
         void setMasterEffects(float reverb,float chorus){masterReverb=reverb;masterChorus=chorus;getSharedPreferences("layers",MODE_PRIVATE).edit().putFloat("master_reverb",reverb).putFloat("master_chorus",chorus).apply();if(audioEngine!=null)audioEngine.setMasterEffects(reverb,chorus);postInvalidate();}
         void setLayerRouting(int layer,int channel,int octave,int velocity,boolean sustain){setLayerRouting(layer,channel,octave,velocity,sustain,layer>=0&&layer<6?routeMode[layer]:0);}
-        void setLayerRouting(int layer,int channel,int octave,int velocity,boolean sustain,int mode){if(layer<0||layer>=6)return;routeChannel[layer]=channel;routeOctave[layer]=octave;routeVelocity[layer]=velocity;routeSustain[layer]=sustain;routeMode[layer]=mode;getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("route_channel_"+layer,channel).putInt("route_octave_"+layer,octave).remove("route_low_"+layer).remove("route_high_"+layer).putInt("route_velocity_"+layer,velocity).putBoolean("route_sustain_"+layer,sustain).putInt("route_mode_"+layer,mode).apply();if(audioEngine!=null)audioEngine.setLayerRouting(layer,channel,octave,0,127,velocity,sustain,mode);}
-        void applyLayerRouting(int layer){if(audioEngine!=null)audioEngine.setLayerRouting(layer,routeChannel[layer],routeOctave[layer],0,127,routeVelocity[layer],routeSustain[layer],routeMode[layer]);}
+        void setLayerRouting(int layer,int channel,int octave,int velocity,boolean sustain,int mode){if(layer<0||layer>=6)return;routeChannel[layer]=channel;routeOctave[layer]=octave;routeVelocity[layer]=velocity;routeSustain[layer]=sustain;routeMode[layer]=mode;getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("route_channel_"+layer,channel).putInt("route_octave_"+layer,octave).remove("route_low_"+layer).remove("route_high_"+layer).putInt("route_velocity_"+layer,velocity).putBoolean("route_sustain_"+layer,sustain).putInt("route_mode_"+layer,mode).apply();if(audioEngine!=null){audioEngine.setLayerRouting(layer,channel,octave,velocity().noteLow[layer],velocity().noteHigh[layer],velocity,sustain,mode);velocity().apply(audioEngine,layer);}}
+        void applyLayerRouting(int layer){if(audioEngine!=null){audioEngine.setLayerRouting(layer,routeChannel[layer],routeOctave[layer],velocity().noteLow[layer],velocity().noteHigh[layer],routeVelocity[layer],routeSustain[layer],routeMode[layer]);velocity().apply(audioEngine,layer);}}
         private void setAnalogPresetValues(int layer,int preset){
             boolean[] pink={false},mono={false};float[] osc1Tune={0};
             AnalogPresetBank.apply(preset,analogControls[layer],analogWaves[layer],analogOscillatorEnabled[layer],pink,mono,osc1Tune);

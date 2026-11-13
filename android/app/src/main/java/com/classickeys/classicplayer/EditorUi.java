@@ -249,11 +249,13 @@ final class EditorUi {
 
     /** Velocity curve drawing: input key force (x) against the velocity the engine receives (y). Same formulas as the native engine. */
     static final class VelocityGraph extends View {
-        final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);int curve;int soft,mid,hard;
+        final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);int curve;int soft,mid,hard,outMin=1,outMax=127;float slope;
         VelocityGraph(Context c,int curve,int soft,int mid,int hard){super(c);set(curve,soft,mid,hard);}
         void set(int curve,int soft,int mid,int hard){this.curve=curve;this.soft=soft;this.mid=mid;this.hard=hard;invalidate();}
+        void setCurve(int curve,int soft,int mid,int hard,int outMin,int outMax,float slope){this.outMin=outMin;this.outMax=outMax;this.slope=slope;set(curve,soft,mid,hard);}
         float map(float in){
             int v=Math.max(1,Math.min(127,Math.round(in)));
+            if(curve==4){float exponent=(float)Math.pow(2,-slope/50f),input=(v-1f)/126f;return Math.max(1,Math.min(127,Math.round(outMin+(outMax-outMin)*(float)Math.pow(input,exponent))));}
             if(curve==1)return Math.max(1,Math.min(127,Math.round((float)Math.sqrt(v/127.0f)*127.0f)));
             if(curve==2)return Math.max(1,Math.min(127,Math.round((v/127.0f)*(v/127.0f)*127.0f)));
             if(curve==3&&soft>0){int[] input={1,soft,mid,hard,127};int[] output={1,24,64,hard>=120?127:112,127};

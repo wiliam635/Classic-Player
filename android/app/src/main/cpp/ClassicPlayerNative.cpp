@@ -46,6 +46,19 @@ std::array<int, kLayerCount> layerVoiceBudgets {};
 std::array<float, kLayerCount> layerGains { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
 std::array<float, kLayerCount> smoothedLayerGains { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
 std::array<float,kLayerCount> layerPan{},smoothedLayerPan{};
+// Per-layer velocity shaping that matches the desktop routing: incoming gate (VEL. MIN/MAX),
+// sensitivity off (fixed 100), user curve (shaped table) and the NPNO timbre floor.
+std::array<int,kLayerCount> layerVelocityLow {1,1,1,1,1,1}, layerVelocityHigh {127,127,127,127,127,127}, layerTimbreFloor {1,1,1,1,1,1};
+std::array<bool,kLayerCount> layerSensitivityOff {};
+std::array<std::array<uint8_t,128>,kLayerCount> layerVelocityTable {};
+void buildVelocityTable(size_t layer,int minimum,int maximum,float slope){
+    minimum=std::clamp(minimum,1,127);maximum=std::clamp(maximum,minimum,127);slope=std::clamp(slope,-100.0f,100.0f);
+    const float exponent=std::exp2(-slope/50.0f);auto& table=layerVelocityTable[layer];table[0]=1;
+    for(int value=1;value<128;++value){
+        const float input=(value-1.0f)/126.0f;const float output=minimum+(maximum-minimum)*std::pow(input,exponent);
+        table[(size_t)value]=(uint8_t)std::clamp((int)std::lround(output),1,127);
+    }
+}
 std::array<int,kLayerCount> layerMidiChannel { -1,-1,-1,-1,-1,-1 }, layerOctave {}, layerLowNote {0,0,0,0,0,0}, layerHighNote {127,127,127,127,127,127}, layerVelocityCurve {};
 std::array<int,kLayerCount> layerMidiMode {};
 std::array<std::array<int,3>,kLayerCount> nordVelocityCalibration {};
@@ -819,8 +832,17 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerRouting(JNIEnv*
     if(layer<0||layer>=kLayerCount)return;std::lock_guard<std::mutex> lock(synthMutex);
     const auto i=(size_t)layer;layerMidiChannel[i]=channel<0?-1:std::clamp((int)channel,0,15);
     layerOctave[i]=std::clamp((int)octave,-4,4);layerLowNote[i]=std::clamp((int)low,0,127);
-    layerHighNote[i]=std::clamp((int)high,layerLowNote[i],127);layerVelocityCurve[i]=std::clamp((int)velocityCurve,0,3);
+    layerHighNote[i]=std::clamp((int)high,layerLowNote[i],127);layerVelocityCurve[i]=std::clamp((int)velocityCurve,0,4);
     layerSustainEnabled[i]=sustain==JNI_TRUE;layerMidiMode[i]=std::clamp((int)mode,0,2);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerVelocity(JNIEnv*,jclass,jint layer,jint low,jint high,jboolean sensitivityOff,jint outMin,jint outMax,jfloat slope,jint timbreFloor)
+{
+    if(layer<0||layer>=kLayerCount)return;std::lock_guard<std::mutex> lock(synthMutex);
+    const auto i=(size_t)layer;layerVelocityLow[i]=std::clamp((int)low,1,127);layerVelocityHigh[i]=std::clamp((int)high,layerVelocityLow[i],127);
+    layerSensitivityOff[i]=sensitivityOff==JNI_TRUE;layerTimbreFloor[i]=std::clamp((int)timbreFloor,1,127);
+    buildVelocityTable(i,outMin,outMax,slope);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -964,8 +986,11 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
         if(layerMidiChannel[li]>=0&&layerMidiChannel[li]!=midiChannel)continue;
         if(note<layerLowNote[li]||note>layerHighNote[li])continue;
         const int routedNote=std::clamp(note+layerOctave[li]*12,0,127);
+        if((int)velocity<layerVelocityLow[li]||(int)velocity>layerVelocityHigh[li])continue;
         int routedVelocity=std::clamp((int)velocity,1,127);
-        if(layerVelocityCurve[li]==1)routedVelocity=std::clamp((int)std::lround(std::sqrt(routedVelocity/127.0f)*127.0f),1,127);
+        if(layerSensitivityOff[li])routedVelocity=100;
+        else if(layerVelocityCurve[li]==4)routedVelocity=layerVelocityTable[li][(size_t)routedVelocity];
+        else if(layerVelocityCurve[li]==1)routedVelocity=std::clamp((int)std::lround(std::sqrt(routedVelocity/127.0f)*127.0f),1,127);
         else if(layerVelocityCurve[li]==2)routedVelocity=std::clamp((int)std::lround((routedVelocity/127.0f)*(routedVelocity/127.0f)*127.0f),1,127);
         else if(layerVelocityCurve[li]==3&&engineTypes[li]==EngineType::nord){
             const auto& c=nordVelocityCalibration[li];
@@ -1009,7 +1034,7 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
         else if(engineTypes[li]==EngineType::nord) {
             nord_android::noteOn(nordLayers[li],routedNote,routedVelocity,midiChannel,
                     layerSustainEnabled[li]&&sustainDown[(size_t)midiChannel],
-                    voiceBudget,layerAttack[li]);
+                    voiceBudget,layerAttack[li],layerTimbreFloor[li]);
         }
         else if(engineTypes[(size_t)layer]==EngineType::analog) {
             auto& analog=analogLayers[(size_t)layer]; AnalogVoice* target=nullptr;

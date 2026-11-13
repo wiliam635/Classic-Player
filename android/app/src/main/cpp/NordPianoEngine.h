@@ -50,7 +50,7 @@ struct Layer {
 };
 
 void noteOn(Layer& layer, int note, int velocity, int channel, bool sustain,
-            int voiceBudget, float attackSeconds);
+            int voiceBudget, float attackSeconds, int timbreFloor = 1);
 void noteOff(Layer& layer, int note, int channel, bool sustain,
              float releaseSeconds = 0.04f);
 void pedalUp(Layer& layer, int channel, float releaseSeconds = 0.04f);

@@ -181,7 +181,7 @@ bool load(const std::string& path,size_t budget,Instrument& out,std::string& err
     out=std::move(result);return true;
 }
 
-void noteOn(Layer& layer,int note,int velocity,int channel,bool sustain,int voiceBudget,float attackSeconds){
+void noteOn(Layer& layer,int note,int velocity,int channel,bool sustain,int voiceBudget,float attackSeconds,int timbreFloor){
     if(!layer.instrument||note<0||note>127||velocity<1)return;
     const auto& piano=*layer.instrument;int root=piano.keyMap[(size_t)note];if(root==0xff)return;
     // The pedal-down bank (bank 1) is a pronounced reflection that lingers like
@@ -189,7 +189,7 @@ void noteOn(Layer& layer,int note,int velocity,int channel,bool sustain,int voic
     // uses it as an explicit opt-in (pianoPedalResonance, off by default), so
     // Android plays the dry bank 0 unless that opt-in is added here later.
     (void)sustain;
-    int bank=0,limit=((127-velocity)*piano.velocityScale)/127;
+    int bank=0,limit=((127-std::max(velocity,std::clamp(timbreFloor,1,127)))*piano.velocityScale)/127;
     int chosen=-1,best=-1;
     for(size_t i=0;i<piano.strokes.size();++i){const auto& s=piano.strokes[i];if(s.root==root&&s.bank==bank&&s.velocityLayer<=limit&&s.velocityLayer>best){chosen=(int)i;best=s.velocityLayer;}}
     if(chosen<0&&bank==1)for(size_t i=0;i<piano.strokes.size();++i){const auto& s=piano.strokes[i];if(s.root==root&&s.bank==0&&s.velocityLayer<=limit&&s.velocityLayer>best){chosen=(int)i;best=s.velocityLayer;}}
