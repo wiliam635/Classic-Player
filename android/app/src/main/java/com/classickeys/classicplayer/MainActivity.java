@@ -1885,6 +1885,7 @@ public final class MainActivity extends Activity {
 
     private void showPresetEditor(final int layer,String title,String subtitle,String[] items,int selected,
                                   PresetSelection selection,String secondaryLabel,Runnable secondaryAction) {
+        if(layer>=0&&layer<6&&dockedInspector==null){dockedLayer=layer;EditorUi.Panel.dockNext=true;}
         EditorUi.Panel panel=new EditorUi.Panel(this,title,subtitle);
         final String[] tabNames=screen.engineName(layer).equals("ANALOG")?new String[]{"OSCILADORES","FILTRO / ADSR","CONTROLES","EFEITOS","MIDI"}:new String[]{"SOM","ENVELOPE","MIDI","EFEITOS","VELOCIDADE"};
         final boolean analogEngine=screen.engineName(layer).equals("ANALOG");
@@ -2002,9 +2003,12 @@ public final class MainActivity extends Activity {
         if(page==1){
             final boolean sf2Envelope="SF2".equals(engine);
             TextView note=EditorUi.label(this,"ENVELOPE ADSR · ataque e liberação da layer",11);note.setTextColor(EditorUi.MUTED);body.addView(note,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,26)));
+            final float maxRelease="NPNO".equals(engine)?2000f:100f;
+            final EditorUi.EnvelopeGraph envelopeGraph=new EditorUi.EnvelopeGraph(this,screen.layerAttack[layer]*1000f,screen.layerRelease[layer]*1000f,100f,maxRelease);
+            body.addView(envelopeGraph,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,150)));
             LinearLayout row=EditorUi.knobRow(body);
-            EditorUi.knob(row,sf2Envelope?"ATTACK +ms":"ATTACK ms",screen.layerAttack[layer]*1000f,sf2Envelope?0f:.1f,100," ms",v->screen.setLayerEnvelope(layer,v/1000f,screen.layerRelease[layer]));
-            EditorUi.knob(row,sf2Envelope?"RELEASE +ms":"RELEASE ms",screen.layerRelease[layer]*1000f,0f,"NPNO".equals(engine)?2000:100," ms",v->screen.setLayerEnvelope(layer,screen.layerAttack[layer],v/1000f));
+            EditorUi.knob(row,sf2Envelope?"ATTACK +ms":"ATTACK ms",screen.layerAttack[layer]*1000f,sf2Envelope?0f:.1f,100," ms",v->{screen.setLayerEnvelope(layer,v/1000f,screen.layerRelease[layer]);envelopeGraph.set(v,screen.layerRelease[layer]*1000f);});
+            EditorUi.knob(row,sf2Envelope?"RELEASE +ms":"RELEASE ms",screen.layerRelease[layer]*1000f,0f,maxRelease," ms",v->{screen.setLayerEnvelope(layer,screen.layerAttack[layer],v/1000f);envelopeGraph.set(screen.layerAttack[layer]*1000f,v);});
         }else if(page==3){
             // EFEITOS opens with Reverb already selected, inline instead of in a second window.
             final String[] effects={"REVERB","COMP","EQ","CHORUS"};
@@ -2023,10 +2027,15 @@ public final class MainActivity extends Activity {
             TextView note=EditorUi.label(this,"CURVA DE VELOCITY · como a força da tecla vira volume",11);note.setTextColor(EditorUi.MUTED);body.addView(note,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,26)));
             final boolean nord="NPNO".equals(engine);
             String[] velocity=nord?new String[]{"LINEAR","SUAVE","FORTE","ADAPTATIVA"}:new String[]{"LINEAR","SUAVE","FORTE"};
+            final SharedPreferences velocityProfile=getSharedPreferences("nord_velocity",MODE_PRIVATE);final String velocityKey=nord?nordVelocityProfileKey():"";
+            final EditorUi.VelocityGraph velocityGraph=new EditorUi.VelocityGraph(this,Math.min(screen.routeVelocity[layer],velocity.length-1),
+                    velocityProfile.getInt(velocityKey+"soft",0),velocityProfile.getInt(velocityKey+"mid",0),velocityProfile.getInt(velocityKey+"hard",0));
+            body.addView(velocityGraph,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,190)));
             LinearLayout row=EditorUi.gridRow(body);
             EditorUi.selectorCell(row,"VELOCIDADE",velocity,Math.min(screen.routeVelocity[layer],velocity.length-1),i->{
-                if(nord&&i==3&&!getSharedPreferences("nord_velocity",MODE_PRIVATE).contains(nordVelocityProfileKey()+"soft"))startNordVelocityCalibration(layer);
-                else screen.setLayerRouting(layer,screen.routeChannel[layer],screen.routeOctave[layer],i,screen.routeSustain[layer]);
+                if(nord&&i==3&&!velocityProfile.contains(velocityKey+"soft"))startNordVelocityCalibration(layer);
+                else{screen.setLayerRouting(layer,screen.routeChannel[layer],screen.routeOctave[layer],i,screen.routeSustain[layer]);
+                    velocityGraph.set(i,velocityProfile.getInt(velocityKey+"soft",0),velocityProfile.getInt(velocityKey+"mid",0),velocityProfile.getInt(velocityKey+"hard",0));}
             });
             if(nord)EditorUi.addButton(EditorUi.gridRow(body),"CALIBRAR VELOCIDADE DO TECLADO",()->startNordVelocityCalibration(layer));
         }
@@ -2069,7 +2078,7 @@ public final class MainActivity extends Activity {
         final int l=layer;String[] barNames={"16′","5⅓′","8′","4′","2⅔′","2′","1⅗′","1⅓′","1′"};
         for(int rowIndex=0;rowIndex<3;rowIndex++){LinearLayout row=EditorUi.gridRow(body);for(int col=0;col<3;col++){
             final int bar=rowIndex*3+col;LinearLayout cell=EditorUi.column(this);cell.setPadding(EditorUi.dp(this,3),0,EditorUi.dp(this,3),0);TextView label=EditorUi.label(this,barNames[bar]+"  "+screen.hammondBars[l][bar],9);cell.addView(label,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,17)));
-            SeekBar control=new SeekBar(this);control.setMax(8);control.setProgress(Math.max(0,screen.hammondBars[l][bar]));control.setContentDescription("Drawbar "+barNames[bar]);control.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar s,int value,boolean user){if(user){screen.setHammondBar(l,bar,value);label.setText(barNames[bar]+"  "+value);}}public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){}});cell.addView(control,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,34)));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,-2,1);row.addView(cell,cp);
+            SeekBar control=new SeekBar(this);control.setProgressTintList(android.content.res.ColorStateList.valueOf(EditorUi.ACCENT));control.setThumbTintList(android.content.res.ColorStateList.valueOf(EditorUi.ACCENT));control.setMax(8);control.setProgress(Math.max(0,screen.hammondBars[l][bar]));control.setContentDescription("Drawbar "+barNames[bar]);control.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar s,int value,boolean user){if(user){screen.setHammondBar(l,bar,value);label.setText(barNames[bar]+"  "+value);}}public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){}});cell.addView(control,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,34)));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,-2,1);row.addView(cell,cp);
         }}
         LinearLayout opts=EditorUi.gridRow(body);EditorUi.selectorCell(opts,"LESLIE",new String[]{"STOP","CHORALE","FAST"},screen.hammondLeslie[l],i->screen.setHammondOption(l,true,i));EditorUi.selectorCell(opts,"PERCUSSÃO",new String[]{"OFF","2ND","3RD"},screen.hammondPercussion[l],i->screen.setHammondOption(l,false,i));
         LinearLayout knobs=EditorUi.knobRow(body);String[] labels={"KEY CLICK","LEAKAGE","DRIVE","LEVEL"};for(int i=0;i<4;i++){final int index=i;EditorUi.knob(knobs,labels[i],screen.hammondExtras[l][i]*100,0,100," %",v->screen.setHammondExtra(l,index,v/100f));}

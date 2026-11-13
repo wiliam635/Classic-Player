@@ -123,6 +123,7 @@ public class InspectorScreenshotTest {
             } catch (Exception e) { throw new RuntimeException(e); } });
             Thread.sleep(2000);
             tap(1160, 302); Thread.sleep(800);
+            for (int k = 0; k < 3; k++) { if (clickText("FECHAR")) Thread.sleep(900); }
             shot("all-0-mixer.png", dir);
             View content = activity.findViewById(android.R.id.content);
             int[] at = new int[2]; content.getLocationOnScreen(at);

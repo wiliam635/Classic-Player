@@ -225,4 +225,51 @@ final class EditorUi {
             for(int i=0;i<5;i++){float x=compressor?left+(right-left)*i/4f:left+(right-left)*(float)(Math.log(Integer.parseInt(ticks[i].replace("k","000").replace(" ",""))/20.0)/Math.log(1000.0));canvas.drawText(ticks[i],x,bottom+dp(getContext(),15),p);}
         }
     }
+
+    /** Envelope cycle drawing (attack, hold, release) for the ENVELOPE tab; only the parameters the Android engine has. */
+    static final class EnvelopeGraph extends View {
+        final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);float attackMs,releaseMs;final float maxAttack,maxRelease;
+        EnvelopeGraph(Context c,float attackMs,float releaseMs,float maxAttack,float maxRelease){super(c);this.attackMs=attackMs;this.releaseMs=releaseMs;this.maxAttack=maxAttack;this.maxRelease=maxRelease;}
+        void set(float attackMs,float releaseMs){this.attackMs=attackMs;this.releaseMs=releaseMs;invalidate();}
+        @Override protected void onDraw(Canvas c){
+            float w=getWidth(),h=getHeight(),l=dp(getContext(),14),r=w-dp(getContext(),14),t=dp(getContext(),30),b=h-dp(getContext(),26);
+            p.setStyle(Paint.Style.FILL);p.setColor(FIELD);c.drawRoundRect(new RectF(0,0,w,h),dp(getContext(),5),dp(getContext(),5),p);
+            p.setColor(MUTED);p.setTextSize(dp(getContext(),10));p.setTextAlign(Paint.Align.LEFT);c.drawText("CICLO DO ENVELOPE",l,dp(getContext(),18),p);
+            p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(dp(getContext(),1));p.setColor(BORDER);
+            for(int i=0;i<=4;i++){float y=t+(b-t)*i/4f;c.drawLine(l,y,r,y,p);}
+            float span=r-l,a=Math.max(.03f,Math.min(.32f,attackMs/Math.max(1f,maxAttack)*.32f)),hold=.28f,rel=Math.max(.03f,Math.min(.4f,releaseMs/Math.max(1f,maxRelease)*.4f));
+            float x0=l,x1=l+span*a,x2=x1+span*hold,x3=Math.min(r,x2+span*rel);
+            p.setColor(ACCENT);p.setStrokeWidth(dp(getContext(),2));
+            android.graphics.Path path=new android.graphics.Path();path.moveTo(x0,b);path.lineTo(x1,t);path.lineTo(x2,t);path.lineTo(x3,b);c.drawPath(path,p);
+            p.setStyle(Paint.Style.FILL);p.setColor(MUTED);p.setTextSize(dp(getContext(),9));p.setTextAlign(Paint.Align.CENTER);
+            c.drawText("ATTACK "+Math.round(attackMs)+" ms",(x0+x1)/2f+dp(getContext(),30),h-dp(getContext(),8),p);c.drawText("RELEASE "+Math.round(releaseMs)+" ms",(x2+x3)/2f,h-dp(getContext(),8),p);
+        }
+    }
+
+    /** Velocity curve drawing: input key force (x) against the velocity the engine receives (y). Same formulas as the native engine. */
+    static final class VelocityGraph extends View {
+        final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);int curve;int soft,mid,hard;
+        VelocityGraph(Context c,int curve,int soft,int mid,int hard){super(c);set(curve,soft,mid,hard);}
+        void set(int curve,int soft,int mid,int hard){this.curve=curve;this.soft=soft;this.mid=mid;this.hard=hard;invalidate();}
+        float map(float in){
+            int v=Math.max(1,Math.min(127,Math.round(in)));
+            if(curve==1)return Math.max(1,Math.min(127,Math.round((float)Math.sqrt(v/127.0f)*127.0f)));
+            if(curve==2)return Math.max(1,Math.min(127,Math.round((v/127.0f)*(v/127.0f)*127.0f)));
+            if(curve==3&&soft>0){int[] input={1,soft,mid,hard,127};int[] output={1,24,64,hard>=120?127:112,127};
+                for(int point=1;point<5;point++)if(v<=input[point]){float f=(float)(v-input[point-1])/(float)Math.max(1,input[point]-input[point-1]);return Math.max(1,Math.min(127,Math.round(output[point-1]+f*(output[point]-output[point-1]))));}}
+            return v;
+        }
+        @Override protected void onDraw(Canvas c){
+            float w=getWidth(),h=getHeight(),l=dp(getContext(),30),r=w-dp(getContext(),14),t=dp(getContext(),28),b=h-dp(getContext(),24);
+            p.setStyle(Paint.Style.FILL);p.setColor(FIELD);c.drawRoundRect(new RectF(0,0,w,h),dp(getContext(),5),dp(getContext(),5),p);
+            p.setColor(MUTED);p.setTextSize(dp(getContext(),10));p.setTextAlign(Paint.Align.LEFT);c.drawText("CURVA DE VELOCITY",l,dp(getContext(),17),p);
+            p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(dp(getContext(),1));p.setColor(BORDER);
+            for(int i=0;i<=4;i++){float x=l+(r-l)*i/4f,y=t+(b-t)*i/4f;c.drawLine(x,t,x,b,p);c.drawLine(l,y,r,y,p);}
+            p.setColor(MUTED);c.drawLine(l,b,r,t,p);
+            p.setColor(ACCENT);p.setStrokeWidth(dp(getContext(),2));float px=l,py=b;
+            for(int i=1;i<=127;i++){float x=l+(r-l)*i/127f,y=b-(b-t)*map(i)/127f;if(i>1)c.drawLine(px,py,x,y,p);px=x;py=y;}
+            p.setStyle(Paint.Style.FILL);p.setColor(MUTED);p.setTextSize(dp(getContext(),9));p.setTextAlign(Paint.Align.CENTER);
+            c.drawText("força da tecla",(l+r)/2f,h-dp(getContext(),7),p);p.setTextAlign(Paint.Align.RIGHT);c.drawText("127",l-dp(getContext(),4),t+dp(getContext(),4),p);c.drawText("1",l-dp(getContext(),4),b,p);
+        }
+    }
 }
