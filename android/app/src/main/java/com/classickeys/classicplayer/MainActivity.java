@@ -2062,7 +2062,7 @@ public final class MainActivity extends Activity {
             addSeekRow(body,"INCLINAÇÃO",-100,100,Math.round(lv.slope[layer]),v->{lv.slope[layer]=v;if(screen.routeVelocity[layer]!=4)useUserCurve.run();else commit.run();});
             LinearLayout curveFiles=EditorUi.gridRow(body);
             EditorUi.addButton(curveFiles,"RESET LINEAR",()->{lv.resetCurve(layer);screen.setLayerRouting(layer,screen.routeChannel[layer],screen.routeOctave[layer],0,screen.routeSustain[layer]);commit.run();renderDesktopStylePage(layer,panel,4,items,selected,selection,secondaryLabel,secondaryAction);});
-            EditorUi.addButton(curveFiles,"SALVAR CURVA",()->{getSharedPreferences("velocity_saved",MODE_PRIVATE).edit().putInt("min",lv.outMin[layer]).putInt("max",lv.outMax[layer]).putFloat("slope",lv.slope[layer]).apply();Toast.makeText(this,"Curva salva",android.widget.Toast.LENGTH_SHORT).show();});
+            EditorUi.addButton(curveFiles,"SALVAR CURVA",()->{getSharedPreferences("velocity_saved",MODE_PRIVATE).edit().putInt("min",lv.outMin[layer]).putInt("max",lv.outMax[layer]).putFloat("slope",lv.slope[layer]).apply();android.widget.Toast.makeText(this,"Curva salva",android.widget.Toast.LENGTH_SHORT).show();});
             EditorUi.addButton(curveFiles,"CARREGAR CURVA",()->{SharedPreferences saved=getSharedPreferences("velocity_saved",MODE_PRIVATE);
                 if(!saved.contains("min")){android.widget.Toast.makeText(this,"Nenhuma curva salva",android.widget.Toast.LENGTH_SHORT).show();return;}
                 lv.outMin[layer]=saved.getInt("min",1);lv.outMax[layer]=saved.getInt("max",127);lv.slope[layer]=saved.getFloat("slope",0f);useUserCurve.run();
