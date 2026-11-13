@@ -158,6 +158,7 @@ private:
     public:
         LayerStrip(ClassicPlayerAudioProcessor&, int layerIndex, std::function<void()> mixChanged);
         void prepareForNewLayer();
+        void openPadEditor() { showDrumPadEditor(); }
         int layerNumber() const noexcept { return index; }
         void paint(juce::Graphics&) override;
         void resized() override;
@@ -349,6 +350,11 @@ private:
     void refreshMidiLearnMode();
     juce::TextButton modeStageButton { "PALCO" };
     juce::TextButton modeMixerButton { "MIXER" };
+    juce::TextButton modePadsButton { "PADS" };
+    class PadStripPanel;
+    std::unique_ptr<PadStripPanel> padStrip;
+    bool padStripVisible = false;
+    void setPadStripVisible(bool shouldShow);
     juce::TextButton modeLiveButton { "LIVE SET" };
     juce::TextButton midiLearnModeButton { "MIDI LEARN" };
     bool midiLearnMode = false;

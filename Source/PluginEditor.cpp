@@ -8026,6 +8026,144 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
 
+class ClassicPlayerAudioProcessorEditor::PadStripPanel final : public juce::Component, private juce::Timer
+{
+public:
+    PadStripPanel(ClassicPlayerAudioProcessor& p, std::function<void(int)> editCallback)
+        : processor(p), onEdit(std::move(editCallback))
+    {
+        for (int pad = 0; pad < 12; ++pad)
+        {
+            auto& trigger = pads[(size_t) pad];
+            trigger.setName("STRIP_PAD_" + juce::String(pad + 1));
+            trigger.getProperties().set("uiDataText", true);
+            trigger.setColour(juce::TextButton::buttonColourId, drumPadColour(pad));
+            trigger.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff15191d));
+            trigger.setColour(juce::TextButton::textColourOnId, juce::Colour(0xff15191d));
+            trigger.onClick = [this, pad] { if (layer >= 0) processor.continuousPads(layer).trigger(pad); };
+            addAndMakeVisible(trigger);
+        }
+        stopButton.setButtonText("PARAR");
+        stopButton.onClick = [this] { if (layer >= 0) processor.continuousPads(layer).stop(); };
+        addAndMakeVisible(stopButton);
+        editButton.setButtonText("EDITAR PADS");
+        editButton.onClick = [this] { if (layer >= 0 && onEdit) onEdit(layer); };
+        addAndMakeVisible(editButton);
+        cutoffLabel.setText("CUTOFF", juce::dontSendNotification);
+        volumeLabel.setText("VOLUME", juce::dontSendNotification);
+        volumeLabel.setJustificationType(juce::Justification::centred);
+        for (auto* label : { &cutoffLabel, &volumeLabel, &hint })
+        {
+            label->setColour(juce::Label::textColourId, juce::Colour(text));
+            label->setFont(juce::FontOptions(11.0f, juce::Font::bold));
+            addAndMakeVisible(*label);
+        }
+        hint.setJustificationType(juce::Justification::centred);
+        hint.setText(juce::String::fromUTF8("Adicione uma layer PAD CONT\xc3\x8dNUO para usar estes pads"), juce::dontSendNotification);
+        cutoffSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+        cutoffSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 48, 18);
+        cutoffSlider.setTextValueSuffix("%");
+        volumeKnob.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        volumeKnob.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 54, 16);
+        volumeKnob.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(onAccent));
+        addAndMakeVisible(cutoffSlider);
+        addAndMakeVisible(volumeKnob);
+        refresh();
+        startTimerHz(10);
+    }
+
+    ~PadStripPanel() override { cutoffAttachment.reset(); volumeAttachment.reset(); }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.setColour(juce::Colour(panelLight).withAlpha(0.35f));
+        g.fillRoundedRectangle(getLocalBounds().toFloat(), 4.0f);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(6, 6);
+        auto right = area.removeFromRight(juce::jmin(340, area.getWidth() / 2));
+        area.removeFromRight(8);
+        const auto padWidth = area.getWidth() / 12;
+        for (int pad = 0; pad < 12; ++pad)
+            pads[(size_t) pad].setBounds(area.getX() + pad * padWidth + 2, area.getY(),
+                                         padWidth - 4, area.getHeight());
+        hint.setBounds(area);
+        auto knobArea = right.removeFromLeft(86);
+        volumeLabel.setBounds(knobArea.removeFromTop(14));
+        volumeKnob.setBounds(knobArea);
+        right.removeFromLeft(8);
+        auto row = right.removeFromTop(right.getHeight() / 3);
+        stopButton.setBounds(row.reduced(0, 2));
+        row = right.removeFromTop(right.getHeight() / 2);
+        cutoffLabel.setBounds(row.removeFromLeft(54));
+        cutoffSlider.setBounds(row);
+        editButton.setBounds(right.reduced(0, 2));
+    }
+
+private:
+    void timerCallback() override { if (isShowing()) refresh(); }
+
+    int findLayer() const
+    {
+        for (int i = 0; i < processor.activeLayerCount(); ++i)
+            if (processor.layerType(i) == ClassicPlayerAudioProcessor::LayerType::continuousPads) return i;
+        return -1;
+    }
+
+    void bindLayer(int newLayer)
+    {
+        cutoffAttachment.reset();
+        volumeAttachment.reset();
+        layer = newLayer;
+        if (layer < 0) return;
+        const auto prefix = "layer" + juce::String(layer + 1);
+        cutoffAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+            processor.parameters, prefix + "Cutoff", cutoffSlider);
+        volumeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+            processor.parameters, prefix + "Gain", volumeKnob);
+        cutoffSlider.getProperties().set("midiParameter", prefix + "Cutoff");
+        volumeKnob.getProperties().set("midiParameter", prefix + "Gain");
+    }
+
+    void refresh()
+    {
+        const auto found = findLayer();
+        if (found != layer || (found >= 0 && cutoffAttachment == nullptr)) bindLayer(found);
+        const bool enabled = layer >= 0;
+        hint.setVisible(!enabled);
+        for (auto& trigger : pads) trigger.setEnabled(enabled);
+        for (auto* c : std::initializer_list<juce::Component*>{ &stopButton, &editButton, &cutoffSlider, &volumeKnob })
+            c->setEnabled(enabled);
+        if (!enabled)
+        {
+            for (int pad = 0; pad < 12; ++pad) pads[(size_t) pad].setButtonText("");
+            return;
+        }
+        auto& bank = processor.continuousPads(layer);
+        for (int pad = 0; pad < 12; ++pad)
+        {
+            auto& trigger = pads[(size_t) pad];
+            static const char* names[] { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+            const auto label = bank.path(pad).fromFirstOccurrenceOf("@factory-pad:", false, false);
+            setButtonTextIfChanged(trigger, label.isNotEmpty() ? label : juce::String(names[pad]));
+            setButtonColourIfChanged(trigger, juce::TextButton::buttonColourId,
+                                     bank.selected() == pad ? juce::Colour(yellow) : drumPadColour(pad));
+        }
+    }
+
+    ClassicPlayerAudioProcessor& processor;
+    std::function<void(int)> onEdit;
+    int layer = -1;
+    std::array<LeftClickOnlyButton, 12> pads;
+    LeftClickOnlyButton stopButton;
+    juce::TextButton editButton;
+    juce::Slider cutoffSlider, volumeKnob;
+    juce::Label cutoffLabel, volumeLabel, hint;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> cutoffAttachment, volumeAttachment;
+};
+
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
 {
     if (processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::drumPads && processor.layerType(index) != ClassicPlayerAudioProcessor::LayerType::continuousPads) return;
@@ -9711,8 +9849,20 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     chordLabel.setColour(juce::Label::backgroundColourId, flatUi ? juce::Colour(0xff0b0d10) : juce::Colours::black);
     chordLabel.setColour(juce::Label::textColourId, chordColour);
     addAndMakeVisible(chordLabel);
-    for (auto* modeButton : { &modeStageButton, &modeMixerButton, &modeLiveButton, &midiLearnModeButton })
+    for (auto* modeButton : { &modeStageButton, &modeMixerButton, &modeLiveButton, &modePadsButton, &midiLearnModeButton })
         addAndMakeVisible(*modeButton);
+    modePadsButton.setTooltip(juce::String::fromUTF8("Pad cont\xc3\xadnuo: mostra os pads no lugar do teclado virtual"));
+    padStrip = std::make_unique<PadStripPanel>(classicProcessor, [this](int layer)
+    {
+        if (juce::isPositiveAndBelow(layer, Sf2Engine::layerCount) && strips[(size_t) layer] != nullptr)
+            strips[(size_t) layer]->openPadEditor();
+    });
+    addChildComponent(*padStrip);
+    modePadsButton.onClick = [this]
+    {
+        if (showingLiveSet) showLiveSet(false);
+        setPadStripVisible(!padStripVisible);
+    };
     modeStageButton.setTooltip(juce::String::fromUTF8("Palco: mixer e teclado virtual visíveis"));
     modeMixerButton.setTooltip(juce::String::fromUTF8("Mixer: oculta o teclado virtual e fecha o inspetor"));
     modeLiveButton.setTooltip(juce::String::fromUTF8("Abrir o Live Set"));
@@ -9720,6 +9870,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     modeStageButton.onClick = [this]
     {
         if (showingLiveSet) showLiveSet(false);
+        if (padStripVisible) setPadStripVisible(false);
         if (!virtualKeyboardVisible) keyboardVisibilityButton.onClick();
         refreshDisplayToggle();
     };
@@ -9727,6 +9878,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     {
         if (showingLiveSet) showLiveSet(false);
         closeInspector();
+        if (padStripVisible) setPadStripVisible(false);
         if (virtualKeyboardVisible) keyboardVisibilityButton.onClick();
         refreshDisplayToggle();
     };
@@ -9738,7 +9890,8 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     };
     modeStageButton.setConnectedEdges(juce::Button::ConnectedOnRight);
     modeMixerButton.setConnectedEdges(juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
-    modeLiveButton.setConnectedEdges(juce::Button::ConnectedOnLeft);
+    modeLiveButton.setConnectedEdges(juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
+    modePadsButton.setConnectedEdges(juce::Button::ConnectedOnLeft);
     displayChordButton.setConnectedEdges(juce::Button::ConnectedOnRight);
     displaySpectrumButton.setConnectedEdges(juce::Button::ConnectedOnLeft);
     addAndMakeVisible(displayChordButton);
@@ -9952,7 +10105,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
         keyboardVisibilityButton.setButtonText(localizedUiText(virtualKeyboardVisible ? "OCULTAR TECLADO"
                                                                                       : "MOSTRAR TECLADO",
                                                                activeUiLanguage.load()));
-        keyboard.setVisible(virtualKeyboardVisible && !showingLiveSet);
+        keyboard.setVisible(virtualKeyboardVisible && !padStripVisible && !showingLiveSet);
         classicProcessor.parameters.state.setProperty(
             "uiVirtualKeyboardVisible", virtualKeyboardVisible, nullptr);
         writeUiDisplayPreference("uiVirtualKeyboardVisible", virtualKeyboardVisible);
@@ -10253,7 +10406,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     }
     addLayerButton.setEnabled(visibleLayerCount < Sf2Engine::layerCount);
     addAndMakeVisible(keyboard);
-    keyboard.setVisible(virtualKeyboardVisible);
+    keyboard.setVisible(virtualKeyboardVisible && !padStripVisible);
     classicProcessor.keyboardState.addListener(this);
 
     addAndMakeVisible(activationPanel);
@@ -11127,14 +11280,23 @@ void ClassicPlayerAudioProcessorEditor::resized()
     }
     else
     {
-        if (virtualKeyboardVisible)
+        if (padStripVisible && padStrip != nullptr)
         {
+            padStrip->setVisible(true);
+            padStrip->setBounds(area.removeFromBottom(112).reduced(0, 4));
+            area.removeFromBottom(8);
+            keyboard.setBounds({});
+        }
+        else if (virtualKeyboardVisible)
+        {
+            if (padStrip != nullptr) padStrip->setVisible(false);
             auto keyboardArea = area.removeFromBottom(112);
             keyboard.setBounds(keyboardArea.reduced(0, 4));
             area.removeFromBottom(8);
         }
         else
         {
+            if (padStrip != nullptr) padStrip->setVisible(false);
             keyboard.setBounds({});
         }
         if (inspectorDock != nullptr)
@@ -11174,11 +11336,12 @@ void ClassicPlayerAudioProcessorEditor::resized()
             modeStageButton.setBounds(b.getX() + 4, b.getY() + 5, 62, 22);
             modeMixerButton.setBounds(b.getX() + 4 + 62, b.getY() + 5, 62, 22);
             modeLiveButton.setBounds(b.getX() + 4 + 124, b.getY() + 5, 76, 22);
-            for (auto* modeButton : { &modeStageButton, &modeMixerButton, &modeLiveButton })
+            modePadsButton.setBounds(b.getX() + 4 + 200, b.getY() + 5, 62, 22);
+            for (auto* modeButton : { &modeStageButton, &modeMixerButton, &modeLiveButton, &modePadsButton })
                 modeButton->toFront(false);
             refreshDisplayToggle();
         }
-        for (auto* modeButton : { &modeStageButton, &modeMixerButton, &modeLiveButton })
+        for (auto* modeButton : { &modeStageButton, &modeMixerButton, &modeLiveButton, &modePadsButton })
             modeButton->setVisible(showToggle);
         const bool learnTools = !showingLiveSet;
         midiLearnModeButton.setVisible(learnTools);
@@ -11337,6 +11500,14 @@ void ClassicPlayerAudioProcessorEditor::showUpdateDetails()
             safe->refreshUpdateNotice();
         }
     }), true);
+}
+
+void ClassicPlayerAudioProcessorEditor::setPadStripVisible(bool shouldShow)
+{
+    padStripVisible = shouldShow;
+    keyboard.setVisible(virtualKeyboardVisible && !padStripVisible && !showingLiveSet);
+    resized();
+    refreshDisplayToggle();
 }
 
 void ClassicPlayerAudioProcessorEditor::timerCallback()
@@ -11584,7 +11755,7 @@ void ClassicPlayerAudioProcessorEditor::chooseBackupFile(bool importing)
                         result = safe->classicProcessor.loadProgram(session);
                         safe->refreshAfterProgramLoad();
                         safe->virtualKeyboardVisible = readUiDisplayPreference("uiVirtualKeyboardVisible", true);
-                        safe->keyboard.setVisible(safe->virtualKeyboardVisible && !safe->showingLiveSet);
+                        safe->keyboard.setVisible(safe->virtualKeyboardVisible && !safe->padStripVisible && !safe->showingLiveSet);
                         safe->keyboardVisibilityButton.setButtonText(safe->virtualKeyboardVisible ? "OCULTAR TECLADO" : "MOSTRAR TECLADO");
                         safe->setDisplaySpectrumMode(readUiDisplayPreference("uiDisplaySpectrum", false));
                        #if JucePlugin_Build_Standalone
@@ -11626,8 +11797,9 @@ void ClassicPlayerAudioProcessorEditor::refreshDisplayToggle()
     };
     paint(displayChordButton, !spectrum);
     paint(displaySpectrumButton, spectrum);
-    paint(modeStageButton, !showingLiveSet && virtualKeyboardVisible);
-    paint(modeMixerButton, !showingLiveSet && !virtualKeyboardVisible);
+    paint(modeStageButton, !showingLiveSet && virtualKeyboardVisible && !padStripVisible);
+    paint(modeMixerButton, !showingLiveSet && !virtualKeyboardVisible && !padStripVisible);
+    paint(modePadsButton, !showingLiveSet && padStripVisible);
     paint(modeLiveButton, showingLiveSet);
     paint(midiLearnModeButton, midiLearnMode);
 }
@@ -12126,7 +12298,8 @@ void ClassicPlayerAudioProcessorEditor::showLiveSet(bool show)
     subtitle.setColour(juce::Label::textColourId, juce::Colour(show ? onAccent : mutedText));
     liveSetButton.setButtonText(localizedUiText(show ? "VOLTAR" : "LIVE SET", activeUiLanguage.load()));
     layerViewport.setVisible(!show);
-    keyboard.setVisible(!show && virtualKeyboardVisible);
+    keyboard.setVisible(!show && virtualKeyboardVisible && !padStripVisible);
+    if (padStrip != nullptr && show) padStrip->setVisible(false);
     keyboardVisibilityButton.setVisible(false);
     programBox.setVisible(!show);
     addLayerButton.setVisible(!show);
