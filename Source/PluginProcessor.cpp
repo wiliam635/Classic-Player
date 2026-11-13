@@ -217,6 +217,46 @@ void ClassicPlayerAudioProcessor::resetLayerSplit(int layer)
     setLayerConfig(layer, config);
 }
 
+void ClassicPlayerAudioProcessor::setExpressionPedalEnabled(int layer, bool enabled)
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return;
+    if (auto* parameter = parameters.getParameter("layer" + juce::String(layer + 1) + "ExpressionEnabled"))
+        parameter->setValueNotifyingHost(enabled ? 1.0f : 0.0f);
+    expressionValues[(size_t) layer].store(1.0f, std::memory_order_release);
+}
+
+bool ClassicPlayerAudioProcessor::expressionPedalEnabled(int layer) const
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return false;
+    const auto* value = parameters.getRawParameterValue("layer" + juce::String(layer + 1) + "ExpressionEnabled");
+    return value != nullptr && value->load(std::memory_order_acquire) >= 0.5f;
+}
+
+void ClassicPlayerAudioProcessor::beginExpressionMidiLearn(int layer)
+{
+    if (juce::isPositiveAndBelow(layer, activeLayerCount()))
+    {
+        expressionValues[(size_t) layer].store(1.0f, std::memory_order_release);
+        activeExpressionLearn.store(layer, std::memory_order_release);
+    }
+}
+
+void ClassicPlayerAudioProcessor::clearExpressionMidiLearn(int layer)
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return;
+    expressionCCs[(size_t) layer].store(-1, std::memory_order_release);
+    expressionChannels[(size_t) layer].store(-1, std::memory_order_release);
+    expressionValues[(size_t) layer].store(1.0f, std::memory_order_release);
+    if (activeExpressionLearn.load() == layer) activeExpressionLearn.store(-1);
+}
+
+bool ClassicPlayerAudioProcessor::isExpressionMidiLearning(int layer) const
+{ return activeExpressionLearn.load(std::memory_order_acquire) == layer; }
+int ClassicPlayerAudioProcessor::expressionMidiCC(int layer) const
+{ return juce::isPositiveAndBelow(layer, Sf2Engine::layerCount) ? expressionCCs[(size_t) layer].load() : -1; }
+int ClassicPlayerAudioProcessor::expressionMidiChannel(int layer) const
+{ return juce::isPositiveAndBelow(layer, Sf2Engine::layerCount) ? expressionChannels[(size_t) layer].load() : -1; }
+
 void ClassicPlayerAudioProcessor::captureSplitNote(const juce::MidiMessage& message)
 {
     if (!message.isNoteOn()) return;
@@ -272,6 +312,14 @@ void ClassicPlayerAudioProcessor::processMasterMidiMessage(const juce::MidiMessa
         // This check is needed on both the standalone and plugin MIDI paths.
         bool assignedToLayer = false;
         for (int layer = 0; layer < activeLayerCount() && !assignedToLayer; ++layer)
+        {
+            if (expressionPedalEnabled(layer)
+                && expressionCCs[(size_t) layer].load(std::memory_order_relaxed) == cc
+                && expressionChannels[(size_t) layer].load(std::memory_order_relaxed) == message.getChannel())
+            {
+                assignedToLayer = true;
+                break;
+            }
             for (int target = 0; target < learnTargetCount; ++target)
                 if (learnedCCs[(size_t) layer][(size_t) target].load(std::memory_order_relaxed) == cc)
                 {
@@ -283,6 +331,7 @@ void ClassicPlayerAudioProcessor::processMasterMidiMessage(const juce::MidiMessa
                         break;
                     }
                 }
+        }
         if (!assignedToLayer)
             pendingMasterValue.store(message.getControllerValue() / 127.0f);
     }
@@ -381,6 +430,9 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
         "ClassicPlayer processor criado (instrumento MIDI, saída estéreo)"));
     for (auto& layer : learnedCCs)
         for (auto& cc : layer) cc.store(-1);
+    for (auto& cc : expressionCCs) cc.store(-1);
+    for (auto& channel : expressionChannels) channel.store(-1);
+    for (auto& value : expressionValues) value.store(1.0f);
     for (auto& layer : learnedChannels)
         for (auto& channel : layer) channel.store(-1);
     for (auto& layer : pendingCCValues)
@@ -591,6 +643,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
         result.push_back(std::make_unique<juce::AudioParameterBool>(
             juce::ParameterID{"layer" + n + "PitchBendEnabled", 1},
             "Layer " + n + " Pitch Bend Enabled", true));
+    }
+    for (int i = 0; i < Sf2Engine::layerCount; ++i)
+    {
+        const auto n = juce::String(i + 1);
+        result.push_back(std::make_unique<juce::AudioParameterBool>(
+            juce::ParameterID{"layer" + n + "ExpressionEnabled", 1},
+            "Layer " + n + " Expression Pedal Enabled", false));
     }
     return { result.begin(), result.end() };
 }
@@ -833,6 +892,8 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         const auto& realtime = realtimeLayerParameters[(size_t) i];
         auto layerGain = realtime.Gain->load(std::memory_order_relaxed) / 100.0f;
         layerGain = nordMorphStates[(size_t)i].apply(layerGain, config.nordMorph.volume, 1.0f);
+        if (expressionPedalEnabled(i))
+            layerGain *= expressionValues[(size_t) i].load(std::memory_order_acquire);
         if (isLayerMuted(i)) layerGain = 0.0f;
         // Keep the DX7 6 dB lower than the previous approved trim.
         // Keep Analog and all other sources at their approved levels.
@@ -2273,6 +2334,7 @@ bool ClassicPlayerAudioProcessor::addLayer(LayerType type)
                 routedMidiBuffers[(size_t) count].clear();
             }
             resetMidiLearn(count);
+            clearExpressionMidiLearn(count);
             const auto prefix = "layer" + juce::String(count + 1);
             for (auto* parameter : getParameters())
                 if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(parameter))
@@ -2356,13 +2418,13 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     }
     for (int position = visualPosition; position < Sf2Engine::layerCount; ++position)
         visualLayerOrder[(size_t) position].store(position, std::memory_order_relaxed);
-    static constexpr std::array<const char*, 34> parameterSuffixes {
+    static constexpr std::array<const char*, 35> parameterSuffixes {
         "Gain", "PreGainDb", "Muted", "Attack", "Decay", "SustainLevel", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh",
         "EqLowFrequency", "EqMidFrequency", "EqHighFrequency", "EqLowQ", "EqMidQ", "EqHighQ",
         "Reverb", "ReverbSize", "ReverbDamping",
         "ReverbWidth", "ReverbPreset", "Comp", "CompThreshold", "CompRatio", "CompAttack",
         "CompRelease", "CompMakeup", "Dx7Chorus", "ModulationEnabled", "PitchBendEnabled",
-        "Sf2Chorus", "Sf2ChorusRate", "Sf2ChorusDepth"
+        "Sf2Chorus", "Sf2ChorusRate", "Sf2ChorusDepth", "ExpressionEnabled"
     };
 
     // Preserve the visual and audio order. The previous implementation moved
@@ -2455,6 +2517,9 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
             realtimeCCValues[(size_t) destination][(size_t) target].store(-1.0f,
                                                                             std::memory_order_relaxed);
         }
+        expressionCCs[(size_t) destination].store(expressionCCs[(size_t) source].load());
+        expressionChannels[(size_t) destination].store(expressionChannels[(size_t) source].load());
+        expressionValues[(size_t) destination].store(1.0f);
         learnedMuteCCPressed[(size_t) destination].store(false, std::memory_order_relaxed);
         pendingLayerMuteToggles[(size_t) destination].store(0, std::memory_order_relaxed);
         learnedMuteCCModes[(size_t) destination].store(
@@ -2499,6 +2564,7 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         pendingCCValues[(size_t) last][(size_t) target].store(-1.0f, std::memory_order_relaxed);
         realtimeCCValues[(size_t) last][(size_t) target].store(-1.0f, std::memory_order_relaxed);
     }
+    clearExpressionMidiLearn(last);
     learnedMuteCCPressed[(size_t) last].store(false, std::memory_order_relaxed);
     pendingLayerMuteToggles[(size_t) last].store(0, std::memory_order_relaxed);
     learnedMuteCCModes[(size_t) last].store(-1, std::memory_order_relaxed);
@@ -2926,6 +2992,24 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
         if (active >= 0)
             juce::Logger::writeToLog("MIDI Learn ignores CC64 because it is reserved for sustain");
         return;
+    }
+
+    const auto expressionLearn = activeExpressionLearn.exchange(-1, std::memory_order_acq_rel);
+    if (juce::isPositiveAndBelow(expressionLearn, activeLayerCount()))
+    {
+        expressionCCs[(size_t) expressionLearn].store(cc, std::memory_order_release);
+        expressionChannels[(size_t) expressionLearn].store(channel, std::memory_order_release);
+        expressionValues[(size_t) expressionLearn].store(1.0f, std::memory_order_release);
+        return;
+    }
+    for (int layer = layerFilter >= 0 ? layerFilter : 0;
+         layer < (layerFilter >= 0 ? layerFilter + 1 : activeLayerCount()); ++layer)
+    {
+        if (!expressionPedalEnabled(layer)
+            || expressionCCs[(size_t) layer].load(std::memory_order_relaxed) != cc
+            || expressionChannels[(size_t) layer].load(std::memory_order_relaxed) != channel)
+            continue;
+        expressionValues[(size_t) layer].store(controllerValue / 127.0f, std::memory_order_release);
     }
 
     {
@@ -4665,6 +4749,8 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
                           externalInstruments[(size_t) i].getState().toBase64Encoding(), nullptr);
         const auto config = layerConfig(i);
         state.setProperty("midiChannel" + juce::String(i), config.midiChannel, nullptr);
+        state.setProperty("expressionCC" + juce::String(i), expressionCCs[(size_t) i].load(), nullptr);
+        state.setProperty("expressionChannel" + juce::String(i), expressionChannels[(size_t) i].load(), nullptr);
         state.setProperty("low" + juce::String(i), config.lowNote, nullptr);
         state.setProperty("high" + juce::String(i), config.highNote, nullptr);
         state.setProperty("velocityLow" + juce::String(i), config.lowVelocity, nullptr);
@@ -4930,6 +5016,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 for (auto& value : layer) value.store(-1.0f, std::memory_order_relaxed);
             for (auto& layer : realtimeCCValues)
                 for (auto& value : layer) value.store(-1.0f, std::memory_order_relaxed);
+            for (auto& value : expressionValues) value.store(1.0f, std::memory_order_relaxed);
+            activeExpressionLearn.store(-1, std::memory_order_relaxed);
             std::array<bool, Sf2Engine::layerCount> seenVisualLayers {};
             bool validVisualOrder = true;
             for (int position = 0; position < Sf2Engine::layerCount; ++position)
@@ -5350,6 +5438,11 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 analog.nordRetriggerSameNote = state.getProperty("analogNordRetriggerSameNote" + analogKey, false);
 
                 auto config = engine.getConfig(i);
+                expressionCCs[(size_t) i].store(juce::jlimit(-1, 119, (int) state.getProperty(
+                    "expressionCC" + juce::String(i), -1)), std::memory_order_relaxed);
+                expressionChannels[(size_t) i].store(juce::jlimit(-1, 16, (int) state.getProperty(
+                    "expressionChannel" + juce::String(i), -1)), std::memory_order_relaxed);
+                expressionValues[(size_t) i].store(1.0f, std::memory_order_relaxed);
                 config.midiChannel = juce::jlimit(0, 16, static_cast<int>(
                     state.getProperty("midiChannel" + juce::String(i),
                         savedType == static_cast<int>(LayerType::drumPads) ? 10 : 0)));

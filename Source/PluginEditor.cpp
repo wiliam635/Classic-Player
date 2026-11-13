@@ -4958,7 +4958,7 @@ private:
     juce::TextButton highPass, lowPass;
 };
 
-class LayerInputOptionsPanel final : public juce::Component
+class LayerInputOptionsPanel final : public juce::Component, private juce::Timer
 {
 public:
     LayerInputOptionsPanel(ClassicPlayerAudioProcessor& p, int layer)
@@ -4966,16 +4966,43 @@ public:
     {
         setupToggle(modulationButton, "ModulationEnabled", "MODULATION DO TECLADO");
         setupToggle(pitchBendButton, "PitchBendEnabled", "PITCH BEND");
+        flatButton(expressionButton);
+        expressionButton.setClickingTogglesState(true);
+        expressionButton.setTooltip("Permite que somente o CC aprendido controle a expressão desta layer. Desligado por padrão.");
+        expressionButton.onClick = [this]
+        {
+            processor.setExpressionPedalEnabled(index, expressionButton.getToggleState());
+            refresh();
+        };
+        addAndMakeVisible(expressionButton);
+        flatButton(expressionLearnButton);
+        expressionLearnButton.setTooltip("Aprender o CC e canal do pedal de expressão. Clique com o botão direito para limpar.");
+        expressionLearnButton.onClick = [this]
+        {
+            processor.beginExpressionMidiLearn(index);
+            processor.setExpressionPedalEnabled(index, true);
+            refresh();
+        };
+        expressionLearnButton.onClearMapping = [this]
+        {
+            processor.clearExpressionMidiLearn(index);
+            processor.setExpressionPedalEnabled(index, false);
+            refresh();
+        };
+        addAndMakeVisible(expressionLearnButton);
         refresh();
         setSize(620, 32);
+        startTimerHz(8);
     }
 
     void resized() override
     {
         auto area = getLocalBounds().reduced(2, 1);
-        const auto half = area.getWidth() / 2;
-        modulationButton.setBounds(area.removeFromLeft(half).reduced(2, 0));
-        pitchBendButton.setBounds(area.reduced(2, 0));
+        const auto quarter = area.getWidth() / 4;
+        modulationButton.setBounds(area.removeFromLeft(quarter).reduced(2, 0));
+        pitchBendButton.setBounds(area.removeFromLeft(quarter).reduced(2, 0));
+        expressionButton.setBounds(area.removeFromLeft(quarter).reduced(2, 0));
+        expressionLearnButton.setBounds(area.reduced(2, 0));
     }
 
 private:
@@ -5006,6 +5033,14 @@ private:
     {
         refreshToggle(modulationButton, "ModulationEnabled", "MODULATION DO TECLADO");
         refreshToggle(pitchBendButton, "PitchBendEnabled", "PITCH BEND");
+        const auto enabled = processor.expressionPedalEnabled(index);
+        expressionButton.setToggleState(enabled, juce::dontSendNotification);
+        expressionButton.setButtonText(enabled ? "EXP: ON" : "EXP: OFF");
+        expressionButton.setColour(juce::TextButton::buttonColourId,
+                                   enabled ? juce::Colour(0xff1b554e) : juce::Colour(panelLight));
+        const auto cc = processor.expressionMidiCC(index);
+        expressionLearnButton.setButtonText(processor.isExpressionMidiLearning(index)
+            ? "MOVA O PEDAL" : cc >= 0 ? "EXP CC " + juce::String(cc) : "LEARN EXP");
     }
 
     void refreshToggle(juce::TextButton& button, const juce::String& parameterName,
@@ -5025,7 +5060,9 @@ private:
 
     ClassicPlayerAudioProcessor& processor;
     int index;
-    juce::TextButton modulationButton, pitchBendButton;
+    void timerCallback() override { if (isShowing()) refresh(); }
+    juce::TextButton modulationButton, pitchBendButton, expressionButton;
+    MidiLearnButton expressionLearnButton { "LEARN EXP" };
 };
 
 static void showParametricLayerEqEditor(

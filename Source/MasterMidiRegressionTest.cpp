@@ -27,6 +27,39 @@ static void ccAudioOnly(ClassicPlayerAudioProcessor& processor, int channel, int
     processor.processBlock(audio, midi);
 }
 
+static void expressionPedalIsolation()
+{
+    auto p = std::make_unique<ClassicPlayerAudioProcessor>();
+    p->prepareToPlay(48000,128);
+    p->resetToNewProgram();
+    check(p->addLayer(ClassicPlayerAudioProcessor::LayerType::hammond),
+          "create Hammond layer for expression test");
+    check(!p->expressionPedalEnabled(0) && p->expressionMidiCC(0) == -1,
+          "expression pedal must start off and unmapped");
+    cc(*p,1,11,0);
+    check(p->parameters.getRawParameterValue("master")->load() == 80.0f,
+          "unmapped expression changed master volume");
+    p->beginExpressionMidiLearn(0);
+    cc(*p,2,11,0);
+    check(p->expressionMidiCC(0) == 11 && p->expressionMidiChannel(0) == 2,
+          "expression Learn did not capture CC and channel");
+    p->setExpressionPedalEnabled(0,true);
+    p->beginMasterMidiLearn();
+    cc(*p,2,11,127);
+    cc(*p,2,11,0);
+    check(p->parameters.getRawParameterValue("master")->load() == 80.0f,
+          "expression assigned to a layer changed master volume");
+    juce::MemoryBlock state;p->getStateInformation(state);
+    auto restored = std::make_unique<ClassicPlayerAudioProcessor>();
+    restored->setStateInformation(state.getData(),(int)state.getSize());
+    check(restored->expressionPedalEnabled(0) && restored->expressionMidiCC(0) == 11
+          && restored->expressionMidiChannel(0) == 2,
+          "expression mapping or enabled state was not restored");
+    restored->clearExpressionMidiLearn(0);
+    check(restored->expressionMidiCC(0) == -1,
+          "expression mapping did not clear");
+}
+
 static void layerDefaultsSplitAndMasterEqLearn()
 {
     using Processor = ClassicPlayerAudioProcessor;
@@ -587,6 +620,7 @@ int main(int argc, char** argv)
     try
     {
         bundleSettingsRoundTrip();
+        if (argc > 1 && juce::String(argv[1]) == "--expression") { expressionPedalIsolation(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--backup") { runClassicBackupRegression(); return 0; }
         if (argc == 3 && juce::String(argv[1]) == "--sf2-mute")
         {

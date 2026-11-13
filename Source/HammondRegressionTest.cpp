@@ -742,6 +742,32 @@ static Configs configs(){
     c[0].routing.enabled=true;c[0].routing.reverb=0;c[0].routing.release=5;c[0].leslie=0;
     c[0].click=c[0].leakage=c[0].drive=0;return c;
 }
+static void hammondVolumeDriftRegression()
+{
+    constexpr int rate = 48000, block = 128, seconds = 60;
+    auto engine = std::make_unique<HammondEngine>();
+    engine->prepare(rate, block);
+    auto c = configs();
+    c[0].bars = {0,0,8,0,0,0,0,0,0};
+    std::array<double, seconds> energy {};
+    for (int sample = 0; sample < rate * seconds; sample += block)
+    {
+        const int inSecond = sample % rate;
+        juce::MidiBuffer midi;
+        if (inSecond == 0) midi.addEvent(juce::MidiMessage::noteOn(1,60,(juce::uint8)110),0);
+        if (inSecond <= rate / 2 && inSecond + block > rate / 2)
+            midi.addEvent(juce::MidiMessage::noteOff(1,60),rate / 2 - inSecond);
+        juce::AudioBuffer<float> audio(2,block);audio.clear();
+        engine->process(audio,midi,c);
+        if (inSecond >= rate / 5 && inSecond < 2 * rate / 5)
+            for (int i=0;i<block;++i)
+                energy[(size_t)(sample/rate)] += audio.getSample(0,i) * audio.getSample(0,i);
+    }
+    double first = 0.0, last = 0.0;
+    for (int i=0;i<5;++i) { first += energy[(size_t)i]; last += energy[(size_t)(seconds-1-i)]; }
+    check(first > 0.0001 && last > first * 0.8 && last < first * 1.2,
+          "Hammond level drifted over one minute without MIDI controllers");
+}
 static std::vector<float> render(int block,double rate,bool routed,bool allBars=false)
 {
     auto engine=std::make_unique<HammondEngine>();engine->prepare(rate,block);
@@ -1202,6 +1228,27 @@ static void hammondPresetAndWheel()
     send(3,127,false);check(c[0].leslie==1,"disabled modulation changed Leslie speed");
     send(3,127,true);check(c[0].leslie==1,"disabled routed modulation changed Leslie speed");
     check(c[0].preset==1&&c[0].bars==bars,"wheel changed registration or preset name");
+    // DAWs may send an expression pedal to more than one plug-in. With no
+    // Classic MIDI Learn assignment, CC7/CC11 must not alter Hammond output.
+    for (const int cc : {7, 11})
+    {
+        juce::AudioBuffer<float> audio(2,128);audio.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::controllerEvent(3,cc,0),0);
+        engine->process(audio,midi,c);
+    }
+    juce::AudioBuffer<float> noteAudio(2,128);noteAudio.clear();
+    juce::MidiBuffer noteMidi;
+    noteMidi.addEvent(juce::MidiMessage::noteOn(3,60,(juce::uint8)110),0);
+    engine->process(noteAudio,noteMidi,c);
+    float audible = 0.0f;
+    for (int i=0;i<32;++i)
+    {
+        noteAudio.clear();juce::MidiBuffer empty;
+        engine->process(noteAudio,empty,c);
+        audible = juce::jmax(audible,noteAudio.getMagnitude(0,0,128));
+    }
+    check(audible > 0.0001f,"unmapped CC7/CC11 silenced Hammond");
     std::cout<<"Hammond preset reopen, CC1 channel/threshold and host/routed checks passed\n";
 }
 
@@ -1319,6 +1366,7 @@ int main(int argc, char** argv)
         if (argc > 1 && juce::String(argv[1]) == "--hammond-level") { hammondOutputCalibrationRegression(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--layer-menu") { LiveSetLayoutRegressionAccess::layerContextMenu(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--hammond-midi") { hammondPresetAndWheel(); return 0; }
+        if (argc > 1 && juce::String(argv[1]) == "--volume-drift") { hammondVolumeDriftRegression(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--ui-preferences") { LiveSetLayoutRegressionAccess::displayPreferences(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--benchmark-idle-hammond")
         {

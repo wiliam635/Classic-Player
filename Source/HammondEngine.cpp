@@ -146,12 +146,9 @@ void HammondEngine::message(int index,const juce::MidiMessage& m,Config& c)
             else c.level=value/127.f;
             mapped=true;
         }
-        if(!mapped){
-            if(cc==1)c.leslie=value>=64?2:1;
-            if(cc==7)l.volume[(size_t)ch]=value/127.f;
-            if(cc==11)l.expression[(size_t)ch]=value/127.f;
-            l.channelGain[(size_t)ch].setTargetValue(l.volume[(size_t)ch]*l.expression[(size_t)ch]);
-        }
+        // The host may broadcast CC7/CC11 to every plug-in. Unassigned
+        // volume/expression must never silently attenuate this instrument;
+        // the Classic mixer handles controls explicitly assigned with Learn.
         return;
     }
     if(m.isNoteOff()){

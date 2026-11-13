@@ -39,6 +39,13 @@ public:
     void cancelSplitLearn(int layer);
     bool isSplitLearning(int layer, bool upper) const { return activeSplitLearn.load() == layer * 2 + (upper ? 1 : 0); }
     void resetLayerSplit(int layer);
+    void setExpressionPedalEnabled(int layer, bool enabled);
+    bool expressionPedalEnabled(int layer) const;
+    void beginExpressionMidiLearn(int layer);
+    void clearExpressionMidiLearn(int layer);
+    bool isExpressionMidiLearning(int layer) const;
+    int expressionMidiCC(int layer) const;
+    int expressionMidiChannel(int layer) const;
     void beginPanicMidiLearn();
     void resetPanicMidiLearn();
     bool isPanicMidiLearning() const { return panicLearning.load(); }
@@ -492,6 +499,10 @@ private:
     // A MIDI controller is identified by CC *and* channel. Some keyboards
     // send the same CC from several faders on different Part channels.
     std::array<std::array<std::atomic<int>, learnTargetCount>, Sf2Engine::layerCount> learnedCCs {};
+    std::array<std::atomic<int>, Sf2Engine::layerCount> expressionCCs {};
+    std::array<std::atomic<int>, Sf2Engine::layerCount> expressionChannels {};
+    std::array<std::atomic<float>, Sf2Engine::layerCount> expressionValues {};
+    std::atomic<int> activeExpressionLearn { -1 };
     // Generic parameter MIDI map. The tables are sized once in the constructor.
     std::vector<juce::RangedAudioParameter*> genericMidiParams;
     std::map<juce::String, int> genericMidiIndex;
