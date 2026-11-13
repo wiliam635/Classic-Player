@@ -9861,6 +9861,15 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     modePadsButton.onClick = [this]
     {
         if (showingLiveSet) showLiveSet(false);
+        if (!padStripVisible)
+        {
+            // The pad strip must be ready on the first click: create the
+            // continuous-pads layer automatically when the program has none.
+            bool hasPads = false;
+            for (int i = 0; i < classicProcessor.activeLayerCount(); ++i)
+                hasPads = hasPads || classicProcessor.layerType(i) == ClassicPlayerAudioProcessor::LayerType::continuousPads;
+            if (!hasPads) addLayer(ClassicPlayerAudioProcessor::LayerType::continuousPads);
+        }
         setPadStripVisible(!padStripVisible);
     };
     modeStageButton.setTooltip(juce::String::fromUTF8("Palco: mixer e teclado virtual visíveis"));
