@@ -22,6 +22,7 @@ install_dependencies() {
     "$VCPKG_ROOT/vcpkg" install \
       --triplet "$triplet" \
       --overlay-triplets="$ROOT/triplets" \
+      --overlay-ports="$ROOT/ports" \
       --host-triplet=arm64-osx \
       --x-install-root="$arch_deps/installed" \
       --x-buildtrees-root="$arch_deps/buildtrees" \
@@ -125,6 +126,19 @@ configure_and_build() {
 
 install_dependencies arm64 arm64-osx-classic
 install_dependencies x86_64 x64-osx-classic
+# FluidSynth must not register its own Core Audio driver. The app uses JUCE
+# for audio; a saved SF2 program otherwise makes FluidSynth query HAL while
+# the standalone audio callback is active and can freeze the main window.
+for arch_triplet in arm64:arm64-osx-classic x86_64:x64-osx-classic; do
+  arch="${arch_triplet%%:*}"
+  triplet="${arch_triplet#*:}"
+  fluid_library="$DEPS/$arch/installed/$triplet/lib/libfluidsynth.a"
+  test -f "$fluid_library"
+  if nm -u "$fluid_library" | grep -Eq '_AudioObject(Get|Set)|_AudioDevice(Get|Set)|_MIDI(Create|Get)'; then
+    echo "FluidSynth still links a macOS audio/MIDI driver: $fluid_library" >&2
+    exit 1
+  fi
+done
 configure_and_build arm64 arm64-osx-classic 11.0
 configure_and_build x86_64 x64-osx-classic 10.13
 
