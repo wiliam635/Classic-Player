@@ -2302,13 +2302,25 @@ public final class MainActivity extends Activity {
             return;
         }
         if(effect.equals("EQ")){
-            EditorUi.ResponseGraph graph=new EditorUi.ResponseGraph(this,false,screen.eqLow[layer],screen.eqMid[layer],screen.eqHigh[layer]);
+            final EditorUi.ResponseGraph graph=new EditorUi.ResponseGraph(this,false,screen.eqLow[layer],screen.eqMid[layer],screen.eqHigh[layer]);
             graph.setParametricValues(screen.eqLowFreq[layer],screen.eqMidFreq[layer],screen.eqHighFreq[layer],screen.eqLowQ[layer],screen.eqMidQ[layer],screen.eqHighQ[layer],screen.eqHighPass[layer],screen.eqLowPass[layer]);
             LinearLayout knobHost=body;
-            if(EditorUi.compact){LinearLayout split=new LinearLayout(this);split.setOrientation(LinearLayout.HORIZONTAL);body.addView(split,new LinearLayout.LayoutParams(-1,-2));
-                LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(0,EditorUi.dp(this,250),1.7f);gp.setMargins(0,2,EditorUi.dp(this,6),3);split.addView(graph,gp);
-                knobHost=EditorUi.column(this);split.addView(knobHost,new LinearLayout.LayoutParams(0,-2,1.3f));}
-            else{LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(-1,EditorUi.dp(this,84));gp.setMargins(0,2,0,3);body.addView(graph,gp);}
+            if(EditorUi.compact){
+                final EffectGraphs.EqGraph eq=new EffectGraphs.EqGraph(this);
+                final Runnable pull=()->eq.set(new float[]{screen.eqLowFreq[layer],screen.eqMidFreq[layer],screen.eqHighFreq[layer]},new float[]{screen.eqLow[layer],screen.eqMid[layer],screen.eqHigh[layer]},new float[]{screen.eqLowQ[layer],screen.eqMidQ[layer],screen.eqHighQ[layer]},screen.eqHighPass[layer],screen.eqLowPass[layer]);
+                pull.run();graph.onValues=pull;
+                eq.listener=new EffectGraphs.EqGraph.Listener(){
+                    public void changed(int band,float frequency,float gainDb){
+                        float[] f={screen.eqLowFreq[layer],screen.eqMidFreq[layer],screen.eqHighFreq[layer]},g={screen.eqLow[layer],screen.eqMid[layer],screen.eqHigh[layer]};
+                        f[band]=frequency;g[band]=gainDb;
+                        screen.setLayerEq(layer,g[0],g[1],g[2],f[0],f[1],f[2],screen.eqLowQ[layer],screen.eqMidQ[layer],screen.eqHighQ[layer],screen.eqHighPass[layer],screen.eqLowPass[layer]);
+                    }
+                    public void released(){renderEffectEditorBody(layer,effect,body,page,showAdjustments,showPresets);}
+                };
+                LinearLayout split=new LinearLayout(this);split.setOrientation(LinearLayout.HORIZONTAL);body.addView(split,new LinearLayout.LayoutParams(-1,-2));
+                LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(0,EditorUi.dp(this,330),2f);gp.setMargins(0,2,EditorUi.dp(this,6),3);split.addView(eq,gp);
+                knobHost=EditorUi.column(this);split.addView(knobHost,new LinearLayout.LayoutParams(0,-2,1.45f));
+            }else{LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(-1,EditorUi.dp(this,84));gp.setMargins(0,2,0,3);body.addView(graph,gp);}
             LinearLayout row=EditorUi.knobRow(knobHost);addEqKnob(layer,row,graph,"LOW Hz",0);addEqKnob(layer,row,graph,"LOW dB",1);addEqKnob(layer,row,graph,"LOW Q",2);
             row=EditorUi.knobRow(knobHost);addEqKnob(layer,row,graph,"MID Hz",3);addEqKnob(layer,row,graph,"MID dB",4);addEqKnob(layer,row,graph,"MID Q",5);
             row=EditorUi.knobRow(knobHost);addEqKnob(layer,row,graph,"HIGH Hz",6);addEqKnob(layer,row,graph,"HIGH dB",7);addEqKnob(layer,row,graph,"HIGH Q",8);
@@ -2318,10 +2330,18 @@ public final class MainActivity extends Activity {
         if(effect.equals("COMP")){
             final EditorUi.ResponseGraph graph=new EditorUi.ResponseGraph(this,true,screen.compressorThreshold[layer],screen.compressorRatio[layer],0);
             LinearLayout knobHost=body;
-            if(EditorUi.compact){LinearLayout split=new LinearLayout(this);split.setOrientation(LinearLayout.HORIZONTAL);body.addView(split,new LinearLayout.LayoutParams(-1,-2));
-                LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(0,EditorUi.dp(this,250),1.7f);gp.setMargins(0,2,EditorUi.dp(this,6),3);split.addView(graph,gp);
-                knobHost=EditorUi.column(this);split.addView(knobHost,new LinearLayout.LayoutParams(0,-2,1.3f));}
-            else{LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(-1,EditorUi.dp(this,84));gp.setMargins(0,2,0,3);body.addView(graph,gp);}
+            if(EditorUi.compact){
+                final EffectGraphs.CompressorGraph comp=new EffectGraphs.CompressorGraph(this);
+                final Runnable pull=()->comp.set(screen.compressorThreshold[layer],screen.compressorRatio[layer],screen.compressorMakeupDb[layer]);
+                pull.run();graph.onValues=pull;
+                comp.listener=new EffectGraphs.CompressorGraph.Listener(){
+                    public void changed(float thresholdDb,float ratio){screen.setLayerCompressor(layer,(float)Math.pow(10,thresholdDb/20f),ratio,screen.compressorAttackMs[layer],screen.compressorReleaseMs[layer],screen.compressorMakeupDb[layer]);}
+                    public void released(){renderEffectEditorBody(layer,effect,body,page,showAdjustments,showPresets);}
+                };
+                LinearLayout split=new LinearLayout(this);split.setOrientation(LinearLayout.HORIZONTAL);body.addView(split,new LinearLayout.LayoutParams(-1,-2));
+                LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(0,EditorUi.dp(this,300),2f);gp.setMargins(0,2,EditorUi.dp(this,6),3);split.addView(comp,gp);
+                knobHost=EditorUi.column(this);split.addView(knobHost,new LinearLayout.LayoutParams(0,-2,1.45f));
+            }else{LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(-1,EditorUi.dp(this,84));gp.setMargins(0,2,0,3);body.addView(graph,gp);}
             LinearLayout row=EditorUi.knobRow(knobHost);EditorUi.knob(row,"THRESHOLD dB",(float)(20*Math.log10(Math.max(.001f,screen.compressorThreshold[layer]))),-60,0," dB",v->{screen.setLayerCompressor(layer,(float)Math.pow(10,v/20f),screen.compressorRatio[layer],screen.compressorAttackMs[layer],screen.compressorReleaseMs[layer],screen.compressorMakeupDb[layer]);graph.setValues(screen.compressorThreshold[layer],screen.compressorRatio[layer],0);});
             EditorUi.knob(row,"RATIO",screen.compressorRatio[layer],1,20,":1",v->{screen.setLayerCompressor(layer,screen.compressorThreshold[layer],v,screen.compressorAttackMs[layer],screen.compressorReleaseMs[layer],screen.compressorMakeupDb[layer]);graph.setValues(screen.compressorThreshold[layer],screen.compressorRatio[layer],0);});
             EditorUi.knob(row,"MIX",screen.layerCompMix[layer]*100,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],v/100,screen.layerChorus[layer]));

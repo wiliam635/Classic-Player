@@ -211,8 +211,10 @@ final class EditorUi {
         float a,b,c;
         float[] frequencies={220,1200,4200},qs={.707f,1,.707f};float highPass=20,lowPass=20000;
         ResponseGraph(Context context,boolean compressor,float a,float b,float c){super(context);this.compressor=compressor;setValues(a,b,c);}
-        void setValues(float a,float b,float c){this.a=a;this.b=b;this.c=c;invalidate();}
-        void setParametricValues(float lowFreq,float midFreq,float highFreq,float lowQ,float midQ,float highQ,float highPassHz,float lowPassHz){frequencies=new float[]{lowFreq,midFreq,highFreq};qs=new float[]{lowQ,midQ,highQ};highPass=highPassHz;lowPass=lowPassHz;invalidate();}
+        /** Optional hook: lets a replacement graph follow the knobs that still feed this one. */
+        Runnable onValues;
+        void setValues(float a,float b,float c){this.a=a;this.b=b;this.c=c;invalidate();if(onValues!=null)onValues.run();}
+        void setParametricValues(float lowFreq,float midFreq,float highFreq,float lowQ,float midQ,float highQ,float highPassHz,float lowPassHz){frequencies=new float[]{lowFreq,midFreq,highFreq};qs=new float[]{lowQ,midQ,highQ};highPass=highPassHz;lowPass=lowPassHz;invalidate();if(onValues!=null)onValues.run();}
         @Override protected void onDraw(Canvas canvas){
             int width=getWidth(),height=getHeight();float left=dp(getContext(),33),top=dp(getContext(),24),right=width-dp(getContext(),12),bottom=height-dp(getContext(),25);
             p.setStyle(Paint.Style.FILL);p.setColor(FIELD);canvas.drawRoundRect(new RectF(0,0,width,height),dp(getContext(),5),dp(getContext(),5),p);
