@@ -30,6 +30,8 @@ HammondEngine::Config HammondEngine::validated(Config c)
         c.channel[i]=juce::jlimit(0,16,c.channel[i]);
     }
     c.learning=juce::jlimit(-1,10,c.learning);
+    c.vibrato=juce::jlimit(0,6,c.vibrato);
+    c.leslieBalance=unit(c.leslieBalance,.5f);
     return c;
 }
 juce::ValueTree HammondEngine::save(const Config& source, int layer)
@@ -40,6 +42,8 @@ juce::ValueTree HammondEngine::save(const Config& source, int layer)
     t.setProperty("leslie",c.leslie,nullptr);t.setProperty("percussion",c.percussion,nullptr);
     t.setProperty("click",c.click,nullptr);t.setProperty("leakage",c.leakage,nullptr);
     t.setProperty("drive",c.drive,nullptr);t.setProperty("level",c.level,nullptr);t.setProperty("preset",c.preset,nullptr);
+    t.setProperty("vibrato",c.vibrato,nullptr);t.setProperty("percSoft",c.percSoft,nullptr);
+    t.setProperty("percSlow",c.percSlow,nullptr);t.setProperty("leslieBalance",c.leslieBalance,nullptr);
     for(int i=0;i<11;++i){t.setProperty("cc"+juce::String(i),c.cc[(size_t)i],nullptr);
         t.setProperty("channel"+juce::String(i),c.channel[(size_t)i],nullptr);}
     return t;
@@ -51,6 +55,8 @@ HammondEngine::Config HammondEngine::restore(const juce::ValueTree& t)
     c.leslie=t.getProperty("leslie",c.leslie);c.percussion=t.getProperty("percussion",c.percussion);
     c.click=t.getProperty("click",c.click);c.leakage=t.getProperty("leakage",c.leakage);
     c.drive=t.getProperty("drive",c.drive);c.level=t.getProperty("level",c.level);c.preset=t.getProperty("preset",c.preset);
+    c.vibrato=t.getProperty("vibrato",c.vibrato);c.percSoft=(bool)t.getProperty("percSoft",c.percSoft);
+    c.percSlow=(bool)t.getProperty("percSlow",c.percSlow);c.leslieBalance=t.getProperty("leslieBalance",c.leslieBalance);
     for(int i=0;i<11;++i){c.cc[(size_t)i]=t.getProperty("cc"+juce::String(i),-1);
         c.channel[(size_t)i]=t.getProperty("channel"+juce::String(i),0);}
     return validated(c);
@@ -59,12 +65,15 @@ void HammondEngine::prepare(double rate,int block)
 {
     sampleRate=rate>0?rate:48000;
     percussionDecay = (float) std::exp(std::log(0.0001 / 0.12) / (sampleRate * 0.08));
+    // SLOW keeps the same curve but three and a half times longer.
+    percussionDecaySlow = (float) std::exp(std::log(0.0001 / 0.12) / (sampleRate * 0.28));
     clickDecay = (float) std::exp(-8.0 / (sampleRate * 0.015));
     for(size_t i=0;i<sineTable.size();++i)sineTable[i]=(float)std::sin(2*pi*(double)i/4096);
     scratch.setSize(2,std::max(1,block));
     for(int i=0;i<layerCount;++i){
         auto& l=layers[(size_t)i];
         for(auto& delay:l.delay)delay.assign((size_t)std::ceil(sampleRate*.025)+4,0.f);
+        l.vibDelay.assign((size_t)std::ceil(sampleRate*.01)+4,0.f);
         l.organEffects.prepare(sampleRate);
         l.reverb.setSampleRate(sampleRate);
         unload(i);
@@ -78,13 +87,14 @@ void HammondEngine::unload(int index)
     l.sustain.fill(false);l.volume.fill(1);l.expression.fill(1);
     for(auto& g:l.channelGain){g.reset(sampleRate,.015);g.setCurrentAndTargetValue(1);}
     for(auto& g:l.bars){g.reset(sampleRate,.015);g.setCurrentAndTargetValue(0);}
-    for(auto* g:{&l.gain,&l.drive,&l.leakage,&l.level,&l.pan,&l.rotaryDepth}){
+    for(auto* g:{&l.gain,&l.drive,&l.leakage,&l.level,&l.pan,&l.rotaryDepth,&l.vibDepth,&l.vibWet,&l.balance}){
         g->reset(sampleRate,.02);g->setCurrentAndTargetValue(0);}
     l.leslie = 1;
     l.configuredLeslie = -1;
     for(int r=0;r<2;++r){l.speed[(size_t)r].reset(sampleRate,r==0?2.5:1.0);
         l.speed[(size_t)r].setCurrentAndTargetValue(0);
         std::fill(l.delay[(size_t)r].begin(),l.delay[(size_t)r].end(),0.f);}
+    std::fill(l.vibDelay.begin(),l.vibDelay.end(),0.f);l.vibPosition=0;l.vibPhase=0;
     l.rotorPhase={};l.delayPosition=0;l.crossover=0;l.lowpass={};l.compressor={};l.eq.reset();
     l.organEffects.reset();
     l.reverb.reset();l.enabled=false;l.clock=0;l.quietSamples=0;l.tailPending=false;
@@ -181,7 +191,8 @@ void HammondEngine::message(int index,const juce::MidiMessage& m,Config& c)
         while(f>high)f*=.5;while(f<hz(24))f*=2;
         v.step[i]=f/sampleRate;v.phase[i]=std::fmod((double)l.clock*v.step[i],1.0);
     }
-    v.percussion=first&&c.percussion ? .12f:0;
+    v.percussion=first&&c.percussion ? (c.percSoft?.072f:.12f):0;
+    v.percDecay=c.percSlow?percussionDecaySlow:percussionDecay;
     v.perStep=std::min(base*c.percussion,sampleRate*.45)/sampleRate;
     v.click=c.click*.06f;
 }
@@ -204,7 +215,7 @@ float HammondEngine::renderVoice(Voice& v,Layer& l,const std::array<float,9>& ba
     if(v.percussion>1e-6f){
         sum+=sine(v.perPhase)*v.percussion;
         v.perPhase+=v.perStep;v.perPhase-=std::floor(v.perPhase);
-        v.percussion *= percussionDecay;
+        v.percussion *= v.percDecay;
     }
     if(v.click>1e-7f){
         l.noise=l.noise*1664525u+1013904223u;
@@ -243,6 +254,15 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
             l.leakage.setTargetValue(c.leakage);l.drive.setTargetValue(c.drive);
             l.pan.setTargetValue(c.routing.pan);
             l.rotaryDepth.setTargetValue(l.leslie?1.f:0.f);
+            // Scanner depth in ms of delay modulation (V1..V3 / C1..C3);
+            // vibrato is fully wet, chorus mixes the dry signal 50/50.
+            {
+                static constexpr std::array<float,3> depthMs {.12f,.25f,.40f};
+                const int v=c.vibrato;
+                l.vibDepth.setTargetValue(v==0?0.f:depthMs[(size_t)((v-1)%3)]);
+                l.vibWet.setTargetValue(v==0?0.f:v<=3?1.f:.5f);
+            }
+            l.balance.setTargetValue(c.leslieBalance);
             l.speed[0].setTargetValue(l.leslie==0?0.f:l.leslie==1?.65f:5.4f);
             l.speed[1].setTargetValue(l.leslie==0?0.f:l.leslie==1?.8f:6.2f);
         };
@@ -261,7 +281,7 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
             for (auto& value : l.bars) value.skip(count);
             for (auto& value : l.channelGain) value.skip(count);
             for (auto* value : { &l.gain, &l.drive, &l.leakage, &l.level,
-                                 &l.pan, &l.rotaryDepth }) value->skip(count);
+                                 &l.pan, &l.rotaryDepth, &l.vibDepth, &l.vibWet, &l.balance }) value->skip(count);
             for (size_t rotor = 0; rotor < l.speed.size(); ++rotor)
             {
                 const auto before = l.speed[rotor].getCurrentValue();
@@ -345,6 +365,10 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
                 l.level.skip(1);
                 l.pan.skip(1);
                 l.rotaryDepth.skip(1);
+                l.vibDepth.skip(1);l.vibWet.skip(1);l.balance.skip(1);
+                l.vibDelay[(size_t)l.vibPosition]=0.f;
+                l.vibPosition=(l.vibPosition+1)%(int)l.vibDelay.size();
+                l.vibPhase+=6.9/sampleRate;l.vibPhase-=std::floor(l.vibPhase);
                 for (size_t rotor = 0; rotor < l.speed.size(); ++rotor)
                 {
                     l.rotorPhase[rotor] += l.speed[rotor].getNextValue() / sampleRate;
@@ -372,9 +396,26 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
             if (drive > 0.0f)
                 sample = sample * (1 - drive) + std::tanh(2 * sample * (1 + drive * 8))
                     / std::tanh(2.f) * drive / (1 + drive * 2);
+            {
+                // Scanner vibrato/chorus on the summed organ signal.
+                l.vibDelay[(size_t)l.vibPosition]=sample;
+                const float wet=l.vibWet.getNextValue(),depthMs=l.vibDepth.getNextValue();
+                l.vibPhase+=6.9/sampleRate;l.vibPhase-=std::floor(l.vibPhase);
+                if(wet>0.0001f){
+                    const double offset=(.0012+.001*depthMs*(1+sine(l.vibPhase)))*sampleRate;
+                    const int whole=(int)std::floor(offset),size=(int)l.vibDelay.size();
+                    const int a=(l.vibPosition-whole+size)%size,b=(a+size-1)%size;
+                    const float fraction=(float)(offset-whole);
+                    const float modulated=l.vibDelay[(size_t)a]+fraction*(l.vibDelay[(size_t)b]-l.vibDelay[(size_t)a]);
+                    sample=sample*(1-wet)+modulated*wet;
+                }
+                l.vibPosition=(l.vibPosition+1)%(int)l.vibDelay.size();
+            }
             l.crossover+=cross*(sample-l.crossover);
             const std::array<float,2> bands {l.crossover,sample-l.crossover};
             float left=0,right=0;const float depth=l.rotaryDepth.getNextValue();
+            const float balance=l.balance.getNextValue();
+            const std::array<float,2> bandGain {std::min(2.f,2*(1-balance)),std::min(2.f,2*balance)};
             for(size_t r=0;r<2;++r){
                 l.rotorPhase[r]+=l.speed[r].getNextValue()/sampleRate;
                 l.rotorPhase[r]-=std::floor(l.rotorPhase[r]);
@@ -388,7 +429,7 @@ void HammondEngine::process(juce::AudioBuffer<float>& out,const juce::MidiBuffer
                 const int a=(l.delayPosition-whole+size)%size,b=(a+size-1)%size;
                 const float fraction=(float)(offset-whole);
                 const float value=(delay[(size_t)a]+fraction*(delay[(size_t)b]-delay[(size_t)a]))
-                                  *(.7f+mod*(r?.12f:.08f));
+                                  *(.7f+mod*(r?.12f:.08f))*bandGain[r];
                 const float pan=mod*(r?.65f:.4f);
                 left+=value*std::sqrt(.5f*(1-pan));right+=value*std::sqrt(.5f*(1+pan));
             }

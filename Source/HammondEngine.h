@@ -21,6 +21,10 @@ public:
         std::array<int,11> cc {{-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1}};
         std::array<int,11> channel {};
         int learning = -1; // 0..8 drawbars, 9 Leslie, 10 instrument level
+        // Scanner vibrato/chorus: 0 off, 1..3 = V1..V3, 4..6 = C1..C3.
+        int vibrato = 0;
+        bool percSoft = false, percSlow = false;
+        float leslieBalance = .5f; // 0 = drum only, .5 = even, 1 = horn only
     };
     static constexpr std::array<double,13> ratios { .5,1.5,1,2,3,4,5,6,8,
         .9438743126816935,1.0594630943592953,1.4983070768766815,2 };
@@ -41,7 +45,7 @@ private:
     {
         bool active = false, down = false, releasing = false;
         int note = 0, channel = 0, age = 0, releaseAge = 0;
-        float envelope = 0, releaseStart = 0, percussion = 0, click = 0, velocity = 1.0f;
+        float envelope = 0, releaseStart = 0, percussion = 0, click = 0, velocity = 1.0f, percDecay = 1.0f;
         double perPhase = 0, perStep = 0;
         std::array<double,13> phase {}, step {};
         AudioTransition transition;
@@ -54,6 +58,10 @@ private:
         std::array<juce::SmoothedValue<float>,16> channelGain;
         std::array<juce::SmoothedValue<float>,9> bars;
         juce::SmoothedValue<float> gain, drive, leakage, level, pan, rotaryDepth;
+        juce::SmoothedValue<float> vibDepth, vibWet, balance;
+        std::vector<float> vibDelay;
+        int vibPosition = 0;
+        double vibPhase = 0;
         std::array<juce::SmoothedValue<float>,2> speed;
         int leslie = 1;
         int configuredLeslie = -1;
@@ -80,6 +88,6 @@ private:
     std::array<float,4097> sineTable {};
     juce::AudioBuffer<float> scratch;
     double sampleRate = 48000;
-    float percussionDecay = 1.0f;
+    float percussionDecay = 1.0f, percussionDecaySlow = 1.0f;
     float clickDecay = 1.0f;
 };
