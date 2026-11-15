@@ -1873,15 +1873,15 @@ public:
         for (auto* panelComponent : editorPanels)
         {
             panels.add(panelComponent);
-            panelTab.push_back(juce::jlimit(0, 4, (int) panelComponent->getProperties().getWithDefault("dockTab", 0)));
+            panelTab.push_back(juce::jlimit(0, 5, (int) panelComponent->getProperties().getWithDefault("dockTab", 0)));
             content.addAndMakeVisible(panelComponent);
         }
-        for (int tab = 0; tab < 5; ++tab)
+        for (int tab = 0; tab < 6; ++tab)
             if (std::find(panelTab.begin(), panelTab.end(), tab) != panelTab.end())
                 usedTabs.push_back(tab);
         if (usedTabs.size() > 1)
         {
-            static const char* names[] = { "SOM", "ENVELOPE", "MIDI", "EFEITOS", "VELOCITY" };
+            static const char* names[] = { "SOM", "ENVELOPE", "MIDI", "EFEITOS", "VELOCITY", "OPERADORES" };
             for (size_t k = 0; k < usedTabs.size(); ++k)
             {
                 auto* button = tabButtons.add(new juce::TextButton(names[usedTabs[k]]));
@@ -8132,11 +8132,117 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showCompressorEditor()
         [safe](int) { if (safe != nullptr) safe->refresh(); }), true);
 }
 
+// Editor for the standalone pad strip: load a file into each pad, learn a CC
+// for each pad / STOP and set the crossfade. Not tied to any layer.
+class PadStripEditorContent final : public juce::Component, private juce::Timer
+{
+public:
+    explicit PadStripEditorContent(ClassicPlayerAudioProcessor& p) : processor(p)
+    {
+        auto& bank = processor.padStrip();
+        for (int pad = 0; pad < 12; ++pad)
+        {
+            auto& name = names[(size_t) pad];
+            name.setColour(juce::Label::textColourId, juce::Colour(0xff15191d));
+            name.setColour(juce::Label::backgroundColourId, drumPadColour(pad));
+            name.setJustificationType(juce::Justification::centred);
+            name.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+            addAndMakeVisible(name);
+            auto& load = loadButtons[(size_t) pad];
+            load.setButtonText("LOAD");
+            flatButton(load);
+            load.onClick = [this, pad] { chooseSample(pad); };
+            addAndMakeVisible(load);
+            auto& learn = learnButtons[(size_t) pad];
+            learn.setButtonText("LEARN");
+            flatButton(learn);
+            learn.onClick = [this, pad] { processor.padStrip().learn(pad); refresh(); };
+            learn.onClearMapping = [this, pad] { processor.padStrip().clearMapping(pad); refresh(); };
+            addAndMakeVisible(learn);
+        }
+        flatButton(stopLearn);
+        stopLearn.onClick = [this] { processor.padStrip().learn(12); refresh(); };
+        stopLearn.onClearMapping = [this] { processor.padStrip().clearMapping(12); refresh(); };
+        addAndMakeVisible(stopLearn);
+        fadeSlider.setRange(0.02, 10.0, 0.01);
+        fadeSlider.setTextValueSuffix(" s crossfade");
+        fadeSlider.setValue(bank.fadeSeconds(), juce::dontSendNotification);
+        fadeSlider.onValueChange = [this] { processor.padStrip().setFadeSeconds(fadeSlider.getValue()); };
+        addAndMakeVisible(fadeSlider);
+        setSize(560, 12 * 32 + 84);
+        refresh();
+        startTimerHz(8);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(8, 6);
+        for (int pad = 0; pad < 12; ++pad)
+        {
+            auto row = area.removeFromTop(32).reduced(0, 2);
+            names[(size_t) pad].setBounds(row.removeFromLeft(row.getWidth() * 45 / 100));
+            row.removeFromLeft(6);
+            loadButtons[(size_t) pad].setBounds(row.removeFromLeft(row.getWidth() / 2).reduced(1, 0));
+            learnButtons[(size_t) pad].setBounds(row.reduced(1, 0));
+        }
+        area.removeFromTop(6);
+        stopLearn.setBounds(area.removeFromTop(30).reduced(2));
+        fadeSlider.setBounds(area.removeFromTop(32));
+    }
+
+private:
+    void timerCallback() override { if (isShowing()) refresh(); }
+    void chooseSample(int pad)
+    {
+        fileChooser = std::make_unique<juce::FileChooser>(
+            localizedUiText(juce::String::fromUTF8("Carregar áudio do pad"), activeUiLanguage.load()),
+            juce::File{}, "*.mp3;*.wav;*.aiff;*.flac");
+        fileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+            [this, pad](const juce::FileChooser& chooser)
+            {
+                const auto file = chooser.getResult();
+                if (!file.existsAsFile()) return;
+                const auto result = processor.padStrip().load(pad, file);
+                if (result.failed())
+                    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                           "PADS", result.getErrorMessage());
+                refresh();
+            });
+    }
+    void refresh()
+    {
+        auto& bank = processor.padStrip();
+        for (int pad = 0; pad < 12; ++pad)
+        {
+            const auto path = bank.path(pad);
+            const auto factory = path.fromFirstOccurrenceOf("@factory-pad:", false, false);
+            const auto label = ContinuousPadBank::noteName(pad) + "  -  "
+                + (factory.isNotEmpty() ? juce::String::fromUTF8("padr\xc3\xa3o")
+                   : path.isNotEmpty() ? juce::File(path).getFileNameWithoutExtension() : juce::String("vazio"));
+            names[(size_t) pad].setText(label, juce::dontSendNotification);
+            const int cc = bank.mapping(pad);
+            setButtonTextIfChanged(learnButtons[(size_t) pad],
+                bank.learningTarget() == pad ? juce::String("MOVA O CC")
+                : cc >= 0 ? "CC " + juce::String(cc) : juce::String("LEARN"));
+        }
+        const int stopCC = bank.mapping(12);
+        setButtonTextIfChanged(stopLearn,
+            bank.learningTarget() == 12 ? juce::String("STOP: MOVA O CC")
+            : stopCC >= 0 ? "STOP: CC " + juce::String(stopCC) : juce::String("LEARN STOP"));
+    }
+    ClassicPlayerAudioProcessor& processor;
+    std::array<juce::Label, 12> names;
+    std::array<juce::TextButton, 12> loadButtons;
+    std::array<MidiLearnButton, 12> learnButtons;
+    MidiLearnButton stopLearn { "LEARN STOP" };
+    juce::Slider fadeSlider;
+    std::unique_ptr<juce::FileChooser> fileChooser;
+};
+
 class ClassicPlayerAudioProcessorEditor::PadStripPanel final : public juce::Component, private juce::Timer
 {
 public:
-    PadStripPanel(ClassicPlayerAudioProcessor& p, std::function<void(int)> editCallback)
-        : processor(p), onEdit(std::move(editCallback))
+    explicit PadStripPanel(ClassicPlayerAudioProcessor& p) : processor(p)
     {
         for (int pad = 0; pad < 12; ++pad)
         {
@@ -8146,39 +8252,54 @@ public:
             trigger.setColour(juce::TextButton::buttonColourId, drumPadColour(pad));
             trigger.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff15191d));
             trigger.setColour(juce::TextButton::textColourOnId, juce::Colour(0xff15191d));
-            trigger.onClick = [this, pad] { if (layer >= 0) processor.continuousPads(layer).trigger(pad); };
+            trigger.onClick = [this, pad] { processor.padStrip().trigger(pad); };
             addAndMakeVisible(trigger);
         }
         stopButton.setButtonText("PARAR");
-        stopButton.onClick = [this] { if (layer >= 0) processor.continuousPads(layer).stop(); };
+        stopButton.onClick = [this] { processor.padStrip().stop(); };
         addAndMakeVisible(stopButton);
         editButton.setButtonText("EDITAR PADS");
-        editButton.onClick = [this] { if (layer >= 0 && onEdit) onEdit(layer); };
+        editButton.onClick = [this]
+        {
+            juce::DialogWindow::LaunchOptions options;
+            auto* content = new PadStripEditorContent(processor);
+            content->setLookAndFeel(&classicLookAndFeel);
+            options.content.setOwned(content);
+            options.dialogTitle = "PADS";
+            options.dialogBackgroundColour = juce::Colour(panel);
+            options.escapeKeyTriggersCloseButton = true;
+            options.useNativeTitleBar = true;
+            options.resizable = false;
+            options.launchAsync();
+        };
         addAndMakeVisible(editButton);
         cutoffLabel.setText("CUTOFF", juce::dontSendNotification);
         volumeLabel.setText("VOLUME", juce::dontSendNotification);
         volumeLabel.setJustificationType(juce::Justification::centred);
-        for (auto* label : { &cutoffLabel, &volumeLabel, &hint })
+        for (auto* label : { &cutoffLabel, &volumeLabel })
         {
             label->setColour(juce::Label::textColourId, juce::Colour(text));
             label->setFont(juce::FontOptions(11.0f, juce::Font::bold));
             addAndMakeVisible(*label);
         }
-        hint.setJustificationType(juce::Justification::centred);
-        hint.setText(juce::String::fromUTF8("Adicione uma layer PAD CONT\xc3\x8dNUO para usar estes pads"), juce::dontSendNotification);
         cutoffSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+        cutoffSlider.setRange(0.0, 100.0, 1.0);
         cutoffSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 48, 18);
         cutoffSlider.setTextValueSuffix("%");
+        cutoffSlider.getProperties().set("midiKey", "pk:strip:cut");
+        cutoffSlider.onValueChange = [this] { processor.setPadStripCutoff((float) cutoffSlider.getValue()); };
         volumeKnob.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        volumeKnob.setRange(0.0, 100.0, 1.0);
         volumeKnob.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 54, 16);
         volumeKnob.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(onAccent));
+        volumeKnob.getProperties().set("midiKey", "pk:strip:vol");
+        volumeKnob.onValueChange = [this] { processor.setPadStripVolume((float) volumeKnob.getValue()); };
         addAndMakeVisible(cutoffSlider);
         addAndMakeVisible(volumeKnob);
+        processor.ensurePadStripLoaded();
         refresh();
         startTimerHz(10);
     }
-
-    ~PadStripPanel() override { cutoffAttachment.reset(); volumeAttachment.reset(); }
 
     void paint(juce::Graphics& g) override
     {
@@ -8195,7 +8316,6 @@ public:
         for (int pad = 0; pad < 12; ++pad)
             pads[(size_t) pad].setBounds(area.getX() + pad * padWidth + 2, area.getY(),
                                          padWidth - 4, area.getHeight());
-        hint.setBounds(area);
         auto knobArea = right.removeFromLeft(86);
         volumeLabel.setBounds(knobArea.removeFromTop(14));
         volumeKnob.setBounds(knobArea);
@@ -8211,47 +8331,17 @@ public:
 private:
     void timerCallback() override { if (isShowing()) refresh(); }
 
-    int findLayer() const
-    {
-        for (int i = 0; i < processor.activeLayerCount(); ++i)
-            if (processor.layerType(i) == ClassicPlayerAudioProcessor::LayerType::continuousPads) return i;
-        return -1;
-    }
-
-    void bindLayer(int newLayer)
-    {
-        cutoffAttachment.reset();
-        volumeAttachment.reset();
-        layer = newLayer;
-        if (layer < 0) return;
-        const auto prefix = "layer" + juce::String(layer + 1);
-        cutoffAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-            processor.parameters, prefix + "Cutoff", cutoffSlider);
-        volumeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-            processor.parameters, prefix + "Gain", volumeKnob);
-        cutoffSlider.getProperties().set("midiParameter", prefix + "Cutoff");
-        volumeKnob.getProperties().set("midiParameter", prefix + "Gain");
-    }
-
     void refresh()
     {
-        const auto found = findLayer();
-        if (found != layer || (found >= 0 && cutoffAttachment == nullptr)) bindLayer(found);
-        const bool enabled = layer >= 0;
-        hint.setVisible(!enabled);
-        for (auto& trigger : pads) trigger.setEnabled(enabled);
-        for (auto* c : std::initializer_list<juce::Component*>{ &stopButton, &editButton, &cutoffSlider, &volumeKnob })
-            c->setEnabled(enabled);
-        if (!enabled)
-        {
-            for (int pad = 0; pad < 12; ++pad) pads[(size_t) pad].setButtonText("");
-            return;
-        }
-        auto& bank = processor.continuousPads(layer);
+        if (!volumeKnob.isMouseButtonDown())
+            volumeKnob.setValue(processor.padStripVolumeValue(), juce::dontSendNotification);
+        if (!cutoffSlider.isMouseButtonDown())
+            cutoffSlider.setValue(processor.padStripCutoffValue(), juce::dontSendNotification);
+        auto& bank = processor.padStrip();
+        static const char* names[] { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
         for (int pad = 0; pad < 12; ++pad)
         {
             auto& trigger = pads[(size_t) pad];
-            static const char* names[] { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
             const auto label = bank.path(pad).fromFirstOccurrenceOf("@factory-pad:", false, false);
             setButtonTextIfChanged(trigger, label.isNotEmpty() ? label : juce::String(names[pad]));
             setButtonColourIfChanged(trigger, juce::TextButton::buttonColourId,
@@ -8260,14 +8350,11 @@ private:
     }
 
     ClassicPlayerAudioProcessor& processor;
-    std::function<void(int)> onEdit;
-    int layer = -1;
     std::array<LeftClickOnlyButton, 12> pads;
     LeftClickOnlyButton stopButton;
     juce::TextButton editButton;
     juce::Slider cutoffSlider, volumeKnob;
-    juce::Label cutoffLabel, volumeLabel, hint;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> cutoffAttachment, volumeAttachment;
+    juce::Label cutoffLabel, volumeLabel;
 };
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::showDrumPadEditor()
@@ -9958,24 +10045,11 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     for (auto* modeButton : { &modeStageButton, &modeMixerButton, &modeLiveButton, &modePadsButton, &midiLearnModeButton })
         addAndMakeVisible(*modeButton);
     modePadsButton.setTooltip(juce::String::fromUTF8("Pad cont\xc3\xadnuo: mostra os pads no lugar do teclado virtual"));
-    padStrip = std::make_unique<PadStripPanel>(classicProcessor, [this](int layer)
-    {
-        if (juce::isPositiveAndBelow(layer, Sf2Engine::layerCount) && strips[(size_t) layer] != nullptr)
-            strips[(size_t) layer]->openPadEditor();
-    });
+    padStrip = std::make_unique<PadStripPanel>(classicProcessor);
     addChildComponent(*padStrip);
     modePadsButton.onClick = [this]
     {
         if (showingLiveSet) showLiveSet(false);
-        if (!padStripVisible)
-        {
-            // The pad strip must be ready on the first click: create the
-            // continuous-pads layer automatically when the program has none.
-            bool hasPads = false;
-            for (int i = 0; i < classicProcessor.activeLayerCount(); ++i)
-                hasPads = hasPads || classicProcessor.layerType(i) == ClassicPlayerAudioProcessor::LayerType::continuousPads;
-            if (!hasPads) addLayer(ClassicPlayerAudioProcessor::LayerType::continuousPads);
-        }
         setPadStripVisible(!padStripVisible);
     };
     modeStageButton.setTooltip(juce::String::fromUTF8("Palco: mixer e teclado virtual visíveis"));
@@ -10149,7 +10223,6 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
         menu.addItem(6, localizedUiText("Hammond", uiLanguage));
         menu.addItem(4, localizedUiText("Moog", uiLanguage));
         menu.addItem(5, localizedUiText("Layer Drum Pads (8)", uiLanguage));
-        menu.addItem(7, localizedUiText("Pad Continuo (12)", uiLanguage));
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addLayerButton),
             [safeThis = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this)](int choice)
             {
@@ -10987,7 +11060,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.
-    if (dockAlertPanels(dockCallback, dialog, layerTitle.getText(), 930, { 0, 0, 1, 0, 0, 0, 2, 3 })) return;
+    if (dockAlertPanels(dockCallback, dialog, layerTitle.getText(), 930, { 0, 5, 1, 0, 0, 0, 2, 3 })) return;
     dialog->setSize(actionWidth + 52, 1020);
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();

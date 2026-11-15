@@ -51,6 +51,14 @@ public:
     // layers are SF2 by design.
     enum class LayerType { sf2 = 0, vst, dx7, analog, drumPads, hammond, continuousPads, nord, nordSample, nordOrgan };
     ContinuousPadBank& continuousPads(int layer) { return *continuousBanks[(size_t)layer]; }
+    // Standalone pad strip (PADS mode): not tied to any layer.
+    ContinuousPadBank& padStrip() { return padStripBank; }
+    float padStripVolumeValue() const noexcept { return padStripVolume.load(std::memory_order_relaxed); }
+    float padStripCutoffValue() const noexcept { return padStripCutoff.load(std::memory_order_relaxed); }
+    void setPadStripVolume(float percent) { padStripVolume.store(juce::jlimit(0.0f, 100.0f, percent)); }
+    void setPadStripCutoff(float percent) { padStripCutoff.store(juce::jlimit(0.0f, 100.0f, percent)); }
+    // Loads the factory pads (in the background) for every empty slot.
+    void ensurePadStripLoaded();
     explicit ClassicPlayerAudioProcessor(juce::File programStorageOverride = {});
     ~ClassicPlayerAudioProcessor() override;
 
@@ -575,6 +583,9 @@ private:
     juce::AudioBuffer<float> drumGainScratch;
     juce::AudioBuffer<float> drumMixScratch;
     std::array<std::unique_ptr<ContinuousPadBank>, Sf2Engine::layerCount> continuousBanks;
+    ContinuousPadBank padStripBank;
+    std::atomic<float> padStripVolume { 80.0f }, padStripCutoff { 100.0f };
+    juce::ThreadPool padStripPool { 1 };
     std::array<std::atomic<float>, Sf2Engine::layerCount> drumPeaks {};
     juce::AudioFormatManager drumPadFormats;
     mutable juce::CriticalSection drumPadLock;

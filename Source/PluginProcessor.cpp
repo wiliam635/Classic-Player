@@ -619,6 +619,7 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     drumGainScratch.setSize(Sf2Engine::layerCount + 1,samplesPerBlock);
     drumMixScratch.setSize(2,samplesPerBlock);
     for(auto& bank:continuousBanks)bank->prepare(sampleRate);
+    padStripBank.prepare(sampleRate);
     for (auto& peak : drumPeaks) peak.store(0.f);
     drumGainReady.fill(false);
     for(auto& gain:drumLayerGains){gain.reset(sampleRate,0.02);gain.setCurrentAndTargetValue(0);}
@@ -657,6 +658,7 @@ void ClassicPlayerAudioProcessor::releaseResources()
 {
     liveSetFadingOut = liveSetFadingIn = false;
     for(auto& bank:continuousBanks)bank->stopImmediately();
+    padStripBank.stopImmediately();
     for (auto& state : nordMorphStates) state.reset();
     for(auto& peak:drumPeaks)peak.store(0.f);
     engine.reset();
@@ -756,6 +758,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         for (int layer = 0; layer < activeLayerCount(); ++layer)
             if (layerType(layer) == LayerType::continuousPads)
                 continuousPads(layer).stopFromMidi(metadata.getMessage());
+        padStripBank.stopFromMidi(metadata.getMessage());
     }
 
     for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
@@ -1029,6 +1032,14 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                     {config.eqLow,config.eqMid,config.eqHigh,
                      config.eqLowFrequency,config.eqMidFrequency,config.eqHighFrequency,
                      config.eqLowQ,config.eqMidQ,config.eqHighQ});
+    }
+    {
+        // Standalone pad strip: its own CC map, volume and cutoff.
+        for (const auto event : midi) padStripBank.midi(event.getMessage());
+        const auto cutoffFrequency = 80.0f * std::pow(250.0f,
+            juce::jlimit(0.0f, 100.0f, padStripCutoff.load(std::memory_order_relaxed)) / 100.0f);
+        padStripBank.render(buffer, padStripVolume.load(std::memory_order_relaxed) / 100.0f,
+                            20.0f, cutoffFrequency, ContinuousPadBank::EqSettings{});
     }
     // The master control is calibrated with +6 dB of nominal output gain.
     // With the limiter enabled, its final ceiling keeps this boost clip-safe.
@@ -2190,6 +2201,14 @@ juce::String ClassicPlayerAudioProcessor::dx7PatchName(int layer, int patch) con
 int ClassicPlayerAudioProcessor::dx7PatchCount(int layer) const { return dx7Engine.patchCount(layer); }
 int ClassicPlayerAudioProcessor::dx7SelectedPatch(int layer) const { return dx7Engine.selectedPatch(layer); }
 bool ClassicPlayerAudioProcessor::selectDx7Patch(int layer, int patch) { return dx7Engine.selectPatch(layer, patch); }
+void ClassicPlayerAudioProcessor::ensurePadStripLoaded()
+{
+    padStripPool.addJob([this]
+    {
+        for (int i = 0; i < ContinuousPadBank::count; ++i)
+            if (padStripBank.path(i).isEmpty()) padStripBank.loadFactoryPad(i);
+    });
+}
 bool ClassicPlayerAudioProcessor::dx7PatchRaw(int layer, std::array<uint8_t, 156>& out) const { return dx7Engine.patchRaw(layer, out); }
 bool ClassicPlayerAudioProcessor::setDx7PatchRaw(int layer, const std::array<uint8_t, 156>& raw) { return dx7Engine.setPatchRaw(layer, raw); }
 juce::String ClassicPlayerAudioProcessor::dx7Path(int layer) const { return dx7Engine.path(layer); }
@@ -2611,6 +2630,14 @@ bool ClassicPlayerAudioProcessor::applyUiMidiTarget(const juce::String& key, flo
     const auto kind = parts[1];
     const auto number = parts[2].getIntValue();
     const auto lerp = [n](float lo, float hi) { return lo + n * (hi - lo); };
+    if (kind == "strip")
+    {
+        if (parts.size() < 4) return false;
+        if (parts[3] == "vol") setPadStripVolume(n * 100.0f);
+        else if (parts[3] == "cut") setPadStripCutoff(n * 100.0f);
+        else return false;
+        return true;
+    }
     if (kind == "pad")
     {
         if (!juce::isPositiveAndBelow(number, 12)) return false;
@@ -3878,6 +3905,7 @@ void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* sou
     // Continuous-pad Learn must see the physical controller before the
     // per-layer device/channel routing. Use the non-audio capture path so a
     // busy render lock cannot silently discard the Learn event.
+    if (padStripBank.learningTarget() >= 0) padStripBank.captureLearnedCC(message);
     for (int layer = 0; layer < activeLayerCount(); ++layer)
         if (layerType(layer) == LayerType::continuousPads)
         {
@@ -4312,6 +4340,7 @@ void ClassicPlayerAudioProcessor::stopAllSoundsBeforeProgramChange()
     pendingSplitNote.store(-1);
     const juce::ScopedLock callbackLock(getCallbackLock());
     for(auto& bank:continuousBanks)bank->stopImmediately();
+    padStripBank.stopImmediately();
     for (auto& state : nordMorphStates) state.reset();
     engine.stopAllSounds();
     sampleEngine.stopAllSounds();
@@ -4934,6 +4963,17 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         if(state.getChild(i).hasType("ContinuousPads"))state.removeChild(i,nullptr);
     for(int i=0;i<Sf2Engine::layerCount;++i)
     {auto bank=continuousPads(i).save();bank.setProperty("layer",i,nullptr);state.addChild(bank,-1,nullptr);}
+    for (int i = state.getNumChildren() - 1; i >= 0; --i)
+        if (state.getChild(i).hasType("PadStrip")) state.removeChild(i, nullptr);
+    {
+        const auto bank = padStripBank.save();
+        juce::ValueTree strip("PadStrip");
+        strip.copyPropertiesFrom(bank, nullptr);
+        for (const auto child : bank) strip.addChild(child.createCopy(), -1, nullptr);
+        strip.setProperty("volume", padStripVolume.load(), nullptr);
+        strip.setProperty("cutoff", padStripCutoff.load(), nullptr);
+        state.addChild(strip, -1, nullptr);
+    }
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, destination);
 }
 
@@ -5224,6 +5264,14 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 juce::ValueTree saved;
                 for(const auto& child:state)if(child.hasType("ContinuousPads") && (int)child.getProperty("layer",-1)==layer){saved=child;break;}
                 continuousPads(layer).restore(saved, layerType(layer) == LayerType::continuousPads);
+            }
+            {
+                juce::ValueTree strip;
+                for (const auto& child : state) if (child.hasType("PadStrip")) { strip = child; break; }
+                padStripBank.restore(strip, false);
+                padStripVolume.store(juce::jlimit(0.0f, 100.0f, (float) strip.getProperty("volume", 80.0f)));
+                padStripCutoff.store(juce::jlimit(0.0f, 100.0f, (float) strip.getProperty("cutoff", 100.0f)));
+                ensurePadStripLoaded();
             }
             for (int pad = 0; pad < drumPadCount; ++pad)
             {
