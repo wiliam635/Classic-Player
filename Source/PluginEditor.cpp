@@ -1875,6 +1875,7 @@ public:
             panels.add(panelComponent);
             panelTab.push_back(juce::jlimit(0, 5, (int) panelComponent->getProperties().getWithDefault("dockTab", 0)));
             content.addAndMakeVisible(panelComponent);
+            fitToHeight = fitToHeight || static_cast<bool>(panelComponent->getProperties().getWithDefault("dockFit", false));
         }
         for (int tab = 0; tab < 6; ++tab)
             if (std::find(panelTab.begin(), panelTab.end(), tab) != panelTab.end())
@@ -2056,6 +2057,24 @@ private:
 
     void layoutPanels(int width)
     {
+        content.setTransform({});
+        viewport.setScrollBarsShown(true, false);
+        const int y = layoutPanelsInner(width);
+        const int viewH = viewport.getHeight();
+        if (fitToHeight && scaled == nullptr && viewH > 0 && y > viewH)
+        {
+            // Keep the whole page visible: scale the content down to the free
+            // height instead of scrolling (used by the DX7 page).
+            const float factor = juce::jmax(0.6f, (float) viewH / (float) y);
+            viewport.setScrollBarsShown(false, false);
+            content.setTransform(juce::AffineTransform::scale(factor));
+            const int inner = layoutPanelsInner(juce::roundToInt((float) (width + viewport.getScrollBarThickness()) / factor));
+            content.setSize(content.getWidth(), juce::jmax(inner, juce::roundToInt((float) viewH / factor)));
+        }
+    }
+
+    int layoutPanelsInner(int width)
+    {
         const auto columnWidth = width - gap * 2;
         int y = gap;
         content.cards.clear();
@@ -2095,6 +2114,7 @@ private:
         }
         content.setSize(width, y);
         content.repaint();
+        return y;
     }
 
     struct Content final : public juce::Component
@@ -2126,6 +2146,7 @@ private:
     juce::OwnedArray<juce::TextButton> tabButtons;
     int activeTab = 0;
     bool learnShown = false;
+    bool fitToHeight = false;
 };
 
 template <typename Callback, typename Dialog>
@@ -10995,7 +11016,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     };
 
     dialog->addCustomComponent(new CenteredPanel(dx7Panel, actionWidth, Dx7EditorPanel::preferredHeight));
-    dialog->addCustomComponent(new CenteredPanel(new Dx7VoiceEditorPanel(processor, index), actionWidth, 420));
+    dialog->addCustomComponent(new CenteredPanel(new Dx7VoiceEditorPanel(processor, index), actionWidth, 360));
     auto* dynamicsButtons = new LayerDynamicsButtons(
         [safe] { if (safe != nullptr) safe->showAdsrEditor(); },
         [safe] { if (safe != nullptr) safe->showVelocityEditor(); });
@@ -11060,7 +11081,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.
-    if (dockAlertPanels(dockCallback, dialog, layerTitle.getText(), 930, { 0, 5, 1, 0, 0, 0, 2, 3 })) return;
+    for (int k = 0; k < dialog->getNumCustomComponents(); ++k)
+        dialog->getCustomComponent(k)->getProperties().set("dockFit", true);
+    if (dockAlertPanels(dockCallback, dialog, layerTitle.getText(), 930, { 0, 0, 1, 0, 0, 0, 2, 3 })) return;
     dialog->setSize(actionWidth + 52, 1020);
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();
