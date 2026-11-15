@@ -38,6 +38,13 @@ public:
     juce::String patchName(int layer) const;
     juce::String patchName(int layer, int patch) const;
     juce::String path(int layer) const;
+    // Voice editing: the unpacked 156-byte DX7 voice of the selected patch.
+    // New notes use the edited voice; sounding notes keep their own copy.
+    static constexpr int voiceBytes = 156;
+    bool patchRaw(int layer, std::array<uint8_t, voiceBytes>& out) const;
+    bool setPatchRaw(int layer, const std::array<uint8_t, voiceBytes>& raw);
+    juce::String editedPatchHex(int layer, int patch) const;
+    void applyEditedPatchHex(int layer, int patch, const juce::String& hex);
 
     void process(juce::AudioBuffer<float>& output,
                  const juce::MidiBuffer& hostMidi,
@@ -89,6 +96,7 @@ private:
         std::array<Patch, maxPatches> patches {};
         int patchesLoaded = 0;
         int selectedPatch = 0;
+        std::array<bool, maxPatches> edited {};
         // Physical note state is kept separately from sounding voices. This
         // lets Mono Legato return to a still-held earlier note.
         std::array<bool, 128> heldNotes {};
@@ -138,5 +146,5 @@ private:
     Controllers controllers;
     double sampleRate = 48000.0;
     int maximumBlockSize = 512;
-    juce::CriticalSection lock;
+    mutable juce::CriticalSection lock;
 };

@@ -2190,6 +2190,8 @@ juce::String ClassicPlayerAudioProcessor::dx7PatchName(int layer, int patch) con
 int ClassicPlayerAudioProcessor::dx7PatchCount(int layer) const { return dx7Engine.patchCount(layer); }
 int ClassicPlayerAudioProcessor::dx7SelectedPatch(int layer) const { return dx7Engine.selectedPatch(layer); }
 bool ClassicPlayerAudioProcessor::selectDx7Patch(int layer, int patch) { return dx7Engine.selectPatch(layer, patch); }
+bool ClassicPlayerAudioProcessor::dx7PatchRaw(int layer, std::array<uint8_t, 156>& out) const { return dx7Engine.patchRaw(layer, out); }
+bool ClassicPlayerAudioProcessor::setDx7PatchRaw(int layer, const std::array<uint8_t, 156>& raw) { return dx7Engine.setPatchRaw(layer, raw); }
 juce::String ClassicPlayerAudioProcessor::dx7Path(int layer) const { return dx7Engine.path(layer); }
 
 juce::Result ClassicPlayerAudioProcessor::importDx7Bank(const juce::File& source,
@@ -2418,7 +2420,14 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         else if (sourceType == LayerType::dx7 && sourceDx7Path.isNotEmpty())
         {
             if (dx7Engine.loadSysEx(destination, juce::File(sourceDx7Path)).wasOk())
+            {
+                for (int patch = 0; patch < Dx7Engine::maxPatches; ++patch)
+                {
+                    const auto hex = dx7Engine.editedPatchHex(source, patch);
+                    if (hex.isNotEmpty()) dx7Engine.applyEditedPatchHex(destination, patch, hex);
+                }
                 dx7Engine.selectPatch(destination, sourceDx7Patch);
+            }
         }
         // External VST/AU hosting is retired. Older sessions containing one
         // are shifted as an empty SF2 layer rather than loading third-party code.
@@ -4707,6 +4716,13 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
                           layerTypes[(size_t) i].load(std::memory_order_relaxed), nullptr);
         state.setProperty("dx7Layer" + juce::String(i + 1), dx7Engine.path(i), nullptr);
         state.setProperty("dx7Patch" + juce::String(i + 1), dx7Engine.selectedPatch(i), nullptr);
+        for (int patch = 0; patch < Dx7Engine::maxPatches; ++patch)
+        {
+            const auto editKey = "dx7Edit" + juce::String(i + 1) + "_" + juce::String(patch);
+            const auto hex = dx7Engine.editedPatchHex(i, patch);
+            if (hex.isNotEmpty()) state.setProperty(editKey, hex, nullptr);
+            else state.removeProperty(editKey, nullptr);
+        }
         const auto key = "sf2Layer" + juce::String(i + 1);
         const auto path = soundFontPath(i);
         state.setProperty(key, path.isNotEmpty() ? path : savedPaths[(size_t) i], nullptr);
@@ -5337,8 +5353,16 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     {
                         const auto result = dx7Engine.loadSysEx(i, juce::File(dx7Path));
                         if (result.failed()) juce::Logger::writeToLog("Não foi possível restaurar DX7: " + result.getErrorMessage());
-                        else dx7Engine.selectPatch(i, static_cast<int>(state.getProperty(
-                            "dx7Patch" + juce::String(i + 1), 0)));
+                        else
+                        {
+                            for (int patch = 0; patch < Dx7Engine::maxPatches; ++patch)
+                            {
+                                const auto hex = state.getProperty("dx7Edit" + juce::String(i + 1) + "_" + juce::String(patch)).toString();
+                                if (hex.isNotEmpty()) dx7Engine.applyEditedPatchHex(i, patch, hex);
+                            }
+                            dx7Engine.selectPatch(i, static_cast<int>(state.getProperty(
+                                "dx7Patch" + juce::String(i + 1), 0)));
+                        }
                     }
                 }
                 hammondEngine.unload(i);

@@ -1,4 +1,5 @@
 #include "Dx7Engine.h"
+#include <cstring>
 #include "LayerEffects.h"
 #include <cmath>
 #include <cstdint>
@@ -323,6 +324,55 @@ int Dx7Engine::patchCount(int index) const
 int Dx7Engine::selectedPatch(int index) const
 {
     return juce::isPositiveAndBelow(index, layerCount) ? layers[(size_t) index].selectedPatch : 0;
+}
+
+bool Dx7Engine::patchRaw(int index, std::array<uint8_t, voiceBytes>& out) const
+{
+    if (!juce::isPositiveAndBelow(index, layerCount)) return false;
+    const juce::ScopedLock guard(lock);
+    const auto& layer = layers[(size_t) index];
+    if (!juce::isPositiveAndBelow(layer.selectedPatch, layer.patchesLoaded)) return false;
+    out = layer.patches[(size_t) layer.selectedPatch].raw;
+    return true;
+}
+
+bool Dx7Engine::setPatchRaw(int index, const std::array<uint8_t, voiceBytes>& raw)
+{
+    if (!juce::isPositiveAndBelow(index, layerCount)) return false;
+    const juce::ScopedLock guard(lock);
+    auto& layer = layers[(size_t) index];
+    if (!juce::isPositiveAndBelow(layer.selectedPatch, layer.patchesLoaded)) return false;
+    auto& patch = layer.patches[(size_t) layer.selectedPatch];
+    patch.raw = raw;
+    patch.algorithm = raw[134] & 0x1f;
+    patch.feedback = raw[135] & 0x07;
+    layer.edited[(size_t) layer.selectedPatch] = true;
+    return true;
+}
+
+juce::String Dx7Engine::editedPatchHex(int index, int patchIndex) const
+{
+    if (!juce::isPositiveAndBelow(index, layerCount) || !juce::isPositiveAndBelow(patchIndex, maxPatches)) return {};
+    const juce::ScopedLock guard(lock);
+    const auto& layer = layers[(size_t) index];
+    if (!layer.edited[(size_t) patchIndex]) return {};
+    return juce::String::toHexString(layer.patches[(size_t) patchIndex].raw.data(), voiceBytes, 0);
+}
+
+void Dx7Engine::applyEditedPatchHex(int index, int patchIndex, const juce::String& hex)
+{
+    if (!juce::isPositiveAndBelow(index, layerCount) || !juce::isPositiveAndBelow(patchIndex, maxPatches)) return;
+    juce::MemoryBlock bytes;
+    bytes.loadFromHexString(hex);
+    if ((int) bytes.getSize() != voiceBytes) return;
+    const juce::ScopedLock guard(lock);
+    auto& layer = layers[(size_t) index];
+    if (!juce::isPositiveAndBelow(patchIndex, layer.patchesLoaded)) return;
+    auto& patch = layer.patches[(size_t) patchIndex];
+    std::memcpy(patch.raw.data(), bytes.getData(), (size_t) voiceBytes);
+    patch.algorithm = patch.raw[134] & 0x1f;
+    patch.feedback = patch.raw[135] & 0x07;
+    layer.edited[(size_t) patchIndex] = true;
 }
 
 bool Dx7Engine::selectPatch(int index, int patch)

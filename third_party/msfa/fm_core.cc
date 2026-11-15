@@ -134,6 +134,11 @@ void FmCore::render(int32_t *output, FmOpParams *params, int algorithm, int32_t 
     }
 }
 
+int FmCore::opFlags(int algorithm, int op) {
+  if (algorithm < 0 || algorithm > 31 || op < 0 || op > 5) return 0;
+  return algorithms[algorithm].ops[op];
+}
+
 bool FmCore::isCarrier(int algorithm, int op) {
   return (algorithms[algorithm].ops[op] & FmOperatorFlags::OUT_BUS_ADD) != 0;
 }

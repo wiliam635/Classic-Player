@@ -171,6 +171,8 @@ public:
     int dx7PatchCount(int layer) const;
     int dx7SelectedPatch(int layer) const;
     bool selectDx7Patch(int layer, int patch);
+    bool dx7PatchRaw(int layer, std::array<uint8_t, 156>& out) const;
+    bool setDx7PatchRaw(int layer, const std::array<uint8_t, 156>& raw);
     juce::String dx7Path(int layer) const;
     juce::Result importDx7Bank(const juce::File&, juce::File& importedFile) const;
     juce::Array<juce::File> libraryDx7Banks() const;

@@ -3,6 +3,7 @@
 #include "AnalogEditorPanel.h"
 #include "AnalogBrowserPresets.h"
 #include "HammondEditorPanel.h"
+#include "Dx7VoiceEditorPanel.h"
 #include "LicenseVerifier.h"
 #include "ClassicPlayerAssets.h"
 #include "ChordDetector.h"
@@ -10895,6 +10896,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     };
 
     dialog->addCustomComponent(new CenteredPanel(dx7Panel, actionWidth, Dx7EditorPanel::preferredHeight));
+    dialog->addCustomComponent(new CenteredPanel(new Dx7VoiceEditorPanel(processor, index), actionWidth, 420));
     auto* dynamicsButtons = new LayerDynamicsButtons(
         [safe] { if (safe != nullptr) safe->showAdsrEditor(); },
         [safe] { if (safe != nullptr) safe->showVelocityEditor(); });
@@ -10959,8 +10961,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showDx7Editor()
     dialog->addCustomComponent(new SideBySideEditorPanel(effectButtons, midiPanel, actionWidth, 54));
     // Reserve a full row for effect controls and MIDI Learn before the
     // footer so FECHAR cannot cover the reverb Learn button.
-    if (dockAlertPanels(dockCallback, dialog, layerTitle.getText(), 930, { 0, 1, 0, 0, 0, 2, 3 })) return;
-    dialog->setSize(actionWidth + 52, 680);
+    if (dockAlertPanels(dockCallback, dialog, layerTitle.getText(), 930, { 0, 0, 1, 0, 0, 0, 2, 3 })) return;
+    dialog->setSize(actionWidth + 52, 1020);
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();
     // Use AlertWindow's footer button so JUCE reserves a dedicated row below
