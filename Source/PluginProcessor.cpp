@@ -2679,6 +2679,11 @@ bool ClassicPlayerAudioProcessor::applyUiMidiTarget(const juce::String& key, flo
             case 16: c.mixerDrive = n; break;
             case 17: c.filterKeyboardTracking = n; break;
             case 18: c.modWheelToFilter = n; break;
+            case 19: c.oscillator1Semitones = std::round(lerp(-24.0f, 24.0f)); break;
+            case 20: c.glideMs = std::round(lerp(0.0f, 2000.0f)); break;
+            case 21: c.filterAttackMs = std::round(lerp(1.0f, 2000.0f)); break;
+            case 22: c.filterDecayMs = std::round(lerp(1.0f, 5000.0f)); break;
+            case 23: c.filterSustain = n; break;
             default: return false;
         }
         setAnalogSynthConfig(number, c);
@@ -5349,11 +5354,11 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 auto analog = AnalogSynthEngine::Config{};
                 const auto analogKey = juce::String(i + 1);
                 analog.oscillator1Wave = static_cast<AnalogSynthEngine::Waveform>(juce::jlimit(
-                    0, 4, static_cast<int>(state.getProperty("analogOsc1Wave" + analogKey, static_cast<int>(analog.oscillator1Wave)))));
+                    0, 5, static_cast<int>(state.getProperty("analogOsc1Wave" + analogKey, static_cast<int>(analog.oscillator1Wave)))));
                 analog.oscillator2Wave = static_cast<AnalogSynthEngine::Waveform>(juce::jlimit(
-                    0, 4, static_cast<int>(state.getProperty("analogOsc2Wave" + analogKey, static_cast<int>(analog.oscillator2Wave)))));
+                    0, 5, static_cast<int>(state.getProperty("analogOsc2Wave" + analogKey, static_cast<int>(analog.oscillator2Wave)))));
                 analog.oscillator3Wave = static_cast<AnalogSynthEngine::Waveform>(juce::jlimit(
-                    0, 4, static_cast<int>(state.getProperty("analogOsc3Wave" + analogKey, static_cast<int>(analog.oscillator3Wave)))));
+                    0, 5, static_cast<int>(state.getProperty("analogOsc3Wave" + analogKey, static_cast<int>(analog.oscillator3Wave)))));
                 analog.oscillator1Level = static_cast<float>(state.getProperty("analogOsc1Level" + analogKey, analog.oscillator1Level));
                 analog.oscillator2Level = static_cast<float>(state.getProperty("analogOsc2Level" + analogKey, analog.oscillator2Level));
                 analog.oscillator3Level = static_cast<float>(state.getProperty("analogOsc3Level" + analogKey, analog.oscillator3Level));

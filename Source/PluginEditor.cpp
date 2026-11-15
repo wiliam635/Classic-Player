@@ -2333,6 +2333,7 @@ public:
 
     void paint(juce::Graphics& g) override
     {
+        if (externalLayout) return;
         const auto bounds = getLocalBounds().toFloat().reduced(0.5f);
         g.setColour(juce::Colour(background).withAlpha(0.35f));
         g.fillRoundedRectangle(bounds, 10.0f);
@@ -2347,6 +2348,10 @@ public:
     }
 
     void useAnalogHardwareLayout(bool shouldUse) { analogHardwareLayout = shouldUse; resized(); }
+    // The owner positions every slider and label itself and paints the backdrop.
+    void useExternalLayout(bool shouldUse) { externalLayout = shouldUse; }
+    juce::Slider& sliderAt(int item) { return *knobs[item]; }
+    juce::Label& labelAt(int item) { return *labels[item]; }
     void useCompactGrid(bool shouldUse) { compactGrid = shouldUse; resized(); }
     void useDenseGrid(bool shouldUse) { denseGrid = shouldUse; resized(); }
 
@@ -2380,6 +2385,7 @@ public:
 
     void resized() override
     {
+        if (externalLayout) return;
         if (denseGrid)
         {
             const auto cellWidth = getWidth() / columns;
@@ -2448,6 +2454,7 @@ public:
 private:
     int columns = 1;
     bool analogHardwareLayout = false;
+    bool externalLayout = false;
     bool compactGrid = false;
     bool denseGrid = false;
     std::function<void()> onValueChange;
@@ -5125,6 +5132,37 @@ static void showParametricLayerEqEditor(
         [&processor](int) { juce::ignoreUnused(processor); }), true);
 }
 
+// Black panel knob in the style of the Minimoog Model D: ticked arc, white pointer.
+class MoogKnobLook final : public juce::LookAndFeel_V4
+{
+public:
+    void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height, float pos,
+                          float startAngle, float endAngle, juce::Slider&) override
+    {
+        const auto bounds = juce::Rectangle<float>((float) x, (float) y, (float) width, (float) height);
+        const auto centre = bounds.getCentre();
+        const float radius = juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.5f - 5.0f;
+        g.setColour(juce::Colour(0xffe8dcb8).withAlpha(0.8f));
+        for (int i = 0; i < 11; ++i)
+        {
+            const float a = startAngle + (endAngle - startAngle) * (float) i / 10.0f;
+            const juce::Point<float> d(std::sin(a), -std::cos(a));
+            g.drawLine({ centre + d * (radius + 1.5f), centre + d * (radius + (i % 5 == 0 ? 5.0f : 3.5f)) }, 1.2f);
+        }
+        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff4c4c4f), centre.x - radius * 0.4f, centre.y - radius * 0.6f,
+                                               juce::Colour(0xff0a0a0b), centre.x, centre.y + radius, true));
+        g.fillEllipse(centre.x - radius, centre.y - radius, radius * 2.0f, radius * 2.0f);
+        g.setColour(juce::Colour(0xff77777a));
+        g.drawEllipse(centre.x - radius, centre.y - radius, radius * 2.0f, radius * 2.0f, 1.2f);
+        g.setColour(juce::Colour(0xff151516));
+        g.fillEllipse(centre.x - radius * 0.7f, centre.y - radius * 0.7f, radius * 1.4f, radius * 1.4f);
+        const float angle = startAngle + pos * (endAngle - startAngle);
+        const juce::Point<float> d(std::sin(angle), -std::cos(angle));
+        g.setColour(juce::Colours::white);
+        g.drawLine({ centre + d * (radius * 0.2f), centre + d * (radius * 0.92f) }, 2.8f);
+    }
+};
+
 class AnalogSynthEditorPanel final : public juce::Component, private juce::Timer
 {
 public:
@@ -5151,7 +5189,12 @@ public:
               { "LFO FILTER", source.lfoToFilter, 0.0f, 100.0f, 1.0f, 0 },
               { "DRIVE", source.mixerDrive * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
               { "KEY TRACK", source.filterKeyboardTracking * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
-              { "MOD WHEEL", source.modWheelToFilter * 100.0f, 0.0f, 100.0f, 1.0f, 0 }
+              { "MOD WHEEL", source.modWheelToFilter * 100.0f, 0.0f, 100.0f, 1.0f, 0 },
+              { "OSC 1 RANGE", source.oscillator1Semitones, -24.0f, 24.0f, 1.0f, 0 },
+              { "GLIDE ms", source.glideMs, 0.0f, 2000.0f, 1.0f, 0 },
+              { "FILTER ATTACK", source.filterAttackMs, 1.0f, 2000.0f, 1.0f, 0 },
+              { "FILTER DECAY", source.filterDecayMs, 1.0f, 5000.0f, 1.0f, 0 },
+              { "FILTER SUSTAIN", source.filterSustain * 100.0f, 0.0f, 100.0f, 1.0f, 0 }
           }, 6)
     {
         configureWaveButton(wave1, 0);
@@ -5192,9 +5235,37 @@ public:
         addAndMakeVisible(pinkNoise);
         addAndMakeVisible(monoPoly);
         if (layer >= 0)
-            for (int k = 0; k < 19; ++k)
+            for (int k = 0; k < 24; ++k)
                 knobs.setItemProperty(k, "midiKey", "pk:ana:" + juce::String(layer) + ":" + juce::String(k));
-        knobs.useAnalogHardwareLayout(true);
+        knobs.useExternalLayout(true);
+        knobs.setInterceptsMouseClicks(false, true);
+        {
+            static const std::array<const char*, 24> names {
+                "OSC 1 LEVEL", "OSC 2 LEVEL", "OSC 3 LEVEL", "OSC 2 TUNE", "OSC 3 TUNE", "NOISE",
+                "CUTOFF", "EMPHASIS", "CONTOUR AMT", "ATTACK", "AMP DECAY", "AMP SUSTAIN", "RELEASE",
+                "LFO RATE", "LFO PITCH", "LFO FILTER", "DRIVE", "KEY TRACK", "MOD WHEEL",
+                "OSC 1 RANGE", "GLIDE", "FLT ATTACK", "FLT DECAY", "FLT SUSTAIN" };
+            for (int k = 0; k < 24; ++k)
+            {
+                auto& slider = knobs.sliderAt(k);
+                slider.setLookAndFeel(&moogLook);
+                slider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+                slider.setRotaryParameters(juce::degreesToRadians(-150.0f), juce::degreesToRadians(150.0f), true);
+                slider.setPopupDisplayEnabled(true, true, this);
+                auto& label = knobs.labelAt(k);
+                label.setText(names[(size_t) k], juce::dontSendNotification);
+                label.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+                label.setColour(juce::Label::textColourId, juce::Colour(0xffe8dcb8));
+                label.setInterceptsMouseClicks(false, false);
+            }
+            // The layer controls below own cutoff, attack and release.
+            for (int k : { 6, 9, 12 }) { knobs.sliderAt(k).setVisible(false); knobs.labelAt(k).setVisible(false); }
+            hint.setText(juce::String::fromUTF8("CUTOFF, ATTACK e RELEASE: controles da camada, abaixo"), juce::dontSendNotification);
+            hint.setFont(juce::FontOptions(8.5f));
+            hint.setColour(juce::Label::textColourId, juce::Colour(0xffb59a5c));
+            hint.setJustificationType(juce::Justification::centred);
+            addAndMakeVisible(hint);
+        }
         knobs.setOnValueChange([this] { if (onConfigChanged) onConfigChanged(config()); });
         for (auto* button : { &oscillator1On, &oscillator2On, &oscillator3On, &pinkNoise })
             button->onClick = [this] { if (onConfigChanged) onConfigChanged(config()); };
@@ -5204,8 +5275,7 @@ public:
         // to overlap the editor content.
         // Keep the Analog editor compact enough for notebook displays while
         // preserving all four rows of controls and the oscilloscope.
-        setSize(700, 320);
-        startTimerHz(15);
+        setSize(760, 330);
     }
 
     void setPresetOnlyMode()
@@ -5239,7 +5309,11 @@ public:
         result.ampDecayMs = knobs.value(10); result.ampSustain = knobs.value(11) / 100.0f;
         result.ampReleaseMs = knobs.value(12); result.lfoRateHz = knobs.value(13);
         result.lfoToPitch = knobs.value(14); result.lfoToFilter = knobs.value(15);
-        result.glideMs = 0.0f;
+        result.glideMs = knobs.value(20);
+        result.oscillator1Semitones = knobs.value(19);
+        result.filterAttackMs = knobs.value(21);
+        result.filterDecayMs = knobs.value(22);
+        result.filterSustain = knobs.value(23) / 100.0f;
         result.mixerDrive = knobs.value(16) / 100.0f;
         result.filterKeyboardTracking = knobs.value(17) / 100.0f;
         result.modWheelToFilter = knobs.value(18) / 100.0f;
@@ -5275,80 +5349,33 @@ public:
             return;
         }
 
-        // Purpose-built Classic Keys Analog layout: clean functional sections,
-        // no imitation of the reference hardware panel.
-        g.fillAll(juce::Colour(0xff0b131b));
-
-        g.setColour(juce::Colour(0xff16242f));
-        g.fillRoundedRectangle(8.0f, 6.0f, (float) getWidth() - 16.0f, 48.0f, 7.0f);
-        g.setColour(juce::Colour(onAccent));
-        g.fillRoundedRectangle(18.0f, 44.0f, (float) getWidth() - 36.0f, 2.0f, 1.0f);
-
-        g.setColour(juce::Colour(text));
+        const auto w = (float) getWidth(), h = (float) getHeight();
+        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff8f4c22), 0, 0, juce::Colour(0xff4d230d), 0, h, false));
+        g.fillAll();
+        g.setColour(juce::Colour(0xff2e1507).withAlpha(0.25f));
+        for (int y = 3; y < getHeight(); y += 4) g.drawHorizontalLine(y, 0.0f, w);
+        g.setColour(juce::Colour(0xffe8dcb8));
         g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
-        g.drawText(localizedUiText("CLASSIC KEYS ANALOG", activeUiLanguage.load()),
-                   22, 13, 250, 20, juce::Justification::left);
-        g.setColour(juce::Colour(mutedText));
-        g.setFont(juce::FontOptions(9.0f));
-        g.drawText(localizedUiText(initial.browserCompatible ? "BROWSER 12 dB - SOM APROVADO"
-                                                             : "OSCILLATOR - FILTER - MODULATION",
-                                   activeUiLanguage.load()),
-                   22, 33, 250, 12, juce::Justification::left);
-
-        const int left = 14, top = 62;
-        const int moduleWidth = juce::jmax(420, getWidth() - 140);
-        const int width = moduleWidth, height = getHeight() - 76;
-        const int cardGap = 5;
-        const int cardWidth = (width - cardGap * 4) / 5;
-        for (int group = 0; group < 5; ++group)
+        g.drawText("CLASSIC KEYS ANALOG", 18, 6, 230, 24, juce::Justification::left);
+        const auto panel = juce::Rectangle<float>(12.0f, 36.0f, w - 24.0f, h - 44.0f);
+        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff2a2b2e), 0, panel.getY(), juce::Colour(0xff151618), 0, panel.getBottom(), false));
+        g.fillRoundedRectangle(panel, 6.0f);
+        g.setColour(juce::Colour(0xff050505)); g.drawRoundedRectangle(panel, 6.0f, 2.0f);
+        const std::array<const char*, 4> titles { "OSCILLATOR BANK", "MIXER", "MODIFIERS", "OUTPUT" };
+        for (size_t i = 0; i < 4; ++i)
         {
-            const auto card = juce::Rectangle<float>(
-                (float) left + (float) group * (cardWidth + cardGap),
-                (float) top, (float) cardWidth, (float) height);
-            g.setColour(juce::Colour(0xff131e27));
-            g.fillRoundedRectangle(card, 5.0f);
-            g.setColour(juce::Colour(0xff2d404c));
-            g.drawRoundedRectangle(card, 5.0f, 1.0f);
+            const auto r = sections[i].toFloat();
+            g.setColour(juce::Colour(0xff050505).withAlpha(0.45f)); g.fillRoundedRectangle(r, 4.0f);
+            g.setColour(juce::Colour(0xff3a3b3f)); g.drawRoundedRectangle(r, 4.0f, 1.0f);
+            g.setColour(juce::Colour(0xffb59a5c));
+            g.setFont(juce::FontOptions(10.5f, juce::Font::bold));
+            g.drawText(titles[i], sections[i].withHeight(22), juce::Justification::centred);
         }
-
-        // Dedicated scope card, separate from every control column.
-        const auto scopeCard = juce::Rectangle<float>((float) left + moduleWidth + 10.0f,
-                                                       (float) top, (float) getWidth() - left - moduleWidth - 20.0f,
-                                                       (float) height);
-        g.setColour(juce::Colour(0xff101a22));
-        g.fillRoundedRectangle(scopeCard, 5.0f);
-        g.setColour(juce::Colour(0xff2d404c));
-        g.drawRoundedRectangle(scopeCard, 5.0f, 1.0f);
-
-        const auto scope = scopeCard.reduced(8.0f).withHeight(118.0f).withY(scopeCard.getY() + 34.0f);
-        g.setColour(juce::Colour(0xff05090d));
-        g.fillRoundedRectangle(scope, 3.0f);
-        g.setColour(juce::Colour(0xff3a5361));
-        g.drawRoundedRectangle(scope, 3.0f, 1.0f);
-        juce::Path waveform;
-        for (int sample = 0; sample <= 48; ++sample)
-        {
-            const auto t = static_cast<float>(sample) / 48.0f;
-            const auto y = scope.getCentreY() - std::sin(t * juce::MathConstants<float>::twoPi * 2.0f + scopePhase)
-                                           * scope.getHeight() * 0.32f;
-            const auto xPos = scope.getX() + 5.0f + t * (scope.getWidth() - 10.0f);
-            if (sample == 0) waveform.startNewSubPath(xPos, y);
-            else waveform.lineTo(xPos, y);
-        }
-        g.setColour(juce::Colour(0xfff0a52b));
-        g.strokePath(waveform, juce::PathStrokeType(1.5f));
-        g.setColour(juce::Colour(mutedText));
-        g.setFont(juce::FontOptions(8.0f, juce::Font::bold));
-        g.drawText(localizedUiText("OSCILLOSCOPE", activeUiLanguage.load()),
-                   scopeCard.getX(), scope.getBottom() + 7.0f,
-                   scopeCard.getWidth(), 12.0f, juce::Justification::centred);
     }
 
     void timerCallback() override
     {
-        if (!isShowing() || presetOnly) return;
-        scopePhase = std::fmod(scopePhase + 0.16f, juce::MathConstants<float>::twoPi);
-        repaint();
+        stopTimer();
     }
 
     void resized() override
@@ -5360,23 +5387,69 @@ public:
                                 juce::jmax(120, getWidth() - labelWidth - 16), 34);
             return;
         }
-        const auto w = getWidth();
-        const int moduleWidth = juce::jmax(420, w - 140);
-        presetBox.setBounds(25, 42, juce::jmin(270, moduleWidth - 30), 24);
-        const auto waveY = 70;
-        const auto waveWidth = juce::jmax(92, juce::jmin(132, (moduleWidth - 72) / 3));
-        wave1.setBounds(juce::roundToInt(moduleWidth * 0.22f), waveY, waveWidth, 24);
-        wave2.setBounds(juce::roundToInt(moduleWidth * 0.47f), waveY, waveWidth, 24);
-        wave3.setBounds(juce::roundToInt(moduleWidth * 0.72f), waveY, waveWidth, 24);
-        oscillator1On.setBounds(wave1.getX() + 8, 98, waveWidth - 16, 20);
-        oscillator2On.setBounds(wave2.getX() + 8, 98, waveWidth - 16, 20);
-        oscillator3On.setBounds(wave3.getX() + 8, 98, waveWidth - 16, 20);
-        monoPoly.setBounds(18, 96, juce::jmin(112, moduleWidth / 5), 25);
-        pinkNoise.setBounds(moduleWidth + 18, 98, juce::jmin(92, w - moduleWidth - 24), 20);
-        // Start the knob grid below all oscillator controls.  This is the
-        // single source of truth for the 19 controls, preventing overlap.
-        knobs.setBounds(14, 126, juce::jmax(420, moduleWidth - 20),
-                        juce::jmax(180, getHeight() - 132));
+        const int w = getWidth(), h = getHeight();
+        presetBox.setBounds(250, 8, juce::jmin(300, w - 270), 22);
+        knobs.setBounds(getLocalBounds());
+        const int px = 12, py = 36, pw = w - 24, ph = h - 44, gap = 6;
+        const int usable = pw - gap * 5;
+        const std::array<float, 4> fractions { 0.27f, 0.21f, 0.29f, 0.23f };
+        int x = px + gap;
+        for (size_t i = 0; i < 4; ++i)
+        {
+            const int width = juce::roundToInt((float) usable * fractions[i]);
+            sections[i] = { x, py + 5, width, ph - 10 };
+            x += width + gap;
+        }
+        const auto place = [this](int k, const juce::Rectangle<int>& sec, int col, int cols, int row)
+        {
+            const int rowH = (sec.getHeight() - 30) / 3;
+            const int cw = sec.getWidth() / cols;
+            const int ks = juce::jmin(54, cw - 6, rowH - 16);
+            const int cx = sec.getX() + col * cw;
+            const int y = sec.getY() + 26 + row * rowH;
+            knobs.sliderAt(k).setBounds(cx + (cw - ks) / 2, y, ks, ks);
+            knobs.labelAt(k).setBounds(cx, y + ks, cw, 12);
+        };
+        const auto& osc = sections[0];
+        const int oscRowH = (osc.getHeight() - 30) / 3;
+        const std::array<int, 3> oscKnobs { 19, 3, 4 };
+        std::array<juce::TextButton*, 3> waveButtons { &wave1, &wave2, &wave3 };
+        std::array<juce::TextButton*, 3> onButtons { &oscillator1On, &oscillator2On, &oscillator3On };
+        const int leftW = osc.getWidth() * 4 / 10;
+        for (int r = 0; r < 3; ++r)
+        {
+            const int ks = juce::jmin(54, leftW - 6, oscRowH - 16);
+            const int y = osc.getY() + 26 + r * oscRowH;
+            knobs.sliderAt(oscKnobs[(size_t) r]).setBounds(osc.getX() + (leftW - ks) / 2, y, ks, ks);
+            knobs.labelAt(oscKnobs[(size_t) r]).setBounds(osc.getX(), y + ks, leftW, 12);
+            const int bx = osc.getX() + leftW + 2, bw = osc.getWidth() - leftW - 8;
+            waveButtons[(size_t) r]->setBounds(bx, y + 2, bw, 24);
+            onButtons[(size_t) r]->setBounds(bx, y + 30, bw, 20);
+        }
+        const auto& mix = sections[1];
+        place(0, mix, 0, 2, 0); place(1, mix, 1, 2, 0);
+        place(2, mix, 0, 2, 1); place(5, mix, 1, 2, 1);
+        place(16, mix, 0, 2, 2);
+        {
+            const int cw = mix.getWidth() / 2, rowH = (mix.getHeight() - 30) / 3;
+            pinkNoise.setBounds(mix.getX() + cw + 4, mix.getY() + 26 + 2 * rowH + 10, cw - 8, 24);
+        }
+        const auto& mod = sections[2];
+        place(7, mod, 0, 3, 0); place(8, mod, 1, 3, 0); place(17, mod, 2, 3, 0);
+        place(21, mod, 0, 3, 1); place(22, mod, 1, 3, 1); place(23, mod, 2, 3, 1);
+        place(10, mod, 0, 3, 2); place(11, mod, 1, 3, 2);
+        {
+            const int cw = mod.getWidth() / 3, rowH = (mod.getHeight() - 30) / 3;
+            hint.setBounds(mod.getX() + 2 * cw, mod.getY() + 26 + 2 * rowH + 6, cw, 48);
+        }
+        const auto& out = sections[3];
+        place(13, out, 0, 2, 0); place(14, out, 1, 2, 0);
+        place(15, out, 0, 2, 1); place(18, out, 1, 2, 1);
+        place(20, out, 0, 2, 2);
+        {
+            const int cw = out.getWidth() / 2, rowH = (out.getHeight() - 30) / 3;
+            monoPoly.setBounds(out.getX() + cw + 4, out.getY() + 26 + 2 * rowH + 10, cw - 8, 24);
+        }
     }
 
 private:
@@ -5408,6 +5481,9 @@ private:
         knobs.setValue(16, value.mixerDrive * 100.0f);
         knobs.setValue(17, value.filterKeyboardTracking * 100.0f);
         knobs.setValue(18, value.modWheelToFilter * 100.0f);
+        knobs.setValue(19, value.oscillator1Semitones); knobs.setValue(20, value.glideMs);
+        knobs.setValue(21, value.filterAttackMs); knobs.setValue(22, value.filterDecayMs);
+        knobs.setValue(23, value.filterSustain * 100.0f);
         oscillator1On.setToggleState(value.oscillator1Enabled, juce::dontSendNotification);
         oscillator2On.setToggleState(value.oscillator2Enabled, juce::dontSendNotification);
         oscillator3On.setToggleState(value.oscillator3Enabled, juce::dontSendNotification);
@@ -5418,7 +5494,7 @@ private:
 
     static juce::String waveformName(AnalogSynthEngine::Waveform waveform)
     {
-        switch (waveform) { case AnalogSynthEngine::Waveform::triangle: return "TRIANGLE"; case AnalogSynthEngine::Waveform::saw: return "SAW"; case AnalogSynthEngine::Waveform::square: return "SQUARE"; case AnalogSynthEngine::Waveform::pulse: return "PULSE"; case AnalogSynthEngine::Waveform::sine: return "SINE"; }
+        switch (waveform) { case AnalogSynthEngine::Waveform::triangle: return "TRIANGLE"; case AnalogSynthEngine::Waveform::saw: return "SAW"; case AnalogSynthEngine::Waveform::square: return "SQUARE"; case AnalogSynthEngine::Waveform::pulse: return "PULSE"; case AnalogSynthEngine::Waveform::sine: return "SINE"; case AnalogSynthEngine::Waveform::reverseSaw: return "REV SAW"; }
         return "SAW";
     }
 
@@ -5428,7 +5504,7 @@ private:
         button.onClick = [this, oscillator, buttonPtr]
         {
             auto value = static_cast<int>(waves[(size_t) oscillator]);
-            waves[(size_t) oscillator] = static_cast<AnalogSynthEngine::Waveform>((value + 1) % 5);
+            waves[(size_t) oscillator] = static_cast<AnalogSynthEngine::Waveform>((value + 1) % 6);
             buttonPtr->setButtonText("OSC " + juce::String(oscillator + 1) + " - " + waveformName(waves[(size_t) oscillator]));
             if (onConfigChanged) onConfigChanged(config());
         };
@@ -5464,6 +5540,9 @@ private:
     juce::ComboBox presetBox;
     juce::TextButton wave1, wave2, wave3;
     juce::TextButton oscillator1On, oscillator2On, oscillator3On, pinkNoise, monoPoly;
+    MoogKnobLook moogLook;
+    juce::Label hint;
+    std::array<juce::Rectangle<int>, 4> sections;
     KnobEditorPanel knobs;
     float scopePhase = 0.0f;
     bool presetOnly = false;
@@ -10653,7 +10732,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
     // in this window, avoiding a second, oversized editor layout.
     const auto actionWidth = editorContentWidth(this, 1100);
     auto* controls = new AnalogSynthEditorPanel(processor.analogSynthConfig(index), index);
-    controls->setPresetOnlyMode();
     auto* routing = new LayerRoutingEditorPanel(processor, index);
     auto* common = createAnalogCommonControls(processor, index).release();
     const juce::Component::SafePointer<LayerStrip> safe(this);
@@ -10712,7 +10790,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         std::unique_ptr<juce::Component> content;
         juce::Label heading;
     };
-    dialog->addCustomComponent(new CenteredPanel(controls, actionWidth, 66));
+    dialog->addCustomComponent(new CenteredPanel(controls, juce::jmin(actionWidth, 940), 336));
     dialog->addCustomComponent(new CenteredPanel(new LayerPresetFilePanel(
         [safe] { if (safe != nullptr) safe->saveLayerPreset(); },
         [safe] { if (safe != nullptr) safe->loadLayerPreset(); }), actionWidth, 40));
@@ -10736,7 +10814,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showAnalogSynthEditor()
         }
     };
     if (dockAlertPanels(dockCallback, dialog, layerTitle.getText(), 930, { 0, 0, 2, 2, 0, 3 })) return;
-    dialog->setSize(actionWidth + 52, 720);
+    dialog->setSize(actionWidth + 52, 980);
     dialog->fitWithinApp(this);
     dialog->fitCustomComponentsVertically();
     dialog->enterModalState(true, juce::ModalCallbackFunction::create(

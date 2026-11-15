@@ -231,6 +231,9 @@ float AnalogSynthEngine::waveform(Waveform form, float phase, float increment) c
         case Waveform::saw:
             return 2.0f * phase - 1.0f - polyBlep(phase, increment);
 
+        case Waveform::reverseSaw:
+            return 1.0f - 2.0f * phase + polyBlep(phase, increment);
+
         case Waveform::square:
         {
             auto output = phase < 0.5f ? 1.0f : -1.0f;
@@ -389,8 +392,10 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
     voice->targetFrequency = frequency;
 
     // Analog uses the browser's Mono/Legato behavior: retune immediately and
-    // preserve the envelope while another key is held. There is no glide mode.
-    voice->currentFrequency = frequency;
+    // preserve the envelope while another key is held. Glide is opt-in
+    // (Config::glideMs > 0, mono legato only); the default stays immediate.
+    if (!(legato && config.glideMs > 0.0f))
+        voice->currentFrequency = frequency;
 
     if (!legato)
     {
@@ -600,9 +605,22 @@ void AnalogSynthEngine::renderVoice(Voice& voice, const Config& config, float lf
                                     const std::array<float, 3>& filterCoefficients,
                                     float& left, float& right)
 {
-    // No portamento/glide in Analog: Mono/Legato transitions are immediate,
-    // matching the browser implementation and avoiding theremin-like slides.
-    voice.currentFrequency = voice.targetFrequency;
+    // Mono/Legato transitions are immediate unless the user dials in GLIDE.
+    // The glide runs in the log-frequency domain (equal time per octave
+    // ratio) and snaps once it is within a hundredth of a cent.
+    if (config.glideMs > 0.0f && voice.currentFrequency != voice.targetFrequency)
+    {
+        const float ratio = voice.targetFrequency / voice.currentFrequency;
+        if (std::abs(ratio - 1.0f) < 1.0e-5f)
+            voice.currentFrequency = voice.targetFrequency;
+        else
+        {
+            const float k = 1.0f - std::exp(-3.0f / (static_cast<float>(sampleRate) * config.glideMs * 0.001f));
+            voice.currentFrequency *= std::pow(ratio, k);
+        }
+    }
+    else
+        voice.currentFrequency = voice.targetFrequency;
 
     const auto amp = config.browserCompatible ? nextBrowserEnvelope(voice, config)
         : nextEnvelope(voice.amp, config.ampSustain, ampCoefficients);

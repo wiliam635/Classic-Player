@@ -16,7 +16,7 @@ public:
     static constexpr int layerCount = Sf2Engine::layerCount;
     static constexpr int voicesPerLayer = 32; // Fixed Moog ceiling, including legacy presets.
 
-    enum class Waveform { triangle = 0, saw, square, pulse, sine };
+    enum class Waveform { triangle = 0, saw, square, pulse, sine, reverseSaw };
 
     struct Config
     {
