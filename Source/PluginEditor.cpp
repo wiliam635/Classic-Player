@@ -4,6 +4,7 @@
 #include "AnalogBrowserPresets.h"
 #include "HammondEditorPanel.h"
 #include "Dx7VoiceEditorPanel.h"
+#include "NordFaceplate.h"
 #include "LicenseVerifier.h"
 #include "ClassicPlayerAssets.h"
 #include "ChordDetector.h"
@@ -3741,7 +3742,7 @@ public:
             if (categories[i] == selectedCategory) selectedId = i + 1;
         }
         categoryBox.setSelectedId(selectedId, juce::dontSendNotification);
-        categoryBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
+        categoryBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff1d2a3d));
         categoryBox.setColour(juce::ComboBox::textColourId, juce::Colour(text));
         categoryBox.onChange = [this]
         {
@@ -3750,7 +3751,7 @@ public:
         };
         addAndMakeVisible(categoryBox);
 
-        libraryBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
+        libraryBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff1d2a3d));
         libraryBox.setColour(juce::ComboBox::textColourId, juce::Colour(text));
         libraryBox.getProperties().set("uiDataItems", true);
         libraryBox.onChange = [this]
@@ -3902,6 +3903,14 @@ public:
         deleteButton.setBounds(actions.reduced(3));
     }
 
+    void paint(juce::Graphics& g) override
+    {
+        g.setColour(juce::Colour(nordui::slate));
+        g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 6.0f);
+        g.setColour(juce::Colour(nordui::slateLight));
+        g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 6.0f, 1.0f);
+    }
+
 private:
     void showBundleMenu()
     {
@@ -3984,7 +3993,7 @@ public:
         decayLabel.setFont(juce::FontOptions(10.0f, juce::Font::bold));
         addAndMakeVisible(decayLabel);
         decayBox.getProperties().set("uiDataItems", true);
-        decayBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
+        decayBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff1d2a3d));
         decayBox.setColour(juce::ComboBox::textColourId, juce::Colour(text));
         decayBox.addItem("CURTA 4s", 4);
         decayBox.addItem("MEDIA 8s", 8);
@@ -4008,7 +4017,7 @@ public:
         dynamicLabel.setFont(juce::FontOptions(9.0f, juce::Font::bold));
         addAndMakeVisible(dynamicLabel);
         dynamicBox.getProperties().set("uiDataItems", true);
-        dynamicBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(panelLight));
+        dynamicBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff1d2a3d));
         dynamicBox.setColour(juce::ComboBox::textColourId, juce::Colour(text));
         dynamicBox.addItem("OFF", 1);
         dynamicBox.addItem("1", 2);
@@ -4084,6 +4093,14 @@ public:
             auto buttonArea = mode == 3 ? area : area.removeFromLeft(buttonWidth);
             modes[(size_t) mode].setBounds(buttonArea.reduced(1, 4));
         }
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.setColour(juce::Colour(nordui::slate));
+        g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 6.0f);
+        g.setColour(juce::Colour(nordui::slateLight));
+        g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 6.0f, 1.0f);
     }
 
 private:
@@ -7471,6 +7488,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         sf2Panel->useCompactLayout(true);
         sf2Panel->setSize(actionWidth, 244);
     }
+    if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord
+        || processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordSample)
+    {
+        static MoogKnobLook nordKnobLook;
+        for (int control = 0; control < 10; ++control)
+            knobs->sliderAt(control).setLookAndFeel(&nordKnobLook);
+    }
     knobs->useDenseGrid(!dockMode);
     knobs->setSize(actionWidth, knobsHeight);
     auto* effectButtons = new LayerEffectButtons(
@@ -7525,6 +7549,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
                     safe->categoryBox.setSelectedId(selected + 1, juce::sendNotificationSync);
             },
             [safe] { if (safe != nullptr) safe->refresh(); });
+        dialog->addCustomComponent(new CenteredPanel(new NordFaceplate(processor, index, false), actionWidth, 104));
         importNordPanel->setSize(actionWidth, 92);
         dialog->addCustomComponent(new CenteredPanel(importNordPanel, actionWidth, 92));
         auto* nordRouting = new LayerRoutingEditorPanel(processor, index);
@@ -7542,6 +7567,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
             sampleCategory = processor.nordSampleCategoryForFile(juce::File(currentSamplePath));
         auto* importSamplePanel = new NordPianoImportPanel(processor, index, sampleCategory, {},
             [safe] { if (safe != nullptr) safe->refresh(); }, true);
+        dialog->addCustomComponent(new CenteredPanel(new NordFaceplate(processor, index, true), actionWidth, 104));
         importSamplePanel->setSize(actionWidth, 92);
         dialog->addCustomComponent(new CenteredPanel(importSamplePanel, actionWidth, 92));
         auto* nsmpRouting = new LayerRoutingEditorPanel(processor, index);
@@ -7609,9 +7635,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
             const auto kind = processor.layerType(index);
             std::vector<int> tabs;
             if (kind == ClassicPlayerAudioProcessor::LayerType::nord)
-                tabs = splitDynamics ? std::vector<int>{ 0, 2, 0, 1, 4, 0, 2, 0, 3 } : std::vector<int>{ 0, 2, 0, 1, 0, 2, 0, 3 };
+                tabs = splitDynamics ? std::vector<int>{ 0, 0, 2, 0, 1, 4, 0, 2, 0, 3 } : std::vector<int>{ 0, 0, 2, 0, 1, 0, 2, 0, 3 };
             else if (kind == ClassicPlayerAudioProcessor::LayerType::nordSample)
-                tabs = splitDynamics ? std::vector<int>{ 0, 2, 1, 4, 0, 2, 0, 3 } : std::vector<int>{ 0, 2, 1, 0, 2, 0, 3 };
+                tabs = splitDynamics ? std::vector<int>{ 0, 0, 2, 1, 4, 0, 2, 0, 3 } : std::vector<int>{ 0, 0, 2, 1, 0, 2, 0, 3 };
             else
                 tabs = splitDynamics ? std::vector<int>{ 0, 1, 4, 0, 2, 0, 3 } : std::vector<int>{ 0, 1, 0, 2, 0, 3 };
             if (tabs.size() == dockedPanels.size())
