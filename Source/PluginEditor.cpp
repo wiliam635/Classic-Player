@@ -6991,6 +6991,7 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::chooseSample(int pad)
 
 void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
 {
+    int newActivePad = -1;
     const auto volumeCC=processor.midiLearnCC(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume);
     setButtonTextIfChanged(volumeLearnButton, localizedUiText(
         processor.isMidiLearning(layerIndex,ClassicPlayerAudioProcessor::LearnTarget::volume)
@@ -7024,14 +7025,20 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
     {
         auto& trigger = pads[(size_t) pad];
         const auto active = continuous() ? processor.continuousPads(layerIndex).selected()==pad : processor.isDrumPadPlaying(pad);
+        if (active) newActivePad = pad;
         const auto samplePath = continuous() ? processor.continuousPads(layerIndex).path(pad) : processor.drumPadPath(pad);
         const auto factoryLabel = samplePath.fromFirstOccurrenceOf("@factory-pad:", false, false);
-        setButtonTextIfChanged(trigger, continuous() && factoryLabel.isNotEmpty() ? factoryLabel
+        const auto baseLabel = continuous() && factoryLabel.isNotEmpty() ? factoryLabel
                                                       : samplePath.isNotEmpty() ? juce::File(samplePath).getFileNameWithoutExtension()
-                                                      : "PAD " + juce::String(pad + 1));
+                                                      : "PAD " + juce::String(pad + 1);
+        setButtonTextIfChanged(trigger, active && continuous() ? juce::String::fromUTF8("\xe2\x97\x8f ") + baseLabel : baseLabel);
+        // The active pad keeps its full colour (plus a ring in paintOverChildren) while
+        // the others dim; the old yellow highlight was invisible on the yellow pad.
+        const auto dimOthers = continuous() && processor.continuousPads(layerIndex).selected() >= 0;
         setButtonColourIfChanged(trigger, juce::TextButton::buttonColourId,
-                          active ? juce::Colour(yellow) : drumPadColour(pad));
-        setButtonColourIfChanged(trigger, juce::TextButton::textColourOffId, juce::Colour(0xff101820));
+                          dimOthers && !active ? drumPadColour(pad).darker(0.55f) : drumPadColour(pad));
+        setButtonColourIfChanged(trigger, juce::TextButton::textColourOffId,
+                                 dimOthers && !active ? juce::Colour(0xffe8edf2) : juce::Colour(0xff101820));
         const int cc=continuous()?processor.continuousPads(layerIndex).mapping(pad):-1;
         const auto mapping = continuous() ? (cc>=0?"CC "+juce::String(cc):juce::String{}) : processor.drumPadMidiMapping(pad);
         setButtonTextIfChanged(learnButtons[(size_t) pad], localizedUiText(
@@ -7042,6 +7049,15 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
             padVolumes[(size_t) pad].setValue(processor.drumPadVolume(pad) * 100.0f,
                                                juce::dontSendNotification);
     }
+    if (newActivePad != activePad) { activePad = newActivePad; repaint(); }
+}
+
+void ClassicPlayerAudioProcessorEditor::DrumPadPanel::paintOverChildren(juce::Graphics& g)
+{
+    if (activePad < 0 || activePad >= 12 || !pads[(size_t) activePad].isVisible()) return;
+    const auto bounds = pads[(size_t) activePad].getBounds().toFloat().expanded(1.5f);
+    g.setColour(juce::Colours::white);
+    g.drawRoundedRectangle(bounds, 5.0f, 3.0f);
 }
 
 void ClassicPlayerAudioProcessorEditor::DrumPadPanel::resized()
@@ -8405,15 +8421,30 @@ private:
             cutoffSlider.setValue(processor.padStripCutoffValue(), juce::dontSendNotification);
         auto& bank = processor.padStrip();
         static const char* names[] { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+        const auto selected = bank.selected();
+        if (selected != activePad) { activePad = selected; repaint(); }
         for (int pad = 0; pad < 12; ++pad)
         {
             auto& trigger = pads[(size_t) pad];
             const auto label = bank.path(pad).fromFirstOccurrenceOf("@factory-pad:", false, false);
-            setButtonTextIfChanged(trigger, label.isNotEmpty() ? label : juce::String(names[pad]));
+            const auto baseLabel = label.isNotEmpty() ? label : juce::String(names[pad]);
+            setButtonTextIfChanged(trigger, selected == pad ? juce::String::fromUTF8("\xe2\x97\x8f ") + baseLabel : baseLabel);
+            // Active pad: full colour + white ring; every other pad dims while one is playing.
             setButtonColourIfChanged(trigger, juce::TextButton::buttonColourId,
-                                     bank.selected() == pad ? juce::Colour(yellow) : drumPadColour(pad));
+                                     selected >= 0 && selected != pad ? drumPadColour(pad).darker(0.55f) : drumPadColour(pad));
+            setButtonColourIfChanged(trigger, juce::TextButton::textColourOffId,
+                                     selected >= 0 && selected != pad ? juce::Colour(0xffe8edf2) : juce::Colour(0xff15191d));
         }
     }
+
+    void paintOverChildren(juce::Graphics& g) override
+    {
+        if (activePad < 0 || activePad >= 12) return;
+        g.setColour(juce::Colours::white);
+        g.drawRoundedRectangle(pads[(size_t) activePad].getBounds().toFloat().expanded(1.5f), 5.0f, 3.0f);
+    }
+
+    int activePad = -1;
 
     ClassicPlayerAudioProcessor& processor;
     std::array<LeftClickOnlyButton, 12> pads;

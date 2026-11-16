@@ -131,10 +131,12 @@ private:
     public:
         explicit DrumPadPanel(ClassicPlayerAudioProcessor&, int layer);
         void resized() override;
+        void paintOverChildren(juce::Graphics&) override;
         void refresh();
         void setControlsVisible(bool shouldShow);
         int layerNumber() const noexcept { return layerIndex; }
     private:
+        int activePad = -1;
         void chooseSample(int pad);
         void timerCallback() override { if (isShowing()) refresh(); }
         ClassicPlayerAudioProcessor& processor;
