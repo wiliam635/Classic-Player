@@ -187,9 +187,8 @@ void noteOn(Layer& layer,int note,int velocity,int channel,bool sustain,int voic
     // The pedal-down bank (bank 1) is a pronounced reflection that lingers like
     // reverb and then drops when the pedal is lifted. The desktop engine only
     // uses it as an explicit opt-in (pianoPedalResonance, off by default), so
-    // Android plays the dry bank 0 unless that opt-in is added here later.
-    (void)sustain;
-    int bank=0,limit=((127-std::max(velocity,std::clamp(timbreFloor,1,127)))*piano.velocityScale)/127;
+    // Android plays the dry bank 0 unless REFLEXOES is switched on for the layer.
+    int bank=(layer.reflections&&sustain)?1:0,limit=((127-std::max(velocity,std::clamp(timbreFloor,1,127)))*piano.velocityScale)/127;
     int chosen=-1,best=-1;
     for(size_t i=0;i<piano.strokes.size();++i){const auto& s=piano.strokes[i];if(s.root==root&&s.bank==bank&&s.velocityLayer<=limit&&s.velocityLayer>best){chosen=(int)i;best=s.velocityLayer;}}
     if(chosen<0&&bank==1)for(size_t i=0;i<piano.strokes.size();++i){const auto& s=piano.strokes[i];if(s.root==root&&s.bank==0&&s.velocityLayer<=limit&&s.velocityLayer>best){chosen=(int)i;best=s.velocityLayer;}}
@@ -203,7 +202,9 @@ void noteOn(Layer& layer,int note,int velocity,int channel,bool sustain,int voic
     double cents=piano.fineTune[(size_t)note]*.7;
     *target={};target->active=true;target->keyDown=true;target->note=note;target->channel=channel;target->stroke=chosen;
     target->serial=++layer.serial;target->increment=std::pow(2.0,(note-root+cents/100.0)/12.0)*sampleRate/44100.0;
-    target->level=(velocity/127.f)*std::pow(10.f,(piano.gainTenthsDb/10.f+trimDb)/20.f);
+    const float vel=velocity/127.f,lift=.10f*(float)std::clamp(layer.dynamicCompression,0,3);
+    target->decaySeconds=std::clamp(layer.decaySeconds,3.f,15.f);
+    target->level=(vel+(1.f-vel)*lift)*std::pow(10.f,(piano.gainTenthsDb/10.f+trimDb)/20.f);
     target->attackGain=attackSeconds>0?0.f:1.f;
 }
 void noteOff(Layer& layer,int note,int channel,bool sustain,float releaseSeconds){
@@ -220,13 +221,15 @@ void noteOff(Layer& layer,int note,int channel,bool sustain,float releaseSeconds
     else{
         target->released=true;
         target->waitingForSustain=false;
-        target->releaseSeconds=std::clamp(releaseSeconds,.005f,5.0f);
+        target->releaseSeconds=std::clamp(layer.softRelease?std::min(15.f,std::max(.18f,releaseSeconds*1.5f)):releaseSeconds,.005f,15.0f);
     }
 }
 void pedalUp(Layer& layer,int channel,float releaseSeconds){
     // NPNO samples need a short damper tail; 50 ms reaches near silence
     // too quickly and sounds like a hard volume cut when a chord is released.
-    const float smoothRelease=std::clamp(std::max(releaseSeconds,.25f),.005f,5.0f);
+    float smoothRelease=std::max(releaseSeconds,.25f);
+    if(layer.softRelease)smoothRelease=std::min(15.f,std::max(.18f,smoothRelease*1.5f));
+    smoothRelease=std::clamp(smoothRelease,.005f,15.0f);
     for(auto& v:layer.voices)if(v.active&&v.channel==channel&&v.waitingForSustain){
         v.keyDown=false;v.waitingForSustain=false;v.released=true;v.releaseSeconds=smoothRelease;
     }
@@ -235,21 +238,21 @@ void render(Layer& layer,float* stereo,int frames,int outputRate,int budget,floa
     if(!layer.instrument||!stereo)return;const auto& piano=*layer.instrument;
     const int voices=std::clamp(budget,0,maxVoices);
     const float attackStep=attackSeconds>0?1.f/std::max(1.f,attackSeconds*outputRate):1.f;
-    const uint64_t maxAge=(uint64_t)(outputRate*15.0);
     const float decayTarget=std::clamp(sustainPercent*.01f,0.f,1.f);
     const float decayStep=decayMs>0?(1.f-decayTarget)/std::max(1.f,decayMs*.001f*outputRate):0.f;
     for(int vi=0;vi<voices;++vi){auto& v=layer.voices[(size_t)vi];if(!v.active||v.stroke<0)continue;
         const auto& s=piano.strokes[(size_t)v.stroke];int total=(int)(s.pcm.size()/size_t(piano.channels));
         const float releaseFactor=std::exp(std::log(.0001f)/std::max(1.f,std::max(.005f,v.releaseSeconds)*outputRate));
         for(int f=0;f<frames;++f){
-            if(++v.age>=maxAge&&layer.finitePiano){v={};break;}
+            if(layer.finitePiano&&++v.age>=(uint64_t)(outputRate*v.decaySeconds)){v={};break;}
+            if(!layer.finitePiano)++v.age;
             if(s.loopEnd>s.loopStart&&v.position>=s.loopEnd)
                 v.position=s.loopStart+std::fmod(v.position-s.loopEnd,double(s.loopEnd-s.loopStart));
             else if(v.position>=total){v={};break;}
             v.attackGain=std::min(1.f,v.attackGain+attackStep);
             if(v.released)v.releaseGain*=releaseFactor;
             if(v.releaseGain<.0001f){v={};break;}
-            float remaining=std::max(0.f,1.f-float(v.age)/float(outputRate*15));
+            float remaining=std::max(0.f,1.f-float(v.age)/float(outputRate*v.decaySeconds));
             float decay=layer.finitePiano?remaining*remaining:1.f;
             if(decayStep>0&&!v.released&&v.attackGain>=1.f)v.decayGain=std::max(decayTarget,v.decayGain-decayStep);
             float gain=v.level*v.attackGain*v.releaseGain*decay*v.decayGain;
@@ -260,6 +263,7 @@ void render(Layer& layer,float* stereo,int frames,int outputRate,int budget,floa
         }
     }
     static constexpr float bands[3][3]={{1.5f,-1.f,-9.f},{-3.f,3.f,-3.f},{-1.f,0.f,6.f}};
+    if(layer.eqMode<0)return; // EQ OFF
     const int mode=std::clamp(layer.eqMode,0,2);
     const float lowGain=std::pow(10.f,bands[mode][0]/20.f);
     const float midGain=std::pow(10.f,bands[mode][1]/20.f);

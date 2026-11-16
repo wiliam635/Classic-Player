@@ -154,6 +154,8 @@ final class PolySynthEngine {
     private static native boolean nativeLoadDx7(int layer, String absolutePath);
     private static native String nativeLoadNord(int layer, String absolutePath, long decodedBudgetBytes, boolean finitePiano);
     private static native void nativeSetNordEqMode(int layer, int mode);
+    private static native void nativeSetLayerPolyphony(int layer, int cap);
+    private static native void nativeSetNordOptions(int layer, int dynamic, boolean soft, boolean reflections, float decaySeconds);
     private static native void nativeSetNordVelocityCalibration(int layer, int soft, int mid, int hard);
     private static native int nativeEngineType(int layer);
     private static native int nativeDx7PatchCount(int layer);
@@ -298,6 +300,8 @@ final class PolySynthEngine {
         return path == null ? "Arquivo NPNO indisponível" : nativeLoadNord(layer, path, decodedBudgetBytes, finitePiano);
     }
     void setNordEqMode(int layer, int mode) { nativeSetNordEqMode(layer, mode); }
+    void setLayerPolyphony(int layer, int cap) { nativeSetLayerPolyphony(layer, cap); }
+    void setNordOptions(int layer, int dynamic, boolean soft, boolean reflections, float decaySeconds) { nativeSetNordOptions(layer, dynamic, soft, reflections, decaySeconds); }
     void setNordVelocityCalibration(int layer,int soft,int mid,int hard){nativeSetNordVelocityCalibration(layer,soft,mid,hard);}
     int engineType(int layer) { return nativeEngineType(layer); }
     int dx7PatchCount(int layer) { return nativeDx7PatchCount(layer); }

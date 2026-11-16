@@ -37,7 +37,7 @@ struct Voice {
     int note = -1, channel = 0, stroke = -1;
     uint64_t serial = 0, age = 0;
     double position = 0, increment = 1;
-    float level = 0, attackGain = 1, releaseGain = 1, releaseSeconds = 0.04f, decayGain = 1;
+    float level = 0, attackGain = 1, releaseGain = 1, releaseSeconds = 0.04f, decayGain = 1, decaySeconds = 15.f;
 };
 
 struct Layer {
@@ -45,7 +45,11 @@ struct Layer {
     std::array<Voice, maxVoices> voices {};
     uint64_t serial = 0;
     bool finitePiano = true;
-    int eqMode = 1;
+    int eqMode = 1;            // -1 = OFF (bypass), 0 SOFT, 1 MID, 2 BRIGHT
+    int dynamicCompression = 0; // 0..3, lifts quiet keystrokes like the desktop
+    bool softRelease = false;
+    bool reflections = false;   // pedal-down reflection bank, opt-in like the desktop
+    float decaySeconds = 15.f;  // CAUDA NPNO 3..15 s
     std::array<float,2> eqLowState {}, eqHighState {};
 };
 

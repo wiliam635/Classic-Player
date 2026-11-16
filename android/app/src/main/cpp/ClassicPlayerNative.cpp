@@ -348,12 +348,14 @@ std::array<int,kLayerCount> calculateLayerVoiceBudgets(
 }
 
 // Recompute shared per-layer quotas whenever a motor is added or removed.
+static std::array<int,kLayerCount> layerPolyphonyCap{};
 void distributeLayerVoiceBudgets()
 {
     const auto budgets=calculateLayerVoiceBudgets();
     for(int layer=0;layer<kLayerCount;++layer){
         const auto li=(size_t)layer;
-        const int budget=budgets[li];
+        int budget=budgets[li];
+        if(layerPolyphonyCap[li]>0)budget=std::min(budget,layerPolyphonyCap[li]);
         if(engineTypes[li]==EngineType::empty){layerVoiceBudgets[li]=0;continue;}
         int effectiveBudget=budget;
         if(engineTypes[li]==EngineType::dx7){
@@ -589,7 +591,26 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetNordEqMode(JNIEnv*,j
 {
     if(layer<0||layer>=kLayerCount)return;
     std::lock_guard<std::mutex> lock(synthMutex);
-    nordLayers[(size_t)layer].eqMode=std::clamp((int)mode,0,2);
+    nordLayers[(size_t)layer].eqMode=std::clamp((int)mode,-1,2);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerPolyphony(JNIEnv*,jclass,jint layer,jint cap)
+{
+    if(layer<0||layer>=kLayerCount)return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    layerPolyphonyCap[(size_t)layer]=std::clamp((int)cap,0,kMaximumPolyphony);
+    distributeLayerVoiceBudgets();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetNordOptions(JNIEnv*,jclass,jint layer,jint dynamic,jboolean soft,jboolean reflections,jfloat decaySeconds)
+{
+    if(layer<0||layer>=kLayerCount)return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    auto& l=nordLayers[(size_t)layer];
+    l.dynamicCompression=std::clamp((int)dynamic,0,3);l.softRelease=soft==JNI_TRUE;l.reflections=reflections==JNI_TRUE;
+    l.decaySeconds=std::clamp((float)decaySeconds,3.f,15.f);
 }
 
 extern "C" JNIEXPORT void JNICALL

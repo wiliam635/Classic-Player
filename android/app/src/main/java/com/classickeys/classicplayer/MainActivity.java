@@ -982,6 +982,7 @@ public final class MainActivity extends Activity {
             int count;
             while ((count = input.read(block)) >= 0) output.write(block, 0, count);
             output.flush();
+            getSharedPreferences("sf2_categories",MODE_PRIVATE).edit().putString(target.getName(),getSharedPreferences("sf2_categories",MODE_PRIVATE).getString("import_category",NORD_CATEGORIES[4])).apply();
             return target.getAbsolutePath();
         } catch (Exception ignored) {
             if (target.exists()) target.delete();
@@ -1307,6 +1308,17 @@ public final class MainActivity extends Activity {
     }
 
     private String restoreLayerMotor(int layer,int engine){
+        String result=restoreLayerMotorRaw(layer,engine);
+        if(result!=null&&audioEngine!=null){applyLayerPolyphony(layer);if(engine==7)applyNordOptions(layer);}
+        return result;
+    }
+    private void applyLayerPolyphony(int layer){if(audioEngine!=null)audioEngine.setLayerPolyphony(layer,getSharedPreferences("layers",MODE_PRIVATE).getInt("poly_"+layer,0));}
+    private void applyNordOptions(int layer){
+        if(audioEngine==null)return;SharedPreferences p=getSharedPreferences("layers",MODE_PRIVATE);
+        audioEngine.setNordEqMode(layer,p.getInt("nord_eq_mode_"+layer,1));
+        audioEngine.setNordOptions(layer,p.getInt("nord_dyn_"+layer,0),p.getBoolean("nord_soft_"+layer,false),p.getBoolean("nord_refl_"+layer,false),p.getFloat("nord_decay_"+layer,15f));
+    }
+    private String restoreLayerMotorRaw(int layer,int engine){
         if(audioEngine==null)return null;
         SharedPreferences prefs=getSharedPreferences("layers",MODE_PRIVATE);
         if(engine==1){
@@ -1921,7 +1933,7 @@ public final class MainActivity extends Activity {
                 nord?"PIANO · NPNO":"SOUNDFONT",loaded?name:(nord?"Nenhum NPNO carregado":"Nenhum SoundFont carregado"),
                 loaded?(nord?category:(preset.isEmpty()?"Escolha o preset abaixo":preset)):"Escolha na biblioteca abaixo");
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(EditorUi.dp(this,3),EditorUi.dp(this,6),EditorUi.dp(this,3),EditorUi.dp(this,4));body.addView(plate,lp);
-        if(!nord)return;
+        if(!nord){buildSf2Library(layer,panel,body,items,selected,selection,secondaryLabel,secondaryAction);return;}
         LinearLayout holder=new LinearLayout(this);body.addView(holder,new LinearLayout.LayoutParams(-1,-2));
         LinearLayout card=desktopBox("BIBLIOTECA NPNO",holder);
         LinearLayout top=new LinearLayout(this);card.addView(top,new LinearLayout.LayoutParams(-1,-2));
@@ -1939,7 +1951,56 @@ public final class MainActivity extends Activity {
         else sel.addView(EditorUi.label(this,"Nenhum NPNO nesta categoria.",11));
         LinearLayout acts=EditorUi.gridRow(card);EditorUi.addButton(acts,"IMPORTAR NPNO",()->{panel.dialog.dismiss();openNordPicker(layer,cat);});
         LinearLayout eqHolder=new LinearLayout(this);card.addView(eqHolder,new LinearLayout.LayoutParams(-1,-2));
-        segmented(eqHolder,"EQ",new String[]{"SOFT","MID","BRIGHT"},p.getInt("nord_eq_mode_"+layer,1),which->{p.edit().putInt("nord_eq_mode_"+layer,which).apply();if(audioEngine!=null)audioEngine.setNordEqMode(layer,which);});
+        segmented(eqHolder,"EQ",new String[]{"OFF","SOFT","MID","BRIGHT"},p.getInt("nord_eq_mode_"+layer,1)+1,which->{p.edit().putInt("nord_eq_mode_"+layer,which-1).apply();if(audioEngine!=null)audioEngine.setNordEqMode(layer,which-1);});
+        LinearLayout opts=EditorUi.gridRow(card);
+        EditorUi.selectorCell(opts,"DYN COMP",new String[]{"OFF","1","2","3"},p.getInt("nord_dyn_"+layer,0),i->{p.edit().putInt("nord_dyn_"+layer,i).apply();applyNordOptions(layer);});
+        segmented(opts,"SOFT REL",new String[]{"NAO","SIM"},p.getBoolean("nord_soft_"+layer,false)?1:0,i->{p.edit().putBoolean("nord_soft_"+layer,i==1).apply();applyNordOptions(layer);});
+        segmented(opts,"REFLEXOES",new String[]{"NAO","SIM"},p.getBoolean("nord_refl_"+layer,false)?1:0,i->{p.edit().putBoolean("nord_refl_"+layer,i==1).apply();applyNordOptions(layer);});
+        final float[] decays={4f,8f,12f,15f};float curDecay=p.getFloat("nord_decay_"+layer,15f);int decayIdx=3;for(int d=0;d<decays.length;d++)if(Math.abs(decays[d]-curDecay)<.5f)decayIdx=d;
+        EditorUi.selectorCell(opts,"CAUDA NPNO",new String[]{"CURTA 4s","MEDIA 8s","LONGA 12s","ORIGINAL 15s"},decayIdx,i->{p.edit().putFloat("nord_decay_"+layer,decays[i]).apply();applyNordOptions(layer);});
+        acts.removeAllViews();
+        EditorUi.addButton(acts,"IMPORTAR NPNO",()->{panel.dialog.dismiss();openNordPicker(layer,cat);});
+        EditorUi.addButton(acts,"BANCOS IMPORTADOS",()->showImportedNord(layer,panel));
+        EditorUi.addButton(acts,"EXCLUIR NPNO",()->confirmDeleteNord(layer,panel));
+    }
+
+    private void showImportedNord(final int layer,final EditorUi.Panel host){
+        EditorUi.Panel list=new EditorUi.Panel(this,"BANCOS NPNO IMPORTADOS","Toque para carregar nesta layer.");
+        boolean any=false;
+        for(final String cat:NORD_CATEGORIES){
+            File[] files=nordDirectory(cat).listFiles((d,n)->n.toLowerCase(java.util.Locale.ROOT).endsWith(".npno"));if(files==null)continue;
+            java.util.Arrays.sort(files,(a,b)->a.getName().compareToIgnoreCase(b.getName()));
+            for(final File f:files){any=true;list.body.addView(EditorUi.button(this,cat+" · "+f.getName().replaceFirst("(?i)\\.npno$",""),()->{list.dialog.dismiss();host.dialog.dismiss();loadNordLibraryFile(layer,f,cat,false);}),new LinearLayout.LayoutParams(-1,EditorUi.dp(this,44)));}
+        }
+        if(!any)list.body.addView(EditorUi.label(this,"Nenhum NPNO importado ainda.",11));
+        EditorUi.addButton(list.footer,"FECHAR",list.dialog::dismiss);list.show();
+    }
+    private void confirmDeleteNord(final int layer,final EditorUi.Panel host){
+        final String path=getSharedPreferences("layers",MODE_PRIVATE).getString("npno_"+layer,"");
+        if(path.isEmpty()){android.widget.Toast.makeText(this,"Nenhum NPNO carregado nesta layer.",android.widget.Toast.LENGTH_SHORT).show();return;}
+        new AlertDialog.Builder(this).setTitle("EXCLUIR NPNO").setMessage("Apagar "+new File(path).getName()+" da biblioteca? Isso não pode ser desfeito.")
+            .setNegativeButton("CANCELAR",null).setPositiveButton("EXCLUIR",(d,w)->{host.dialog.dismiss();clearLayer(layer);new File(path).delete();screen.invalidate();}).show();
+    }
+    private String sf2Category(File f){return getSharedPreferences("sf2_categories",MODE_PRIVATE).getString(f.getName(),NORD_CATEGORIES[4]);}
+    private void buildSf2Library(final int layer,final EditorUi.Panel panel,LinearLayout body,final String[] items,final int selected,
+                                 final PresetSelection selection,final String secondaryLabel,final Runnable secondaryAction){
+        final SharedPreferences cats=getSharedPreferences("sf2_categories",MODE_PRIVATE);
+        final String category=cats.getString("browser",NORD_CATEGORIES[0]);
+        LinearLayout holder=new LinearLayout(this);body.addView(holder,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout card=desktopBox("BIBLIOTECA SF2",holder);
+        LinearLayout sel=EditorUi.gridRow(card);
+        EditorUi.selectorCell(sel,"CATEGORIA",NORD_CATEGORIES,Math.max(0,java.util.Arrays.asList(NORD_CATEGORIES).indexOf(category)),i->{cats.edit().putString("browser",NORD_CATEGORIES[i]).apply();renderLayerEditorPage(layer,panel,0,items,selected,selection,secondaryLabel,secondaryAction);});
+        final ArrayList<File> shown=new ArrayList<>();for(File f:soundFontLibraryFiles())if(sf2Category(f).equals(category))shown.add(f);
+        String current=getSharedPreferences("layers",MODE_PRIVATE).getString("sf2_"+layer,"");int cur=0;String[] names=new String[Math.max(1,shown.size())];
+        if(shown.isEmpty())names[0]="ESCOLHA O SF2";
+        for(int i=0;i<shown.size();i++){names[i]=soundFontFileDisplayName(shown.get(i));if(shown.get(i).getAbsolutePath().equals(current))cur=i;}
+        EditorUi.selectorCell(sel,"BIBLIOTECA SF2",names,cur,i->{if(i<shown.size()&&!shown.get(i).getAbsolutePath().equals(current)){panel.dialog.dismiss();loadSoundFontLibraryFile(layer,shown.get(i),true);}});
+        LinearLayout acts=EditorUi.gridRow(card);
+        EditorUi.addButton(acts,"IMPORTAR SF2",()->{cats.edit().putString("import_category",category).apply();panel.dialog.dismiss();openSf2FilePicker(layer);});
+        EditorUi.addButton(acts,"EXCLUIR SF2",()->{
+            if(current.isEmpty()){android.widget.Toast.makeText(this,"Nenhum SF2 carregado nesta layer.",android.widget.Toast.LENGTH_SHORT).show();return;}
+            new AlertDialog.Builder(this).setTitle("EXCLUIR SF2").setMessage("Apagar "+new File(current).getName()+" da biblioteca? Isso não pode ser desfeito.")
+                .setNegativeButton("CANCELAR",null).setPositiveButton("EXCLUIR",(d,w)->{panel.dialog.dismiss();clearLayer(layer);new File(current).delete();cats.edit().remove(new File(current).getName()).apply();screen.invalidate();}).show();});
     }
     private void renderLayerEditorPage(final int layer,EditorUi.Panel panel,int page,String[] items,int selected,
                                        PresetSelection selection,String secondaryLabel,Runnable secondaryAction){
@@ -2210,6 +2271,9 @@ public final class MainActivity extends Activity {
         cells.add(r->EditorUi.selectorCell(r,"NOTA BAIXA",noteNames,lv.noteLow[l],i->{lv.noteLow[l]=i;if(lv.noteHigh[l]<i)lv.noteHigh[l]=i;lv.save(l);screen.applyLayerRouting(l);}));
         cells.add(r->EditorUi.selectorCell(r,"NOTA ALTA",noteNames,lv.noteHigh[l],i->{lv.noteHigh[l]=i;if(lv.noteLow[l]>i)lv.noteLow[l]=i;lv.save(l);screen.applyLayerRouting(l);}));
         final String[] velValues=new String[127];for(int v=0;v<127;v++)velValues[v]=String.valueOf(v+1);
+        final String[] polyNames={"AUTO","16 VOZES","32 VOZES","64 VOZES","128 VOZES","256 VOZES"};final int[] polyValues={0,16,32,64,128,256};
+        cells.add(r->{int cur=getSharedPreferences("layers",MODE_PRIVATE).getInt("poly_"+l,0),idx=0;for(int i=0;i<polyValues.length;i++)if(polyValues[i]==cur)idx=i;
+            EditorUi.selectorCell(r,"POLIFONIA",polyNames,idx,i->{getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("poly_"+l,polyValues[i]).apply();applyLayerPolyphony(l);});});
         cells.add(r->EditorUi.selectorCell(r,"VEL. MIN",velValues,lv.low[l]-1,i->{lv.low[l]=i+1;if(lv.high[l]<lv.low[l])lv.high[l]=lv.low[l];lv.save(l);lv.apply(audioEngine,l);}));
         cells.add(r->EditorUi.selectorCell(r,"VEL. MAX",velValues,lv.high[l]-1,i->{lv.high[l]=i+1;if(lv.low[l]>lv.high[l])lv.low[l]=lv.high[l];lv.save(l);lv.apply(audioEngine,l);}));
         LinearLayout row=null;
