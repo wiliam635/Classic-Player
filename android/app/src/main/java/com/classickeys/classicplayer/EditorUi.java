@@ -190,9 +190,18 @@ final class EditorUi {
         void setValue(float next){value=Math.max(min,Math.min(max,next));describe();invalidate();}
         String format(){return String.format(Locale.ROOT,"%.1f%s",value,unit);}
         @Override protected void onDraw(Canvas c){
-            float w=getWidth(),h=getHeight(),cx=w/2,cy=h*.45f,r=Math.min(w*.26f,h*.22f);p.setShader(null);p.setStyle(Paint.Style.FILL);p.setColor(TEXT);p.setTextAlign(Paint.Align.CENTER);p.setTextSize(dp(getContext(),8));c.drawText(label,cx,dp(getContext(),10),p);
-            p.setColor(FIELD);c.drawCircle(cx,cy,r+dp(getContext(),3),p);p.setShader(new LinearGradient(cx,cy-r,cx,cy+r,SURFACE,PANEL,Shader.TileMode.CLAMP));c.drawCircle(cx,cy,r,p);p.setShader(null);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(dp(getContext(),1));p.setColor(BORDER);c.drawCircle(cx,cy,r,p);
-            float fraction=(value-min)/(max-min);p.setColor(ACCENT);p.setStrokeWidth(dp(getContext(),2));c.drawArc(new RectF(cx-r-3,cy-r-3,cx+r+3,cy+r+3),135,270*fraction,false,p);double angle=Math.toRadians(135+270*fraction);c.drawLine(cx+(float)Math.cos(angle)*r*.25f,cy+(float)Math.sin(angle)*r*.25f,cx+(float)Math.cos(angle)*r*.78f,cy+(float)Math.sin(angle)*r*.78f,p);
+            float w=getWidth(),h=getHeight(),cx=w/2,cy=h*.46f,r=Math.min(w*.32f,h*.27f);p.setShader(null);p.setStyle(Paint.Style.FILL);p.setColor(TEXT);p.setTextAlign(Paint.Align.CENTER);p.setTextSize(dp(getContext(),8));c.drawText(label,cx,dp(getContext(),10),p);
+            // Same metal knob as the desktop ClassicLookAndFeel: dark bezel, grey-to-black
+            // gradient body, accent arc outside the rim and a pointer ending in a dot.
+            p.setColor(0xff080d11);c.drawCircle(cx,cy,r+dp(getContext(),3),p);
+            p.setShader(new LinearGradient(cx-r*.7f,cy-r*.7f,cx+r*.7f,cy+r*.7f,0xff69747c,0xff171e23,Shader.TileMode.CLAMP));c.drawCircle(cx,cy,r,p);p.setShader(null);
+            p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(dp(getContext(),1));p.setColor(0xff88939a);c.drawCircle(cx,cy,r,p);
+            float fraction=(value-min)/(max-min);float arcR=r+dp(getContext(),4);
+            p.setColor(BORDER);p.setStrokeWidth(dp(getContext(),2.6f));p.setStrokeCap(Paint.Cap.ROUND);c.drawArc(new RectF(cx-arcR,cy-arcR,cx+arcR,cy+arcR),135,270,false,p);
+            p.setColor(ACCENT);c.drawArc(new RectF(cx-arcR,cy-arcR,cx+arcR,cy+arcR),135,270*fraction,false,p);
+            double angle=Math.toRadians(135+270*fraction);float px=cx+(float)Math.cos(angle)*r*.66f,py=cy+(float)Math.sin(angle)*r*.66f;
+            p.setStrokeWidth(dp(getContext(),2.2f));c.drawLine(cx,cy,px,py,p);p.setStrokeCap(Paint.Cap.BUTT);
+            p.setStyle(Paint.Style.FILL);c.drawCircle(px,py,dp(getContext(),2.2f),p);
             p.setStyle(Paint.Style.FILL);p.setColor(FIELD);float bottom=cy+r+dp(getContext(),2);c.drawRect(Math.max(3,cx-dp(getContext(),34)),bottom,Math.min(w-3,cx+dp(getContext(),34)),bottom+dp(getContext(),14),p);p.setColor(TEXT);p.setTextSize(dp(getContext(),9));c.drawText(format(),cx,bottom+dp(getContext(),11),p);
         }
         @Override public boolean onTouchEvent(MotionEvent e){switch(e.getActionMasked()){
