@@ -1003,6 +1003,10 @@ public final class MainActivity extends Activity {
         }
     }
 
+    // The editor that asked for a library change stays on screen while the new sound decodes;
+    // it is swapped for the refreshed editor only when the load finishes.
+    private EditorUi.Panel libraryReplacePanel;
+    private void finishLibraryReplace(){EditorUi.Panel old=libraryReplacePanel;libraryReplacePanel=null;if(old!=null)old.dialog.dismiss();}
     private void loadSoundFontLibraryFile(int layer, File file, boolean resetControls) {
         if (layer < 0 || layer >= 6 || file == null || !file.isFile() || audioEngine == null) return;
         screen.setAudioStatus("SF2: carregando " + soundFontFileDisplayName(file) + "…");
@@ -1015,6 +1019,7 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     if (closing || isFinishing() || isDestroyed()) return;
                     if (!loaded) {
+                        libraryReplacePanel=null;
                         screen.setAudioStatus("SF2: falha ao abrir " + soundFontFileDisplayName(file));
                         new AlertDialog.Builder(this).setTitle("FALHA AO ABRIR SF2")
                                 .setMessage("O arquivo " + soundFontFileDisplayName(file) + " não pôde ser carregado.")
@@ -1044,6 +1049,7 @@ public final class MainActivity extends Activity {
                     restorePreferredAudioDevice();
                     screen.setAudioStatus("SF2: " + name + " carregado da biblioteca");
                     screen.invalidate();
+                    finishLibraryReplace();
                     openSoundFontEditor(layer);
                 });
             });
@@ -1112,7 +1118,7 @@ public final class MainActivity extends Activity {
             }
             runOnUiThread(()->{
                 if(closing||isFinishing()||isDestroyed())return;
-                if(error!=null){screen.setAudioStatus("NPNO: "+error);new AlertDialog.Builder(this).setTitle("FALHA AO IMPORTAR NPNO").setMessage(error).setPositiveButton("OK",null).show();return;}
+                if(error!=null){libraryReplacePanel=null;screen.setAudioStatus("NPNO: "+error);new AlertDialog.Builder(this).setTitle("FALHA AO IMPORTAR NPNO").setMessage(error).setPositiveButton("OK",null).show();return;}
                 prepareLayerMotorReplacement(layer);deactivatePadLayer(layer);
                 String name=file.getName().replaceFirst("(?i)\\.npno$","");
                 screen.setLayerName(layer,name);screen.setEngineName(layer,"NPNO");screen.setPresetName(layer,name);
@@ -1130,6 +1136,7 @@ public final class MainActivity extends Activity {
                 save.apply();screen.applyLoadedEditorState(layer);
                 audioEngine.setNordEqMode(layer,getSharedPreferences("layers",MODE_PRIVATE).getInt("nord_eq_mode_"+layer,-1));
                 screen.setAudioStatus("NPNO: "+name+" carregado");screen.invalidate();
+                if(libraryReplacePanel!=null){finishLibraryReplace();openNordEditor(layer);}
             });
         });}catch(java.util.concurrent.RejectedExecutionException ex){screen.setAudioStatus("NPNO: importação indisponível");}
     }
@@ -1145,7 +1152,7 @@ public final class MainActivity extends Activity {
         if(files==null)files=new File[0];java.util.Arrays.sort(files,(a,b)->a.getName().compareToIgnoreCase(b.getName()));
         String[] names=new String[files.length];int selected=0;String current=p.getString("npno_"+layer,"");
         for(int i=0;i<files.length;++i){names[i]=files[i].getName().replaceFirst("(?i)\\.npno$","");if(files[i].getAbsolutePath().equals(current))selected=i;}
-        if(files.length>0){final File[] library=files;EditorUi.selector(panel.body,"BIBLIOTECA NPNO",names,selected,which->{panel.dialog.dismiss();loadNordLibraryFile(layer,library[which],category,!"NPNO".equals(screen.engineName(layer)));});}
+        if(files.length>0){final File[] library=files;EditorUi.selector(panel.body,"BIBLIOTECA NPNO",names,selected,which->{libraryReplacePanel=panel;loadNordLibraryFile(layer,library[which],category,!"NPNO".equals(screen.engineName(layer)));});}
         else panel.body.addView(EditorUi.label(this,"Nenhum NPNO nesta categoria.",11));
         LinearLayout actions=EditorUi.gridRow(panel.body);
         EditorUi.addButton(actions,"IMPORTAR NPNO",()->{panel.dialog.dismiss();openNordPicker(layer,category);});
@@ -1974,7 +1981,7 @@ public final class MainActivity extends Activity {
         String[] names=new String[files.length];int cur=0;String current=p.getString("npno_"+layer,"");
         for(int i=0;i<files.length;++i){names[i]=files[i].getName().replaceFirst("(?i)\\.npno$","");if(files[i].getAbsolutePath().equals(current))cur=i;}
         final File[] library=files;
-        if(files.length>0)EditorUi.selector(sel,"BIBLIOTECA NPNO",names,cur,which->{panel.dialog.dismiss();loadNordLibraryFile(layer,library[which],cat,false);});
+        if(files.length>0)EditorUi.selector(sel,"BIBLIOTECA NPNO",names,cur,which->{libraryReplacePanel=panel;loadNordLibraryFile(layer,library[which],cat,false);});
         else sel.addView(EditorUi.label(this,"Nenhum NPNO nesta categoria.",11));
         LinearLayout acts=EditorUi.gridRow(card);EditorUi.addButton(acts,"IMPORTAR NPNO",()->{panel.dialog.dismiss();openNordPicker(layer,cat);});
         LinearLayout eqHolder=new LinearLayout(this);card.addView(eqHolder,new LinearLayout.LayoutParams(-1,-2));
@@ -1987,7 +1994,7 @@ public final class MainActivity extends Activity {
         acts.removeAllViews();
         EditorUi.addButton(acts,"IMPORTAR NPNO",()->{panel.dialog.dismiss();openNordPicker(layer,cat);});
         EditorUi.addButton(acts,"BANCOS IMPORTADOS",()->showImportedNord(layer,panel));
-        EditorUi.addButton(acts,"EXCLUIR NPNO",()->confirmDeleteNord(layer,panel));
+        EditorUi.addConfirmButton(acts,"EXCLUIR NPNO","CONFIRMAR EXCLUSÃO?",()->confirmDeleteNord(layer,panel));
     }
 
     private void showImportedNord(final int layer,final EditorUi.Panel host){
@@ -2004,8 +2011,7 @@ public final class MainActivity extends Activity {
     private void confirmDeleteNord(final int layer,final EditorUi.Panel host){
         final String path=getSharedPreferences("layers",MODE_PRIVATE).getString("npno_"+layer,"");
         if(path.isEmpty()){android.widget.Toast.makeText(this,"Nenhum NPNO carregado nesta layer.",android.widget.Toast.LENGTH_SHORT).show();return;}
-        new AlertDialog.Builder(this).setTitle("EXCLUIR NPNO").setMessage("Apagar "+new File(path).getName()+" da biblioteca? Isso não pode ser desfeito.")
-            .setNegativeButton("CANCELAR",null).setPositiveButton("EXCLUIR",(d,w)->{host.dialog.dismiss();clearLayer(layer);new File(path).delete();screen.invalidate();}).show();
+        host.dialog.dismiss();clearLayer(layer);new File(path).delete();screen.invalidate();
     }
     private String sf2Category(File f){return getSharedPreferences("sf2_categories",MODE_PRIVATE).getString(f.getName(),NORD_CATEGORIES[4]);}
     private void buildSf2Library(final int layer,final EditorUi.Panel panel,LinearLayout body,final String[] items,final int selected,
@@ -2020,13 +2026,12 @@ public final class MainActivity extends Activity {
         String current=getSharedPreferences("layers",MODE_PRIVATE).getString("sf2_"+layer,"");int cur=0;String[] names=new String[Math.max(1,shown.size())];
         if(shown.isEmpty())names[0]="ESCOLHA O SF2";
         for(int i=0;i<shown.size();i++){names[i]=soundFontFileDisplayName(shown.get(i));if(shown.get(i).getAbsolutePath().equals(current))cur=i;}
-        EditorUi.selectorCell(sel,"BIBLIOTECA SF2",names,cur,i->{if(i<shown.size()&&!shown.get(i).getAbsolutePath().equals(current)){panel.dialog.dismiss();loadSoundFontLibraryFile(layer,shown.get(i),true);}});
+        EditorUi.selectorCell(sel,"BIBLIOTECA SF2",names,cur,i->{if(i<shown.size()&&!shown.get(i).getAbsolutePath().equals(current)){libraryReplacePanel=panel;loadSoundFontLibraryFile(layer,shown.get(i),true);}});
         LinearLayout acts=EditorUi.gridRow(card);
         EditorUi.addButton(acts,"IMPORTAR SF2",()->{cats.edit().putString("import_category",category).apply();panel.dialog.dismiss();openSf2FilePicker(layer);});
-        EditorUi.addButton(acts,"EXCLUIR SF2",()->{
+        EditorUi.addConfirmButton(acts,"EXCLUIR SF2","CONFIRMAR EXCLUSÃO?",()->{
             if(current.isEmpty()){android.widget.Toast.makeText(this,"Nenhum SF2 carregado nesta layer.",android.widget.Toast.LENGTH_SHORT).show();return;}
-            new AlertDialog.Builder(this).setTitle("EXCLUIR SF2").setMessage("Apagar "+new File(current).getName()+" da biblioteca? Isso não pode ser desfeito.")
-                .setNegativeButton("CANCELAR",null).setPositiveButton("EXCLUIR",(d,w)->{panel.dialog.dismiss();clearLayer(layer);new File(current).delete();cats.edit().remove(new File(current).getName()).apply();screen.invalidate();}).show();});
+            panel.dialog.dismiss();clearLayer(layer);new File(current).delete();cats.edit().remove(new File(current).getName()).apply();screen.invalidate();});
     }
 
     private LinearLayout moogSection(String title,LinearLayout parent){

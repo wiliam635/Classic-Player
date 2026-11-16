@@ -56,6 +56,16 @@ final class EditorUi {
     static LinearLayout column(Context c){LinearLayout l=new LinearLayout(c);l.setOrientation(LinearLayout.VERTICAL);return l;}
     static TextView label(Context c,String text,int size){TextView t=new TextView(c);t.setText(text);t.setTextColor(TEXT);t.setTextSize(size);t.setGravity(Gravity.CENTER);return t;}
     static Button button(Context c,String text,Runnable action){Button b=new Button(c);b.setText(text);b.setTextSize(11);b.setAllCaps(false);b.setSingleLine(true);b.setTextColor(TEXT);b.setMinHeight(dp(c,44));b.setMinimumHeight(dp(c,44));b.setPadding(dp(c,6),0,dp(c,6),0);b.setBackground(background(SURFACE));b.setOnClickListener(v->action.run());return b;}
+    /** Two-step button: the first tap arms it (and changes the label), the second tap within 4 s runs the action. No dialog. */
+    static void addConfirmButton(LinearLayout row,String text,String armedText,Runnable action){
+        final Button[] holder=new Button[1];final boolean[] armed={false};
+        final Runnable disarm=()->{armed[0]=false;holder[0].setText(text);holder[0].setBackground(background(FIELD));};
+        holder[0]=button(row.getContext(),text,()->{
+            if(!armed[0]){armed[0]=true;holder[0].setText(armedText);holder[0].setBackground(background(0xff7a1f24));holder[0].postDelayed(disarm,4000);}
+            else{holder[0].removeCallbacks(disarm);disarm.run();action.run();}
+        });
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(row.getContext(),44),1);p.setMargins(2,1,2,1);row.addView(holder[0],p);
+    }
     static void addButton(LinearLayout row,String text,Runnable action){Button b=button(row.getContext(),text,action);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(row.getContext(),44),1);p.setMargins(2,1,2,1);row.addView(b,p);}
     static final class Panel {
         /** Set right before creating an editor panel: the next Panel docks on the right edge (desktop inspector behaviour). */
