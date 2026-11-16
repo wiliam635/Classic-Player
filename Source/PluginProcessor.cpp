@@ -681,6 +681,20 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 {
     juce::AudioProcessLoadMeasurer::ScopedTimer cpuTimer(audioLoad, buffer.getNumSamples());
     lastAudioBlockMs.store(juce::Time::getMillisecondCounter(), std::memory_order_relaxed);
+    {
+        // Diagnostic: a gap far longer than one buffer means the audio thread was
+        // blocked (for example by the callback lock during a program restore).
+        const auto nowMs = juce::Time::getMillisecondCounterHiRes();
+        const auto expectedMs = 1000.0 * buffer.getNumSamples() / juce::jmax(1.0, currentSampleRate);
+        const auto gapMs = nowMs - lastBlockStartMs;
+        if (lastBlockStartMs > 0.0 && gapMs < 2000.0 && gapMs > expectedMs * 3.0 + 5.0)
+        {
+            blockGapCount.fetch_add(1, std::memory_order_relaxed);
+            if (gapMs > maxBlockGapMs.load(std::memory_order_relaxed))
+                maxBlockGapMs.store(gapMs, std::memory_order_relaxed);
+        }
+        lastBlockStartMs = nowMs;
+    }
     juce::ScopedNoDenormals noDenormals;
 
     // Always consume MIDI before checking activation.  Besides driving the
@@ -1148,8 +1162,10 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         {
             const auto progress = static_cast<float>(liveSetFadePosition)
                 / static_cast<float>(juce::jmax(1, liveSetFadeFrames));
-            const auto gain = liveSetFadingOut ? 1.0f - juce::jmin(1.0f, progress)
-                                               : juce::jmin(1.0f, progress);
+            // Raised-cosine curve: no corner at either end, so the fade has no audible edge.
+            const auto clamped = juce::jmin(1.0f, progress);
+            const auto smooth = 0.5f - 0.5f * std::cos(juce::MathConstants<float>::pi * clamped);
+            const auto gain = liveSetFadingOut ? 1.0f - smooth : smooth;
             for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
                 buffer.getWritePointer(channel)[sample] *= gain;
             if (liveSetFadePosition < liveSetFadeFrames)
@@ -4120,7 +4136,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLiveSetSlot(int bank, int slot)
         liveSetFadingOut = false;
         liveSetFadingIn = true;
         liveSetFadePosition = 0;
-        liveSetFadeFrames = juce::jmax(1, juce::roundToInt(currentSampleRate * 0.05));
+        liveSetFadeFrames = juce::jmax(1, juce::roundToInt(currentSampleRate * 0.09));
     }
     return result;
 }
@@ -4131,7 +4147,7 @@ void ClassicPlayerAudioProcessor::beginLiveSetFadeOut()
     liveSetFadingIn = false;
     liveSetFadingOut = true;
     liveSetFadePosition = 0;
-    liveSetFadeFrames = juce::jmax(1, juce::roundToInt(currentSampleRate * 0.05));
+    liveSetFadeFrames = juce::jmax(1, juce::roundToInt(currentSampleRate * 0.12));
 }
 
 void ClassicPlayerAudioProcessor::cancelLiveSetFade()

@@ -11806,6 +11806,9 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
         const auto mib = processResidentMiB();
         juce::String stats = "CPU: " + juce::String(cpuMeter.peakPercentage()) + "% (pico)";
         if (mib > 0) stats += "   |   RAM: " + juce::String(mib) + " MiB";
+        if (classicProcessor.audioGapCount() > 0)
+            stats += "\nFalhas de audio: " + juce::String(classicProcessor.audioGapCount())
+                   + " (maior pausa " + juce::String(juce::roundToInt(classicProcessor.maxAudioGapMs())) + " ms)";
         cpuMeter.setTooltip(localizedUiText(juce::String::fromUTF8("Carga do processamento de áudio do Classic Player. 100% indica que o tempo disponível para o buffer foi consumido."), uiLanguage)
                             + "\n" + stats);
     }
@@ -12772,7 +12775,7 @@ void ClassicPlayerAudioProcessorEditor::loadLiveSetSlot(int slot)
     classicProcessor.preloadLiveSetBank(bank);
     classicProcessor.beginLiveSetFadeOut();
     const auto generation = ++liveSetSwitchGeneration;
-    juce::Timer::callAfterDelay(65,
+    juce::Timer::callAfterDelay(135,
         [safe = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this),
          bank, slot, generation]
         {

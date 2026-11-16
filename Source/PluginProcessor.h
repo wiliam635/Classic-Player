@@ -66,6 +66,8 @@ public:
     void releaseResources() override;
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    double maxAudioGapMs() const noexcept { return maxBlockGapMs.load(std::memory_order_relaxed); }
+    int audioGapCount() const noexcept { return blockGapCount.load(std::memory_order_relaxed); }
     double audioCpuUsagePercent() const noexcept
     {
         return juce::Time::getMillisecondCounter() - lastAudioBlockMs.load(std::memory_order_relaxed) > 1000
@@ -450,6 +452,9 @@ private:
     double currentSampleRate = 44100.0;
     juce::AudioProcessLoadMeasurer audioLoad;
     std::atomic<juce::uint32> lastAudioBlockMs { 0 };
+    double lastBlockStartMs = 0.0;
+    std::atomic<double> maxBlockGapMs { 0.0 };
+    std::atomic<int> blockGapCount { 0 };
     int currentBlockSize = 512;
     juce::dsp::Limiter<float> outputLimiter;
     std::atomic<float> limiterInputPeak { 0.0f }, limiterOutputPeak { 0.0f }, limiterReduction { 0.0f };
