@@ -3059,7 +3059,7 @@ public:
     }
 
 private:
-    void timerCallback() override { updateLastTouch(); }
+    void timerCallback() override { if (isShowing()) updateLastTouch(); }
     // Diagnostic: last note-on received by the NPNO layer, the velocity after
     // this layer's curve, and the sample layer that was actually selected.
     void updateLastTouch()

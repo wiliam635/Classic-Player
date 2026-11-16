@@ -295,6 +295,11 @@ void ClassicPlayerAudioProcessor::timerCallback()
     flushParameterMidiUpdates();
     drainHeadlessUiMidi();
     if (pendingPanic.exchange(false)) panic();
+    // The editor drives the Live Set switch. If it was closed between the fade-out and
+    // the program load, nothing would ever fade back in and the output would stay muted.
+    if (const auto fadeStart = liveSetFadeOutStartMs.load(std::memory_order_relaxed);
+        fadeStart != 0 && juce::Time::getMillisecondCounter() - fadeStart > 4000)
+        cancelLiveSetFade();
     // Message-thread updates and file I/O work even with the editor closed.
     if (startupSettingsDirty.exchange(false)) saveStartupSettings();
 }
@@ -377,6 +382,21 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
         cached.PitchBendEnabled = parameters.getRawParameterValue(prefix + "PitchBendEnabled");
         jassert(cached.PitchBendEnabled != nullptr);
     }
+    realtimeMaster.master = parameters.getRawParameterValue("master");
+    realtimeMaster.limiterEnabled = parameters.getRawParameterValue("limiterEnabled");
+    realtimeMaster.limiterInput = parameters.getRawParameterValue("limiterInput");
+    realtimeMaster.limiterCeiling = parameters.getRawParameterValue("limiterCeiling");
+    realtimeMaster.limiterRelease = parameters.getRawParameterValue("limiterRelease");
+    realtimeMaster.eqEnabled = parameters.getRawParameterValue("masterEqEnabled");
+    realtimeMaster.eqLowCut = parameters.getRawParameterValue("masterEqLowCut");
+    realtimeMaster.eqLow = parameters.getRawParameterValue("masterEqLow");
+    realtimeMaster.eqLowFrequency = parameters.getRawParameterValue("masterEqLowFrequency");
+    realtimeMaster.eqMid = parameters.getRawParameterValue("masterEqMid");
+    realtimeMaster.eqFrequency = parameters.getRawParameterValue("masterEqFrequency");
+    realtimeMaster.eqHigh = parameters.getRawParameterValue("masterEqHigh");
+    realtimeMaster.eqHighFrequency = parameters.getRawParameterValue("masterEqHighFrequency");
+    realtimeMaster.eqHighCut = parameters.getRawParameterValue("masterEqHighCut");
+    jassert(realtimeMaster.master && realtimeMaster.limiterEnabled && realtimeMaster.limiterInput && realtimeMaster.limiterCeiling && realtimeMaster.limiterRelease && realtimeMaster.eqEnabled && realtimeMaster.eqLowCut && realtimeMaster.eqLow && realtimeMaster.eqLowFrequency && realtimeMaster.eqMid && realtimeMaster.eqFrequency && realtimeMaster.eqHigh && realtimeMaster.eqHighFrequency && realtimeMaster.eqHighCut);
     for(auto& bank:continuousBanks)bank=std::make_unique<ContinuousPadBank>();
     juce::Logger::writeToLog(juce::String::fromUTF8(
         "ClassicPlayer processor criado (instrumento MIDI, saída estéreo)"));
@@ -1059,7 +1079,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         const auto cutoffFrequency = 80.0f * std::pow(250.0f,
             juce::jlimit(0.0f, 100.0f, cutoff) / 100.0f);
         bank.render(buffer,config.enabled && !isLayerMuted(layer)
-                    ? parameters.getRawParameterValue("layer"+juce::String(layer+1)+"Gain")->load()/100.f:0.f,
+                    ? realtimeLayerParameters[(size_t)layer].Gain->load(std::memory_order_relaxed)/100.f:0.f,
                     config.highPassHz,juce::jmin(config.lowPassHz, cutoffFrequency),
                     {config.eqLow,config.eqMid,config.eqHigh,
                      config.eqLowFrequency,config.eqMidFrequency,config.eqHighFrequency,
@@ -1076,7 +1096,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // The master control is calibrated with +6 dB of nominal output gain.
     // With the limiter enabled, its final ceiling keeps this boost clip-safe.
     // With it bypassed, the user accepts peaks above 0 dBFS.
-    const auto masterLinear = parameters.getRawParameterValue("master")->load() / 100.0f;
+    const auto masterLinear = realtimeMaster.master->load(std::memory_order_relaxed) / 100.0f;
     masterGain.setTargetValue(masterLinear);
     const auto masterTrim = juce::Decibels::decibelsToGain(6.0f);
     if (!masterGain.isSmoothing())
@@ -1138,9 +1158,10 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         masterEqWet.skip(buffer.getNumSamples());
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> context(block);
-    const auto limiterEnabled = parameters.getRawParameterValue("limiterEnabled")->load() >= 0.5f;
+    const auto limiterEnabled = realtimeMaster.limiterEnabled->load(std::memory_order_relaxed) >= 0.5f;
+    const auto limiterCeiling = realtimeMaster.limiterCeiling->load(std::memory_order_relaxed);
     if (limiterEnabled)
-        buffer.applyGain(juce::Decibels::decibelsToGain(parameters.getRawParameterValue("limiterInput")->load()));
+        buffer.applyGain(juce::Decibels::decibelsToGain(realtimeMaster.limiterInput->load(std::memory_order_relaxed)));
     else
         sanitizeOutput(buffer);
     float inputPeak = 0.0f;
@@ -1148,10 +1169,10 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         inputPeak = juce::jmax(inputPeak, buffer.getMagnitude(channel, 0, buffer.getNumSamples()));
     if (limiterEnabled)
     {
-        outputLimiter.setThreshold(parameters.getRawParameterValue("limiterCeiling")->load());
-        outputLimiter.setRelease(parameters.getRawParameterValue("limiterRelease")->load());
+        outputLimiter.setThreshold(limiterCeiling);
+        outputLimiter.setRelease(realtimeMaster.limiterRelease->load(std::memory_order_relaxed));
         outputLimiter.process(context);
-        applyOutputSafety(buffer, parameters.getRawParameterValue("limiterCeiling")->load());
+        applyOutputSafety(buffer, limiterCeiling);
     }
     float outputPeak = 0.0f;
     if (limiterEnabled)
@@ -1164,7 +1185,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // JUCE's Limiter applies make-up gain after its compressors (7.5 dB from
     // the first stage plus compensation for the threshold). Comparing raw
     // input/output peaks without removing that gain incorrectly reads 0 dB GR.
-    const auto makeupDb = 7.5f - parameters.getRawParameterValue("limiterCeiling")->load();
+    const auto makeupDb = 7.5f - limiterCeiling;
     const auto inputDb = juce::Decibels::gainToDecibels(inputPeak, -60.0f);
     const auto outputBeforeMakeupDb = juce::Decibels::gainToDecibels(outputPeak, -60.0f) - makeupDb;
     limiterReduction.store(limiterEnabled && inputPeak > 0.00001f
@@ -1248,8 +1269,8 @@ void ClassicPlayerAudioProcessor::setMasterEqValue(const juce::String& parameter
 
 bool ClassicPlayerAudioProcessor::masterEqEnabled() const noexcept
 {
-    const auto* enabled = parameters.getRawParameterValue("masterEqEnabled");
-    return enabled != nullptr && enabled->load(std::memory_order_relaxed) >= 0.5f;
+    return realtimeMaster.eqEnabled != nullptr
+        && realtimeMaster.eqEnabled->load(std::memory_order_relaxed) >= 0.5f;
 }
 
 void ClassicPlayerAudioProcessor::setMasterEqEnabled(bool enabled)
@@ -1265,10 +1286,10 @@ void ClassicPlayerAudioProcessor::setMasterEqEnabled(bool enabled)
 void ClassicPlayerAudioProcessor::updateMasterEq()
 {
     const std::array<float, 8> values {
-        masterEqValue("masterEqLowCut"), masterEqValue("masterEqLow"),
-        masterEqValue("masterEqLowFrequency"), masterEqValue("masterEqMid"),
-        masterEqValue("masterEqFrequency"), masterEqValue("masterEqHigh"),
-        masterEqValue("masterEqHighFrequency"), masterEqValue("masterEqHighCut")
+        realtimeMaster.eqLowCut->load(std::memory_order_relaxed), realtimeMaster.eqLow->load(std::memory_order_relaxed),
+        realtimeMaster.eqLowFrequency->load(std::memory_order_relaxed), realtimeMaster.eqMid->load(std::memory_order_relaxed),
+        realtimeMaster.eqFrequency->load(std::memory_order_relaxed), realtimeMaster.eqHigh->load(std::memory_order_relaxed),
+        realtimeMaster.eqHighFrequency->load(std::memory_order_relaxed), realtimeMaster.eqHighCut->load(std::memory_order_relaxed)
     };
     if (values == lastMasterEqValues) return;
     const auto previous = lastMasterEqValues;
@@ -4180,6 +4201,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLiveSetSlot(int bank, int slot)
         if (result.wasOk()) replayHeldNotesOnNextBlock.store(true, std::memory_order_release);
         liveSetFadingOut = false;
         liveSetFadingIn = true;
+        liveSetFadeOutStartMs.store(0, std::memory_order_relaxed);
         liveSetFadePosition = 0;
         liveSetFadeFrames = juce::jmax(1, juce::roundToInt(currentSampleRate * 0.09));
     }
@@ -4191,6 +4213,8 @@ void ClassicPlayerAudioProcessor::beginLiveSetFadeOut()
     const juce::ScopedLock callbackLock(getCallbackLock());
     liveSetFadingIn = false;
     liveSetFadingOut = true;
+    liveSetFadeOutStartMs.store(juce::jmax<juce::uint32>(1, juce::Time::getMillisecondCounter()),
+                                std::memory_order_relaxed);
     liveSetFadePosition = 0;
     liveSetFadeFrames = juce::jmax(1, juce::roundToInt(currentSampleRate * 0.12));
 }
@@ -4199,6 +4223,7 @@ void ClassicPlayerAudioProcessor::cancelLiveSetFade()
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
     liveSetFadingOut = liveSetFadingIn = false;
+    liveSetFadeOutStartMs.store(0, std::memory_order_relaxed);
 }
 
 void ClassicPlayerAudioProcessor::preloadLiveSetBank(int bank)

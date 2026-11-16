@@ -465,7 +465,7 @@ private:
         for(auto& button:tabs)styleButton(button);
         mapping.setColour(juce::Label::textColourId,juce::Colour(0xffe8dcb8));
     }
-    void timerCallback() override { refresh(); }
+    void timerCallback() override { if (isShowing()) refresh(); }
     void refresh()
     {
         const auto c=processor.hammondConfig(index);

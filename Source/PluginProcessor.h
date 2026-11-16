@@ -374,6 +374,25 @@ private:
         std::atomic<float>* PitchBendEnabled = nullptr;
     };
     std::array<RealtimeLayerParameters, Sf2Engine::layerCount> realtimeLayerParameters;
+    // Master/limiter/EQ parameters resolved once so processBlock never builds
+    // juce::String names or searches the parameter map on the audio thread.
+    struct RealtimeMasterParameters
+    {
+        std::atomic<float>* master = nullptr;
+        std::atomic<float>* limiterEnabled = nullptr;
+        std::atomic<float>* limiterInput = nullptr;
+        std::atomic<float>* limiterCeiling = nullptr;
+        std::atomic<float>* limiterRelease = nullptr;
+        std::atomic<float>* eqEnabled = nullptr;
+        std::atomic<float>* eqLowCut = nullptr;
+        std::atomic<float>* eqLow = nullptr;
+        std::atomic<float>* eqLowFrequency = nullptr;
+        std::atomic<float>* eqMid = nullptr;
+        std::atomic<float>* eqFrequency = nullptr;
+        std::atomic<float>* eqHigh = nullptr;
+        std::atomic<float>* eqHighFrequency = nullptr;
+        std::atomic<float>* eqHighCut = nullptr;
+    } realtimeMaster;
     friend struct MidiRecordingRegressionAccess;
     friend struct ContinuousPadRegressionAccess;
     void timerCallback() override;
@@ -488,6 +507,9 @@ private:
     int liveSetFadeFrames = 0;
     bool liveSetFadingOut = false;
     bool liveSetFadingIn = false;
+    // Set when a Live Set fade-out starts, cleared when the new program takes over.
+    // The message-thread timer uses it to un-mute if the switch never completes.
+    std::atomic<juce::uint32> liveSetFadeOutStartMs { 0 };
     juce::TimeSliceThread recordingThread { "Classic Player WAV Writer" };
     std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> recordingWriter;
     std::atomic<juce::AudioFormatWriter::ThreadedWriter*> activeRecordingWriter { nullptr };
