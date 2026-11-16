@@ -391,6 +391,11 @@ public final class MainActivity extends Activity {
         licenseManager = new LicenseManager(this);
         audioOutputManager = new AudioOutputManager(this);
         padEngine = new PadEngine(this);
+        new Thread(()->{try{java.io.File dir=new java.io.File(getFilesDir(),"factory_pads");dir.mkdirs();String[] f={"C","C_sharp","D","D_sharp","E","F","F_sharp","G","G_sharp","A","A_sharp","B"};
+            for(int i=0;i<12;i++){java.io.File out=new java.io.File(dir,f[i]+".flac");
+                if(!out.isFile()){try(java.io.InputStream in=getAssets().open(f[i]+".flac");java.io.FileOutputStream os=new java.io.FileOutputStream(out)){byte[] b=new byte[65536];int n;while((n=in.read(b))>0)os.write(b,0,n);}}
+                final int pad=i;final String path=out.getAbsolutePath();runOnUiThread(()->{if(!padEngine.loaded(pad,true))padEngine.load(pad,path,true,f[pad].replace("_sharp","#"));});}
+            runOnUiThread(()->{if(screen!=null)screen.postInvalidate();});}catch(Exception ignored){}}).start();
         padEngine.setMaster(screen.faderGain(screen.masterVolume));
         SharedPreferences padPrefs=getSharedPreferences("pads",MODE_PRIVATE);
         padEngine.setFadeSeconds(padPrefs.getFloat("crossfade_seconds",1f));
@@ -2522,6 +2527,42 @@ public final class MainActivity extends Activity {
         private String lastMidiControl = "";
         // Desktop builds open directly on the mixer; keep the same workflow on Android.
         private boolean liveSet = false;
+        private boolean padsMode = false;
+        private int stripPad=-1;private float padVolume=.8f,padCutoff=1f;private int stripDrag=0;
+        private float cardFrac(){return padsMode&&!liveSet&&!settings?.60f:.76f;}
+        private final int[] STRIP_COLOURS={0xff1e90ff,0xffb44cff,0xffff4d6d,0xffffa033,0xff1ec88a,0xffffd23f,0xff1bd0e0,0xfff0559a,0xff7a8cff,0xffff7a50,0xff7ed957,0xffa77be8};
+        private final String[] STRIP_NAMES={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+        private float[] stripGeom(float mw,float h){float top=h*.795f,bottom=h*.925f,left=18,right=mw-18;float padsRight=left+(right-left)*.72f;return new float[]{left,top,padsRight,bottom,padsRight+14,right};}
+        private void applyPadStripAudio(){if(padEngine==null)return;padEngine.setGain(padVolume,true);float hz=(float)(20*Math.pow(1000,padCutoff));padEngine.setEq(0,0,0,220,1200,4200,.707f,1,.707f,20,hz,true);}
+        private void drawPadStrip(Canvas canvas,float mw,float h,int text){
+            float[] g=stripGeom(mw,h);float gap=EditorUi.dp(getContext(),6);float cw=(g[2]-g[0]-11*gap)/12f;
+            for(int i=0;i<12;i++){float x=g[0]+i*(cw+gap);paint.setStyle(Paint.Style.FILL);paint.setColor(i==stripPad?0xffffffff:STRIP_COLOURS[i]);
+                canvas.drawRoundRect(x,g[1],x+cw,g[3],EditorUi.dp(getContext(),6),EditorUi.dp(getContext(),6),paint);
+                boolean ok=padEngine!=null&&padEngine.loaded(i,true);
+                text(canvas,STRIP_NAMES[i],x+cw*.5f-EditorUi.dp(getContext(),6),(g[1]+g[3])*.5f+h*.008f,h*.022f,ok?0xff10131a:0x66000000);}
+            float cx=g[4],cr=g[5],mid=(g[1]+g[3])*.5f;
+            button(canvas,"PARAR",cx,g[1],cx+(cr-cx)*.46f,mid-4,false);
+            button(canvas,"EDITAR PADS",cx,mid+4,cx+(cr-cx)*.46f,g[3],false);
+            float sx=cx+(cr-cx)*.50f;
+            text(canvas,"VOLUME "+Math.round(padVolume*100),sx,g[1]+h*.018f,h*.014f,EditorUi.MUTED);
+            paint.setStyle(Paint.Style.FILL);paint.setColor(EditorUi.BORDER);canvas.drawRoundRect(sx,g[1]+h*.03f,cr,g[1]+h*.046f,8,8,paint);
+            paint.setColor(EditorUi.ACCENT);canvas.drawRoundRect(sx,g[1]+h*.03f,sx+(cr-sx)*padVolume,g[1]+h*.046f,8,8,paint);
+            text(canvas,"CUTOFF "+Math.round(padCutoff*100)+"%",sx,mid+h*.018f,h*.014f,EditorUi.MUTED);
+            paint.setColor(EditorUi.BORDER);canvas.drawRoundRect(sx,mid+h*.03f,cr,mid+h*.046f,8,8,paint);
+            paint.setColor(EditorUi.ACCENT);canvas.drawRoundRect(sx,mid+h*.03f,sx+(cr-sx)*padCutoff,mid+h*.046f,8,8,paint);
+        }
+        private boolean stripTouch(MotionEvent e,float mw,float h){
+            int a=e.getActionMasked();float[] g=stripGeom(mw,h);float x=e.getX(),y=e.getY();float mid=(g[1]+g[3])*.5f;float cx=g[4],cr=g[5],sx=cx+(cr-cx)*.50f;
+            if(a==MotionEvent.ACTION_DOWN){
+                if(y<g[1]||y>g[3]+h*.01f)return false;
+                if(x>=g[0]&&x<=g[2]){float gap=EditorUi.dp(getContext(),6);float cw=(g[2]-g[0]-11*gap)/12f;int i=(int)((x-g[0])/(cw+gap));if(i>=0&&i<12){stripPad=i;padEngine.trigger(i,true);invalidate();}return true;}
+                if(x>=cx&&x<cx+(cr-cx)*.46f){if(y<mid){padEngine.stopAll(true);stripPad=-1;}else if(padLayerActive&&continuousPadActive&&padLayerIndex>=0)openPadEditor(padLayerIndex,true);else android.widget.Toast.makeText(getContext(),"Pads de fábrica carregados. Para trocar os áudios, adicione uma layer Pads Contínuos.",android.widget.Toast.LENGTH_LONG).show();invalidate();return true;}
+                if(x>=sx){stripDrag=y<mid?1:2;}else return true;
+            }
+            if(stripDrag!=0&&(a==MotionEvent.ACTION_DOWN||a==MotionEvent.ACTION_MOVE)){float f=Math.max(0f,Math.min(1f,(x-sx)/(cr-sx)));if(stripDrag==1)padVolume=f;else padCutoff=f;applyPadStripAudio();invalidate();return true;}
+            if(stripDrag!=0&&(a==MotionEvent.ACTION_UP||a==MotionEvent.ACTION_CANCEL)){stripDrag=0;return true;}
+            return false;
+        }
         private boolean settings = false;
         private int selected = 0;
         private boolean savingLiveSlot;
@@ -2806,10 +2847,11 @@ public final class MainActivity extends Activity {
             canvas.drawCircle(w * .595f, h * .05f, h * .011f, paint);
             midiSignal = false;
             if (!liveSet && !settings && firstEmptyLayer() >= 0)
-                button(canvas, "+ LAYER", w*.65f, h*.101f, w*.75f, h*.139f, false);
+                button(canvas, "+ LAYER", w*.59f, h*.101f, w*.69f, h*.139f, false);
             // Keep all navigation inside the header so it never covers Layer 6.
-            button(canvas, "MIXER", w*.755f, h*.101f, w*.83f, h*.139f, !liveSet && !settings);
-            button(canvas, "LIVE SET", w*.835f, h*.101f, w*.91f, h*.139f, liveSet);
+            button(canvas, "MIXER", w*.695f, h*.101f, w*.765f, h*.139f, !liveSet && !settings && !padsMode);
+            button(canvas, "PADS", w*.77f, h*.101f, w*.835f, h*.139f, !liveSet && !settings && padsMode);
+            button(canvas, "LIVE SET", w*.84f, h*.101f, w*.91f, h*.139f, liveSet);
             button(canvas, "ÁUDIO/MIDI", w*.915f, h*.101f, w*.995f, h*.139f, settings);
 
             if (settings) {
@@ -2835,6 +2877,7 @@ public final class MainActivity extends Activity {
 
             if (!liveSet) {
                 drawMixer(canvas, w-dockInset, h, text, teal, panel);
+                if(padsMode&&!settings)drawPadStrip(canvas,w-dockInset,h,text);
                 return;
             }
             final float tabTop = h * .14f, tabs = w / 8f;
@@ -2934,7 +2977,7 @@ public final class MainActivity extends Activity {
         }
         private void drawMixer(Canvas canvas, float w, float h, int textColour, int teal, int panel) {
             final float left = 18, top = h * .17f, gap = 10;
-            final float cardH = h * .76f;
+            final float cardH = h * cardFrac();
             int activeCount = activeLayerCount();
             if(focusedLayer<0&&activeCount>0)focusedLayer=activeLayerAt(0);
             layerScrollX=Math.max(0,Math.min(mixerMaxScroll(w),layerScrollX));
@@ -3049,17 +3092,17 @@ public final class MainActivity extends Activity {
                 if(isPadLayer(layer)){
                     boolean continuous=engineNames[layer].startsWith("CONT");int columns=continuous?3:2;
                     float gridLeft=cardX+EditorUi.dp(getContext(),10),gridRight=cardX+cardW*.78f;
-                    float gridTop=h*.17f+h*.185f,gridBottom=h*.17f+h*.76f-h*(continuous?.12f:.06f);
+                    float gridTop=h*.17f+h*.185f,gridBottom=h*.17f+h*cardFrac()-h*(continuous?.12f:.06f);
                     if(tx>=gridLeft&&tx<=gridRight&&y>=gridTop&&y<=gridBottom){
                         float padGap=EditorUi.dp(getContext(),5),cellW=(gridRight-gridLeft-(columns-1)*padGap)/columns,cellH=(gridBottom-gridTop-3*EditorUi.dp(getContext(),7))/4;
                         int column=(int)((tx-gridLeft)/(cellW+padGap)),row=(int)((y-gridTop)/(cellH+EditorUi.dp(getContext(),7)));
                         int pad=row*columns+column;
                         if(column<columns&&row<4&&pad<(continuous?12:8))return new int[]{layer,100+pad};
                     }
-                    float railTop=h*.17f+h*.185f,railBottom=h*.17f+h*.76f-h*.09f;
+                    float railTop=h*.17f+h*.185f,railBottom=h*.17f+h*cardFrac()-h*.09f;
                     return tx>=cardX+cardW*.82f&&y>=railTop-h*.035f&&y<=railBottom+h*.035f?new int[]{layer,0}:null;
                 }
-                float railTop=h*.17f+h*.16f+EditorUi.dp(getContext(),48)+EditorUi.dp(getContext(),10),railBottom=h*.17f+h*.76f-h*.09f;
+                float railTop=h*.17f+h*.16f+EditorUi.dp(getContext(),48)+EditorUi.dp(getContext(),10),railBottom=h*.17f+h*cardFrac()-h*.09f;
                 return y>=railTop-h*.035f&&y<=railBottom+h*.035f?new int[]{layer,0}:null;
             }
             return null;
@@ -3105,15 +3148,17 @@ public final class MainActivity extends Activity {
             }
             if(tap&&mixerScrollGesture){mixerScrollCandidate=false;mixerScrollGesture=false;return true;}
             if(tap)mixerScrollCandidate=false;
+            if(padsMode&&!liveSet&&!settings&&padEngine!=null&&stripTouch(event,mw,h))return true;
             final boolean dragging=action==MotionEvent.ACTION_MOVE||tap;
             if (tap && !liveSet && !settings && event.getY() > h*.09f && event.getY() < h*.145f
-                    && event.getX() >= w*.65f && event.getX() < w*.75f) {
+                    && event.getX() >= w*.59f && event.getX() < w*.69f) {
                 int empty = firstEmptyLayer();
                 if (empty >= 0) chooseLayerSource(empty);
                 return true;
             }
-            if (tap && event.getY() > h*.09f && event.getY() < h*.145f && event.getX() > w*.75f) {
-                if (event.getX() < w*.832f) { liveSet = false; settings = false; }
+            if (tap && event.getY() > h*.09f && event.getY() < h*.145f && event.getX() > w*.69f) {
+                if (event.getX() < w*.768f) { liveSet = false; settings = false; padsMode = false; }
+                else if (event.getX() < w*.837f) { liveSet = false; settings = false; padsMode = true; if(!continuousPadActive&&padEngine!=null){padEngine.setEnabled(true,true);}applyPadStripAudio(); }
                 else if (event.getX() < w*.912f) { liveSet = true; settings = false; }
                 else { settings = true; liveSet = false; }
                 invalidate(); return true;
@@ -3155,7 +3200,7 @@ public final class MainActivity extends Activity {
             if (!liveSet && dragging && event.getY() > h * .17f && event.getY() < h * .93f) {
                 float masterW=mixerMasterWidth(),masterX=mw-EditorUi.dp(getContext(),18)-masterW;
                 if (event.getX() >= masterX && event.getX() <= masterX+masterW) {
-                    float railTop = h*.17f+h*.12f, railBottom = h*.17f+h*.76f-h*.09f;
+                    float railTop = h*.17f+h*.12f, railBottom = h*.17f+h*cardFrac()-h*.09f;
                     if (event.getY() >= railTop-h*.035f && event.getY() <= railBottom+h*.035f) {
                         masterVolume = Math.max(0f, Math.min(1f, (railBottom - event.getY()) / (railBottom - railTop)));
                         getSharedPreferences("layers",MODE_PRIVATE).edit().putFloat("master_volume",masterVolume).apply();
@@ -3187,8 +3232,8 @@ public final class MainActivity extends Activity {
                         boolean continuous=engineNames[layer].startsWith("CONT");
                         int columns=continuous?3:2;
                         float gridLeft=cardX+EditorUi.dp(getContext(),10),gridRight=cardX+cardW*.78f;
-                        float gridTop=h*.17f+h*.185f,gridBottom=h*.17f+h*.76f-h*(continuous?.12f:.06f);
-                        if(tap&&continuous&&layerTouchX>=gridLeft&&layerTouchX<=gridRight&&event.getY()>=h*.17f+h*.76f-h*.085f&&event.getY()<=h*.17f+h*.76f-h*.027f){padEngine.stopAll(true);invalidate();return true;}
+                        float gridTop=h*.17f+h*.185f,gridBottom=h*.17f+h*cardFrac()-h*(continuous?.12f:.06f);
+                        if(tap&&continuous&&layerTouchX>=gridLeft&&layerTouchX<=gridRight&&event.getY()>=h*.17f+h*cardFrac()-h*.085f&&event.getY()<=h*.17f+h*cardFrac()-h*.027f){padEngine.stopAll(true);invalidate();return true;}
                         if(tap&&layerTouchX>=gridLeft&&layerTouchX<=gridRight&&event.getY()>=gridTop&&event.getY()<=gridBottom){
                             float padGap=EditorUi.dp(getContext(),5),cellW=(gridRight-gridLeft-(columns-1)*padGap)/columns,cellH=(gridBottom-gridTop-3*EditorUi.dp(getContext(),7))/4;
                             int column=(int)((layerTouchX-gridLeft)/(cellW+padGap)),row=(int)((event.getY()-gridTop)/(cellH+EditorUi.dp(getContext(),7)));
@@ -3198,7 +3243,7 @@ public final class MainActivity extends Activity {
                                 invalidate();return true;
                             }
                         }
-                        float railTop=h*.17f+h*.185f,railBottom=h*.17f+h*.76f-h*.09f;
+                        float railTop=h*.17f+h*.185f,railBottom=h*.17f+h*cardFrac()-h*.09f;
                         if(layerTouchX>=cardX+cardW*.82f&&event.getY()>=railTop-h*.035f&&event.getY()<=railBottom+h*.035f){
                             layerVolumes[layer]=Math.max(0f,Math.min(1f,(railBottom-event.getY())/(railBottom-railTop)));
                             applyLayerGains();invalidate();return true;
@@ -3206,7 +3251,7 @@ public final class MainActivity extends Activity {
                         invalidate();
                         return true;
                     }
-                    float railTop = h*.17f+h*.16f+EditorUi.dp(getContext(),48)+EditorUi.dp(getContext(),10), railBottom = h*.17f+h*.76f-h*.09f;
+                    float railTop = h*.17f+h*.16f+EditorUi.dp(getContext(),48)+EditorUi.dp(getContext(),10), railBottom = h*.17f+h*cardFrac()-h*.09f;
                     // Handle the whole drag gesture, not only ACTION_UP. The
                     // wider hit area makes the fader usable on touchscreens.
                     if (event.getY() >= railTop - h*.035f && event.getY() <= railBottom + h*.035f) {

@@ -72,6 +72,15 @@ public class InspectorScreenshotTest {
             int[] at = new int[2]; content.getLocationOnScreen(at);
             float density = context.getResources().getDisplayMetrics().density;
             float h = content.getHeight();
+            float cw = content.getWidth();
+            tap(at[0] + cw * .80f, at[1] + h * .12f); // PADS
+            Thread.sleep(4000);
+            shot("pads-0-strip.png", dir);
+            tap(at[0] + 18 * density + 30 * density, at[1] + h * .86f); // first pad
+            Thread.sleep(1500);
+            shot("pads-1-playing.png", dir);
+            tap(at[0] + cw * .73f, at[1] + h * .12f); // MIXER
+            Thread.sleep(600);
             // Artwork area of the first layer card.
             tap(at[0] + 18 * density + 60 * density, at[1] + h * .17f + h * .16f + 24 * density);
             Thread.sleep(2000);

@@ -33,6 +33,8 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+    sourceSets { main { assets.srcDirs += ['../../Resources/ContinuousPads'] } }
+    androidResources { noCompress 'flac' }
     externalNativeBuild {
         cmake { path file('src/main/cpp/CMakeLists.txt'); version '3.22.1' }
     }
