@@ -119,9 +119,11 @@ private:
     {
     public:
         void setUsage(double usage);
+        int peakPercentage() const noexcept { return peak; }
         void paint(juce::Graphics&) override;
     private:
         int percentage = 0;
+        int peak = 0;
     };
 
     class DrumPadPanel final : public juce::Component, private juce::Timer
@@ -448,6 +450,7 @@ private:
     void drainUiMidi();
     LevelMeter masterMeter;
     CpuMeter cpuMeter;
+    int statsTick = 0;
     juce::TextButton updateButton { "ATUALIZACOES" };
     juce::TextButton backupButton { "BACKUP" };
     std::unique_ptr<juce::FileChooser> backupChooser;

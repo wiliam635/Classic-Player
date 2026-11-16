@@ -19,9 +19,38 @@
 #include <limits>
 #include <set>
 #include <utility>
+#if JUCE_MAC
+ #include <mach/mach.h>
+#elif JUCE_WINDOWS
+ #include <windows.h>
+ #include <psapi.h>
+ #pragma comment(lib, "psapi.lib")
+#endif
 
 namespace
 {
+// Resident memory of this process in MiB (0 when the platform has no cheap query).
+juce::int64 processResidentMiB()
+{
+#if JUCE_MAC
+    mach_task_basic_info_data_t info {};
+    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t) &info, &count) == KERN_SUCCESS)
+        return (juce::int64) (info.resident_size / (1024 * 1024));
+#elif JUCE_WINDOWS
+    PROCESS_MEMORY_COUNTERS counters {};
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters)))
+        return (juce::int64) (counters.WorkingSetSize / (1024 * 1024));
+#elif JUCE_LINUX || JUCE_ANDROID
+    juce::int64 pages = 0, resident = 0;
+    const auto fields = juce::StringArray::fromTokens(juce::File("/proc/self/statm").loadFileAsString(), " ", "");
+    if (fields.size() > 1) { pages = fields[0].getLargeIntValue(); resident = fields[1].getLargeIntValue(); }
+    juce::ignoreUnused(pages);
+    return resident * 4096 / (1024 * 1024);
+#endif
+    return 0;
+}
+
 void setButtonTextIfChanged(juce::TextButton& button, const juce::String& value)
 {
     if (button.getButtonText() != value)
@@ -6720,6 +6749,7 @@ void ClassicPlayerAudioProcessorEditor::LevelMeter::paint(juce::Graphics& g)
 void ClassicPlayerAudioProcessorEditor::CpuMeter::setUsage(double usage)
 {
     const auto next = juce::jlimit(0, 100, juce::roundToInt(usage));
+    peak = juce::jmax(peak, next);
     if (percentage != next)
     {
         percentage = next;
@@ -11771,6 +11801,14 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
     }
 #endif
     cpuMeter.setUsage(classicProcessor.audioCpuUsagePercent());
+    if (++statsTick % 20 == 0)
+    {
+        const auto mib = processResidentMiB();
+        juce::String stats = "CPU: " + juce::String(cpuMeter.peakPercentage()) + "% (pico)";
+        if (mib > 0) stats += "   |   RAM: " + juce::String(mib) + " MiB";
+        cpuMeter.setTooltip(localizedUiText(juce::String::fromUTF8("Carga do processamento de áudio do Classic Player. 100% indica que o tempo disponível para o buffer foi consumido."), uiLanguage)
+                            + "\n" + stats);
+    }
     ClassicPlayerUpdateChecker::Result updateResult;
     if (updateChecker.takeResult(updateResult))
     {
