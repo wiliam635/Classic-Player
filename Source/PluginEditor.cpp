@@ -5871,6 +5871,15 @@ public:
 
     void useCompactLayout(bool shouldUse) { compactLayout = shouldUse; resized(); }
 
+    void paint(juce::Graphics& g) override
+    {
+        const auto card = getLocalBounds().toFloat().reduced(2.0f);
+        g.setColour(juce::Colour(0xff2a3a52).withAlpha(0.55f));
+        g.fillRoundedRectangle(card, 6.0f);
+        g.setColour(juce::Colour(0xff3b4d68));
+        g.drawRoundedRectangle(card, 6.0f, 1.0f);
+    }
+
     void resized() override
     {
         auto area = getLocalBounds().reduced(10, 6);
@@ -7510,7 +7519,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         sf2Panel->setSize(actionWidth, 244);
     }
     if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord
-        || processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordSample)
+        || processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordSample
+        || processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::sf2)
     {
         static MoogKnobLook nordKnobLook;
         for (int control = 0; control < 10; ++control)
@@ -7599,7 +7609,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
     // On a 13-inch display the complete editor, including numeric values and
     // footer, must fit without an inner scroll area.
     if (sf2Panel != nullptr)
+    {
+        dialog->addCustomComponent(new CenteredPanel(new Sf2Faceplate(processor, index), actionWidth, 84));
         dialog->addCustomComponent(new CenteredPanel(sf2Panel, actionWidth, 244));
+    }
     const auto layerType = processor.layerType(index);
     bool splitDynamics = false;
     if (layerType == ClassicPlayerAudioProcessor::LayerType::sf2
@@ -7661,6 +7674,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
                 tabs = splitDynamics ? std::vector<int>{ 0, 0, 2, 1, 4, 0, 2, 0, 3 } : std::vector<int>{ 0, 0, 2, 1, 0, 2, 0, 3 };
             else
                 tabs = splitDynamics ? std::vector<int>{ 0, 1, 4, 0, 2, 0, 3 } : std::vector<int>{ 0, 1, 0, 2, 0, 3 };
+            if (kind == ClassicPlayerAudioProcessor::LayerType::sf2)
+                tabs.insert(tabs.begin(), 0);
             if (tabs.size() == dockedPanels.size())
                 for (size_t k = 0; k < tabs.size(); ++k)
                     dockedPanels[k]->getProperties().set("dockTab", tabs[k]);
