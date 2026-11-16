@@ -567,6 +567,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout ClassicPlayerAudioProcessor:
         result.push_back(std::make_unique<juce::AudioParameterBool>(
             juce::ParameterID{"layer" + n + "Muted", 1}, "Layer " + n + " Muted", false));
     }
+    for (int i = 0; i < Sf2Engine::layerCount; ++i)
+    {
+        const auto n = juce::String(i + 1);
+        result.push_back(std::make_unique<juce::AudioParameterBool>(
+            juce::ParameterID{"layer" + n + "Off", 1}, "Layer " + n + " Off", false));
+    }
     // Append rather than inserting into the existing per-layer group: DAW
     // automation of older projects keeps all of its parameter indices.
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
@@ -828,8 +834,14 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
     {
         auto config = engine.getConfig(i);
-        if (i >= activeLayers)
+        const bool layerOff = i < activeLayers && isLayerOff(i);
+        if (i >= activeLayers || layerOff)
         {
+            if (layerOff && !layerWasOff[(size_t) i])
+            {
+                layerWasOff[(size_t) i] = true;
+                stopLayerSounds(i);
+            }
             if (config.enabled)
             {
                 config.enabled = false;
@@ -847,6 +859,12 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             analogRouting[(size_t) i] = analogLayerConfigs[(size_t) i];
             analogRouting[(size_t) i].routing.enabled = false;
             continue;
+        }
+        if (layerWasOff[(size_t) i])
+        {
+            layerWasOff[(size_t) i] = false;
+            config.enabled = true;
+            engine.setConfig(i, config);
         }
         const auto& realtime = realtimeLayerParameters[(size_t) i];
         auto layerGain = realtime.Gain->load(std::memory_order_relaxed) / 100.0f;
@@ -1967,6 +1985,33 @@ bool ClassicPlayerAudioProcessor::isLayerMuted(int layer) const
     return false;
 }
 
+bool ClassicPlayerAudioProcessor::isLayerOff(int layer) const
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return false;
+    if (const auto* value = parameters.getRawParameterValue("layer" + juce::String(layer + 1) + "Off"))
+        return value->load(std::memory_order_relaxed) >= 0.5f;
+    return false;
+}
+
+void ClassicPlayerAudioProcessor::setLayerOff(int layer, bool off)
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return;
+    if (auto* parameter = parameters.getParameter("layer" + juce::String(layer + 1) + "Off"))
+        parameter->setValueNotifyingHost(off ? 1.0f : 0.0f);
+}
+
+void ClassicPlayerAudioProcessor::stopLayerSounds(int layer)
+{
+    if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return;
+    engine.stopLayerSounds(layer);
+    sampleEngine.stopLayerSounds(layer);
+    nordSampleEngine.stopLayerSounds(layer);
+    dx7Engine.stopLayerSounds(layer);
+    analogSynthEngine.unload(layer);
+    hammondEngine.unload(layer);
+    nordOrganEngine.unload(layer);
+}
+
 void ClassicPlayerAudioProcessor::setLayerMuted(int layer, bool muted)
 {
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return;
@@ -1982,7 +2027,7 @@ void ClassicPlayerAudioProcessor::sendLayerController(int layer, int controller,
 float ClassicPlayerAudioProcessor::layerPeak(int layer) const
 {
     if (!juce::isPositiveAndBelow(layer, Sf2Engine::layerCount)) return 0.0f;
-    if (isLayerMuted(layer)) return 0.0f;
+    if (isLayerMuted(layer) || isLayerOff(layer)) return 0.0f;
     // Some sources publish their pre-fader voice peak. This is a post-fader
     // meter: when the layer gain is zero it must read silence immediately.
     const auto* gain = parameters.getRawParameterValue(
@@ -2394,8 +2439,8 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
     }
     for (int position = visualPosition; position < Sf2Engine::layerCount; ++position)
         visualLayerOrder[(size_t) position].store(position, std::memory_order_relaxed);
-    static constexpr std::array<const char*, 34> parameterSuffixes {
-        "Gain", "PreGainDb", "Muted", "Attack", "Decay", "SustainLevel", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh",
+    static constexpr std::array<const char*, 35> parameterSuffixes {
+        "Gain", "PreGainDb", "Muted", "Off", "Attack", "Decay", "SustainLevel", "Release", "Cutoff", "EqLow", "EqMid", "EqHigh",
         "EqLowFrequency", "EqMidFrequency", "EqHighFrequency", "EqLowQ", "EqMidQ", "EqHighQ",
         "Reverb", "ReverbSize", "ReverbDamping",
         "ReverbWidth", "ReverbPreset", "Comp", "CompThreshold", "CompRatio", "CompAttack",
@@ -5182,6 +5227,15 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     muteState.setProperty("id", muteId, nullptr);
                     muteState.setProperty("value", 0.0f, nullptr);
                     state.addChild(muteState, -1, nullptr);
+                }
+                // Same for OFF: a program saved before it existed must switch every layer on.
+                const auto offId = "layer" + juce::String(i + 1) + "Off";
+                if (!findParameterState(offId).isValid())
+                {
+                    juce::ValueTree offState("PARAM");
+                    offState.setProperty("id", offId, nullptr);
+                    offState.setProperty("value", 0.0f, nullptr);
+                    state.addChild(offState, -1, nullptr);
                 }
 
                 // The factory-preset marker was added after older saved

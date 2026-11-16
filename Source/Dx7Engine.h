@@ -29,6 +29,7 @@ public:
     juce::Result loadSysEx(int layer, const juce::File& file);
     void unload(int layer);
     void stopAllSounds();
+    void stopLayerSounds(int layer);
     float getLayerPeak(int layer) const;
 
     bool isLoaded(int layer) const;

@@ -40,6 +40,7 @@ public:
     juce::Result preloadSample(const juce::File& file);
     void unload(int layer);
     void stopAllSounds();
+    void stopLayerSounds(int layer);
     bool isLoaded(int layer) const;
     juce::String path(int layer) const;
     float getLayerPeak(int layer) const;

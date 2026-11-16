@@ -225,6 +225,26 @@ void NordSampleEngine::unload(int layerIndex)
     layer.peak.store(0.0f, std::memory_order_release);
 }
 
+void NordSampleEngine::stopLayerSounds(int index)
+{
+    if (!juce::isPositiveAndBelow(index, layerCount)) return;
+    const juce::ScopedLock stateLock(lock);
+    auto& layer = layers[(size_t) index];
+    layer.arpeggiator.reset();
+    layer.arpeggiatorGate.setCurrentAndTargetValue(1.0f);
+    layer.sustainDown.fill(false);
+    layer.heldNotes.fill(false);
+    layer.heldVelocities.fill(0.0f);
+    layer.heldSplitGains.fill(0.0f);
+    layer.heldChannels.fill(0);
+    layer.heldNoteOrder.fill(0);
+    layer.heldNoteSequence = 0;
+    layer.monoNote = -1;
+    layer.monoChannel = 1;
+    layer.nordFx.reset();
+    for (auto& voice : layer.voices) voice = {};
+}
+
 void NordSampleEngine::stopAllSounds()
 {
     const juce::ScopedLock stateLock(lock);

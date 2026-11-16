@@ -297,6 +297,13 @@ void Dx7Engine::unload(int index)
     layerPeaks[(size_t) index].store(0.0f, std::memory_order_relaxed);
 }
 
+void Dx7Engine::stopLayerSounds(int index)
+{
+    if (!juce::isPositiveAndBelow(index, layerCount)) return;
+    const juce::ScopedLock guard(lock);
+    for (auto& voice : layers[(size_t) index].voices) voice = {};
+}
+
 void Dx7Engine::stopAllSounds()
 {
     const juce::ScopedLock guard(lock);

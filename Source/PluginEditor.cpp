@@ -7164,6 +7164,16 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     }
     muteButton.setClickingTogglesState(true);
     soloButton.setClickingTogglesState(true);
+    flatButton(offButton);
+    addAndMakeVisible(offButton);
+    offButton.setClickingTogglesState(true);
+    offButton.setTooltip(juce::String::fromUTF8("Liga ou desliga a layer por completo: desligada ela para de processar e não usa CPU. MUTE (M) só silencia."));
+    offButton.onClick = [this]
+    {
+        processor.setLayerOff(index, offButton.getToggleState());
+        applyOffLook(offButton.getToggleState());
+        mixStateChanged();
+    };
     muteButton.setTooltip("Ativar ou silenciar esta layer; o volume do fader permanece salvo");
     muteButton.onClick = [this]
     {
@@ -9210,7 +9220,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     const bool isPadLayer = type == ClassicPlayerAudioProcessor::LayerType::drumPads
                          || type == ClassicPlayerAudioProcessor::LayerType::continuousPads;
     engineTagBounds = {};
-    if (!isPadLayer) engineTagBounds = area.removeFromTop(16).reduced(2, 0);
+    offButton.setVisible(!isPadLayer);
+    if (!isPadLayer)
+    {
+        auto tagRow = area.removeFromTop(16);
+        offButton.setBounds(tagRow.removeFromRight(34).reduced(0, 0));
+        engineTagBounds = tagRow.reduced(2, 0);
+    }
     area.removeFromTop(5);
     if (isPadLayer)
         categoryArtworkBounds = {};
@@ -9900,6 +9916,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
     updateSourceTypeVisibility();
     muted = processor.isLayerMuted(index);
     muteButton.setToggleState(muted, juce::dontSendNotification);
+    offButton.setToggleState(processor.isLayerOff(index), juce::dontSendNotification);
+    applyOffLook(processor.isLayerOff(index));
     if (type == ClassicPlayerAudioProcessor::LayerType::drumPads || type == ClassicPlayerAudioProcessor::LayerType::continuousPads)
     {
         updateSourceTypeVisibility();
@@ -10020,9 +10038,23 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::setEngineEnabled(bool enable
     processor.setLayerConfig(index, config);
 }
 
+void ClassicPlayerAudioProcessorEditor::LayerStrip::applyOffLook(bool off)
+{
+    offButton.setButtonText(off ? "OFF" : "ON");
+    offButton.setColour(juce::TextButton::buttonColourId, off ? juce::Colour(0xffb3202c) : juce::Colour(0xff1f6b3a));
+    offButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xffb3202c));
+    offButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    offButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+}
+
 void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMeter()
 {
     meter.setLevel(juce::jlimit(0.0f, 1.0f, processor.layerPeak(index)));
+    if (offButton.getToggleState() != processor.isLayerOff(index))
+    {
+        offButton.setToggleState(processor.isLayerOff(index), juce::dontSendNotification);
+        applyOffLook(processor.isLayerOff(index));
+    }
     const auto processorMuted = processor.isLayerMuted(index);
     if (muted != processorMuted)
     {

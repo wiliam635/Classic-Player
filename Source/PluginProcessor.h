@@ -205,6 +205,10 @@ public:
     void resetMidiLearn(int layer);
     bool isLayerMuted(int layer) const;
     void setLayerMuted(int layer, bool muted);
+    // OFF is not mute: the layer is switched off completely (no rendering, no CPU).
+    bool isLayerOff(int layer) const;
+    void setLayerOff(int layer, bool off);
+    void stopLayerSounds(int layer);
     int midiLearnCC(int layer, LearnTarget target) const;
     int midiLearnChannel(int layer, LearnTarget target) const;
     bool isMidiLearning(int layer, LearnTarget target) const;
@@ -439,6 +443,7 @@ private:
     // Stored independently from the audio parameters so switching a source
     // never changes the layer routing, split or controller assignments.
     std::array<std::atomic<int>, Sf2Engine::layerCount> layerTypes {};
+    std::array<bool, Sf2Engine::layerCount> layerWasOff {};
     std::array<ExternalInstrumentHost, Sf2Engine::layerCount> externalInstruments;
     juce::Array<juce::File> externalInstrumentLibrary;
     std::array<juce::AudioBuffer<float>, Sf2Engine::layerCount> externalScratch;

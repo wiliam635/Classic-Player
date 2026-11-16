@@ -263,6 +263,8 @@ private:
         juce::Rectangle<int> categoryArtworkBounds;
         juce::Rectangle<int> engineTagBounds;
         juce::TextButton muteButton { "M" };
+        juce::TextButton offButton { "ON" };
+        void applyOffLook(bool off);
         juce::TextButton soloButton { "S" };
         juce::TextButton resetButton { "RESET" };
         juce::TextButton editButton { "EDITAR" };

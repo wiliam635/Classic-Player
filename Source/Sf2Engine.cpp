@@ -276,6 +276,27 @@ juce::Result Sf2Engine::loadSoundFont(int index, const juce::File& file)
     return installSoundFont(index, prepared);
 }
 
+void Sf2Engine::stopLayerSounds(int index)
+{
+    if (!juce::isPositiveAndBelow(index, layerCount)) return;
+    const juce::ScopedLock guard(lock);
+    auto& layer = layers[(size_t) index];
+    if (layer.synth == nullptr) return;
+    for (int channel = 0; channel < 16; ++channel)
+    {
+        fluid_synth_cc(layer.synth.get(), channel, 64, 0);
+        fluid_synth_all_notes_off(layer.synth.get(), channel);
+        fluid_synth_all_sounds_off(layer.synth.get(), channel);
+    }
+    layer.monoNote = -1;
+    layer.monoChannel = 1;
+    layer.sustainDown.fill(false);
+    layer.heldNotes.fill(false);
+    layer.heldVelocities.fill(0.0f);
+    layer.heldNoteOrder.fill(0);
+    layer.heldNoteSequence = 0;
+}
+
 void Sf2Engine::stopAllSounds()
 {
     const juce::ScopedLock guard(lock);

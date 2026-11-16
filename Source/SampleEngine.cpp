@@ -280,6 +280,16 @@ void SampleEngine::unload(int layer)
     destination.peak.store(0.0f, std::memory_order_release);
 }
 
+void SampleEngine::stopLayerSounds(int index)
+{
+    if (!juce::isPositiveAndBelow(index, layerCount)) return;
+    const juce::ScopedLock stateLock(lock);
+    auto& layer = layers[(size_t) index];
+    layer.sustainDown.fill(false);
+    layer.nordFx.reset();
+    for (auto& voice : layer.voices) voice = {};
+}
+
 void SampleEngine::stopAllSounds()
 {
     const juce::ScopedLock stateLock(lock);
