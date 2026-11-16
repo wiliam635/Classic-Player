@@ -115,11 +115,15 @@ final class PolySynthEngine {
             (Build.VERSION.SDK_INT>=24?" · underruns: "+current.getUnderrunCount():"");
         } catch(IllegalStateException e) { return "Reconectando áudio"; }
     }
+    String nordVoiceStatus() {
+        int[] m=nativeMidiQueueDiagnostics();
+        return String.format(java.util.Locale.US,"NPNO: vozes %d · teclas seguras %d · presas pelo pedal %d · pedal %s",m[7],m[8],m[9],m[10]!=0?"ON":"off");
+    }
     String outputDspStatus() {
         int[] midi=nativeMidiQueueDiagnostics();
         String queue=String.format(java.util.Locale.US,
-            "MIDI→app %.1f/máx %.1f ms · fila %d/pico %d · estouros %d · locks fila/synth %d/%d · espera máx %.1f ms · clipping PCM em %d blocos · NPNO vozes %d (teclas %d, presas pelo pedal %d) pedal %s",
-            midiAppLagLastMs,midiAppLagMaxMs,midi[0],midi[1],midi[2],midi[3],midi[4],midi[5]/1000.0,midi[6],midi[7],midi[8],midi[9],midi[10]!=0?"ON":"off");
+            "MIDI→app %.1f/máx %.1f ms · fila %d/pico %d · estouros %d · locks fila/synth %d/%d · espera máx %.1f ms · clipping PCM em %d blocos ",
+            midiAppLagLastMs,midiAppLagMaxMs,midi[0],midi[1],midi[2],midi[3],midi[4],midi[5]/1000.0,midi[6]);
         if(nativeOutputActive)return sampleRateMode==1
             ?"DSP: Oboe SRC desligado · motor e fluxo 44,1 kHz · "+queue
             :"DSP: conversão de taxa · motor 44,1 kHz · "+queue;
