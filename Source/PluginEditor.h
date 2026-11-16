@@ -115,6 +115,33 @@ private:
         static juce::String noteLabel(int);
     };
 
+    // Sliding power switch used for the layer ON/OFF. Toggle state true means the layer is OFF.
+    class PowerSwitch final : public juce::Button
+    {
+    public:
+        PowerSwitch() : juce::Button("power") { setClickingTogglesState(true); }
+        void paintButton(juce::Graphics& g, bool over, bool down) override
+        {
+            const bool off = getToggleState();
+            const auto b = getLocalBounds().toFloat().reduced(1.0f);
+            const auto radius = b.getHeight() * 0.5f;
+            const auto track = off ? juce::Colour(0xff6b2128) : juce::Colour(0xff1f8a47);
+            g.setColour(track.brighter(over ? 0.18f : 0.0f));
+            g.fillRoundedRectangle(b, radius);
+            g.setColour(track.darker(0.7f));
+            g.drawRoundedRectangle(b, radius, 1.4f);
+            const auto knobSize = b.getHeight() - 6.0f;
+            const auto knobX = off ? b.getX() + 3.0f : b.getRight() - 3.0f - knobSize;
+            g.setColour(juce::Colours::white.withAlpha(down ? 0.78f : 1.0f));
+            g.fillEllipse(knobX, b.getY() + 3.0f, knobSize, knobSize);
+            g.setColour(juce::Colours::white);
+            g.setFont(juce::FontOptions(11.5f, juce::Font::bold));
+            g.drawText(off ? "OFF" : "ON",
+                       off ? b.withTrimmedLeft(knobSize + 6.0f) : b.withTrimmedRight(knobSize + 6.0f),
+                       juce::Justification::centred);
+        }
+    };
+
     class CpuMeter final : public juce::Component, public juce::SettableTooltipClient
     {
     public:
@@ -263,7 +290,7 @@ private:
         juce::Rectangle<int> categoryArtworkBounds;
         juce::Rectangle<int> engineTagBounds;
         juce::TextButton muteButton { "M" };
-        juce::TextButton offButton { "ON" };
+        PowerSwitch offButton;
         void applyOffLook(bool off);
         juce::TextButton soloButton { "S" };
         juce::TextButton resetButton { "RESET" };

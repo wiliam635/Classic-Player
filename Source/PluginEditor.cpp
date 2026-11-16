@@ -7164,9 +7164,7 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
     }
     muteButton.setClickingTogglesState(true);
     soloButton.setClickingTogglesState(true);
-    flatButton(offButton);
     addAndMakeVisible(offButton);
-    offButton.setClickingTogglesState(true);
     offButton.setTooltip(juce::String::fromUTF8("Liga ou desliga a layer por completo: desligada ela para de processar e não usa CPU. MUTE (M) só silencia."));
     offButton.onClick = [this]
     {
@@ -9223,8 +9221,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     offButton.setVisible(!isPadLayer);
     if (!isPadLayer)
     {
-        auto tagRow = area.removeFromTop(16);
-        offButton.setBounds(tagRow.removeFromRight(34).reduced(0, 0));
+        auto tagRow = area.removeFromTop(22);
+        offButton.setBounds(tagRow.removeFromRight(56));
         engineTagBounds = tagRow.reduced(2, 0);
     }
     area.removeFromTop(5);
@@ -10040,11 +10038,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::setEngineEnabled(bool enable
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::applyOffLook(bool off)
 {
-    offButton.setButtonText(off ? "OFF" : "ON");
-    offButton.setColour(juce::TextButton::buttonColourId, off ? juce::Colour(0xffb3202c) : juce::Colour(0xff1f6b3a));
-    offButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xffb3202c));
-    offButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
-    offButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    juce::ignoreUnused(off);
+    offButton.repaint();
 }
 
 void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMeter()
