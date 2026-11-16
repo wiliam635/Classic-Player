@@ -94,9 +94,9 @@ public class AudioRegressionTest {
 
     @Test public void fullSustainedPoolAcceptsNewKey() throws Exception {
         activate(1,0);engine.setSustain(0,true);
-        assertEquals("A single active layer receives the full app budget",256,engine.voiceBudget(0));
+        assertEquals("A single active layer is capped at 128 voices",128,engine.voiceBudget(0));
         for(int n=0;n<300;n++){engine.noteOn(60,60,0);pcm(256);engine.noteOff(60,0);}
-        assertEquals(256,engine.activeVoices(0));
+        assertEquals(128,engine.activeVoices(0));
         engine.noteOn(84,100,0);engine.setSustain(0,false);pcm(RATE*3);
         assertEquals("Newest held key must survive voice stealing",1,engine.activeVoices(0));
         assertTrue(rms(pcm(RATE/10))>.0001);
