@@ -10057,6 +10057,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMeter()
         muteButton.setToggleState(muted, juce::dontSendNotification);
         mixStateChanged();
     }
+    // Knob mirroring and learn-button text are pure display work: skip them
+    // while this strip is hidden (Live Set view, another tab). They resync on
+    // the first tick after it becomes visible again.
+    if (!isShowing()) return;
     // MIDI Learn updates the processor from the message-thread bridge. Mirror
     // the current parameter values explicitly so the on-screen knobs follow
     // the physical controller even when a host delays attachment callbacks.
