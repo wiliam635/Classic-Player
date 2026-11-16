@@ -136,6 +136,9 @@ public final class MainActivity extends Activity {
     // Keep the same per-channel key state used by the desktop engines. It is
     // essential for distinguishing a real release from a sustain-pedal change.
     private final boolean[][] midiHeld = new boolean[16][128];
+    // Identical Note On/Off packets (same timestamp, note and value) are one event delivered twice.
+    private final long[][][] midiLastEventTime=new long[2][16][128];
+    private final int[][][] midiLastEventValue=new int[2][16][128];
     private final boolean[] midiSustain = new boolean[16];
     private final boolean[][] padCcDown=new boolean[16][128];
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -144,6 +147,12 @@ public final class MainActivity extends Activity {
             if(timestamp>0){double lag=(System.nanoTime()-timestamp)/1e6;if(lag>=0&&lag<600000){PolySynthEngine.midiAppLagLastMs=lag;if(lag>PolySynthEngine.midiAppLagMaxMs)PolySynthEngine.midiAppLagMaxMs=lag;}}
             midiByteParser.accept(data,offset,count,timestamp,(status,data1,data2,time)->{
                 logMidiMessage(status,data1,data2,time);
+                int kind=status&0xf0;
+                if((kind==0x80||kind==0x90)&&time>0){
+                    int slot=(kind==0x90&&data2>0)?1:0,ch=status&0x0f,value=slot==1?data2:0;
+                    if(midiLastEventTime[slot][ch][data1]==time&&midiLastEventValue[slot][ch][data1]==value)return;
+                    midiLastEventTime[slot][ch][data1]=time;midiLastEventValue[slot][ch][data1]=value;
+                }
                 processMidiMessage(status&0xf0,status&0x0f,data1,data2);
             });
         }
@@ -761,9 +770,15 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("MIDI LEARN").setItems(targets,(d,which)->{pendingLearnTarget=which;screen.setMidiStatus("MIDI: mova agora o controle CC · CANCELAR para sair");}).setNeutralButton("LIMPAR MAPEAMENTOS",(d,w)->getSharedPreferences("midi_learn",MODE_PRIVATE).edit().clear().apply()).setNegativeButton("CANCELAR",(d,w)->{pendingLearnTarget=-1;screen.setMidiStatus("MIDI: pronto");}).show();
     }
 
+    // Every openMidi() call is asynchronous. Several can be in flight at once
+    // (audio and MIDI hot-plug events, onResume); a stale callback must close
+    // its device instead of connecting a second receiver, which delivered each
+    // key to the engine two or three times.
+    private int midiOpenGeneration;
     private void openMidi(MidiDeviceInfo info) {
         if (midiManager == null) return;
         closeMidi();
+        final int generation=++midiOpenGeneration;
         String identity=midiDeviceIdentity(info);SharedPreferences saved=getSharedPreferences("midi_device",MODE_PRIVATE);
         int preferredPort=identity.equals(saved.getString("identity",""))?saved.getInt("port",-1):-1;
         MidiDeviceInfo.PortInfo selected=null;
@@ -775,6 +790,7 @@ public final class MainActivity extends Activity {
         saved.edit().putString("identity",identity).putInt("port",selectedMidiPort).apply();
         midiManager.openDevice(info, device -> {
             if(device==null){screen.setMidiStatus("MIDI: falha ao abrir entrada");return;}
+            if(generation!=midiOpenGeneration){try{device.close();}catch(IOException ignored){}return;}
             midiDevice = device;
             midiInput = device.openOutputPort(inputPort.getPortNumber());
             if (midiInput != null){midiInput.connect(midiReceiver);screen.setMidiStatus("MIDI: "+selectedMidiName+" · porta "+selectedMidiPort+" conectada");}
