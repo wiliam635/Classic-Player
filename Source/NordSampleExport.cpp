@@ -55,9 +55,9 @@ juce::Result NordSampleExport::exportZonesAsWav(const juce::File& source,
             for (int channel = 0; channel < zone.channels; ++channel)
                 for (int i = 0; i < count; ++i)
                 {
-                    const auto sample = zone.pcm[(frame + static_cast<size_t>(i))
+                    const auto sample = static_cast<float>(zone.pcm[(frame + static_cast<size_t>(i))
                                                  * static_cast<size_t>(zone.channels)
-                                                 + static_cast<size_t>(channel)];
+                                                 + static_cast<size_t>(channel)]) * NordSampleDecoder::pcmToFloat;
                     block.setSample(channel, i, std::isfinite(sample)
                         ? juce::jlimit(-1.0f, 1.0f, sample) : 0.0f);
                 }

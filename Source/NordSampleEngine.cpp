@@ -49,9 +49,9 @@ void NordSampleEngine::prepareLoopCrossfades(NordSampleDecoder::Instrument& inst
         for (int channel = 0; channel < zone.channels; ++channel)
         {
             const auto index = [&](size_t frame) { return frame * (size_t) zone.channels + (size_t) channel; };
-            const auto first = zone.pcm[index(start)];
-            const auto second = zone.pcm[index(start + 1)];
-            const auto last = zone.pcm[index(end - 1)];
+            const auto first = zone.pcm[index(start)] * NordSampleDecoder::pcmToFloat;
+            const auto second = zone.pcm[index(start + 1)] * NordSampleDecoder::pcmToFloat;
+            const auto last = zone.pcm[index(end - 1)] * NordSampleDecoder::pcmToFloat;
             // Meet the first sample with its incoming slope. A bounded
             // raised-cosine correction avoids the overshoot a Hermite slope
             // fit can create on hot brass and saxophone samples.
@@ -60,7 +60,8 @@ void NordSampleEngine::prepareLoopCrossfades(NordSampleDecoder::Instrument& inst
             {
                 const auto t = (float) i / (float) (fade - 1);
                 const auto blend = t * t * (3.0f - 2.0f * t);
-                zone.pcm[index(end - fade + i)] += valueDelta * blend;
+                auto& stored = zone.pcm[index(end - fade + i)];
+                stored = NordSampleDecoder::floatToPcm(stored * NordSampleDecoder::pcmToFloat + valueDelta * blend);
             }
         }
     }
@@ -117,7 +118,7 @@ juce::Result NordSampleEngine::prepareSample(const juce::File& file,
     {
         std::uint64_t bytes = 0;
         for (const auto& zone : decoded->zones)
-            bytes += zone.pcm.capacity() * sizeof(float);
+            bytes += zone.pcm.capacity() * sizeof(NordSampleDecoder::Pcm);
         return bytes <= maxDecodedBytes ? juce::Result::ok()
             : juce::Result::fail("Este timbre Nord excede a memória restante para carregar o preset.");
     }
@@ -168,7 +169,7 @@ std::shared_ptr<NordSampleDecoder::Instrument> NordSampleEngine::cacheInstrument
                    + juce::String(file.getLastModificationTime().toMilliseconds());
     size_t bytes = sizeof(NordSampleDecoder::Instrument);
     for (const auto& zone : decoded->zones)
-        bytes += sizeof(NordSampleDecoder::Zone) + zone.pcm.size() * sizeof(float);
+        bytes += sizeof(NordSampleDecoder::Zone) + zone.pcm.size() * sizeof(NordSampleDecoder::Pcm);
     const std::lock_guard<std::mutex> guard(instrumentCacheMutex);
     const auto keyString = key.toStdString();
     if (const auto existing = instrumentCacheLive.find(keyString); existing != instrumentCacheLive.end())
@@ -345,7 +346,7 @@ void NordSampleEngine::readStereoSample(const NordSampleDecoder::Zone& zone,
         if (looped && frame >= loopEnd)
             frame = loopStart + (frame - loopEnd) % (loopEnd - loopStart);
         frame = juce::jlimit(0, frames - 1, frame);
-        return pcm[(size_t) frame * (size_t) zone.channels + (size_t) channel];
+        return (float) pcm[(size_t) frame * (size_t) zone.channels + (size_t) channel] * NordSampleDecoder::pcmToFloat;
     };
     const auto t2 = fraction * fraction, t3 = t2 * fraction;
     const auto interpolate = [&](int channel) noexcept
@@ -354,10 +355,10 @@ void NordSampleEngine::readStereoSample(const NordSampleDecoder::Zone& zone,
         if (tapsAreContiguous)
         {
             const auto* tap = pcm + (size_t) (start - 1) * (size_t) zone.channels + (size_t) channel;
-            y0 = tap[0];
-            y1 = tap[zone.channels];
-            y2 = tap[2 * zone.channels];
-            y3 = tap[3 * zone.channels];
+            y0 = (float) tap[0] * NordSampleDecoder::pcmToFloat;
+            y1 = (float) tap[zone.channels] * NordSampleDecoder::pcmToFloat;
+            y2 = (float) tap[2 * zone.channels] * NordSampleDecoder::pcmToFloat;
+            y3 = (float) tap[3 * zone.channels] * NordSampleDecoder::pcmToFloat;
         }
         else
         {

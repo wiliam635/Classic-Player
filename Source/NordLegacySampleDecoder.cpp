@@ -814,7 +814,7 @@ juce::Result NordLegacySampleDecoder::decodeFile(const juce::File& file,
         zone.loopEnd = stroke.loopEndFrame;
         zone.pcm.reserve(stroke.interleavedPcm.size());
         for (const auto sample : stroke.interleavedPcm)
-            zone.pcm.push_back(static_cast<float>(sample) / 32768.0f);
+            zone.pcm.push_back(static_cast<NordSampleDecoder::Pcm>(sample));
         converted.zones.push_back(std::move(zone));
         // Release each temporary int16 stroke as soon as its float playback
         // zone is ready, keeping conversion peak memory close to final size.

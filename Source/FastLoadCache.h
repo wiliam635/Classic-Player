@@ -19,7 +19,7 @@
 namespace FastLoadCache
 {
 constexpr juce::uint32 magic = 0x43504643; // "CPFC"
-constexpr juce::uint32 formatVersion = 1;   // bump when the decoder/prepare output changes
+constexpr juce::uint32 formatVersion = 2;   // bump when the decoder/prepare output changes
 constexpr juce::int64 maxCacheBytes = 6LL * 1024 * 1024 * 1024;
 
 enum class Kind : juce::uint32 { piano = 1, sample = 2 };

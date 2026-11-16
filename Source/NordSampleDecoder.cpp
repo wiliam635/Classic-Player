@@ -207,7 +207,7 @@ void decodeStroke(const Section& section, NordSampleDecoder::Zone& zone)
                 const auto limitedMagnitude = magnitude <= knee ? magnitude
                     : knee + (1.0f - knee) * (1.0f - std::exp(-(magnitude - knee) / (1.0f - knee)));
                 zone.pcm[before + sample * channels + static_cast<size_t>(channel)]
-                    = std::copysign(limitedMagnitude, normalized);
+                    = floatToPcm(std::copysign(limitedMagnitude, normalized));
             }
         word += span;
         while (word < last && be(stream + word * 4) == 0) ++word;

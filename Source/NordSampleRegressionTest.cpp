@@ -145,7 +145,7 @@ struct NordSampleRegressionTests
                 "NSMP4 did not map its alternate-start pointer to sample frames");
         require(zone.loopStart == 64 && zone.loopEnd == 128,
                 "Loop-decay flag incorrectly replaced the explicit NSMP4 LoopBegin pointer");
-        require(zone.clippedSamples == 8 && zone.pcm[0] > 0.99f && zone.pcm[0] <= 1.0f,
+        require(zone.clippedSamples == 8 && zone.pcm[0] * NordSampleDecoder::pcmToFloat > 0.99f && zone.pcm[0] * NordSampleDecoder::pcmToFloat <= 1.0f,
                 "NSMP4 hot samples were rejected or hard-clipped instead of soft-limited");
 
         auto exportFolder = juce::File::getSpecialLocation(juce::File::tempDirectory)
@@ -194,8 +194,8 @@ struct NordSampleRegressionTests
         {
             const auto sample = 0.35f * std::sin(juce::MathConstants<float>::twoPi * 440.0f * i
                                                   / (float) NordSampleDecoder::sampleRate);
-            zone.pcm[(size_t) i * 2] = sample;
-            zone.pcm[(size_t) i * 2 + 1] = sample * 0.75f;
+            zone.pcm[(size_t) i * 2] = NordSampleDecoder::floatToPcm(sample);
+            zone.pcm[(size_t) i * 2 + 1] = NordSampleDecoder::floatToPcm(sample * 0.75f);
         }
         layer.instrument->zones.push_back(std::move(zone));
         return engine;
@@ -250,8 +250,8 @@ struct NordSampleRegressionTests
             zone.loopStart = 1000;
             zone.loopEnd = 21000;
             zone.secondStart = 500;
-            zone.pcm.assign(zone.loopEnd, 0.75f);
-            std::fill(zone.pcm.begin() + 16000, zone.pcm.end(), -0.75f);
+            zone.pcm.assign(zone.loopEnd, NordSampleDecoder::floatToPcm(0.75f));
+            std::fill(zone.pcm.begin() + 16000, zone.pcm.end(), NordSampleDecoder::floatToPcm(-0.75f));
             return zone;
         };
 
@@ -265,7 +265,7 @@ struct NordSampleRegressionTests
             const auto& zone = instrument.zones[0];
             require(zone.loopStart == 1000 && zone.loopEnd == 21000 && zone.secondStart == 500,
                     "NSMP4 loop processing changed its pitch or alternate start");
-            require(std::abs(zone.pcm.back() - zone.pcm[1000]) < 0.0001f,
+            require(std::abs((float) zone.pcm.back() - (float) zone.pcm[1000]) * NordSampleDecoder::pcmToFloat < 0.0001f,
                     "NSMP4 loop seam still has a sample discontinuity");
         }
 
@@ -275,7 +275,7 @@ struct NordSampleRegressionTests
         cycle.loopEnd = 1268; // 268 frames at 35,002 Hz: the recorded saxophone case.
         cycle.pcm.resize(cycle.loopEnd);
         for (size_t i = 0; i < cycle.pcm.size(); ++i)
-            cycle.pcm[i] = std::sin(juce::MathConstants<float>::twoPi * (float) i / 268.0f);
+            cycle.pcm[i] = NordSampleDecoder::floatToPcm(std::sin(juce::MathConstants<float>::twoPi * (float) i / 268.0f));
         pitched.zones.push_back(std::move(cycle));
         NordSampleEngine::prepareLoopCrossfades(pitched);
         require(pitched.zones[0].loopEnd - pitched.zones[0].loopStart == 268,
@@ -548,9 +548,6 @@ struct NordSampleRegressionTests
                 require(zone.frames() > 0 && zone.channels >= 1 && zone.channels <= 2,
                         "Nord Sample zone has invalid PCM dimensions");
                 samples += zone.pcm.size();
-                require(std::all_of(zone.pcm.begin(), zone.pcm.end(),
-                                    [](float sample) { return std::isfinite(sample); }),
-                        "Nord Sample decode produced NaN or infinity");
             }
             std::vector<std::pair<size_t, size_t>> loopPoints;
             for (const auto& zone : instrument.zones)
@@ -562,9 +559,6 @@ struct NordSampleRegressionTests
                 require(zone.loopStart == loopPoints[zoneIndex].first
                             && zone.loopEnd == loopPoints[zoneIndex].second,
                         "NSMP4 real-file loop pitch changed during seam smoothing");
-                require(std::all_of(zone.pcm.begin(), zone.pcm.end(),
-                                    [](float sample) { return std::isfinite(sample) && std::abs(sample) < 4.0f; }),
-                        "Nord Sample loop smoothing produced unstable PCM");
             }
             auto engine = std::make_unique<NordSampleEngine>();
             engine->prepare(48000.0, 512);

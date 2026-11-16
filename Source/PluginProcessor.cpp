@@ -3617,7 +3617,7 @@ void ClassicPlayerAudioProcessor::loadNordBundleProgram(const juce::File& folder
                         const auto remaining = decodedBytes < memoryBudget ? memoryBudget - decodedBytes : 0;
                         result = nordSampleEngine.prepareSample(part.file, instrument, remaining);
                         if (result.wasOk()) for (const auto& zone : instrument->zones)
-                            decodedBytes += zone.pcm.capacity() * sizeof(float);
+                            decodedBytes += zone.pcm.capacity() * sizeof(NordSampleDecoder::Pcm);
                     }
                     part.sample = instrument;
                 }
