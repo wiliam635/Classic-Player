@@ -141,6 +141,7 @@ public final class MainActivity extends Activity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final MidiReceiver midiReceiver = new MidiReceiver() {
         @Override public synchronized void onSend(byte[] data, int offset, int count, long timestamp) {
+            if(timestamp>0){double lag=(System.nanoTime()-timestamp)/1e6;if(lag>=0&&lag<600000){PolySynthEngine.midiAppLagLastMs=lag;if(lag>PolySynthEngine.midiAppLagMaxMs)PolySynthEngine.midiAppLagMaxMs=lag;}}
             midiByteParser.accept(data,offset,count,timestamp,(status,data1,data2,time)->{
                 logMidiMessage(status,data1,data2,time);
                 processMidiMessage(status&0xf0,status&0x0f,data1,data2);
@@ -391,11 +392,7 @@ public final class MainActivity extends Activity {
         licenseManager = new LicenseManager(this);
         audioOutputManager = new AudioOutputManager(this);
         padEngine = new PadEngine(this);
-        new Thread(()->{try{java.io.File dir=new java.io.File(getFilesDir(),"factory_pads");dir.mkdirs();String[] f={"C","C_sharp","D","D_sharp","E","F","F_sharp","G","G_sharp","A","A_sharp","B"};
-            for(int i=0;i<12;i++){java.io.File out=new java.io.File(dir,f[i]+".flac");
-                if(!out.isFile()){try(java.io.InputStream in=getAssets().open(f[i]+".flac");java.io.FileOutputStream os=new java.io.FileOutputStream(out)){byte[] b=new byte[65536];int n;while((n=in.read(b))>0)os.write(b,0,n);}}
-                final int pad=i;final String path=out.getAbsolutePath();runOnUiThread(()->{if(!padEngine.loaded(pad,true))padEngine.load(pad,path,true,f[pad].replace("_sharp","#"));});}
-            runOnUiThread(()->{if(screen!=null)screen.postInvalidate();});}catch(Exception ignored){}}).start();
+
         padEngine.setMaster(screen.faderGain(screen.masterVolume));
         SharedPreferences padPrefs=getSharedPreferences("pads",MODE_PRIVATE);
         padEngine.setFadeSeconds(padPrefs.getFloat("crossfade_seconds",1f));
@@ -1445,6 +1442,18 @@ public final class MainActivity extends Activity {
                 which -> {audioEngine.setHammondPreset(layer,which);screen.setHammondPresetDefaults(layer,which);screen.setPresetName(layer,audioEngine.hammondPresetName(which));getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("hammond_preset_"+layer,which).apply();}, "TROCAR MOTOR", () -> panicAndChooseLayerSource(layer));
     }
 
+
+    private boolean factoryPadsRequested;
+    /** Copies the bundled pad audio only when the PADS tab is first opened, so launch-time I/O never competes with the layers loading. */
+    private void ensureFactoryPads(){
+        if(factoryPadsRequested||padEngine==null)return;factoryPadsRequested=true;
+        Thread worker=        new Thread(()->{try{java.io.File dir=new java.io.File(getFilesDir(),"factory_pads");dir.mkdirs();String[] f={"C","C_sharp","D","D_sharp","E","F","F_sharp","G","G_sharp","A","A_sharp","B"};
+            for(int i=0;i<12;i++){java.io.File out=new java.io.File(dir,f[i]+".flac");
+                if(!out.isFile()){try(java.io.InputStream in=getAssets().open(f[i]+".flac");java.io.FileOutputStream os=new java.io.FileOutputStream(out)){byte[] b=new byte[65536];int n;while((n=in.read(b))>0)os.write(b,0,n);}}
+                final int pad=i;final String path=out.getAbsolutePath();runOnUiThread(()->{if(!padEngine.loaded(pad,true))padEngine.load(pad,path,true,f[pad].replace("_sharp","#"));});}
+            runOnUiThread(()->{if(screen!=null)screen.postInvalidate();});}catch(Exception ignored){}});
+        worker.setPriority(Thread.MIN_PRIORITY);worker.start();
+    }
     private void openPadEditor(final int layer, final boolean continuous) {
         prepareLayerMotorReplacement(layer);
         if (padLayerIndex >= 0 && padLayerIndex != layer) deactivatePadLayer(padLayerIndex);
@@ -3339,7 +3348,7 @@ public final class MainActivity extends Activity {
             }
             if (tap && event.getY() > h*.09f && event.getY() < h*.145f && event.getX() > w*.69f) {
                 if (event.getX() < w*.768f) { liveSet = false; settings = false; padsMode = false; }
-                else if (event.getX() < w*.837f) { liveSet = false; settings = false; padsMode = true; MainActivity.this.closeDockedInspector(); if(!continuousPadActive&&padEngine!=null){padEngine.setEnabled(true,true);}applyPadStripAudio(); }
+                else if (event.getX() < w*.837f) { liveSet = false; settings = false; padsMode = true; MainActivity.this.closeDockedInspector(); MainActivity.this.ensureFactoryPads(); if(!continuousPadActive&&padEngine!=null){padEngine.setEnabled(true,true);}applyPadStripAudio(); }
                 else if (event.getX() < w*.912f) { liveSet = true; settings = false; }
                 else { settings = true; liveSet = false; }
                 invalidate(); return true;
