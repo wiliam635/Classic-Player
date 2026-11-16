@@ -117,6 +117,7 @@ std::atomic<int> midiQueueConsumerLockMisses {0};
 std::atomic<int> synthRealtimeLockMisses {0};
 std::atomic<int> midiQueueMaxWaitMicros {0};
 std::atomic<int> masterClippedBlocks {0};
+std::atomic<int> nordDiagActive {0}, nordDiagHeld {0}, nordDiagWaiting {0}, nordDiagPedal {0};
 
 uint64_t monotonicNanos()
 {
@@ -499,17 +500,21 @@ void sendAllNotesOff()
 extern "C" JNIEXPORT jintArray JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeMidiQueueDiagnostics(JNIEnv* env,jclass)
 {
-    const jint values[7]={
+    const jint values[11]={
         publishedMidiQueueDepth.load(std::memory_order_relaxed),
         midiQueueHighWater.load(std::memory_order_relaxed),
         midiQueueOverflows.load(std::memory_order_relaxed),
         midiQueueConsumerLockMisses.load(std::memory_order_relaxed),
         synthRealtimeLockMisses.load(std::memory_order_relaxed),
         midiQueueMaxWaitMicros.load(std::memory_order_relaxed),
-        masterClippedBlocks.load(std::memory_order_relaxed)
+        masterClippedBlocks.load(std::memory_order_relaxed),
+        nordDiagActive.load(std::memory_order_relaxed),
+        nordDiagHeld.load(std::memory_order_relaxed),
+        nordDiagWaiting.load(std::memory_order_relaxed),
+        nordDiagPedal.load(std::memory_order_relaxed)
     };
-    auto result=env->NewIntArray(7);
-    if(result)env->SetIntArrayRegion(result,0,7,values);
+    auto result=env->NewIntArray(11);
+    if(result)env->SetIntArrayRegion(result,0,11,values);
     return result;
 }
 
@@ -1322,9 +1327,14 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
         const bool originalSf2=engineTypes[li]==EngineType::sf2&&sf2OriginalSound[li];
         std::memset(scratch.data(), 0, (size_t) samples * sizeof(float));
         if(engineTypes[(size_t)layer]==EngineType::sf2 && font!=nullptr) tsf_render_float(font, scratch.data(), frames, TSF_FALSE);
-        else if(engineTypes[li]==EngineType::nord)
+        else if(engineTypes[li]==EngineType::nord){
             nord_android::render(nordLayers[li],scratch.data(),frames,kSampleRate,
                     layerVoiceBudgets[li],layerAttack[li],layerDecayMs[li],layerSustainPercent[li]);
+            int active=0,held=0,waiting=0;
+            for(const auto& v:nordLayers[li].voices)if(v.active){++active;if(v.keyDown)++held;if(v.waitingForSustain)++waiting;}
+            nordDiagActive.store(active,std::memory_order_relaxed);nordDiagHeld.store(held,std::memory_order_relaxed);
+            nordDiagWaiting.store(waiting,std::memory_order_relaxed);nordDiagPedal.store(sustainDown[0]?1:0,std::memory_order_relaxed);
+        }
         else if(engineTypes[(size_t)layer]==EngineType::dx7) {
             auto& dx=dxLayers[(size_t)layer];
             // Traverse the voice pool once per block instead of once per
