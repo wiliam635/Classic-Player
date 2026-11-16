@@ -1316,7 +1316,7 @@ public final class MainActivity extends Activity {
     private void applyNordOptions(int layer){
         if(audioEngine==null)return;SharedPreferences p=getSharedPreferences("layers",MODE_PRIVATE);
         audioEngine.setNordEqMode(layer,p.getInt("nord_eq_mode_"+layer,1));
-        audioEngine.setNordOptions(layer,p.getInt("nord_dyn_"+layer,0),p.getBoolean("nord_soft_"+layer,false),p.getBoolean("nord_refl_"+layer,false),p.getFloat("nord_decay_"+layer,15f));
+        audioEngine.setNordOptions(layer,p.getInt("nord_dyn_"+layer,0),p.getBoolean("nord_soft_"+layer,false),false,p.getFloat("nord_decay_"+layer,15f));
     }
     private String restoreLayerMotorRaw(int layer,int engine){
         if(audioEngine==null)return null;
@@ -1955,7 +1955,6 @@ public final class MainActivity extends Activity {
         LinearLayout opts=EditorUi.gridRow(card);
         EditorUi.selectorCell(opts,"DYN COMP",new String[]{"OFF","1","2","3"},p.getInt("nord_dyn_"+layer,0),i->{p.edit().putInt("nord_dyn_"+layer,i).apply();applyNordOptions(layer);});
         segmented(opts,"SOFT REL",new String[]{"NAO","SIM"},p.getBoolean("nord_soft_"+layer,false)?1:0,i->{p.edit().putBoolean("nord_soft_"+layer,i==1).apply();applyNordOptions(layer);});
-        segmented(opts,"REFLEXOES",new String[]{"NAO","SIM"},p.getBoolean("nord_refl_"+layer,false)?1:0,i->{p.edit().putBoolean("nord_refl_"+layer,i==1).apply();applyNordOptions(layer);});
         final float[] decays={4f,8f,12f,15f};float curDecay=p.getFloat("nord_decay_"+layer,15f);int decayIdx=3;for(int d=0;d<decays.length;d++)if(Math.abs(decays[d]-curDecay)<.5f)decayIdx=d;
         EditorUi.selectorCell(opts,"CAUDA NPNO",new String[]{"CURTA 4s","MEDIA 8s","LONGA 12s","ORIGINAL 15s"},decayIdx,i->{p.edit().putFloat("nord_decay_"+layer,decays[i]).apply();applyNordOptions(layer);});
         acts.removeAllViews();
