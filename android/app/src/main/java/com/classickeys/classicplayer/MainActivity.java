@@ -1906,18 +1906,55 @@ public final class MainActivity extends Activity {
         panel.show();
     }
 
+
+    /** Desktop faceplate (red NPNO / blue SF2) with LCD, plus the Nord library card. */
+    private void buildEngineFaceplate(final int layer,final EditorUi.Panel panel,String engine,LinearLayout body,String[] items,int selected,
+                                      PresetSelection selection,String secondaryLabel,Runnable secondaryAction){
+        SharedPreferences p=getSharedPreferences("layers",MODE_PRIVATE);
+        final boolean nord="NPNO".equals(engine);
+        String category=p.getString("nord_browser_category_"+layer,p.getString("nord_category_"+layer,NORD_CATEGORIES[0]));
+        String name=screen.layerNames[layer]==null?"":screen.layerNames[layer];
+        boolean loaded=!name.isEmpty()&&!name.toLowerCase(java.util.Locale.ROOT).contains("sem soundfont");
+        String section=nord?(category.startsWith("Piano Ac")?"PIANO":category.startsWith("Piano El")?"E-PIANO":category.startsWith("Piano DX")?"DX PIANO":category.startsWith("Org")?"ORGAN":"SAMPLE"):"SF2";
+        String preset=screen.presetNames[layer]==null?"":screen.presetNames[layer];
+        EditorUi.Faceplate plate=new EditorUi.Faceplate(this,nord?0xffb01f2c:0xff1f5fa8,section,nord?"SECTION":"SOUNDFONT",loaded,loaded?"LOADED":"EMPTY","LAYER "+(layer+1),
+                nord?"PIANO · NPNO":"SOUNDFONT",loaded?name:(nord?"Nenhum NPNO carregado":"Nenhum SoundFont carregado"),
+                loaded?(nord?category:(preset.isEmpty()?"Escolha o preset abaixo":preset)):"Escolha na biblioteca abaixo");
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(EditorUi.dp(this,3),EditorUi.dp(this,6),EditorUi.dp(this,3),EditorUi.dp(this,4));body.addView(plate,lp);
+        if(!nord)return;
+        LinearLayout holder=new LinearLayout(this);body.addView(holder,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout card=desktopBox("BIBLIOTECA NPNO",holder);
+        LinearLayout top=new LinearLayout(this);card.addView(top,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout sel=new LinearLayout(this);top.addView(sel,new LinearLayout.LayoutParams(0,-2,1));
+        EditorUi.selector(sel,"CATEGORIA",NORD_CATEGORIES,Math.max(0,java.util.Arrays.asList(NORD_CATEGORIES).indexOf(category)),which->{
+            p.edit().putString("nord_browser_category_"+layer,NORD_CATEGORIES[which]).apply();
+            renderLayerEditorPage(layer,panel,0,items,selected,selection,secondaryLabel,secondaryAction);});
+        final String cat=category;
+        File[] files=nordDirectory(category).listFiles((dir,n)->n.toLowerCase(java.util.Locale.ROOT).endsWith(".npno"));
+        if(files==null)files=new File[0];java.util.Arrays.sort(files,(a,b)->a.getName().compareToIgnoreCase(b.getName()));
+        String[] names=new String[files.length];int cur=0;String current=p.getString("npno_"+layer,"");
+        for(int i=0;i<files.length;++i){names[i]=files[i].getName().replaceFirst("(?i)\\.npno$","");if(files[i].getAbsolutePath().equals(current))cur=i;}
+        final File[] library=files;
+        if(files.length>0)EditorUi.selector(sel,"BIBLIOTECA NPNO",names,cur,which->{panel.dialog.dismiss();loadNordLibraryFile(layer,library[which],cat,false);});
+        else sel.addView(EditorUi.label(this,"Nenhum NPNO nesta categoria.",11));
+        LinearLayout acts=EditorUi.gridRow(card);EditorUi.addButton(acts,"IMPORTAR NPNO",()->{panel.dialog.dismiss();openNordPicker(layer,cat);});
+        LinearLayout eqHolder=new LinearLayout(this);card.addView(eqHolder,new LinearLayout.LayoutParams(-1,-2));
+        segmented(eqHolder,"EQ",new String[]{"SOFT","MID","BRIGHT"},p.getInt("nord_eq_mode_"+layer,1),which->{p.edit().putInt("nord_eq_mode_"+layer,which).apply();if(audioEngine!=null)audioEngine.setNordEqMode(layer,which);});
+    }
     private void renderLayerEditorPage(final int layer,EditorUi.Panel panel,int page,String[] items,int selected,
                                        PresetSelection selection,String secondaryLabel,Runnable secondaryAction){
         LinearLayout body=panel.body;body.removeAllViews();java.util.Arrays.fill(layerMidiKnobs[layer],null);String engine=screen.engineName(layer);boolean analog=engine.equals("ANALOG");int controlsPage=analog?2:1,effectsPage=analog?3:2,midiPage=analog?4:3;SharedPreferences prefs=getSharedPreferences("layers",MODE_PRIVATE);
         if(page==0){
+            final boolean plate=panel.docked&&("SF2".equals(engine)||"NPNO".equals(engine));
+            if(plate)buildEngineFaceplate(layer,panel,engine,body,items,selected,selection,secondaryLabel,secondaryAction);
             if("DX7".equals(engine)){
                 String path=prefs.getString("dx7_"+layer,"");boolean first=path.endsWith("_"+R.raw.dx7_bank_1+".syx"),second=path.endsWith("_"+R.raw.dx7_bank_2+".syx");
                 String[] banks=first||second?new String[]{"Divine Masquerade 1","Divine Masquerade 2"}:new String[]{"Divine Masquerade 1","Divine Masquerade 2",prefs.getString("name_"+layer,"Banco importado")};
                 EditorUi.selector(body,"BANCO DX7",banks,first?0:second?1:2,which->{if(which<2){panel.dialog.dismiss();activateBundledDx7(layer,which==0?R.raw.dx7_bank_1:R.raw.dx7_bank_2,which==0?"Divine Masquerade 1":"Divine Masquerade 2");openDx7Editor(layer);}});
-            }else if("SF2".equals(engine)){
+            }else if("SF2".equals(engine)&&!plate){
                 TextView loaded=EditorUi.label(this,screen.layerNames[layer],11);loaded.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);loaded.setSingleLine(true);loaded.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);body.addView(loaded,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,22)));
             }
-            EditorUi.selector(body,"TIMBRE",items,selected,which->{selection.apply(which);if(analog)renderLayerEditorPage(layer,panel,page,items,which,selection,secondaryLabel,secondaryAction);});
+            if(!(plate&&"NPNO".equals(engine)))EditorUi.selector(body,"TIMBRE",items,selected,which->{selection.apply(which);if(analog)renderLayerEditorPage(layer,panel,page,items,which,selection,secondaryLabel,secondaryAction);});
             LinearLayout source=EditorUi.gridRow(body);if(secondaryLabel!=null)EditorUi.addButton(source,secondaryLabel,()->{panel.dialog.dismiss();secondaryAction.run();});if(secondaryLabel==null||!secondaryLabel.equals("TROCAR MOTOR"))EditorUi.addButton(source,"TROCAR MOTOR",()->{panel.dialog.dismiss();panicAndChooseLayerSource(layer);});
             if("HAMMOND".equals(engine))buildHammondControls(layer,body);
             if(analog)buildAnalogOscillatorControls(layer,body);
@@ -1927,7 +1964,7 @@ public final class MainActivity extends Activity {
                 while(presets.getChildCount()>0){View b=presets.getChildAt(0);presets.removeViewAt(0);source.addView(b);}
                 body.removeView(presets);
             }
-            if("NPNO".equals(engine)){
+            if("NPNO".equals(engine)&&!plate){
                 int eqMode=prefs.getInt("nord_eq_mode_"+layer,1);
                 EditorUi.selector(body,"EQUALIZER",new String[]{"SOFT","MID","BRIGHT"},eqMode,which->{
                     prefs.edit().putInt("nord_eq_mode_"+layer,which).apply();

@@ -289,4 +289,32 @@ final class EditorUi {
             c.drawText("força da tecla",(l+r)/2f,h-dp(getContext(),7),p);p.setTextAlign(Paint.Align.RIGHT);c.drawText("127",l-dp(getContext(),4),t+dp(getContext(),4),p);c.drawText("1",l-dp(getContext(),4),b,p);
         }
     }
+
+    /** Desktop-style engine faceplate: coloured plate on the left, black LCD on the right. */
+    static final class Faceplate extends View {
+        private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final int colour;private final String title,section,state,layerText,lcdCaption,lcdTitle,lcdSub;private final boolean loaded;
+        Faceplate(Context c,int colour,String title,String section,boolean loaded,String state,String layerText,String lcdCaption,String lcdTitle,String lcdSub){
+            super(c);this.colour=colour;this.title=title;this.section=section;this.loaded=loaded;this.state=state;this.layerText=layerText;this.lcdCaption=lcdCaption;this.lcdTitle=lcdTitle;this.lcdSub=lcdSub;}
+        @Override protected void onMeasure(int w,int h){setMeasuredDimension(MeasureSpec.getSize(w),dp(getContext(),88));}
+        @Override protected void onDraw(Canvas cv){
+            float w=getWidth(),h=getHeight(),r=dp(getContext(),6);float d=dp(getContext(),1);
+            p.setStyle(Paint.Style.FILL);p.setColor(0xff111722);cv.drawRoundRect(0,0,w,h,r,r,p);
+            p.setColor(colour);cv.drawRoundRect(d*2,d*2,w-d*2,h-d*2,r,r,p);
+            float split=Math.max(dp(getContext(),190),w*.30f);
+            p.setColor(0xffffffff);p.setFakeBoldText(true);p.setTextSize(dp(getContext(),20));cv.drawText(title,dp(getContext(),16),dp(getContext(),32),p);
+            p.setFakeBoldText(false);p.setTextSize(dp(getContext(),10));p.setColor(0xddffffff);cv.drawText(section,dp(getContext(),16),dp(getContext(),48),p);
+            p.setColor(loaded?0xff39d98a:0xff1b2a3a);cv.drawCircle(dp(getContext(),21),dp(getContext(),63),dp(getContext(),4),p);
+            p.setColor(0xddffffff);p.setTextSize(dp(getContext(),9));cv.drawText(state,dp(getContext(),32),dp(getContext(),66),p);
+            cv.drawText(layerText,dp(getContext(),16),dp(getContext(),80),p);
+            float lx=split,lt=dp(getContext(),9),lr=w-dp(getContext(),9),lb=h-dp(getContext(),9);
+            p.setColor(0xff0b0e13);cv.drawRoundRect(lx,lt,lr,lb,r,r,p);
+            p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(d);p.setColor(0xff2a3342);cv.drawRoundRect(lx,lt,lr,lb,r,r,p);p.setStyle(Paint.Style.FILL);
+            p.setColor(0xff9aa6b8);p.setTextSize(dp(getContext(),9));cv.drawText(lcdCaption,lx+dp(getContext(),14),lt+dp(getContext(),18),p);
+            p.setColor(0xffffffff);p.setFakeBoldText(true);p.setTextSize(dp(getContext(),18));
+            String t=lcdTitle;float maxW=lr-lx-dp(getContext(),28);while(t.length()>3&&p.measureText(t)>maxW)t=t.substring(0,t.length()-2);if(!t.equals(lcdTitle))t+="…";
+            cv.drawText(t,lx+dp(getContext(),14),lt+dp(getContext(),44),p);
+            p.setFakeBoldText(false);p.setColor(0xff7c889b);p.setTextSize(dp(getContext(),10));cv.drawText(lcdSub,lx+dp(getContext(),14),lt+dp(getContext(),60),p);
+        }
+    }
 }
