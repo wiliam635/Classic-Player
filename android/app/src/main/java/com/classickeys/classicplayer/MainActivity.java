@@ -1188,7 +1188,7 @@ public final class MainActivity extends Activity {
     private void setMixerRightInset(int px){
         screen.setDockInset(px);
         EditorUi.Panel.dockTop=Math.round(screen.getHeight()*.15f);
-        EditorUi.Panel.dockHeight=Math.round(screen.getHeight()*.865f)-EditorUi.Panel.dockTop;
+        EditorUi.Panel.dockHeight=Math.round(screen.getHeight()*(screen.padsOn()?.775f:.865f))-EditorUi.Panel.dockTop;
     }
     private void openLayerEditor(int layer) {
         if (screen.muted[layer]) { screen.setAudioStatus("DESMUTE A LAYER "+(layer+1)+" PARA EDITAR O MOTOR"); return; }
@@ -2528,6 +2528,7 @@ public final class MainActivity extends Activity {
         // Desktop builds open directly on the mixer; keep the same workflow on Android.
         private boolean liveSet = false;
         private boolean padsMode = false;
+        boolean padsOn(){return padsMode&&!liveSet&&!settings;}
         private int stripPad=-1;private float padVolume=.8f,padCutoff=1f;private int stripDrag=0;
         private float cardFrac(){return padsMode&&!liveSet&&!settings?.60f:.76f;}
         private final int[] STRIP_COLOURS={0xff1e90ff,0xffb44cff,0xffff4d6d,0xffffa033,0xff1ec88a,0xffffd23f,0xff1bd0e0,0xfff0559a,0xff7a8cff,0xffff7a50,0xff7ed957,0xffa77be8};
@@ -2877,7 +2878,7 @@ public final class MainActivity extends Activity {
 
             if (!liveSet) {
                 drawMixer(canvas, w-dockInset, h, text, teal, panel);
-                if(padsMode&&!settings)drawPadStrip(canvas,w-dockInset,h,text);
+                if(padsMode&&!settings)drawPadStrip(canvas,w,h,text);
                 return;
             }
             final float tabTop = h * .14f, tabs = w / 8f;
@@ -3148,7 +3149,7 @@ public final class MainActivity extends Activity {
             }
             if(tap&&mixerScrollGesture){mixerScrollCandidate=false;mixerScrollGesture=false;return true;}
             if(tap)mixerScrollCandidate=false;
-            if(padsMode&&!liveSet&&!settings&&padEngine!=null&&stripTouch(event,mw,h))return true;
+            if(padsMode&&!liveSet&&!settings&&padEngine!=null&&stripTouch(event,w,h))return true;
             final boolean dragging=action==MotionEvent.ACTION_MOVE||tap;
             if (tap && !liveSet && !settings && event.getY() > h*.09f && event.getY() < h*.145f
                     && event.getX() >= w*.59f && event.getX() < w*.69f) {
@@ -3158,7 +3159,7 @@ public final class MainActivity extends Activity {
             }
             if (tap && event.getY() > h*.09f && event.getY() < h*.145f && event.getX() > w*.69f) {
                 if (event.getX() < w*.768f) { liveSet = false; settings = false; padsMode = false; }
-                else if (event.getX() < w*.837f) { liveSet = false; settings = false; padsMode = true; if(!continuousPadActive&&padEngine!=null){padEngine.setEnabled(true,true);}applyPadStripAudio(); }
+                else if (event.getX() < w*.837f) { liveSet = false; settings = false; padsMode = true; MainActivity.this.closeDockedInspector(); if(!continuousPadActive&&padEngine!=null){padEngine.setEnabled(true,true);}applyPadStripAudio(); }
                 else if (event.getX() < w*.912f) { liveSet = true; settings = false; }
                 else { settings = true; liveSet = false; }
                 invalidate(); return true;

@@ -73,6 +73,7 @@ public class InspectorScreenshotTest {
             float density = context.getResources().getDisplayMetrics().density;
             float h = content.getHeight();
             float cw = content.getWidth();
+            clickText("FECHAR"); Thread.sleep(800);
             tap(at[0] + cw * .80f, at[1] + h * .12f); // PADS
             Thread.sleep(4000);
             shot("pads-0-strip.png", dir);
