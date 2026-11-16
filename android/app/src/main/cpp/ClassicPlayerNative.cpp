@@ -266,6 +266,9 @@ struct AnalogLayer {
     std::array<AnalogVoice,kVoicePoolCapacity> voices {};
     float modWheel=0.0f;
     bool pinkNoise=false,monophonic=false;
+    // Filter ADSR + glide. Defaults reproduce the earlier fixed behaviour exactly:
+    // attack 0, sustain 0 and a decay of twice the amp decay (-1 = automatic).
+    float filterAttackMs=0.0f,filterDecayMs=-1.0f,filterSustainPercent=0.0f,glideMs=0.0f;
 };
 std::array<AnalogLayer,kLayerCount> analogLayers {};
 constexpr std::array<const char*,32> analogNames {
@@ -416,7 +419,7 @@ float analogWave(int type,double phase)
 {
     phase-=std::floor(phase);
     switch(type){case 0:return (float)(1.0-4.0*std::abs(phase-.5));case 1:return (float)(2.0*phase-1.0);
-        case 2:return phase<.5?1.0f:-1.0f;case 3:return phase<.25?1.0f:-1.0f;default:return (float)std::sin(phase*6.28318530718);}
+        case 2:return phase<.5?1.0f:-1.0f;case 3:return phase<.25?1.0f:-1.0f;case 5:return (float)(1.0-2.0*phase);default:return (float)std::sin(phase*6.28318530718);}
 }
 
 void initialiseDx()
@@ -766,16 +769,20 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetAnalogPreset(JNIEnv*
 extern "C" JNIEXPORT void JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetAnalogControls(JNIEnv* env,jclass,jint layer,jfloatArray values,jintArray flags)
 {
-    if(layer<0||layer>=kLayerCount||values==nullptr||flags==nullptr||env->GetArrayLength(values)<20||env->GetArrayLength(flags)<8)return;
-    jfloat controls[20]{};jint options[8]{};env->GetFloatArrayRegion(values,0,20,controls);env->GetIntArrayRegion(flags,0,8,options);
+    if(layer<0||layer>=kLayerCount||values==nullptr||flags==nullptr||env->GetArrayLength(values)<24||env->GetArrayLength(flags)<8)return;
+    jfloat controls[24]{};jint options[8]{};env->GetFloatArrayRegion(values,0,24,controls);env->GetIntArrayRegion(flags,0,8,options);
     std::lock_guard<std::mutex> lock(synthMutex);auto& analog=analogLayers[(size_t)layer];
     constexpr float minimum[19]={0,0,0,-24,-24,0,0,0,0,1,1,0,1,.05f,0,0,0,0,0};
     constexpr float maximum[19]={100,100,100,24,24,100,100,100,100,2000,5000,100,5000,20,12,100,100,100,100};
     for(int i=0;i<19;++i)analog.controls[(size_t)i]=std::clamp((float)controls[i],minimum[i],maximum[i]);
     analog.oscillator1Semitones=std::clamp((float)controls[19],-24.0f,24.0f);
-    for(int i=0;i<3;++i)analog.waves[(size_t)i]=std::clamp((int)options[i],0,4);
+    for(int i=0;i<3;++i)analog.waves[(size_t)i]=std::clamp((int)options[i],0,5);
     for(int i=0;i<3;++i)analog.oscillatorEnabled[(size_t)i]=options[i+3]!=0;
     analog.pinkNoise=options[6]!=0;analog.monophonic=options[7]!=0;
+    analog.filterAttackMs=std::clamp((float)controls[20],0.0f,2000.0f);
+    analog.filterDecayMs=controls[21]<=0.0f?-1.0f:std::clamp((float)controls[21],1.0f,5000.0f);
+    analog.filterSustainPercent=std::clamp((float)controls[22],0.0f,100.0f);
+    analog.glideMs=std::clamp((float)controls[23],0.0f,2000.0f);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -1075,7 +1082,7 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
             for(int i=0;i<voiceBudget;++i)if(!analog.voices[(size_t)i].active){target=&analog.voices[(size_t)i];break;}
             if(target==nullptr){target=&analog.voices[0];for(int i=1;i<voiceBudget;++i){auto& voice=analog.voices[(size_t)i];if((voice.releasing&&!target->releasing)||(voice.releasing==target->releasing&&voice.age>target->age))target=&voice;}}
             *target={}; target->active=true; target->note=routedNote; target->channel=midiChannel;
-            target->pitch=(layerMidiMode[li]==2&&hasPriorAnalog)?priorAnalogPitch:routedNote;
+            target->pitch=((layerMidiMode[li]==2||analog.glideMs>0.0f)&&hasPriorAnalog)?priorAnalogPitch:routedNote;
             const float semitones[3]={analog.oscillator1Semitones,analog.controls[3],analog.controls[4]};
             for(int osc=0;osc<3;++osc){const double tune=std::pow(2.0,(double)semitones[osc]/12.0);target->targetIncrement[(size_t)osc]=(float)(440.0*std::pow(2.0,(double)(routedNote-69)/12.0)*tune/kSampleRate);target->increment[(size_t)osc]=(float)(440.0*std::pow(2.0,(target->pitch-69.0)/12.0)*tune/kSampleRate);}
         }
@@ -1429,21 +1436,28 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
             const float releaseFactor=std::exp(-1.0f/(releaseMs*.001f*kSampleRate)),sustain=control[11]*.01f;
             const float baseCutoff=25.0f*std::pow(700.0f,control[6]*.01f),resonance=std::min(.82f,control[7]*.008f),drive=control[16]*.06f;
             const float lfoStep=6.28318530718f*control[13]/kSampleRate;
-            const float filterDecay=std::exp(-1.0f/(std::max(1.0f,decaySamples)*2.0f));
+            const float filterAttackSamples=analog.filterAttackMs*.001f*kSampleRate;
+            const float filterDecaySamples=analog.filterDecayMs>0.0f?analog.filterDecayMs*.001f*kSampleRate:decaySamples*2.0f;
+            const float filterDecay=std::exp(-1.0f/std::max(1.0f,filterDecaySamples));
+            const float filterSustain=analog.filterSustainPercent*.01f;
+            const bool glideActive=layerMidiMode[li]==2||analog.glideMs>0.0f;
+            const float glideCoefficient=analog.glideMs>0.0f?1.0f-std::exp(-1.0f/std::max(1.0f,analog.glideMs*.001f*kSampleRate)):.0008f;
             for(int voiceIndex=0;voiceIndex<layerVoiceBudgets[li];++voiceIndex){
                 auto& voice=analog.voices[(size_t)voiceIndex];
                 if(!voice.active)continue;
                 for(int sample=0;sample<frames;++sample){
                     if(++voice.age>kInternalVoiceSafetySamples){voice={};break;}
-                    if(layerMidiMode[li]==2)for(int osc=0;osc<3;++osc)voice.increment[(size_t)osc]+=(voice.targetIncrement[(size_t)osc]-voice.increment[(size_t)osc])*.0008f;
+                    if(glideActive)for(int osc=0;osc<3;++osc)voice.increment[(size_t)osc]+=(voice.targetIncrement[(size_t)osc]-voice.increment[(size_t)osc])*glideCoefficient;
                     if(voice.releasing)voice.envelope*=releaseFactor;
                     else if((float)voice.age<attackSamples)voice.envelope=std::min(1.0f,(float)voice.age/attackSamples);
                     else if((float)voice.age<attackSamples+decaySamples)voice.envelope=1.0f-(1.0f-sustain)*((float)voice.age-attackSamples)/decaySamples;
                     else voice.envelope=sustain;
                     if(voice.envelope<.00015f){voice={};break;}
                     voice.lfoPhase+=lfoStep;if(voice.lfoPhase>=6.28318530718)voice.lfoPhase-=6.28318530718;
+                    if(filterAttackSamples>1.0f&&voice.age==1)voice.filterEnvelope=0.0f;
                     const float lfo=(float)std::sin(voice.lfoPhase),filterEnvelope=voice.filterEnvelope;
-                    voice.filterEnvelope*=filterDecay;
+                    if(filterAttackSamples>1.0f&&(float)voice.age<=filterAttackSamples)voice.filterEnvelope=(float)voice.age/filterAttackSamples;
+                    else voice.filterEnvelope=filterSustain+(voice.filterEnvelope-filterSustain)*filterDecay;
                     float mixed=0.0f,total=0.0f;
                     for(int osc=0;osc<3;++osc){if(!analog.oscillatorEnabled[(size_t)osc])continue;voice.phase[(size_t)osc]+=voice.increment[(size_t)osc];if(voice.phase[(size_t)osc]>=1.0)voice.phase[(size_t)osc]-=std::floor(voice.phase[(size_t)osc]);const float level=control[osc]*.01f;mixed+=analogWave(analog.waves[(size_t)osc],voice.phase[(size_t)osc])*level;total+=level;}
                     if(control[5]>0.01f){voice.noiseState^=voice.noiseState<<13;voice.noiseState^=voice.noiseState>>17;voice.noiseState^=voice.noiseState<<5;const float white=(float)(voice.noiseState&0xffff)/32767.5f-1.0f;float noise=white;if(analog.pinkNoise){voice.pinkState+=(white-voice.pinkState)*.045f;noise=voice.pinkState*2.5f;}mixed+=noise*control[5]*.0018f;}

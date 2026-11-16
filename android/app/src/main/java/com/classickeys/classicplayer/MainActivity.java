@@ -1908,10 +1908,12 @@ public final class MainActivity extends Activity {
                                   PresetSelection selection,String secondaryLabel,Runnable secondaryAction) {
         if(layer>=0&&layer<6&&dockedInspector==null){dockedLayer=layer;EditorUi.Panel.dockNext=true;}
         EditorUi.Panel panel=new EditorUi.Panel(this,title,subtitle);
-        final String[] tabNames=screen.engineName(layer).equals("ANALOG")?new String[]{"OSCILADORES","FILTRO / ADSR","CONTROLES","EFEITOS","MIDI"}:new String[]{"SOM","ENVELOPE","MIDI","EFEITOS","VELOCIDADE"};
         final boolean analogEngine=screen.engineName(layer).equals("ANALOG");
+        final boolean analogDocked=analogEngine&&panel.docked;
+        final String[] tabNames=analogDocked?new String[]{"SOM","MIDI","EFEITOS"}:analogEngine?new String[]{"OSCILADORES","FILTRO / ADSR","CONTROLES","EFEITOS","MIDI"}:new String[]{"SOM","ENVELOPE","MIDI","EFEITOS","VELOCIDADE"};
         class PageNav { void show(int page){panel.setTabs(tabNames,page,this::show);
-            if(analogEngine)renderLayerEditorPage(layer,panel,page,items,selected,selection,secondaryLabel,secondaryAction);
+            if(analogDocked){if(page==2)renderDesktopStylePage(layer,panel,3,items,selected,selection,secondaryLabel,secondaryAction);else renderLayerEditorPage(layer,panel,page==0?0:4,items,selected,selection,secondaryLabel,secondaryAction);}
+            else if(analogEngine)renderLayerEditorPage(layer,panel,page,items,selected,selection,secondaryLabel,secondaryAction);
             else renderDesktopStylePage(layer,panel,page,items,selected,selection,secondaryLabel,secondaryAction);} }
         PageNav nav=new PageNav();nav.show(0);
         EditorUi.addButton(panel.footer,"FECHAR",panel.dialog::dismiss);
@@ -2001,10 +2003,84 @@ public final class MainActivity extends Activity {
             new AlertDialog.Builder(this).setTitle("EXCLUIR SF2").setMessage("Apagar "+new File(current).getName()+" da biblioteca? Isso não pode ser desfeito.")
                 .setNegativeButton("CANCELAR",null).setPositiveButton("EXCLUIR",(d,w)->{panel.dialog.dismiss();clearLayer(layer);new File(current).delete();cats.edit().remove(new File(current).getName()).apply();screen.invalidate();}).show();});
     }
+
+    private LinearLayout moogSection(String title,LinearLayout parent){
+        LinearLayout box=EditorUi.column(this);box.setBackground(EditorUi.outlined(0xff10141a,0xff2a313c,1,this));
+        int pad=EditorUi.dp(this,6);box.setPadding(pad,pad,pad,pad);
+        TextView caption=EditorUi.label(this,title,9);caption.setGravity(Gravity.CENTER);caption.setTextColor(0xffd9a441);caption.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+        box.addView(caption,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,20)));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMargins(EditorUi.dp(this,3),0,EditorUi.dp(this,3),0);parent.addView(box,lp);return box;
+    }
+    private void moogRow(LinearLayout box,String[] labels,float[] mins,float[] maxs,String[] units,float[] values,java.util.function.BiConsumer<Integer,Float> set){
+        LinearLayout row=EditorUi.knobRow(box);
+        for(int i=0;i<labels.length;i++){final int index=i;EditorUi.knob(row,labels[i],values[i],mins[i],maxs[i],units[i],v->set.accept(index,v));}
+    }
+    /** Desktop Minimoog-style panel: oscillator bank, mixer, modifiers, output. */
+    private void buildMinimoogPanel(final int layer,final EditorUi.Panel panel,LinearLayout body,String[] items,int selected,PresetSelection selection){
+        final int l=layer;
+        LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);header.setBackground(EditorUi.background(0xff8a4a1f));
+        int hp=EditorUi.dp(this,8);header.setPadding(hp,hp/2,hp,hp/2);
+        TextView title=EditorUi.label(this,"CLASSIC KEYS ANALOG",12);title.setTextColor(0xfff2e6d6);title.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);title.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+        header.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout presetHost=new LinearLayout(this);header.addView(presetHost,new LinearLayout.LayoutParams(0,-2,2));
+        EditorUi.selectorCell(presetHost,"",items,selected,which->{selection.apply(which);renderLayerEditorPage(l,panel,0,items,which,selection,null,null);});
+        body.addView(header,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout inner=new LinearLayout(this);inner.setBackground(EditorUi.background(0xff171b21));int ip=EditorUi.dp(this,6);inner.setPadding(ip,ip,ip,ip);
+        body.addView(inner,new LinearLayout.LayoutParams(-1,-2));
+        final String[] shapes={"TRIANGLE","SAW","SQUARE","PULSE","SINE","REVERSE SAW"};
+        // OSCILLATOR BANK
+        LinearLayout bank=moogSection("OSCILLATOR BANK",inner);
+        final String[] tuneLabels={"OSC 1 RANGE","OSC 2 TUNE","OSC 3 TUNE"};
+        for(int osc=0;osc<3;osc++){
+            final int index=osc;
+            LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);bank.addView(line,new LinearLayout.LayoutParams(-1,-2));
+            LinearLayout k=new LinearLayout(this);line.addView(k,new LinearLayout.LayoutParams(0,-2,1));
+            if(osc==0)EditorUi.knob(k,tuneLabels[0],screen.analogOsc1Tune[l],-24,24," st",v->screen.setAnalogOsc1Tune(l,v));
+            else EditorUi.knob(k,tuneLabels[osc],screen.analogControls[l][osc+2],-24,24," st",v->screen.setAnalogControl(l,index+2,v));
+            LinearLayout right=EditorUi.column(this);line.addView(right,new LinearLayout.LayoutParams(0,-2,1));
+            EditorUi.selectorCell(EditorUi.gridRow(right),"OSC "+(osc+1),shapes,screen.analogWaves[l][osc],v->screen.setAnalogWave(l,index,v));
+            segmented(right,"",new String[]{"OFF","ON"},screen.analogOscillatorEnabled[l][osc]?1:0,v->screen.setAnalogOption(l,index,v==1));
+        }
+        // MIXER
+        LinearLayout mixer=moogSection("MIXER",inner);
+        moogRow(mixer,new String[]{"OSC 1 LEVEL","OSC 2 LEVEL"},new float[]{0,0},new float[]{100,100},new String[]{" %"," %"},new float[]{screen.analogControls[l][0],screen.analogControls[l][1]},(i,v)->screen.setAnalogControl(l,i,v));
+        moogRow(mixer,new String[]{"OSC 3 LEVEL","NOISE"},new float[]{0,0},new float[]{100,100},new String[]{" %"," %"},new float[]{screen.analogControls[l][2],screen.analogControls[l][5]},(i,v)->screen.setAnalogControl(l,i==0?2:5,v));
+        moogRow(mixer,new String[]{"DRIVE"},new float[]{0},new float[]{100},new String[]{" %"},new float[]{screen.analogControls[l][16]},(i,v)->screen.setAnalogControl(l,16,v));
+        segmented(mixer,"NOISE",new String[]{"WHITE","PINK"},screen.analogPinkNoise[l]?1:0,v->screen.setAnalogOption(l,3,v==1));
+        // MODIFIERS
+        LinearLayout mods=moogSection("MODIFIERS",inner);
+        moogRow(mods,new String[]{"EMPHASIS","CONTOUR AMT","KEY TRACK"},new float[]{0,0,0},new float[]{100,100,100},new String[]{" %"," %"," %"},new float[]{screen.analogControls[l][7],screen.analogControls[l][8],screen.analogControls[l][17]},(i,v)->screen.setAnalogControl(l,i==0?7:i==1?8:17,v));
+        final float autoDecay=screen.analogExtra[l][1]>0?screen.analogExtra[l][1]:screen.analogControls[l][10]*2f;
+        moogRow(mods,new String[]{"FLT ATTACK","FLT DECAY","FLT SUSTAIN"},new float[]{0,1,0},new float[]{2000,5000,100},new String[]{" ms"," ms"," %"},new float[]{screen.analogExtra[l][0],Math.min(5000f,autoDecay),screen.analogExtra[l][2]},(i,v)->screen.setAnalogExtra(l,i==0?0:i==1?1:2,v));
+        moogRow(mods,new String[]{"AMP DECAY","AMP SUSTAIN"},new float[]{1,0},new float[]{5000,100},new String[]{" ms"," %"},new float[]{screen.analogControls[l][10],screen.analogControls[l][11]},(i,v)->screen.setAnalogControl(l,i==0?10:11,v));
+        TextView hint=EditorUi.label(this,"CUTOFF, ATTACK e RELEASE: controles da camada, abaixo",8);hint.setTextColor(EditorUi.MUTED);mods.addView(hint,new LinearLayout.LayoutParams(-1,-2));
+        // OUTPUT
+        LinearLayout out=moogSection("OUTPUT",inner);
+        moogRow(out,new String[]{"LFO RATE","LFO PITCH"},new float[]{.05f,0},new float[]{20,12},new String[]{" Hz"," st"},new float[]{screen.analogControls[l][13],screen.analogControls[l][14]},(i,v)->screen.setAnalogControl(l,13+i,v));
+        moogRow(out,new String[]{"LFO FILTER","MOD WHEEL"},new float[]{0,0},new float[]{100,100},new String[]{" %"," %"},new float[]{screen.analogControls[l][15],screen.analogControls[l][18]},(i,v)->screen.setAnalogControl(l,15+i*3,v));
+        moogRow(out,new String[]{"GLIDE"},new float[]{0},new float[]{2000},new String[]{" ms"},new float[]{screen.analogExtra[l][3]},(i,v)->screen.setAnalogExtra(l,3,v));
+        segmented(out,"VOICES",new String[]{"POLI","MONO / LEGATO"},screen.analogMonophonic[l]?1:0,v->screen.setAnalogOption(l,4,v==1));
+        // presets row
+        LinearLayout presets=EditorUi.gridRow(body);EditorUi.addButton(presets,"EXPORTAR PRESET",()->exportLayerPreset(l));EditorUi.addButton(presets,"IMPORTAR PRESET",()->importLayerPreset(l));
+        // layer controls
+        LinearLayout wrap=new LinearLayout(this);body.addView(wrap,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout box=desktopBox("CONTROLES DA CAMADA",wrap);
+        LinearLayout row=EditorUi.knobRow(box);
+        layerMidiKnobs[l][0]=EditorUi.knob(row,"VOLUME",screen.layerVolumes[l]*100f,0,100," %",v->screen.setLearnedVolume(l,v/100f));
+        EditorUi.knob(row,"ATTACK ms",screen.analogControls[l][9],1,2000," ms",v->screen.setAnalogControl(l,9,v));
+        EditorUi.knob(row,"RELEASE ms",screen.analogControls[l][12],1,5000," ms",v->screen.setAnalogControl(l,12,v));
+        layerMidiKnobs[l][1]=EditorUi.knob(row,"CUTOFF",screen.analogControls[l][6],0,100," %",v->screen.setAnalogControl(l,6,v));
+        layerMidiKnobs[l][2]=EditorUi.knob(row,"REVERB",screen.layerReverb[l]*100f,0,100," %",v->screen.setLayerTone(l,screen.layerCutoff[l],v/100f,screen.layerCompMix[l],screen.layerChorus[l]));
+        layerMidiKnobs[l][3]=EditorUi.knob(row,"COMP",screen.layerCompMix[l]*100f,0,100," %",v->screen.setLayerTone(l,screen.layerCutoff[l],screen.layerReverb[l],v/100f,screen.layerChorus[l]));
+        Button modulation=EditorUi.button(this,"MODULATION DO TECLADO: "+(screen.modulationEnabled[l]?"ON":"OFF"),()->{});
+        modulation.setOnClickListener(v->{boolean enabled=!screen.modulationEnabled[l];screen.setLayerModulationEnabled(l,enabled);modulation.setText("MODULATION DO TECLADO: "+(enabled?"ON":"OFF"));});
+        body.addView(modulation,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,40)));
+    }
     private void renderLayerEditorPage(final int layer,EditorUi.Panel panel,int page,String[] items,int selected,
                                        PresetSelection selection,String secondaryLabel,Runnable secondaryAction){
         LinearLayout body=panel.body;body.removeAllViews();java.util.Arrays.fill(layerMidiKnobs[layer],null);String engine=screen.engineName(layer);boolean analog=engine.equals("ANALOG");int controlsPage=analog?2:1,effectsPage=analog?3:2,midiPage=analog?4:3;SharedPreferences prefs=getSharedPreferences("layers",MODE_PRIVATE);
         if(page==0){
+            if(analog&&panel.docked){buildMinimoogPanel(layer,panel,body,items,selected,selection);return;}
             final boolean plate=panel.docked&&("SF2".equals(engine)||"NPNO".equals(engine));
             if(plate)buildEngineFaceplate(layer,panel,engine,body,items,selected,selection,secondaryLabel,secondaryAction);
             if("DX7".equals(engine)){
@@ -2385,7 +2461,7 @@ public final class MainActivity extends Activity {
     }
 
     private void buildAnalogOscillatorControls(int layer,LinearLayout body){
-        final int l=layer;String[] shapes={"TRIANGLE","SAW","SQUARE","PULSE","SINE"};
+        final int l=layer;String[] shapes={"TRIANGLE","SAW","SQUARE","PULSE","SINE","REVERSE SAW"};
         LinearLayout waves=EditorUi.gridRow(body);for(int osc=0;osc<3;osc++){final int index=osc;EditorUi.selectorCell(waves,"OSC "+(osc+1)+" WAVE",shapes,screen.analogWaves[l][osc],v->screen.setAnalogWave(l,index,v));}
         LinearLayout enables=EditorUi.gridRow(body);for(int osc=0;osc<3;osc++){final int index=osc;EditorUi.selectorCell(enables,"OSC "+(osc+1),new String[]{"OFF","ON"},screen.analogOscillatorEnabled[l][osc]?1:0,v->screen.setAnalogOption(l,index,v==1));}
         LinearLayout levels=EditorUi.knobRow(body);for(int osc=0;osc<3;osc++){final int index=osc;EditorUi.knob(levels,"OSC "+(osc+1)+" LEVEL",screen.analogControls[l][osc],0,100," %",v->screen.setAnalogControl(l,index,v));}
@@ -2697,6 +2773,8 @@ public final class MainActivity extends Activity {
         // Analog editor: the same 19 desktop parameters plus oscillator
         // waveforms/enables, pink noise, and mono/poly mode.
         private final float[][] analogControls=new float[6][19];
+        /** Filter attack ms, filter decay ms (0 = automatic), filter sustain %, glide ms. */
+        final float[][] analogExtra=new float[6][4];
         private final float[] analogOsc1Tune=new float[6];
         private final int[][] analogWaves=new int[6][3];
         private final boolean[][] analogOscillatorEnabled=new boolean[6][3];
@@ -2746,6 +2824,7 @@ public final class MainActivity extends Activity {
             setAnalogPresetValues(i,p.getInt("analog_preset_"+i,0));
             for(int c=0;c<19;c++)analogControls[i][c]=p.getFloat("analog_control_"+i+"_"+c,analogControls[i][c]);
             analogOsc1Tune[i]=p.getFloat("analog_osc1_tune_"+i,analogOsc1Tune[i]);
+            for(int x=0;x<4;x++)analogExtra[i][x]=p.getFloat("analog_extra_"+i+"_"+x,0f);
             for(int osc=0;osc<3;osc++){analogWaves[i][osc]=p.getInt("analog_wave_"+i+"_"+osc,analogWaves[i][osc]);analogOscillatorEnabled[i][osc]=p.getBoolean("analog_enabled_"+i+"_"+osc,true);}
             analogPinkNoise[i]=p.getBoolean("analog_pink_"+i,analogPinkNoise[i]);analogMonophonic[i]=p.getBoolean("analog_mono_"+i,analogMonophonic[i]);
             routeChannel[i]=p.getInt("route_channel_"+i,-1);routeOctave[i]=p.getInt("route_octave_"+i,0);routeVelocity[i]=p.getInt("route_velocity_"+i,0);routeSustain[i]=p.getBoolean("route_sustain_"+i,true);routeMode[i]=p.getInt("route_mode_"+i,0);
@@ -2794,12 +2873,13 @@ public final class MainActivity extends Activity {
             AnalogPresetBank.apply(preset,analogControls[layer],analogWaves[layer],analogOscillatorEnabled[layer],pink,mono,osc1Tune);
             analogOsc1Tune[layer]=osc1Tune[0];analogPinkNoise[layer]=pink[0];analogMonophonic[layer]=mono[0];
         }
-        void setAnalogPresetDefaults(int layer,int preset){if(layer<0||layer>=6)return;setAnalogPresetValues(layer,preset);SharedPreferences.Editor p=getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("analog_preset_"+layer,preset).putFloat("analog_osc1_tune_"+layer,analogOsc1Tune[layer]).putBoolean("analog_pink_"+layer,analogPinkNoise[layer]).putBoolean("analog_mono_"+layer,analogMonophonic[layer]);for(int c=0;c<19;c++)p.putFloat("analog_control_"+layer+"_"+c,analogControls[layer][c]);for(int osc=0;osc<3;osc++)p.putInt("analog_wave_"+layer+"_"+osc,analogWaves[layer][osc]).putBoolean("analog_enabled_"+layer+"_"+osc,analogOscillatorEnabled[layer][osc]);p.apply();applyAnalog(layer);}
+        void setAnalogExtra(int layer,int index,float value){if(layer<0||layer>=6||index<0||index>=4)return;analogExtra[layer][index]=value;getSharedPreferences("layers",MODE_PRIVATE).edit().putFloat("analog_extra_"+layer+"_"+index,value).apply();applyAnalog(layer);}
+        void setAnalogPresetDefaults(int layer,int preset){if(layer<0||layer>=6)return;java.util.Arrays.fill(analogExtra[layer],0f);SharedPreferences.Editor ex=getSharedPreferences("layers",MODE_PRIVATE).edit();for(int x=0;x<4;x++)ex.putFloat("analog_extra_"+layer+"_"+x,0f);ex.apply();setAnalogPresetValues(layer,preset);SharedPreferences.Editor p=getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("analog_preset_"+layer,preset).putFloat("analog_osc1_tune_"+layer,analogOsc1Tune[layer]).putBoolean("analog_pink_"+layer,analogPinkNoise[layer]).putBoolean("analog_mono_"+layer,analogMonophonic[layer]);for(int c=0;c<19;c++)p.putFloat("analog_control_"+layer+"_"+c,analogControls[layer][c]);for(int osc=0;osc<3;osc++)p.putInt("analog_wave_"+layer+"_"+osc,analogWaves[layer][osc]).putBoolean("analog_enabled_"+layer+"_"+osc,analogOscillatorEnabled[layer][osc]);p.apply();applyAnalog(layer);}
         void setAnalogOsc1Tune(int layer,float value){if(layer<0||layer>=6)return;analogOsc1Tune[layer]=Math.max(-24,Math.min(24,value));getSharedPreferences("layers",MODE_PRIVATE).edit().putFloat("analog_osc1_tune_"+layer,analogOsc1Tune[layer]).apply();applyAnalog(layer);}
         void setAnalogControl(int layer,int control,float value){if(layer<0||layer>=6||control<0||control>=19)return;analogControls[layer][control]=value;getSharedPreferences("layers",MODE_PRIVATE).edit().putFloat("analog_control_"+layer+"_"+control,value).apply();applyAnalog(layer);}
         void setAnalogWave(int layer,int oscillator,int value){if(layer<0||layer>=6||oscillator<0||oscillator>=3)return;analogWaves[layer][oscillator]=value;getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("analog_wave_"+layer+"_"+oscillator,value).apply();applyAnalog(layer);}
         void setAnalogOption(int layer,int option,boolean value){if(layer<0||layer>=6)return;SharedPreferences.Editor p=getSharedPreferences("layers",MODE_PRIVATE).edit();if(option<3){analogOscillatorEnabled[layer][option]=value;p.putBoolean("analog_enabled_"+layer+"_"+option,value);}else if(option==3){analogPinkNoise[layer]=value;p.putBoolean("analog_pink_"+layer,value);}else{analogMonophonic[layer]=value;p.putBoolean("analog_mono_"+layer,value);}p.apply();applyAnalog(layer);}
-        private void applyAnalog(int layer){if(audioEngine!=null&&layer>=0&&layer<6){int[] flags=new int[8];for(int i=0;i<3;i++){flags[i]=analogWaves[layer][i];flags[i+3]=analogOscillatorEnabled[layer][i]?1:0;}flags[6]=analogPinkNoise[layer]?1:0;flags[7]=analogMonophonic[layer]?1:0;float[] controls=new float[20];System.arraycopy(analogControls[layer],0,controls,0,19);controls[19]=analogOsc1Tune[layer];audioEngine.setAnalogControls(layer,controls,flags);}}
+        private void applyAnalog(int layer){if(audioEngine!=null&&layer>=0&&layer<6){int[] flags=new int[8];for(int i=0;i<3;i++){flags[i]=analogWaves[layer][i];flags[i+3]=analogOscillatorEnabled[layer][i]?1:0;}flags[6]=analogPinkNoise[layer]?1:0;flags[7]=analogMonophonic[layer]?1:0;float[] controls=new float[24];System.arraycopy(analogControls[layer],0,controls,0,19);controls[19]=analogOsc1Tune[layer];System.arraycopy(analogExtra[layer],0,controls,20,4);audioEngine.setAnalogControls(layer,controls,flags);}}
         void setHammondPresetDefaults(int layer,int preset){final float[][] bars={{.8f,.5f,1f,.8f,.3f,.5f,.2f,.3f,.2f},{.5f,.3f,1f,.6f,.2f,.3f,.1f,.1f,0f},{1f,.8f,1f,.9f,.7f,.8f,.6f,.7f,.6f},{.3f,.2f,1f,.7f,.1f,.2f,0f,0f,0f},{1f,1f,1f,1f,1f,1f,1f,1f,1f},{1f,.7f,1f,.9f,.5f,.7f,.3f,.5f,.4f},{.5f,.4f,1f,.7f,.3f,.4f,.2f,.2f,.1f},{.8f,.6f,1f,.9f,.5f,.7f,.4f,.5f,.3f}};for(int b=0;b<9;b++)hammondBars[layer][b]=Math.round(bars[preset][b]*8);hammondLeslie[layer]=preset==7?2:preset==6?0:1;hammondPercussion[layer]=preset==3?1:0;persistHammond(layer);applyHammond(layer,true);}
         void setHammondBar(int layer,int bar,int value){hammondBars[layer][bar]=value;persistHammond(layer);applyHammond(layer);}
         void setHammondOption(int layer,boolean leslie,int value){if(leslie)hammondLeslie[layer]=value;else hammondPercussion[layer]=value;persistHammond(layer);applyHammond(layer,leslie);}

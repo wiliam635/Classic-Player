@@ -141,7 +141,7 @@ public class InspectorScreenshotTest {
             float density = context.getResources().getDisplayMetrics().density, h = content.getHeight();
             String[] names = {"DX7", "SF2", "ANALOG", "HAMMOND"};
             String[] normalTabs = {"SOM", "ENVELOPE", "MIDI", "EFEITOS", "VELOCIDADE"};
-            String[] analogTabs = {"OSCILADORES", "FILTRO / ADSR", "CONTROLES", "EFEITOS", "MIDI"};
+            String[] analogTabs = {"SOM", "MIDI", "EFEITOS"};
             for (int layer = 0; layer < 4; layer++) {
                 if (clickText("GOT IT")) Thread.sleep(800);
                 tap(at[0] + (18 + layer * 150 + 60) * density, at[1] + h * .17f + h * .16f + 24 * density);
