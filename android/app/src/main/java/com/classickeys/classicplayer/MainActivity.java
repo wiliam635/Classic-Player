@@ -1112,10 +1112,10 @@ public final class MainActivity extends Activity {
                     screen.setLearnedVolume(layer,.8f);screen.setLayerPan(layer,0f);
                     screen.setLayerTone(layer,100f,0f,0f,0f);
                     screen.setLayerEq(layer,0f,0f,0f,220f,1200f,4200f,.707f,1f,.707f,20f,20000f);
-                    save.putInt("nord_eq_mode_"+layer,1);
+                    save.putInt("nord_eq_mode_"+layer,-1);
                 }
                 save.apply();screen.applyLoadedEditorState(layer);
-                audioEngine.setNordEqMode(layer,getSharedPreferences("layers",MODE_PRIVATE).getInt("nord_eq_mode_"+layer,1));
+                audioEngine.setNordEqMode(layer,getSharedPreferences("layers",MODE_PRIVATE).getInt("nord_eq_mode_"+layer,-1));
                 screen.setAudioStatus("NPNO: "+name+" carregado");screen.invalidate();
             });
         });}catch(java.util.concurrent.RejectedExecutionException ex){screen.setAudioStatus("NPNO: importação indisponível");}
@@ -1312,10 +1312,10 @@ public final class MainActivity extends Activity {
         if(result!=null&&audioEngine!=null){applyLayerPolyphony(layer);if(engine==7)applyNordOptions(layer);}
         return result;
     }
-    private void applyLayerPolyphony(int layer){if(audioEngine!=null)audioEngine.setLayerPolyphony(layer,getSharedPreferences("layers",MODE_PRIVATE).getInt("poly_"+layer,0));}
+    private void applyLayerPolyphony(int layer){if(audioEngine!=null)audioEngine.setLayerPolyphony(layer,getSharedPreferences("layers",MODE_PRIVATE).getInt("poly_"+layer,128));}
     private void applyNordOptions(int layer){
         if(audioEngine==null)return;SharedPreferences p=getSharedPreferences("layers",MODE_PRIVATE);
-        audioEngine.setNordEqMode(layer,p.getInt("nord_eq_mode_"+layer,1));
+        audioEngine.setNordEqMode(layer,p.getInt("nord_eq_mode_"+layer,-1));
         audioEngine.setNordOptions(layer,p.getInt("nord_dyn_"+layer,0),p.getBoolean("nord_soft_"+layer,false),false,p.getFloat("nord_decay_"+layer,15f));
     }
     private String restoreLayerMotorRaw(int layer,int engine){
@@ -1353,7 +1353,7 @@ public final class MainActivity extends Activity {
             if(path==null)return null;
             String error=audioEngine.loadNord(layer,path,nordDecodedBudget(),nordFinite(category));
             if(error!=null)return null;
-            audioEngine.setNordEqMode(layer,prefs.getInt("nord_eq_mode_"+layer,1));
+            audioEngine.setNordEqMode(layer,prefs.getInt("nord_eq_mode_"+layer,-1));
             return prefs.getString("name_"+layer,new File(path).getName());
         }
         if(engine==3){
@@ -1554,7 +1554,7 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("SALVAR NO LIVE SET "+(slot+1)).setView(input)
                 .setPositiveButton("SALVAR",(d,w)->{
                     SharedPreferences layers=getSharedPreferences("layers",MODE_PRIVATE),live=getSharedPreferences("live_set",MODE_PRIVATE);SharedPreferences.Editor e=live.edit();
-                    String root="bank_"+bank+"_slot_"+slot;e.putInt(root+"_version",14).putFloat(root+"_master",screen.masterVolume);for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";e.putInt(p+"engine",layers.getInt("engine_"+layer,0));e.putString(p+"sf2",layers.getString("sf2_"+layer,null));e.putString(p+"dx7",layers.getString("dx7_"+layer,null));e.putString(p+"npno",layers.getString("npno_"+layer,null));e.putString(p+"nordCategory",layers.getString("nord_category_"+layer,NORD_CATEGORIES[0]));e.putInt(p+"nordEq",layers.getInt("nord_eq_mode_"+layer,1));e.putString(p+"name",layers.getString("name_"+layer,null));e.putInt(p+"preset",layers.getInt("preset_"+layer,0));e.putInt(p+"dx7_patch",layers.getInt("dx7_patch_"+layer,0));e.putInt(p+"analog",layers.getInt("analog_preset_"+layer,0));e.putInt(p+"hammond",layers.getInt("hammond_preset_"+layer,0));e.putFloat(p+"volume",screen.layerVolumes[layer]).putFloat(p+"pan",screen.layerPan[layer]).putBoolean(p+"muted",screen.muted[layer]).putBoolean(p+"solo",screen.solo[layer]).putBoolean(p+"modulation",screen.modulationEnabled[layer]);}
+                    String root="bank_"+bank+"_slot_"+slot;e.putInt(root+"_version",14).putFloat(root+"_master",screen.masterVolume);for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";e.putInt(p+"engine",layers.getInt("engine_"+layer,0));e.putString(p+"sf2",layers.getString("sf2_"+layer,null));e.putString(p+"dx7",layers.getString("dx7_"+layer,null));e.putString(p+"npno",layers.getString("npno_"+layer,null));e.putString(p+"nordCategory",layers.getString("nord_category_"+layer,NORD_CATEGORIES[0]));e.putInt(p+"nordEq",layers.getInt("nord_eq_mode_"+layer,-1));e.putString(p+"name",layers.getString("name_"+layer,null));e.putInt(p+"preset",layers.getInt("preset_"+layer,0));e.putInt(p+"dx7_patch",layers.getInt("dx7_patch_"+layer,0));e.putInt(p+"analog",layers.getInt("analog_preset_"+layer,0));e.putInt(p+"hammond",layers.getInt("hammond_preset_"+layer,0));e.putFloat(p+"volume",screen.layerVolumes[layer]).putFloat(p+"pan",screen.layerPan[layer]).putBoolean(p+"muted",screen.muted[layer]).putBoolean(p+"solo",screen.solo[layer]).putBoolean(p+"modulation",screen.modulationEnabled[layer]);}
                     SharedPreferences pads=getSharedPreferences("pads",MODE_PRIVATE);e.putFloat(root+"_pad_fade",pads.getFloat("crossfade_seconds",1f)).putInt(root+"_pad_stop_cc",pads.getInt("pad_stop_cc",-1));for(int pad=0;pad<12;pad++){e.putString(root+"_drum_pad_"+pad,pads.getString(padSampleKey(false,pad),null)).putString(root+"_continuous_pad_"+pad,pads.getString(padSampleKey(true,pad),null)).putString(root+"_drum_pad_name_"+pad,pads.getString(padNameKey(false,pad),null)).putString(root+"_continuous_pad_name_"+pad,pads.getString(padNameKey(true,pad),null)).putInt(root+"_pad_note_"+pad,pads.getInt("pad_note_"+pad,36+pad)).putInt(root+"_pad_cc_"+pad,pads.getInt("pad_cc_"+pad,-1));}
                     e.putInt(root+"_version",14).putFloat(root+"_reverb",screen.masterReverb).putFloat(root+"_chorus",screen.masterChorus);
                     SharedPreferences midiLearn=getSharedPreferences("midi_learn",MODE_PRIVATE);
@@ -1605,7 +1605,7 @@ public final class MainActivity extends Activity {
                 if(cc<0)learned.remove(key).remove("cc_channel_"+target);else learned.putInt(key,cc).putInt("cc_channel_"+target,channel);
             }
             learned.apply();}
-        for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";int savedEngine=live.getInt(p+"engine",0);e.putInt("engine_"+layer,savedEngine).putString("sf2_"+layer,live.getString(p+"sf2",null)).putString("dx7_"+layer,live.getString(p+"dx7",null)).putString("npno_"+layer,live.getString(p+"npno",null)).putString("nord_category_"+layer,live.getString(p+"nordCategory",NORD_CATEGORIES[0])).putInt("nord_eq_mode_"+layer,live.getInt(p+"nordEq",1)).putString("name_"+layer,live.getString(p+"name",null)).putInt("preset_"+layer,live.getInt(p+"preset",0)).putInt("dx7_patch_"+layer,live.getInt(p+"dx7_patch",0)).putInt("analog_preset_"+layer,live.getInt(p+"analog",0)).putInt("hammond_preset_"+layer,live.getInt(p+"hammond",0)).putBoolean("modulation_enabled_"+layer,version>=14?live.getBoolean(p+"modulation",savedEngine==4):savedEngine==4)
+        for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";int savedEngine=live.getInt(p+"engine",0);e.putInt("engine_"+layer,savedEngine).putString("sf2_"+layer,live.getString(p+"sf2",null)).putString("dx7_"+layer,live.getString(p+"dx7",null)).putString("npno_"+layer,live.getString(p+"npno",null)).putString("nord_category_"+layer,live.getString(p+"nordCategory",NORD_CATEGORIES[0])).putInt("nord_eq_mode_"+layer,live.getInt(p+"nordEq",-1)).putString("name_"+layer,live.getString(p+"name",null)).putInt("preset_"+layer,live.getInt(p+"preset",0)).putInt("dx7_patch_"+layer,live.getInt(p+"dx7_patch",0)).putInt("analog_preset_"+layer,live.getInt(p+"analog",0)).putInt("hammond_preset_"+layer,live.getInt(p+"hammond",0)).putBoolean("modulation_enabled_"+layer,version>=14?live.getBoolean(p+"modulation",savedEngine==4):savedEngine==4)
             .putFloat("control_volume_"+layer,live.getFloat(p+"volume",screen.layerVolumes[layer])).putFloat("control_pan_"+layer,live.getFloat(p+"pan",0)).putBoolean("muted_"+layer,live.getBoolean(p+"muted",false)).putBoolean("solo_"+layer,live.getBoolean(p+"solo",false))
             .putFloat("control_attack_"+layer,live.getFloat(p+"attack",screen.layerAttack[layer])).putFloat("control_release_"+layer,live.getFloat(p+"release",screen.layerRelease[layer]))
             .putFloat("eq_low_db_"+layer,version>=4?live.getFloat(p+"eqLow",screen.eqLow[layer]):(float)(20*Math.log10(Math.max(.125f,live.getFloat(p+"eqLow",1f)))))
@@ -1951,7 +1951,7 @@ public final class MainActivity extends Activity {
         else sel.addView(EditorUi.label(this,"Nenhum NPNO nesta categoria.",11));
         LinearLayout acts=EditorUi.gridRow(card);EditorUi.addButton(acts,"IMPORTAR NPNO",()->{panel.dialog.dismiss();openNordPicker(layer,cat);});
         LinearLayout eqHolder=new LinearLayout(this);card.addView(eqHolder,new LinearLayout.LayoutParams(-1,-2));
-        segmented(eqHolder,"EQ",new String[]{"OFF","SOFT","MID","BRIGHT"},p.getInt("nord_eq_mode_"+layer,1)+1,which->{p.edit().putInt("nord_eq_mode_"+layer,which-1).apply();if(audioEngine!=null)audioEngine.setNordEqMode(layer,which-1);});
+        segmented(eqHolder,"EQ",new String[]{"OFF","SOFT","MID","BRIGHT"},p.getInt("nord_eq_mode_"+layer,-1)+1,which->{p.edit().putInt("nord_eq_mode_"+layer,which-1).apply();if(audioEngine!=null)audioEngine.setNordEqMode(layer,which-1);});
         LinearLayout opts=EditorUi.gridRow(card);
         EditorUi.selectorCell(opts,"DYN COMP",new String[]{"OFF","1","2","3"},p.getInt("nord_dyn_"+layer,0),i->{p.edit().putInt("nord_dyn_"+layer,i).apply();applyNordOptions(layer);});
         segmented(opts,"SOFT REL",new String[]{"NAO","SIM"},p.getBoolean("nord_soft_"+layer,false)?1:0,i->{p.edit().putBoolean("nord_soft_"+layer,i==1).apply();applyNordOptions(layer);});
@@ -2025,7 +2025,7 @@ public final class MainActivity extends Activity {
                 body.removeView(presets);
             }
             if("NPNO".equals(engine)&&!plate){
-                int eqMode=prefs.getInt("nord_eq_mode_"+layer,1);
+                int eqMode=Math.max(0,prefs.getInt("nord_eq_mode_"+layer,-1));
                 EditorUi.selector(body,"EQUALIZER",new String[]{"SOFT","MID","BRIGHT"},eqMode,which->{
                     prefs.edit().putInt("nord_eq_mode_"+layer,which).apply();
                     if(audioEngine!=null)audioEngine.setNordEqMode(layer,which);
@@ -2270,8 +2270,8 @@ public final class MainActivity extends Activity {
         cells.add(r->EditorUi.selectorCell(r,"NOTA BAIXA",noteNames,lv.noteLow[l],i->{lv.noteLow[l]=i;if(lv.noteHigh[l]<i)lv.noteHigh[l]=i;lv.save(l);screen.applyLayerRouting(l);}));
         cells.add(r->EditorUi.selectorCell(r,"NOTA ALTA",noteNames,lv.noteHigh[l],i->{lv.noteHigh[l]=i;if(lv.noteLow[l]>i)lv.noteLow[l]=i;lv.save(l);screen.applyLayerRouting(l);}));
         final String[] velValues=new String[127];for(int v=0;v<127;v++)velValues[v]=String.valueOf(v+1);
-        final String[] polyNames={"AUTO","16 VOZES","32 VOZES","64 VOZES","128 VOZES","256 VOZES"};final int[] polyValues={0,16,32,64,128,256};
-        cells.add(r->{int cur=getSharedPreferences("layers",MODE_PRIVATE).getInt("poly_"+l,0),idx=0;for(int i=0;i<polyValues.length;i++)if(polyValues[i]==cur)idx=i;
+        final String[] polyNames={"16 VOZES","32 VOZES","64 VOZES","128 VOZES"};final int[] polyValues={16,32,64,128};
+        cells.add(r->{int cur=getSharedPreferences("layers",MODE_PRIVATE).getInt("poly_"+l,128),idx=3;for(int i=0;i<polyValues.length;i++)if(polyValues[i]==cur)idx=i;
             EditorUi.selectorCell(r,"POLIFONIA",polyNames,idx,i->{getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("poly_"+l,polyValues[i]).apply();applyLayerPolyphony(l);});});
         cells.add(r->EditorUi.selectorCell(r,"VEL. MIN",velValues,lv.low[l]-1,i->{lv.low[l]=i+1;if(lv.high[l]<lv.low[l])lv.high[l]=lv.low[l];lv.save(l);lv.apply(audioEngine,l);}));
         cells.add(r->EditorUi.selectorCell(r,"VEL. MAX",velValues,lv.high[l]-1,i->{lv.high[l]=i+1;if(lv.low[l]>lv.high[l])lv.low[l]=lv.high[l];lv.save(l);lv.apply(audioEngine,l);}));
@@ -2554,7 +2554,7 @@ public final class MainActivity extends Activity {
     private void exportLayerPreset(int layer){
         try{
             SharedPreferences prefs=getSharedPreferences("layers",MODE_PRIVATE);JSONObject json=new JSONObject();json.put("format","ClassicPlayerAndroidLayerPreset");json.put("version",4);json.put("engine",screen.engineName(layer));json.put("sourceName",screen.layerNames[layer]);json.put("sourcePath",prefs.getString("npno_"+layer,prefs.getString("sf2_"+layer,prefs.getString("dx7_"+layer,""))));json.put("modulationEnabled",screen.modulationEnabled[layer]);
-            if("NPNO".equals(screen.engineName(layer)))json.put("nordCategory",prefs.getString("nord_category_"+layer,NORD_CATEGORIES[0])).put("nordEq",prefs.getInt("nord_eq_mode_"+layer,1));
+            if("NPNO".equals(screen.engineName(layer)))json.put("nordCategory",prefs.getString("nord_category_"+layer,NORD_CATEGORIES[0])).put("nordEq",prefs.getInt("nord_eq_mode_"+layer,-1));
             String presetKey=screen.engineName(layer).equals("SF2")?"preset_":screen.engineName(layer).equals("DX7")?"dx7_patch_":screen.engineName(layer).equals("ANALOG")?"analog_preset_":"hammond_preset_";json.put("preset",prefs.getInt(presetKey+layer,0));
             json.put("volume",screen.layerVolumes[layer]).put("pan",screen.layerPan[layer]).put("attack",screen.layerAttack[layer]).put("release",screen.layerRelease[layer]).put("cutoff",screen.layerCutoff[layer]).put("reverbSend",screen.layerReverb[layer]).put("compMix",screen.layerCompMix[layer]).put("chorus",screen.layerChorus[layer]).put("mute",screen.muted[layer]).put("solo",screen.solo[layer]);
             json.put("sf2Original",screen.sf2OriginalSound[layer]);
@@ -2578,7 +2578,7 @@ public final class MainActivity extends Activity {
             String current=prefs.getString("npno_"+layer,"");
             if(!path.isEmpty()&&!path.equals(current))throw new IOException("Este preset usa outro NPNO. Escolha o timbre na biblioteca antes de importar seus controles.");
             String category=json.optString("nordCategory",prefs.getString("nord_category_"+layer,NORD_CATEGORIES[0]));
-            int mode=Math.max(0,Math.min(2,json.optInt("nordEq",1)));
+            int mode=Math.max(-1,Math.min(2,json.optInt("nordEq",-1)));
             prefs.edit().putString("nord_category_"+layer,category).putInt("nord_eq_mode_"+layer,mode).apply();
             if(audioEngine!=null)audioEngine.setNordEqMode(layer,mode);
         }

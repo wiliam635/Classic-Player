@@ -45,7 +45,7 @@ struct Layer {
     std::array<Voice, maxVoices> voices {};
     uint64_t serial = 0;
     bool finitePiano = true;
-    int eqMode = 1;            // -1 = OFF (bypass), 0 SOFT, 1 MID, 2 BRIGHT
+    int eqMode = -1;           // -1 = OFF (bypass, default), 0 SOFT, 1 MID, 2 BRIGHT
     int dynamicCompression = 0; // 0..3, lifts quiet keystrokes like the desktop
     bool softRelease = false;
     bool reflections = false;   // pedal-down reflection bank, opt-in like the desktop

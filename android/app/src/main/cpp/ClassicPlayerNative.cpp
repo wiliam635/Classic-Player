@@ -348,7 +348,7 @@ std::array<int,kLayerCount> calculateLayerVoiceBudgets(
 }
 
 // Recompute shared per-layer quotas whenever a motor is added or removed.
-static std::array<int,kLayerCount> layerPolyphonyCap{};
+static std::array<int,kLayerCount> layerPolyphonyCap=[]{std::array<int,kLayerCount> a{};a.fill(128);return a;}();
 void distributeLayerVoiceBudgets()
 {
     const auto budgets=calculateLayerVoiceBudgets();
@@ -599,7 +599,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerPolyphony(JNIEn
 {
     if(layer<0||layer>=kLayerCount)return;
     std::lock_guard<std::mutex> lock(synthMutex);
-    layerPolyphonyCap[(size_t)layer]=std::clamp((int)cap,0,kMaximumPolyphony);
+    layerPolyphonyCap[(size_t)layer]=std::clamp((int)cap,1,128);
     distributeLayerVoiceBudgets();
 }
 
