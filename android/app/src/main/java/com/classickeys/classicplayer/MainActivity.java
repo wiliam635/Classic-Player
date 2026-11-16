@@ -2039,14 +2039,14 @@ public final class MainActivity extends Activity {
             else EditorUi.knob(k,tuneLabels[osc],screen.analogControls[l][osc+2],-24,24," st",v->screen.setAnalogControl(l,index+2,v));
             LinearLayout right=EditorUi.column(this);line.addView(right,new LinearLayout.LayoutParams(0,-2,1));
             EditorUi.selectorCell(EditorUi.gridRow(right),"OSC "+(osc+1),shapes,screen.analogWaves[l][osc],v->screen.setAnalogWave(l,index,v));
-            segmented(right,"",new String[]{"OFF","ON"},screen.analogOscillatorEnabled[l][osc]?1:0,v->screen.setAnalogOption(l,index,v==1));
+            segmented(EditorUi.gridRow(right),"",new String[]{"OFF","ON"},screen.analogOscillatorEnabled[l][osc]?1:0,v->screen.setAnalogOption(l,index,v==1));
         }
         // MIXER
         LinearLayout mixer=moogSection("MIXER",inner);
         moogRow(mixer,new String[]{"OSC 1 LEVEL","OSC 2 LEVEL"},new float[]{0,0},new float[]{100,100},new String[]{" %"," %"},new float[]{screen.analogControls[l][0],screen.analogControls[l][1]},(i,v)->screen.setAnalogControl(l,i,v));
         moogRow(mixer,new String[]{"OSC 3 LEVEL","NOISE"},new float[]{0,0},new float[]{100,100},new String[]{" %"," %"},new float[]{screen.analogControls[l][2],screen.analogControls[l][5]},(i,v)->screen.setAnalogControl(l,i==0?2:5,v));
         moogRow(mixer,new String[]{"DRIVE"},new float[]{0},new float[]{100},new String[]{" %"},new float[]{screen.analogControls[l][16]},(i,v)->screen.setAnalogControl(l,16,v));
-        segmented(mixer,"NOISE",new String[]{"WHITE","PINK"},screen.analogPinkNoise[l]?1:0,v->screen.setAnalogOption(l,3,v==1));
+        segmented(EditorUi.gridRow(mixer),"NOISE",new String[]{"WHITE","PINK"},screen.analogPinkNoise[l]?1:0,v->screen.setAnalogOption(l,3,v==1));
         // MODIFIERS
         LinearLayout mods=moogSection("MODIFIERS",inner);
         moogRow(mods,new String[]{"EMPHASIS","CONTOUR AMT","KEY TRACK"},new float[]{0,0,0},new float[]{100,100,100},new String[]{" %"," %"," %"},new float[]{screen.analogControls[l][7],screen.analogControls[l][8],screen.analogControls[l][17]},(i,v)->screen.setAnalogControl(l,i==0?7:i==1?8:17,v));
@@ -2059,7 +2059,7 @@ public final class MainActivity extends Activity {
         moogRow(out,new String[]{"LFO RATE","LFO PITCH"},new float[]{.05f,0},new float[]{20,12},new String[]{" Hz"," st"},new float[]{screen.analogControls[l][13],screen.analogControls[l][14]},(i,v)->screen.setAnalogControl(l,13+i,v));
         moogRow(out,new String[]{"LFO FILTER","MOD WHEEL"},new float[]{0,0},new float[]{100,100},new String[]{" %"," %"},new float[]{screen.analogControls[l][15],screen.analogControls[l][18]},(i,v)->screen.setAnalogControl(l,15+i*3,v));
         moogRow(out,new String[]{"GLIDE"},new float[]{0},new float[]{2000},new String[]{" ms"},new float[]{screen.analogExtra[l][3]},(i,v)->screen.setAnalogExtra(l,3,v));
-        segmented(out,"VOICES",new String[]{"POLI","MONO / LEGATO"},screen.analogMonophonic[l]?1:0,v->screen.setAnalogOption(l,4,v==1));
+        segmented(EditorUi.gridRow(out),"VOICES",new String[]{"POLI","MONO / LEGATO"},screen.analogMonophonic[l]?1:0,v->screen.setAnalogOption(l,4,v==1));
         // presets row
         LinearLayout presets=EditorUi.gridRow(body);EditorUi.addButton(presets,"EXPORTAR PRESET",()->exportLayerPreset(l));EditorUi.addButton(presets,"IMPORTAR PRESET",()->importLayerPreset(l));
         // layer controls
