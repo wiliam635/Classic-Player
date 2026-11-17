@@ -6063,8 +6063,40 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 engine.setConfig(i, config);
             }
             restoreLayerPaths(preparedSoundFonts);
+            migrateLegacyContinuousPadLayers(state);
         }
     }
+}
+
+// Performances saved before the standalone PADS strip existed kept their continuous pads in a
+// layer of their own. Moving them into the strip (and dropping that layer) keeps a single pad
+// engine: otherwise the performance would carry two. Newer files always contain a "PadStrip"
+// node, so they are never touched.
+void ClassicPlayerAudioProcessor::migrateLegacyContinuousPadLayers(const juce::ValueTree& state)
+{
+    for (const auto& child : state)
+        if (child.hasType("PadStrip")) return;
+    const auto count = activeLayers.load(std::memory_order_relaxed);
+    int first = -1;
+    for (int layer = 0; layer < count; ++layer)
+        if (layerType(layer) == LayerType::continuousPads) { first = layer; break; }
+    if (first < 0) return;
+
+    juce::ValueTree saved;
+    for (const auto& child : state)
+        if (child.hasType("ContinuousPads") && static_cast<int>(child.getProperty("layer", -1)) == first)
+        { saved = child; break; }
+    if (saved.isValid())
+        padStripBank.restore(saved, false);
+    padStripVolume.store(juce::jlimit(0.0f, 100.0f,
+        realtimeLayerParameters[(size_t) first].Gain->load(std::memory_order_relaxed)));
+    padStripCutoff.store(juce::jlimit(0.0f, 100.0f,
+        realtimeLayerParameters[(size_t) first].Cutoff->load(std::memory_order_relaxed)));
+    ensurePadStripLoaded();
+    // Highest index first so the lower indices stay valid while the layers are compacted.
+    for (int layer = count - 1; layer >= 0; --layer)
+        if (layerType(layer) == LayerType::continuousPads)
+            removeLayer(layer);
 }
 
 void ClassicPlayerAudioProcessor::restoreLayerPaths(

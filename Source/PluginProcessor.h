@@ -539,6 +539,7 @@ private:
     std::function<void()> stagedBeforeSwap;
     std::function<void(juce::Result)> stagedAfterSwap;
     void performStagedLiveSetSwap();
+    void migrateLegacyContinuousPadLayers(const juce::ValueTree& state);
     void routeIncomingMidiMessage(const juce::String& sourceId, const juce::MidiMessage& message);
     juce::CriticalSection heldInputLock;
     std::vector<std::pair<juce::String, juce::MidiMessage>> heldInputMessages;
