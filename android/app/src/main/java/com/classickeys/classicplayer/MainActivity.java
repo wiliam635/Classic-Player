@@ -1209,7 +1209,7 @@ public final class MainActivity extends Activity {
     /** The header stays full width, like the desktop; only the area below it is shared with the inspector. */
     /** The docked inspector keeps only the selected layer strip on the left, like the desktop. */
     private void updateDockReserve(){
-        EditorUi.Panel.dockReserveDp=dockedLayer>=0&&dockedLayer<6&&screen.isPadLayer(dockedLayer)?18+300+12:18+142+12;
+        EditorUi.Panel.dockReserveDp=dockedLayer>=0&&dockedLayer<6&&screen.isPadLayer(dockedLayer)?18+300+10:18+142+10;
     }
     /** Desktop RESET: unload the layer and restore its mixer controls to their defaults. */
     private void resetDockedLayer(int layer){
@@ -3268,7 +3268,7 @@ public final class MainActivity extends Activity {
             return x;
         }
         private float mixerMasterWidth(){return dockInset!=0?0f:EditorUi.dp(getContext(),104);}
-        private float mixerViewportRight(float w){return w-EditorUi.dp(getContext(),18)-mixerMasterWidth()-EditorUi.dp(getContext(),10);}
+        private float mixerViewportRight(float w){return dockInset!=0?w-EditorUi.dp(getContext(),3):w-EditorUi.dp(getContext(),18)-mixerMasterWidth()-EditorUi.dp(getContext(),10);}
         private float mixerContentWidth(float w){int count=activeLayerCount();if(count==0)return 0;float width=0,gap=EditorUi.dp(getContext(),8);for(int p=0;p<count;p++)width+=mixerCardWidth(activeLayerAt(p),w);return width+gap*(count-1);}
         private float mixerMaxScroll(float w){return Math.max(0,mixerContentWidth(w)-(mixerViewportRight(w)-EditorUi.dp(getContext(),18)));}
         int artworkResourceForLayer(int layer){
