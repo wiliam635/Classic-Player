@@ -8764,6 +8764,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::mouseDown(const juce::MouseE
                 || dynamic_cast<juce::Slider*>(source) != nullptr
                 || dynamic_cast<LeftClickOnlyButton*>(source) != nullptr
                 || source == &muteButton
+                || source == &offButton // owns its MIDI Learn menu
                 || source->getProperties().contains("midiParameter")
                 || source->getProperties().contains("conceptParameter"))
                 return;
