@@ -146,6 +146,7 @@ final class EditorUi {
             final boolean wasDocked=docked;
             dialog=new Dialog(a);dialog.setOnDismissListener(d->{if(wasDocked){dockClosedAt=android.os.SystemClock.uptimeMillis();knobDp=68;compact=false;}if(onClose!=null)onClose.run();});dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
             LinearLayout root=column(a);root.setPadding(dp(a,7),dp(a,4),dp(a,7),dp(a,4));root.setBackground(background(PANEL));
+            if(docked){java.util.regex.Matcher lm=java.util.regex.Pattern.compile("LAYER\\s*\\d+").matcher(title);if(lm.find())title=lm.group();}
             TextView heading=label(a,title,16);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setSingleLine(true);heading.setEllipsize(android.text.TextUtils.TruncateAt.END);if(docked){
                 // Desktop inspector header: title on the left, FECHAR on the right.
                 heading.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);

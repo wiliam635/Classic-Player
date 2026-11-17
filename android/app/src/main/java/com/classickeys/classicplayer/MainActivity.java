@@ -1210,7 +1210,7 @@ public final class MainActivity extends Activity {
     private void setMixerRightInset(int px){
         screen.setDockInset(px);
         EditorUi.Panel.dockTop=Math.round(screen.getHeight()*.15f);
-        EditorUi.Panel.dockHeight=Math.round(screen.getHeight()*(screen.padsOn()?.775f:.865f))-EditorUi.Panel.dockTop;
+        EditorUi.Panel.dockHeight=Math.round(screen.getHeight()*(screen.padsOn()?.775f:.925f))-EditorUi.Panel.dockTop;
     }
     private void openLayerEditor(int layer) {
         if (screen.muted[layer]) { screen.setAudioStatus("DESMUTE A LAYER "+(layer+1)+" PARA EDITAR O MOTOR"); return; }
@@ -1227,7 +1227,11 @@ public final class MainActivity extends Activity {
     private void openLayerEditorNow(int layer) {
         String engine=screen.engineName(layer);
         if(engine.equals("DX7"))openDx7Editor(layer);
-        else if(engine.equals("NPNO"))openNordEditor(layer);
+        else if(engine.equals("NPNO")){
+            SharedPreferences np=getSharedPreferences("layers",MODE_PRIVATE);
+            final String ncat=np.getString("nord_browser_category_"+layer,np.getString("nord_category_"+layer,NORD_CATEGORIES[0]));
+            showPresetEditor(layer,"LAYER "+(layer+1)+" · NPNO","Ajuste a layer Nord.",new String[]{screen.layerNames[layer]==null?"":screen.layerNames[layer]},0,i->{},"IMPORTAR NPNO",()->openNordPicker(layer,ncat));
+        }
         else if(engine.equals("ANALOG"))openAnalogEditor(layer);
         else if(engine.equals("HAMMOND"))openHammondEditor(layer);
         else if(engine.contains("PADS"))openPadEditor(layer,engine.startsWith("CONT"));
@@ -2036,6 +2040,7 @@ public final class MainActivity extends Activity {
         if(shown.isEmpty())names[0]="ESCOLHA O SF2";
         for(int i=0;i<shown.size();i++){names[i]=soundFontFileDisplayName(shown.get(i));if(shown.get(i).getAbsolutePath().equals(current))cur=i;}
         EditorUi.selectorCell(sel,"BIBLIOTECA SF2",names,cur,i->{if(i<shown.size()&&!shown.get(i).getAbsolutePath().equals(current)){libraryReplacePanel=panel;loadSoundFontLibraryFile(layer,shown.get(i),true);}});
+        if(items!=null&&items.length>0&&panel.docked)EditorUi.selectorCell(EditorUi.gridRow(card),"PRESET",items,selected,i->selection.apply(i));
         LinearLayout acts=EditorUi.gridRow(card);
         EditorUi.addButton(acts,"IMPORTAR SF2",()->{cats.edit().putString("import_category",category).apply();panel.dialog.dismiss();openSf2FilePicker(layer);});
         EditorUi.addConfirmButton(acts,"EXCLUIR SF2","CONFIRMAR EXCLUSÃO?",()->{
@@ -2129,16 +2134,12 @@ public final class MainActivity extends Activity {
             }else if("SF2".equals(engine)&&!plate){
                 TextView loaded=EditorUi.label(this,screen.layerNames[layer],11);loaded.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);loaded.setSingleLine(true);loaded.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);body.addView(loaded,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,22)));
             }
-            if(!(plate&&"NPNO".equals(engine)))EditorUi.selector(body,"TIMBRE",items,selected,which->{selection.apply(which);if(analog)renderLayerEditorPage(layer,panel,page,items,which,selection,secondaryLabel,secondaryAction);});
-            LinearLayout source=EditorUi.gridRow(body);if(secondaryLabel!=null)EditorUi.addButton(source,secondaryLabel,()->{panel.dialog.dismiss();secondaryAction.run();});if(secondaryLabel==null||!secondaryLabel.equals("TROCAR MOTOR"))EditorUi.addButton(source,"TROCAR MOTOR",()->{panel.dialog.dismiss();panicAndChooseLayerSource(layer);});
+            if(!plate)EditorUi.selector(body,"TIMBRE",items,selected,which->{selection.apply(which);if(analog)renderLayerEditorPage(layer,panel,page,items,which,selection,secondaryLabel,secondaryAction);});
+            LinearLayout source=EditorUi.gridRow(body);if(secondaryLabel!=null&&!plate)EditorUi.addButton(source,secondaryLabel,()->{panel.dialog.dismiss();secondaryAction.run();});if(!panel.docked&&(secondaryLabel==null||!secondaryLabel.equals("TROCAR MOTOR")))EditorUi.addButton(source,"TROCAR MOTOR",()->{panel.dialog.dismiss();panicAndChooseLayerSource(layer);});
+            if(source.getChildCount()==0)body.removeView(source);
             if("HAMMOND".equals(engine))buildHammondControls(layer,body);
             if(analog)buildAnalogOscillatorControls(layer,body);
             LinearLayout presets=EditorUi.gridRow(body);EditorUi.addButton(presets,"EXPORTAR PRESET…",()->exportLayerPreset(layer));EditorUi.addButton(presets,"IMPORTAR PRESET…",()->importLayerPreset(layer));
-            if(panel.docked&&!analog&&source.getParent()==body){
-                // Desktop packs bank buttons and preset import/export in one row.
-                while(presets.getChildCount()>0){View b=presets.getChildAt(0);presets.removeViewAt(0);source.addView(b);}
-                body.removeView(presets);
-            }
             if("NPNO".equals(engine)&&!plate){
                 int eqMode=Math.max(0,prefs.getInt("nord_eq_mode_"+layer,-1));
                 EditorUi.selector(body,"EQUALIZER",new String[]{"SOFT","MID","BRIGHT"},eqMode,which->{
@@ -2155,7 +2156,7 @@ public final class MainActivity extends Activity {
                     LinearLayout leftBox,wrapParams=new LinearLayout(this);wrapParams.setOrientation(LinearLayout.HORIZONTAL);body.addView(wrapParams,new LinearLayout.LayoutParams(-1,-2));
                     if(stacked){
                         // SF2 / NPNO desktop layout: general parameters full width, then the knob box full width.
-                        leftBox=desktopBox("PARAMETROS GERAIS",wrapParams);buildDockedGeneralParams(layer,leftBox,5);
+                        if("SF2".equals(engine)){leftBox=desktopBox("PARAMETROS GERAIS",wrapParams);buildDockedGeneralParams(layer,leftBox,5);}
                         LinearLayout presetsRow=EditorUi.gridRow(body);
                         EditorUi.addButton(presetsRow,"EXPORTAR PRESET",()->exportLayerPreset(layer));EditorUi.addButton(presetsRow,"IMPORTAR PRESET",()->importLayerPreset(layer));
                         LinearLayout wrapKnobs=new LinearLayout(this);wrapKnobs.setOrientation(LinearLayout.HORIZONTAL);body.addView(wrapKnobs,new LinearLayout.LayoutParams(-1,-2));
@@ -2222,7 +2223,8 @@ public final class MainActivity extends Activity {
             LinearLayout row=EditorUi.gridRow(body);EditorUi.addButton(row,"REVERB…",()->showEffectEditor(layer,"REVERB"));EditorUi.addButton(row,"COMP…",()->showEffectEditor(layer,"COMP"));
             row=EditorUi.gridRow(body);EditorUi.addButton(row,"CHORUS…",()->showEffectEditor(layer,"CHORUS"));EditorUi.addButton(row,"EQ…",()->showEffectEditor(layer,"EQ"));
         }else if(page==midiPage){
-            buildRoutingControls(layer,body);
+            if(panel.docked){LinearLayout wrapMidi=new LinearLayout(this);body.addView(wrapMidi,new LinearLayout.LayoutParams(-1,-2));buildDockedGeneralParams(layer,desktopBox("PARAMETROS GERAIS",wrapMidi),5);}
+            else buildRoutingControls(layer,body);
             TextView heading=EditorUi.label(this,"MIDI LEARN · mapeamento por layer/alvo (CC + canal) · mova um controle por vez",10);heading.setTextColor(EditorUi.MUTED);heading.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);body.addView(heading,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,26)));
             String[] targets={"VOLUME","CUTOFF","REVERB","COMP","MUTE"};
             for(int target=0;target<targets.length;target++){
