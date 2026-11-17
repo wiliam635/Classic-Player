@@ -285,7 +285,7 @@ public final class MainActivity extends Activity {
         if(candidates.size()==1){saveLayerLearnCandidate(layer,target,candidates.get(0),button);return;}
         String[] choices=new String[candidates.size()];for(int i=0;i<choices.length;i++)choices[i]=candidates.get(i).label();
         String details="Foram recebidos vários pares CC/canal. Escolha o evento que mudou ao mover o controle pretendido.";
-        new AlertDialog.Builder(this).setTitle("ESCOLHER CC APRENDIDO").setMessage(details).setItems(choices,(dialog,index)->saveLayerLearnCandidate(layer,target,candidates.get(index),button))
+        new EditorUi.Alert(this).setTitle("ESCOLHER CC APRENDIDO").setMessage(details).setItems(choices,(dialog,index)->saveLayerLearnCandidate(layer,target,candidates.get(index),button))
                 .setNegativeButton("CANCELAR",(dialog,which)->screen.setMidiStatus("MIDI Learn cancelado · mapeamento anterior preservado"))
                 .setOnCancelListener(dialog->screen.setMidiStatus("MIDI Learn cancelado · mapeamento anterior preservado")).show();
     }
@@ -339,7 +339,7 @@ public final class MainActivity extends Activity {
         final String current=layerLearnLabel(layer,target);
         final boolean mapped=!"LEARN".equals(current);
         String[] items=mapped?new String[]{"Atribuir MIDI (mova o controle físico)","Excluir mapeamento"}:new String[]{"Atribuir MIDI (mova o controle físico)"};
-        new AlertDialog.Builder(this).setTitle(names[target]+" · "+(mapped?"mapeado: "+current:"sem mapeamento MIDI"))
+        new EditorUi.Alert(this).setTitle(names[target]+" · "+(mapped?"mapeado: "+current:"sem mapeamento MIDI"))
                 .setItems(items,(dialog,which)->{
                     final Button holder=new Button(this);
                     if(which==0){toggleLayerMidiLearn(layer,target,holder);android.widget.Toast.makeText(this,"MOVA O CONTROLE MIDI…",android.widget.Toast.LENGTH_SHORT).show();}
@@ -697,12 +697,12 @@ public final class MainActivity extends Activity {
         final int[] frames={128,256,512,1024,2048,4800};
         String[] labels={"128 frames","256 frames","512 frames","1024 frames","2048 frames","4800 frames"};
         int selected=2;for(int i=0;i<frames.length;i++)if(frames[i]==audioEngine.bufferFrames())selected=i;
-        new AlertDialog.Builder(this).setTitle("BUFFER DE SAÍDA")
+        new EditorUi.Alert(this).setTitle("BUFFER DE SAÍDA")
             .setSingleChoiceItems(labels,selected,(dialog,which)->{
                 audioEngine.setBufferFrames(frames[which]);
                 getSharedPreferences("audio",MODE_PRIVATE).edit().putInt("buffer_frames",frames[which]).apply();
                 screen.invalidate();dialog.dismiss();
-            }).setNeutralButton("SOBRE",(dialog,which)->new AlertDialog.Builder(this)
+            }).setNeutralButton("SOBRE",(dialog,which)->new EditorUi.Alert(this)
                 .setTitle("BUFFER DE SAÍDA")
                 .setMessage("Este ajuste altera o buffer de fila do AudioTrack, não a taxa de amostragem nem a latência total. O Android pode limitar valores menores ao mínimo da interface. Em ÁUDIO/MIDI, confira pedido, tamanho ativo e capacidade para ver o que foi aplicado. 4800 frames equivalem a cerca de 109 ms em 44,1 kHz e aumentam a latência.")
                 .setPositiveButton("FECHAR",null).show())
@@ -710,7 +710,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showThemeChooser(){
-        new AlertDialog.Builder(this).setTitle("TEMA DE CORES")
+        new EditorUi.Alert(this).setTitle("TEMA DE CORES")
                 .setSingleChoiceItems(EditorUi.THEME_NAMES,EditorUi.themeIndex,(dialog,which)->{
                     EditorUi.applyTheme(which);
                     getSharedPreferences("appearance",MODE_PRIVATE).edit().putInt("themeV2",which).apply();
@@ -722,7 +722,7 @@ public final class MainActivity extends Activity {
     private void showAudioSampleRateChooser() {
         String[] choices={"Taxa nativa do dispositivo · Oboe SRC","44.100 Hz · motor e saída","48.000 Hz · saída Oboe com conversão"};
         int selected=audioEngine.sampleRateMode();
-        new AlertDialog.Builder(this).setTitle("TAXA DE AMOSTRAGEM")
+        new EditorUi.Alert(this).setTitle("TAXA DE AMOSTRAGEM")
             .setSingleChoiceItems(choices,selected,(dialog,which)->{
                 audioEngine.setSampleRateMode(which);
                 if(which!=1&&!audioEngine.oboePreferred()){
@@ -744,12 +744,12 @@ public final class MainActivity extends Activity {
         if (audioOutputManager == null) return;
         java.util.List<String> names = audioOutputManager.outputs();
         if (names.isEmpty()) {
-            new AlertDialog.Builder(this).setTitle("SAÍDA DE ÁUDIO")
+            new EditorUi.Alert(this).setTitle("SAÍDA DE ÁUDIO")
                     .setMessage("Nenhuma saída de áudio foi encontrada. Reconecte a interface USB e tente novamente.")
                     .setPositiveButton("OK", null).show();
             return;
         }
-        new AlertDialog.Builder(this).setTitle("ESCOLHER SAÍDA DE ÁUDIO")
+        new EditorUi.Alert(this).setTitle("ESCOLHER SAÍDA DE ÁUDIO")
                 .setItems(names.toArray(new String[0]), (dialog, which) -> {
                     AudioDeviceInfo device = audioOutputManager.deviceAt(which);
                     if (device != null && audioEngine != null && audioEngine.setPreferredDevice(device)) {
@@ -759,7 +759,7 @@ public final class MainActivity extends Activity {
                         screen.setAudioStatus("ÁUDIO: " + names.get(which));
                         refreshAudioCapabilityStatus();
                     } else {
-                        new AlertDialog.Builder(this).setTitle("SAÍDA DE ÁUDIO")
+                        new EditorUi.Alert(this).setTitle("SAÍDA DE ÁUDIO")
                                 .setMessage("O Android não permitiu selecionar esta saída. Desconecte e reconecte a interface USB.")
                                 .setPositiveButton("OK", null).show();
                     }
@@ -767,7 +767,7 @@ public final class MainActivity extends Activity {
     }
     private void showMidiLearnChooser(){
         String[] targets={"VOLUME LAYER 1","VOLUME LAYER 2","VOLUME LAYER 3","VOLUME LAYER 4","VOLUME LAYER 5","VOLUME LAYER 6","VOLUME MASTER","PARAR PADS CONTÍNUOS"};
-        new AlertDialog.Builder(this).setTitle("MIDI LEARN").setItems(targets,(d,which)->{pendingLearnTarget=which;screen.setMidiStatus("MIDI: mova agora o controle CC · CANCELAR para sair");}).setNeutralButton("LIMPAR MAPEAMENTOS",(d,w)->getSharedPreferences("midi_learn",MODE_PRIVATE).edit().clear().apply()).setNegativeButton("CANCELAR",(d,w)->{pendingLearnTarget=-1;screen.setMidiStatus("MIDI: pronto");}).show();
+        new EditorUi.Alert(this).setTitle("MIDI LEARN").setItems(targets,(d,which)->{pendingLearnTarget=which;screen.setMidiStatus("MIDI: mova agora o controle CC · CANCELAR para sair");}).setNeutralButton("LIMPAR MAPEAMENTOS",(d,w)->getSharedPreferences("midi_learn",MODE_PRIVATE).edit().clear().apply()).setNegativeButton("CANCELAR",(d,w)->{pendingLearnTarget=-1;screen.setMidiStatus("MIDI: pronto");}).show();
     }
 
     // Every openMidi() call is asynchronous. Several can be in flight at once
@@ -815,7 +815,7 @@ public final class MainActivity extends Activity {
     }
     private void startNordVelocityCalibration(int layer){
         if(selectedMidiName==null||selectedMidiName.isEmpty()){
-            new AlertDialog.Builder(this).setMessage("Selecione e conecte primeiro uma entrada MIDI.").setPositiveButton("OK",null).show();return;
+            new EditorUi.Alert(this).setMessage("Selecione e conecte primeiro uma entrada MIDI.").setPositiveButton("OK",null).show();return;
         }
         synchronized(nordCalibrationSamples){nordCalibrationLayer=layer;nordCalibrationStage=0;nordCalibrationCount=0;}
         nordCalibrationDialog=new AlertDialog.Builder(this).setTitle("CALIBRAR VELOCIDADE NPNO")
@@ -848,7 +848,7 @@ public final class MainActivity extends Activity {
             }
             if(nordCalibrationDialog!=null)nordCalibrationDialog.dismiss();
             if(medians[0]<1||medians[1]-medians[0]<8||medians[2]-medians[1]<8){
-                new AlertDialog.Builder(this).setMessage("As intensidades ficaram próximas demais. Repita tocando suave, médio e forte com maior diferença.").setPositiveButton("OK",null).show();return;
+                new EditorUi.Alert(this).setMessage("As intensidades ficaram próximas demais. Repita tocando suave, médio e forte com maior diferença.").setPositiveButton("OK",null).show();return;
             }
             String key=nordVelocityProfileKey();
             getSharedPreferences("nord_velocity",MODE_PRIVATE).edit().putInt(key+"soft",medians[0]).putInt(key+"mid",medians[1]).putInt(key+"hard",medians[2]).apply();
@@ -859,9 +859,9 @@ public final class MainActivity extends Activity {
     }
     private void showMidiDeviceChooser(){
         if(midiManager==null)return;MidiDeviceInfo[] devices=midiInputDevices();
-        if(devices.length==0){new AlertDialog.Builder(this).setTitle("CONTROLADOR MIDI").setMessage("O Android não disponibilizou nenhuma entrada MIDI. Uma interface de áudio USB pode aparecer separadamente sem oferecer uma porta MIDI.").setPositiveButton("OK",null).show();return;}
+        if(devices.length==0){new EditorUi.Alert(this).setTitle("CONTROLADOR MIDI").setMessage("O Android não disponibilizou nenhuma entrada MIDI. Uma interface de áudio USB pode aparecer separadamente sem oferecer uma porta MIDI.").setPositiveButton("OK",null).show();return;}
         String[] names=new String[devices.length];for(int i=0;i<devices.length;i++)names[i]=midiDeviceIdentity(devices[i])+" (ID "+devices[i].getId()+")";
-        new AlertDialog.Builder(this).setTitle("ESCOLHER CONTROLADOR MIDI").setItems(names,(d,which)->{midiIndex=which;openMidi(devices[which]);screen.setMidiStatus("MIDI USB: "+names[which]);}).setNegativeButton("CANCELAR",null).show();
+        new EditorUi.Alert(this).setTitle("ESCOLHER CONTROLADOR MIDI").setItems(names,(d,which)->{midiIndex=which;openMidi(devices[which]);screen.setMidiStatus("MIDI USB: "+names[which]);}).setNegativeButton("CANCELAR",null).show();
     }
 
     private void closeMidi() {
@@ -1021,7 +1021,7 @@ public final class MainActivity extends Activity {
                     if (!loaded) {
                         libraryReplacePanel=null;
                         screen.setAudioStatus("SF2: falha ao abrir " + soundFontFileDisplayName(file));
-                        new AlertDialog.Builder(this).setTitle("FALHA AO ABRIR SF2")
+                        new EditorUi.Alert(this).setTitle("FALHA AO ABRIR SF2")
                                 .setMessage("O arquivo " + soundFontFileDisplayName(file) + " não pôde ser carregado.")
                                 .setPositiveButton("OK", null).show();
                         return;
@@ -1060,7 +1060,7 @@ public final class MainActivity extends Activity {
 
     private void openDx7Picker(int layer) {
         final String[] choices = {"BANCO DX7 1 · DIVINE MASQUERADE", "BANCO DX7 2 · DIVINE MASQUERADE", "IMPORTAR BANCO .SYX"};
-        new AlertDialog.Builder(this).setTitle("BANCO DE TIMBRES DX7").setItems(choices, (dialog, which) -> {
+        new EditorUi.Alert(this).setTitle("BANCO DE TIMBRES DX7").setItems(choices, (dialog, which) -> {
             if (which == 0) { activateBundledDx7(layer, R.raw.dx7_bank_1, "Divine Masquerade 1"); if(audioEngine.dx7PatchCount(layer)>0)openDx7Editor(layer); }
             else if (which == 1) { activateBundledDx7(layer, R.raw.dx7_bank_2, "Divine Masquerade 2"); if(audioEngine.dx7PatchCount(layer)>0)openDx7Editor(layer); }
             else openExternalDx7Picker(layer);
@@ -1118,7 +1118,7 @@ public final class MainActivity extends Activity {
             }
             runOnUiThread(()->{
                 if(closing||isFinishing()||isDestroyed())return;
-                if(error!=null){libraryReplacePanel=null;screen.setAudioStatus("NPNO: "+error);new AlertDialog.Builder(this).setTitle("FALHA AO IMPORTAR NPNO").setMessage(error).setPositiveButton("OK",null).show();return;}
+                if(error!=null){libraryReplacePanel=null;screen.setAudioStatus("NPNO: "+error);new EditorUi.Alert(this).setTitle("FALHA AO IMPORTAR NPNO").setMessage(error).setPositiveButton("OK",null).show();return;}
                 prepareLayerMotorReplacement(layer);deactivatePadLayer(layer);
                 String name=file.getName().replaceFirst("(?i)\\.npno$","");
                 screen.setLayerName(layer,name);screen.setEngineName(layer,"NPNO");screen.setPresetName(layer,name);
@@ -1566,7 +1566,7 @@ public final class MainActivity extends Activity {
         final String current=learned<0?"sem mapeamento MIDI":"mapeado: "+(continuous?"CC ":"NOTA ")+learned;
         final boolean mapped=continuous?learned>=0:mapping.contains("pad_note_"+pad);
         String[] items=mapped?new String[]{"Atribuir MIDI (toque/mova o controle físico)","Excluir mapeamento"}:new String[]{"Atribuir MIDI (toque/mova o controle físico)"};
-        new AlertDialog.Builder(this).setTitle("PAD "+(pad+1)+" · "+current).setItems(items,(dialog,which)->{
+        new EditorUi.Alert(this).setTitle("PAD "+(pad+1)+" · "+current).setItems(items,(dialog,which)->{
             if(which==0){beginPadMappingLearn(pad,continuous);android.widget.Toast.makeText(this,"MOVA O CONTROLE MIDI…",android.widget.Toast.LENGTH_SHORT).show();}
             else{clearPadMapping(pad,continuous);android.widget.Toast.makeText(this,"MAPEAMENTO EXCLUÍDO",android.widget.Toast.LENGTH_SHORT).show();}
         }).setNegativeButton("CANCELAR",null).show();
@@ -1576,14 +1576,14 @@ public final class MainActivity extends Activity {
     private void addPadLayerLearnRow(LinearLayout body,int layer,int target,String title){LinearLayout row=EditorUi.gridRow(body);TextView label=EditorUi.label(this,title,10);label.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);row.addView(label,new LinearLayout.LayoutParams(0,EditorUi.dp(this,44),1));final int layerIndex=layer,targetIndex=target;Button learn=EditorUi.button(this,layerLearnLabel(layerIndex,targetIndex),()->{});learn.setOnClickListener(v->toggleLayerMidiLearn(layerIndex,targetIndex,learn));row.addView(learn,new LinearLayout.LayoutParams(0,EditorUi.dp(this,44),1));EditorUi.addButton(row,"LIMPAR",()->clearLayerMidiLearn(layerIndex,targetIndex,learn));}
     private void choosePadToLoad(boolean continuous){
         String[] pads=new String[continuous?12:8];for(int i=0;i<pads.length;i++)pads[i]="PAD "+(i+1);
-        new AlertDialog.Builder(this).setTitle("ESCOLHA O PAD").setItems(pads,(d,p)->openPadPicker(p,continuous)).show();
+        new EditorUi.Alert(this).setTitle("ESCOLHA O PAD").setItems(pads,(d,p)->openPadPicker(p,continuous)).show();
     }
     private void openPadPicker(int pad,boolean continuous){
         pendingPad=pad;pendingContinuous=continuous;Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("audio/*");startActivityForResult(i,710);
     }
     private void saveLiveSlot(final int bank,final int slot){
         EditText input=new EditText(this);input.setHint("Nome da programação");input.setSingleLine(true);
-        new AlertDialog.Builder(this).setTitle("SALVAR NO LIVE SET "+(slot+1)).setView(input)
+        new EditorUi.Alert(this).setTitle("SALVAR NO LIVE SET "+(slot+1)).setView(input)
                 .setPositiveButton("SALVAR",(d,w)->{
                     SharedPreferences layers=getSharedPreferences("layers",MODE_PRIVATE),live=getSharedPreferences("live_set",MODE_PRIVATE);SharedPreferences.Editor e=live.edit();
                     String root="bank_"+bank+"_slot_"+slot;e.putInt(root+"_version",14).putFloat(root+"_master",screen.masterVolume);for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";e.putInt(p+"engine",layers.getInt("engine_"+layer,0));e.putString(p+"sf2",layers.getString("sf2_"+layer,null));e.putString(p+"dx7",layers.getString("dx7_"+layer,null));e.putString(p+"npno",layers.getString("npno_"+layer,null));e.putString(p+"nordCategory",layers.getString("nord_category_"+layer,NORD_CATEGORIES[0]));e.putInt(p+"nordEq",layers.getInt("nord_eq_mode_"+layer,-1));e.putString(p+"name",layers.getString("name_"+layer,null));e.putInt(p+"preset",layers.getInt("preset_"+layer,0));e.putInt(p+"dx7_patch",layers.getInt("dx7_patch_"+layer,0));e.putInt(p+"analog",layers.getInt("analog_preset_"+layer,0));e.putInt(p+"hammond",layers.getInt("hammond_preset_"+layer,0));e.putFloat(p+"volume",screen.layerVolumes[layer]).putFloat(p+"pan",screen.layerPan[layer]).putBoolean(p+"muted",screen.muted[layer]).putBoolean(p+"solo",screen.solo[layer]).putBoolean(p+"modulation",screen.modulationEnabled[layer]);}
@@ -1617,7 +1617,7 @@ public final class MainActivity extends Activity {
                 }).setNegativeButton("CANCELAR",null).show();
     }
     private void loadLiveSlot(int bank,int slot){
-        SharedPreferences live=getSharedPreferences("live_set",MODE_PRIVATE);String root="bank_"+bank+"_slot_"+slot;if(!live.getBoolean(root+"_valid",false)){new AlertDialog.Builder(this).setMessage("Este slot está vazio. Ative SALVAR SLOT e toque nele para guardar o programa atual.").setPositiveButton("OK",null).show();return;}
+        SharedPreferences live=getSharedPreferences("live_set",MODE_PRIVATE);String root="bank_"+bank+"_slot_"+slot;if(!live.getBoolean(root+"_valid",false)){new EditorUi.Alert(this).setMessage("Este slot está vazio. Ative SALVAR SLOT e toque nele para guardar o programa atual.").setPositiveButton("OK",null).show();return;}
         int version=live.getInt(root+"_version",1);boolean legacyContinuous=false;for(int layer=0;layer<6;layer++){int engine=live.getInt(root+"_"+layer+"_engine",0);if(engine==5||engine==6)legacyContinuous=engine==6;}SharedPreferences.Editor e=getSharedPreferences("layers",MODE_PRIVATE).edit();
         screen.masterReverb=live.getFloat(root+"_reverb",0f);screen.masterChorus=live.getFloat(root+"_chorus",0f);if(audioEngine!=null)audioEngine.setMasterEffects(screen.masterReverb,screen.masterChorus);
         for(int layer=0;layer<6;layer++)if("SF2".equals(screen.engineName(layer)))screen.setSf2OriginalSound(layer,false);
@@ -1741,7 +1741,7 @@ public final class MainActivity extends Activity {
         if(requestCode==720){
             if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null&&pendingEffectPresetJson!=null){
                 try(OutputStream out=getContentResolver().openOutputStream(data.getData())){if(out!=null)out.write(pendingEffectPresetJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));screen.setAudioStatus("Preset "+pendingEffectPresetType+" exportado");}
-                catch(Exception ex){new AlertDialog.Builder(this).setMessage("Não foi possível salvar o preset selecionado.").setPositiveButton("OK",null).show();}
+                catch(Exception ex){new EditorUi.Alert(this).setMessage("Não foi possível salvar o preset selecionado.").setPositiveButton("OK",null).show();}
             }
             pendingEffectPresetJson=null;pendingEffectPresetLayer=-1;pendingEffectPresetType="";return;
         }
@@ -1752,16 +1752,16 @@ public final class MainActivity extends Activity {
                     JSONObject preset=new JSONObject(new String(bytes.toByteArray(),java.nio.charset.StandardCharsets.UTF_8));
                     if(!"ClassicPlayerAndroidEffectPreset".equals(preset.optString("format"))||!pendingEffectPresetType.equals(preset.optString("effect")))throw new IOException("O arquivo não é um preset compatível de "+pendingEffectPresetType+".");
                     applyEffectPresetJson(pendingEffectPresetLayer,pendingEffectPresetType,preset);screen.setAudioStatus("Preset "+pendingEffectPresetType+" importado");
-                }catch(Exception ex){new AlertDialog.Builder(this).setTitle("PRESET INVÁLIDO").setMessage(ex.getMessage()==null?"Não foi possível importar este preset.":ex.getMessage()).setPositiveButton("OK",null).show();}
+                }catch(Exception ex){new EditorUi.Alert(this).setTitle("PRESET INVÁLIDO").setMessage(ex.getMessage()==null?"Não foi possível importar este preset.":ex.getMessage()).setPositiveButton("OK",null).show();}
             }
             pendingEffectPresetLayer=-1;pendingEffectPresetType="";return;
         }
         if(requestCode==722){
-            if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null&&pendingLayerPresetJson!=null){try(OutputStream out=getContentResolver().openOutputStream(data.getData())){if(out==null)throw new IOException("Destino indisponível");out.write(pendingLayerPresetJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));screen.setAudioStatus("Preset da layer exportado");}catch(Exception ex){new AlertDialog.Builder(this).setMessage("Não foi possível salvar o preset da layer.").setPositiveButton("OK",null).show();}}
+            if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null&&pendingLayerPresetJson!=null){try(OutputStream out=getContentResolver().openOutputStream(data.getData())){if(out==null)throw new IOException("Destino indisponível");out.write(pendingLayerPresetJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));screen.setAudioStatus("Preset da layer exportado");}catch(Exception ex){new EditorUi.Alert(this).setMessage("Não foi possível salvar o preset da layer.").setPositiveButton("OK",null).show();}}
             pendingLayerPresetJson=null;pendingLayerPresetLayer=-1;return;
         }
         if(requestCode==723){
-            if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null){try(InputStream in=getContentResolver().openInputStream(data.getData());ByteArrayOutputStream bytes=new ByteArrayOutputStream()){if(in==null)throw new IOException("Arquivo indisponível");byte[] buffer=new byte[8192];int count;while((count=in.read(buffer))>=0)bytes.write(buffer,0,count);applyLayerPresetJson(pendingLayerPresetLayer,new JSONObject(new String(bytes.toByteArray(),java.nio.charset.StandardCharsets.UTF_8)));screen.setAudioStatus("Preset da layer importado");}catch(Exception ex){new AlertDialog.Builder(this).setTitle("PRESET INVÁLIDO").setMessage(ex.getMessage()==null?"Não foi possível importar este preset.":ex.getMessage()).setPositiveButton("OK",null).show();}}
+            if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null){try(InputStream in=getContentResolver().openInputStream(data.getData());ByteArrayOutputStream bytes=new ByteArrayOutputStream()){if(in==null)throw new IOException("Arquivo indisponível");byte[] buffer=new byte[8192];int count;while((count=in.read(buffer))>=0)bytes.write(buffer,0,count);applyLayerPresetJson(pendingLayerPresetLayer,new JSONObject(new String(bytes.toByteArray(),java.nio.charset.StandardCharsets.UTF_8)));screen.setAudioStatus("Preset da layer importado");}catch(Exception ex){new EditorUi.Alert(this).setTitle("PRESET INVÁLIDO").setMessage(ex.getMessage()==null?"Não foi possível importar este preset.":ex.getMessage()).setPositiveButton("OK",null).show();}}
             pendingLayerPresetLayer=-1;return;
         }
         if(requestCode==710&&resultCode==RESULT_OK&&data!=null&&data.getData()!=null&&pendingPad>=0){
@@ -2698,7 +2698,7 @@ public final class MainActivity extends Activity {
             else json.put("mix",screen.layerChorus[layer]);
             pendingEffectPresetJson=json.toString(2);pendingEffectPresetLayer=layer;pendingEffectPresetType=effect;
             Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/json").putExtra(Intent.EXTRA_TITLE,"Classic Player "+effect+".json");startActivityForResult(intent,720);
-        }catch(Exception ignored){new AlertDialog.Builder(this).setMessage("Não foi possível preparar o preset.").setPositiveButton("OK",null).show();}
+        }catch(Exception ignored){new EditorUi.Alert(this).setMessage("Não foi possível preparar o preset.").setPositiveButton("OK",null).show();}
     }
 
     private void importEffectPreset(int layer,String effect){pendingEffectPresetLayer=layer;pendingEffectPresetType=effect;Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/json");startActivityForResult(intent,721);}
@@ -2728,7 +2728,7 @@ public final class MainActivity extends Activity {
             json.put("analogPink",screen.analogPinkNoise[layer]).put("analogMono",screen.analogMonophonic[layer]).put("analogOsc1Tune",screen.analogOsc1Tune[layer]);for(int i=0;i<19;i++)json.put("analogControl"+i,screen.analogControls[layer][i]);for(int i=0;i<3;i++)json.put("analogWave"+i,screen.analogWaves[layer][i]).put("analogEnabled"+i,screen.analogOscillatorEnabled[layer][i]);
             JSONObject learn=new JSONObject();SharedPreferences cc=getSharedPreferences("midi_learn",MODE_PRIVATE);for(int i=0;i<5;i++){String key=layerLearnKey(layer,i);learn.put("cc"+i,cc.getInt(key,-1)).put("channel"+i,cc.getInt(key+"_channel",-1));}json.put("midiLearn",learn);
             pendingLayerPresetJson=json.toString(2);pendingLayerPresetLayer=layer;Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/json").putExtra(Intent.EXTRA_TITLE,"Classic Player Layer "+(layer+1)+".json");startActivityForResult(intent,722);
-        }catch(Exception ignored){new AlertDialog.Builder(this).setMessage("Não foi possível preparar o preset da layer.").setPositiveButton("OK",null).show();}
+        }catch(Exception ignored){new EditorUi.Alert(this).setMessage("Não foi possível preparar o preset da layer.").setPositiveButton("OK",null).show();}
     }
     private void importLayerPreset(int layer){pendingLayerPresetLayer=layer;Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/json");startActivityForResult(intent,723);}
     private void applyLayerPresetJson(int layer,JSONObject json)throws Exception{

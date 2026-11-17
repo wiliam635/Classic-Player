@@ -67,6 +67,67 @@ final class EditorUi {
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(row.getContext(),44),1);p.setMargins(2,1,2,1);row.addView(holder[0],p);
     }
     static void addButton(LinearLayout row,String text,Runnable action){Button b=button(row.getContext(),text,action);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(row.getContext(),44),1);p.setMargins(2,1,2,1);row.addView(b,p);}
+    /** Drop-in replacement for AlertDialog.Builder that follows the app theme (charcoal panel, flat buttons). */
+    static final class Alert {
+        private final Activity activity;private CharSequence title,message;private CharSequence[] items;private int checked=-1;private boolean singleChoice;
+        private android.content.DialogInterface.OnClickListener itemListener,positiveListener,negativeListener,neutralListener;
+        private CharSequence positiveText,negativeText,neutralText;private View customView;private android.content.DialogInterface.OnCancelListener cancelListener;
+        Alert(Activity a){activity=a;}
+        Alert setTitle(CharSequence t){title=t;return this;}
+        Alert setMessage(CharSequence m){message=m;return this;}
+        Alert setItems(CharSequence[] list,android.content.DialogInterface.OnClickListener l){items=list;itemListener=l;singleChoice=false;return this;}
+        Alert setSingleChoiceItems(CharSequence[] list,int selected,android.content.DialogInterface.OnClickListener l){items=list;checked=selected;itemListener=l;singleChoice=true;return this;}
+        Alert setView(View v){customView=v;return this;}
+        Alert setPositiveButton(CharSequence t,android.content.DialogInterface.OnClickListener l){positiveText=t;positiveListener=l;return this;}
+        Alert setNegativeButton(CharSequence t,android.content.DialogInterface.OnClickListener l){negativeText=t;negativeListener=l;return this;}
+        Alert setNeutralButton(CharSequence t,android.content.DialogInterface.OnClickListener l){neutralText=t;neutralListener=l;return this;}
+        Alert setOnCancelListener(android.content.DialogInterface.OnCancelListener l){cancelListener=l;return this;}
+        Dialog show(){
+            final Activity a=activity;final Dialog dialog=new Dialog(a);dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+            LinearLayout root=column(a);root.setPadding(dp(a,12),dp(a,10),dp(a,12),dp(a,8));root.setBackground(background(PANEL));
+            if(title!=null){TextView heading=label(a,title.toString(),15);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);root.addView(heading,new LinearLayout.LayoutParams(-1,dp(a,34)));}
+            final LinearLayout content=column(a);
+            if(message!=null){TextView text=label(a,message.toString(),12);text.setGravity(Gravity.START);text.setTextColor(MUTED);text.setPadding(0,dp(a,2),0,dp(a,8));content.addView(text,new LinearLayout.LayoutParams(-1,-2));}
+            if(customView!=null){ViewGroup old=(ViewGroup)customView.getParent();if(old!=null)old.removeView(customView);content.addView(customView,new LinearLayout.LayoutParams(-1,-2));}
+            if(items!=null){
+                final Button[] buttons=new Button[items.length];
+                for(int i=0;i<items.length;i++){
+                    final int index=i;buttons[i]=button(a,items[i].toString(),()->{});buttons[i].setGravity(Gravity.CENTER_VERTICAL|Gravity.START);
+                    if(singleChoice&&i==checked){buttons[i].setBackground(background(ACCENT));buttons[i].setTextColor(ACCENT_TEXT);}
+                    buttons[i].setOnClickListener(v->{
+                        if(singleChoice){for(int j=0;j<buttons.length;j++){buttons[j].setBackground(background(j==index?ACCENT:FIELD));buttons[j].setTextColor(j==index?ACCENT_TEXT:TEXT);}}
+                        else dialog.dismiss();
+                        if(itemListener!=null)itemListener.onClick(dialog,index);
+                    });
+                    LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(a,44));lp.setMargins(0,dp(a,2),0,dp(a,2));content.addView(buttons[i],lp);
+                }
+            }
+            ScrollView scroll=new ScrollView(a);scroll.addView(content,new ScrollView.LayoutParams(-1,-2));
+            android.util.DisplayMetrics m=a.getResources().getDisplayMetrics();
+            root.addView(new BoundedScrollViewHolder(a,scroll,Math.max(dp(a,120),m.heightPixels-dp(a,190))),new LinearLayout.LayoutParams(-1,-2));
+            if(positiveText!=null||negativeText!=null||neutralText!=null){
+                LinearLayout footer=new LinearLayout(a);footer.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
+                if(neutralText!=null){footer.addView(alertButton(a,neutralText.toString(),dialog,neutralListener,android.content.DialogInterface.BUTTON_NEUTRAL),new LinearLayout.LayoutParams(-2,dp(a,44)));View gap=new View(a);footer.addView(gap,new LinearLayout.LayoutParams(0,1,1));}
+                if(negativeText!=null)footer.addView(alertButton(a,negativeText.toString(),dialog,negativeListener,android.content.DialogInterface.BUTTON_NEGATIVE),new LinearLayout.LayoutParams(-2,dp(a,44)));
+                if(positiveText!=null)footer.addView(alertButton(a,positiveText.toString(),dialog,positiveListener,android.content.DialogInterface.BUTTON_POSITIVE),new LinearLayout.LayoutParams(-2,dp(a,44)));
+                LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(-1,dp(a,48));fp.topMargin=dp(a,4);root.addView(footer,fp);
+            }
+            dialog.setContentView(root);if(cancelListener!=null)dialog.setOnCancelListener(cancelListener);
+            dialog.show();android.view.Window w=dialog.getWindow();
+            if(w!=null){w.setBackgroundDrawableResource(android.R.color.transparent);w.setLayout(Math.max(1,Math.min(Math.min(m.widthPixels-dp(a,24),Math.round(m.widthPixels*.94f)),dp(a,460))),ViewGroup.LayoutParams.WRAP_CONTENT);}
+            return dialog;
+        }
+        private static Button alertButton(Activity a,String text,final Dialog dialog,final android.content.DialogInterface.OnClickListener l,final int which){
+            Button b=button(a,text,()->{});b.setMinWidth(dp(a,88));b.setOnClickListener(v->{dialog.dismiss();if(l!=null)l.onClick(dialog,which);});return b;
+        }
+        /** Caps a scroll view's height so long lists stay inside the screen. */
+        private static final class BoundedScrollViewHolder extends FrameLayout {
+            private final int max;
+            BoundedScrollViewHolder(Context c,View child,int maxHeight){super(c);max=maxHeight;addView(child,new FrameLayout.LayoutParams(-1,-2));}
+            @Override protected void onMeasure(int w,int h){super.onMeasure(w,View.MeasureSpec.makeMeasureSpec(max,View.MeasureSpec.AT_MOST));}
+        }
+    }
+
     static final class Panel {
         /** Set right before creating an editor panel: the next Panel docks on the right edge (desktop inspector behaviour). */
         static boolean dockNext;
