@@ -3402,9 +3402,10 @@ public final class MainActivity extends Activity {
                 paint.setStyle(Paint.Style.FILL);paint.setColor(EditorUi.PANEL);canvas.drawRoundRect(viewLeft,trackTop,viewRight,trackBottom,trackBottom-trackTop,trackBottom-trackTop,paint);
                 paint.setColor(teal);canvas.drawRoundRect(thumbLeft,trackTop,thumbLeft+thumbWidth,trackBottom,trackBottom-trackTop,trackBottom-trackTop,paint);
             }
-            button(canvas,"TEMA · "+EditorUi.THEME_NAMES[EditorUi.themeIndex],left,h*.943f,Math.min(w*.34f,EditorUi.dp(getContext(),185)),h*.991f,false);
+            if(dockInset==0)button(canvas,"TEMA · "+EditorUi.THEME_NAMES[EditorUi.themeIndex],left,h*.943f,Math.min(w*.34f,EditorUi.dp(getContext(),185)),h*.991f,false);
             if(dockInset==0)button(canvas, "SALVAR PERFORMANCE", Math.max(w*.40f,w*.88f-EditorUi.dp(getContext(),230)), h*.943f, w*.88f-EditorUi.dp(getContext(),12), h*.991f, false);
-            button(canvas, "PANIC", w*.88f, h*.943f, w-left, h*.991f, false);
+            if(dockInset!=0)button(canvas, "PANIC", left, h*.943f, w-left, h*.991f, false);
+            else button(canvas, "PANIC", w*.88f, h*.943f, w-left, h*.991f, false);
             postInvalidateDelayed(70);
         }
 
@@ -3532,6 +3533,7 @@ public final class MainActivity extends Activity {
             if(liveSet&&tap&&event.getY()>h*.14f&&event.getY()<h*.22f){liveBank=Math.max(0,Math.min(7,(int)(event.getX()/(w/8f))));selected=0;loadLiveNames();return true;}
             if(liveSet&&tap&&event.getY()>h*.90f&&event.getX()<300){savingLiveSlot=!savingLiveSlot;invalidate();return true;}
             if (!liveSet && !settings && tap && event.getY() >= h*.943f && event.getY() <= h*.991f) {
+                if(dockInset!=0){if(event.getX()>=18&&event.getX()<=mw-18){panicMidiState();invalidate();}return true;}
                 if(event.getX()>=18&&event.getX()<=Math.min(w*.34f,EditorUi.dp(getContext(),185))){showThemeChooser();return true;}
                 if(dockInset==0&&event.getX()>=Math.max(w*.40f,w*.88f-EditorUi.dp(getContext(),230))&&event.getX()<=w*.88f-EditorUi.dp(getContext(),12)){choosePerformanceSlot();return true;}
                 if (event.getX() >= w*.88f && event.getX() <= w-18) { panicMidiState(); invalidate(); return true; }
