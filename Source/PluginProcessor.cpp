@@ -383,6 +383,7 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
         cached.PitchBendEnabled = parameters.getRawParameterValue(prefix + "PitchBendEnabled");
         jassert(cached.PitchBendEnabled != nullptr);
     }
+    liveSetHeldMidi.ensureSize(16384); // used on the audio thread; never grows in practice
     realtimeMaster.master = parameters.getRawParameterValue("master");
     realtimeMaster.limiterEnabled = parameters.getRawParameterValue("limiterEnabled");
     realtimeMaster.limiterInput = parameters.getRawParameterValue("limiterInput");
@@ -437,6 +438,7 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
 
 ClassicPlayerAudioProcessor::~ClassicPlayerAudioProcessor()
 {
+    liveSetSwapTrigger.cancelPendingUpdate();
     nordBundleAlive->store(false);
     nordBundlePool.removeAllJobs(true, -1);
     stopTimer();
@@ -730,6 +732,36 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // synth, this state feeds the on-screen keyboard and chord detector, so an
     // activation refresh must never make the MIDI UI appear disconnected.
     keyboardState.processNextMidiBuffer(midi, 0, buffer.getNumSamples(), true);
+
+    // Staged Live Set switch (see stageLiveSetSlot): the old performance keeps sounding until the
+    // first new note-on arrives. That note and everything after it is held until the new program
+    // is in place, then played in it.
+    if (const auto swapState = liveSetSwapState.load(std::memory_order_acquire); swapState != 0)
+    {
+        if (swapState == 1)
+        {
+            bool hasNoteOn = false;
+            for (const auto metadata : midi)
+                if (metadata.getMessage().isNoteOn()) { hasNoteOn = true; break; }
+            int expected = 1;
+            if (hasNoteOn && liveSetSwapState.compare_exchange_strong(expected, 2, std::memory_order_acq_rel))
+                liveSetSwapTrigger.triggerAsyncUpdate();
+        }
+        const auto current = liveSetSwapState.load(std::memory_order_acquire);
+        if (current == 2)
+        {
+            for (const auto metadata : midi)
+                liveSetHeldMidi.addEvent(metadata.getMessage(), 0);
+            midi.clear();
+        }
+        else if (current == 3)
+        {
+            for (const auto metadata : liveSetHeldMidi)
+                midi.addEvent(metadata.getMessage(), 0);
+            liveSetHeldMidi.clear();
+            liveSetSwapState.store(0, std::memory_order_release);
+        }
+    }
 
     if (midiRecordingActive.load(std::memory_order_acquire))
         recordMidiBuffer(midi, recordedMidiSamples);
@@ -4242,7 +4274,106 @@ juce::Result ClassicPlayerAudioProcessor::loadLiveSetSlot(int bank, int slot)
     return result;
 }
 
-void ClassicPlayerAudioProcessor::beginLiveSetFadeOut()
+juce::Result ClassicPlayerAudioProcessor::stageLiveSetSlot(int bank, int slot, std::function<void()> beforeSwap,
+                                                            std::function<void(juce::Result)> afterSwap)
+{
+    const auto program = liveSetSlotProgram(bank, slot);
+    if (!program.existsAsFile())
+        return juce::Result::fail("Esta posicao do Live Set nao possui uma programacao salva.");
+    if (liveSetSwapState.load(std::memory_order_acquire) >= 2)
+        return juce::Result::fail("Aguarde a troca de performance em andamento.");
+    juce::MemoryBlock data;
+    if (!program.loadFileAsData(data) || data.getSize() == 0)
+        return juce::Result::fail("Nao foi possivel ler a programacao.");
+    auto xml = getXmlFromBinary(data.getData(), static_cast<int>(data.getSize()));
+    if (xml == nullptr)
+        return juce::Result::fail("A programacao esta corrompida ou e incompativel.");
+    const auto state = juce::ValueTree::fromXml(*xml);
+
+    // Prepare the SF2 files now, while the old performance keeps sounding, so the swap on the
+    // first note only has to apply them.
+    for (int i = 0; i < Sf2Engine::layerCount; ++i)
+    {
+        stagedSoundFonts[(size_t) i].reset();
+        stagedSoundFontPaths[(size_t) i] = {};
+    }
+    const auto layerCountToRestore = juce::jlimit(
+        0, Sf2Engine::layerCount, static_cast<int>(state.getProperty("activeLayers", Sf2Engine::defaultLayerCount)));
+    for (int i = 0; i < layerCountToRestore; ++i)
+    {
+        const auto savedType = static_cast<int>(state.getProperty(
+            "layerType" + juce::String(i + 1), static_cast<int>(LayerType::sf2)));
+        const auto sourcePath = state.getProperty("sf2Layer" + juce::String(i + 1)).toString();
+        if (!(savedType == static_cast<int>(LayerType::sf2) || savedType == static_cast<int>(LayerType::vst)))
+            continue;
+        if (sourcePath.isEmpty() || juce::File(sourcePath).hasFileExtension(".npno")
+            || juce::File(sourcePath).hasFileExtension(".nsmp;.nsmp3;.nsmp4")
+            || engine.getSoundFontPath(i) == sourcePath)
+            continue;
+        if (engine.prepareSoundFont(i, juce::File(sourcePath), stagedSoundFonts[(size_t) i]).wasOk())
+            stagedSoundFontPaths[(size_t) i] = sourcePath;
+        else
+            stagedSoundFonts[(size_t) i].reset();
+    }
+    stagedLiveSetProgram = program;
+    stagedBeforeSwap = std::move(beforeSwap);
+    stagedAfterSwap = std::move(afterSwap);
+    liveSetSwapState.store(1, std::memory_order_release);
+    return juce::Result::ok();
+}
+
+void ClassicPlayerAudioProcessor::cancelStagedLiveSetSwitch()
+{
+    int expected = 1;
+    if (liveSetSwapState.compare_exchange_strong(expected, 0, std::memory_order_acq_rel))
+    {
+        for (int i = 0; i < Sf2Engine::layerCount; ++i)
+        {
+            stagedSoundFonts[(size_t) i].reset();
+            stagedSoundFontPaths[(size_t) i] = {};
+        }
+        stagedBeforeSwap = nullptr;
+        stagedAfterSwap = nullptr;
+    }
+}
+
+void ClassicPlayerAudioProcessor::LiveSetSwapTrigger::handleAsyncUpdate()
+{
+    owner.performStagedLiveSetSwap();
+}
+
+void ClassicPlayerAudioProcessor::performStagedLiveSetSwap()
+{
+    if (liveSetSwapState.load(std::memory_order_acquire) != 2) return;
+    auto before = std::move(stagedBeforeSwap);
+    auto after = std::move(stagedAfterSwap);
+    stagedBeforeSwap = nullptr;
+    stagedAfterSwap = nullptr;
+    if (before) before();
+
+    // The old sound ends here: a few ms of fade so the cut itself cannot click. All MIDI is held
+    // by the audio thread meanwhile (state 2), including the note that triggered the switch.
+    beginLiveSetFadeOut(0.012);
+    for (int i = 0; i < 40 && !isLiveSetFadeOutComplete(); ++i)
+        juce::Thread::sleep(2);
+
+    const auto result = loadProgram(stagedLiveSetProgram);
+    {
+        const juce::ScopedLock callbackLock(getCallbackLock());
+        liveSetFadingOut = false;
+        liveSetFadingIn = false; // the new program is silent until the held notes are replayed
+        liveSetFadeOutStartMs.store(0, std::memory_order_relaxed);
+    }
+    for (int i = 0; i < Sf2Engine::layerCount; ++i)
+    {
+        stagedSoundFonts[(size_t) i].reset();
+        stagedSoundFontPaths[(size_t) i] = {};
+    }
+    liveSetSwapState.store(3, std::memory_order_release); // audio thread replays the held MIDI
+    if (after) after(result);
+}
+
+void ClassicPlayerAudioProcessor::beginLiveSetFadeOut(double seconds)
 {
     const juce::ScopedLock callbackLock(getCallbackLock());
     liveSetFadingIn = false;
@@ -4251,7 +4382,7 @@ void ClassicPlayerAudioProcessor::beginLiveSetFadeOut()
                                 std::memory_order_relaxed);
     liveSetFadeOutDone.store(false, std::memory_order_release);
     liveSetFadePosition = 0;
-    liveSetFadeFrames = juce::jmax(1, juce::roundToInt(currentSampleRate * 0.25));
+    liveSetFadeFrames = juce::jmax(1, juce::roundToInt(currentSampleRate * seconds));
 }
 
 void ClassicPlayerAudioProcessor::cancelLiveSetFade()
@@ -4487,6 +4618,7 @@ void ClassicPlayerAudioProcessor::stopAllSoundsBeforeProgramChange()
 
 void ClassicPlayerAudioProcessor::panic()
 {
+    cancelStagedLiveSetSwitch();
     cancelLiveSetFade();
     stopAllSoundsBeforeProgramChange();
     keyboardState.reset();
@@ -5137,6 +5269,12 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     || engine.getSoundFontPath(i) == sourcePath)
                     continue;
 
+                if (stagedSoundFonts[(size_t) i] != nullptr && stagedSoundFontPaths[(size_t) i] == sourcePath)
+                {
+                    preparedSoundFonts[(size_t) i] = std::move(stagedSoundFonts[(size_t) i]);
+                    stagedSoundFontPaths[(size_t) i] = {};
+                    continue;
+                }
                 const auto result = engine.prepareSoundFont(i, juce::File(sourcePath), preparedSoundFonts[(size_t) i]);
                 if (result.failed())
                     juce::Logger::writeToLog("Não foi possível preparar o SF2 da layer "

@@ -12862,55 +12862,48 @@ void ClassicPlayerAudioProcessorEditor::loadLiveSetSlot(int slot)
         return;
     }
     classicProcessor.preloadLiveSetBank(bank);
-    classicProcessor.beginLiveSetFadeOut();
-    const auto generation = ++liveSetSwitchGeneration;
-    // The old program fades out for 0.25 s on the audio thread. Wait for it to confirm silence
-    // (instead of a fixed delay) before replacing the program, so voices are never cut while audible.
-    juce::Timer::callAfterDelay(200,
-        [safe = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this), bank, slot, generation]
+    // The old performance keeps sounding; the new one takes over when the next note is played.
+    const auto safe = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this);
+    const auto staged = classicProcessor.stageLiveSetSlot(bank, slot,
+        [safe]
         {
-            if (safe != nullptr) safe->continueLiveSetSwitch(bank, slot, generation, 200, false);
-        });
-}
-
-void ClassicPlayerAudioProcessorEditor::continueLiveSetSwitch(int bank, int slot, unsigned int generation,
-                                                              int waitedMs, bool settled)
-{
-    if (generation != liveSetSwitchGeneration) return;
-    const auto faded = classicProcessor.isLiveSetFadeOutComplete();
-    if ((!faded && waitedMs < 700) || (faded && !settled))
-    {
-        // Poll until the audio thread reports silence; then give the device's output queue
-        // a short margin (already-queued buffers are silent, but this costs nothing audible).
-        const auto nextSettled = faded;
-        juce::Timer::callAfterDelay(faded ? 30 : 10,
-            [safe = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this),
-             bank, slot, generation, waitedMs, nextSettled]
+            if (safe == nullptr) return;
+            for (auto& strip : safe->strips)
+                if (strip != nullptr)
+                    strip->closeExternalInstrumentEditor();
+        },
+        [safe, bank, slot](juce::Result result)
+        {
+            if (safe == nullptr) return;
+            if (result.failed())
             {
-                if (safe != nullptr)
-                    safe->continueLiveSetSwitch(bank, slot, generation, waitedMs + (nextSettled ? 30 : 10), nextSettled);
-            });
-        return;
-    }
-    for (auto& strip : strips)
-        if (strip != nullptr)
-            strip->closeExternalInstrumentEditor();
-    const auto result = classicProcessor.loadLiveSetSlot(bank, slot);
-    if (result.failed())
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                                       "Live Set", result.getErrorMessage());
+                return;
+            }
+            safe->activeLiveSetSlot = slot;
+            safe->loadedLiveSetBank = bank;
+            safe->programBox.setText(safe->classicProcessor.currentSavedProgramName(), juce::dontSendNotification);
+            safe->refreshProgramLibrary();
+            safe->refreshAfterProgramLoad();
+        });
+    if (staged.failed())
     {
         juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
-                                               "Live Set", result.getErrorMessage());
+                                               "Live Set", staged.getErrorMessage());
         return;
     }
+    // Highlight the chosen slot right away; the sound changes with the next note.
     activeLiveSetSlot = slot;
     loadedLiveSetBank = bank;
-    programBox.setText(classicProcessor.currentSavedProgramName(), juce::dontSendNotification);
-    refreshProgramLibrary();
-    refreshAfterProgramLoad();
+    programBox.setText(classicProcessor.liveSetSlotProgram(bank, slot).getFileNameWithoutExtension(),
+                       juce::dontSendNotification);
+    refreshLiveSet();
 }
 
 void ClassicPlayerAudioProcessorEditor::loadSelectedProgram()
 {
+    classicProcessor.cancelStagedLiveSetSwitch();
     const auto selected = programBox.getSelectedItemIndex();
     if (!juce::isPositiveAndBelow(selected, programFiles.size()))
     {

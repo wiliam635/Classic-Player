@@ -295,7 +295,17 @@ public:
     juce::Result assignLiveSetSlot(int bank, int slot, const juce::File& programFile);
     void clearLiveSetSlot(int bank, int slot);
     juce::Result loadLiveSetSlot(int bank, int slot);
-    void beginLiveSetFadeOut();
+    void beginLiveSetFadeOut(double seconds = 0.25);
+    // Live Set switch that waits for the first new note: the old performance keeps sounding
+    // (held notes, tails) while the new one is prepared. When the next note-on arrives the
+    // audio thread holds that note, the program is swapped on the message thread after a very
+    // short fade, and the held notes are then played in the new performance.
+    // The callbacks run on the message thread; beforeSwap closes native editors, afterSwap
+    // reports the result of loading.
+    juce::Result stageLiveSetSlot(int bank, int slot, std::function<void()> beforeSwap,
+                                  std::function<void(juce::Result)> afterSwap);
+    void cancelStagedLiveSetSwitch();
+    bool hasStagedLiveSetSwitch() const noexcept { return liveSetSwapState.load(std::memory_order_acquire) != 0; }
     // True once the audio thread has faded the old program to silence (set by processBlock).
     bool isLiveSetFadeOutComplete() const noexcept { return liveSetFadeOutDone.load(std::memory_order_acquire); }
     void cancelLiveSetFade();
@@ -512,6 +522,22 @@ private:
     // The message-thread timer uses it to un-mute if the switch never completes.
     std::atomic<juce::uint32> liveSetFadeOutStartMs { 0 };
     std::atomic<bool> liveSetFadeOutDone { false };
+    // 0 idle, 1 staged (waiting for the first note), 2 swapping (MIDI is held), 3 replay held MIDI.
+    std::atomic<int> liveSetSwapState { 0 };
+    juce::MidiBuffer liveSetHeldMidi;
+    juce::File stagedLiveSetProgram;
+    std::array<std::shared_ptr<Sf2Engine::PreparedSoundFont>, Sf2Engine::layerCount> stagedSoundFonts {};
+    std::array<juce::String, Sf2Engine::layerCount> stagedSoundFontPaths;
+    std::function<void()> stagedBeforeSwap;
+    std::function<void(juce::Result)> stagedAfterSwap;
+    void performStagedLiveSetSwap();
+    struct LiveSetSwapTrigger : juce::AsyncUpdater
+    {
+        explicit LiveSetSwapTrigger(ClassicPlayerAudioProcessor& o) : owner(o) {}
+        ~LiveSetSwapTrigger() override { cancelPendingUpdate(); }
+        void handleAsyncUpdate() override;
+        ClassicPlayerAudioProcessor& owner;
+    } liveSetSwapTrigger { *this };
     juce::TimeSliceThread recordingThread { "Classic Player WAV Writer" };
     std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> recordingWriter;
     std::atomic<juce::AudioFormatWriter::ThreadedWriter*> activeRecordingWriter { nullptr };
