@@ -17,7 +17,7 @@ jobs:
       - name: Define download version
         shell: pwsh
         run: |
-          "DOWNLOAD_VERSION=3.0.3" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DOWNLOAD_VERSION=3.5.0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Preflight native source
         shell: pwsh
