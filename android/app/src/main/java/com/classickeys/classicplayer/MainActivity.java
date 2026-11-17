@@ -2134,10 +2134,10 @@ public final class MainActivity extends Activity {
             }else if("SF2".equals(engine)&&!plate){
                 TextView loaded=EditorUi.label(this,screen.layerNames[layer],11);loaded.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);loaded.setSingleLine(true);loaded.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);body.addView(loaded,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,22)));
             }
-            if(!plate)EditorUi.selector(body,"TIMBRE",items,selected,which->{selection.apply(which);if(analog)renderLayerEditorPage(layer,panel,page,items,which,selection,secondaryLabel,secondaryAction);});
+            if(!plate&&!("HAMMOND".equals(engine)&&panel.docked))EditorUi.selector(body,"TIMBRE",items,selected,which->{selection.apply(which);if(analog)renderLayerEditorPage(layer,panel,page,items,which,selection,secondaryLabel,secondaryAction);});
             LinearLayout source=EditorUi.gridRow(body);if(secondaryLabel!=null&&!plate)EditorUi.addButton(source,secondaryLabel,()->{panel.dialog.dismiss();secondaryAction.run();});if(!panel.docked&&(secondaryLabel==null||!secondaryLabel.equals("TROCAR MOTOR")))EditorUi.addButton(source,"TROCAR MOTOR",()->{panel.dialog.dismiss();panicAndChooseLayerSource(layer);});
             if(source.getChildCount()==0)body.removeView(source);
-            if("HAMMOND".equals(engine))buildHammondControls(layer,body);
+            if("HAMMOND".equals(engine))buildHammondControls(layer,body,panel.docked?items:null,selected,ix->{selection.apply(ix);renderLayerEditorPage(layer,panel,0,items,ix,selection,secondaryLabel,secondaryAction);});
             if(analog)buildAnalogOscillatorControls(layer,body);
             LinearLayout presets=EditorUi.gridRow(body);EditorUi.addButton(presets,"EXPORTAR PRESET…",()->exportLayerPreset(layer));EditorUi.addButton(presets,"IMPORTAR PRESET…",()->importLayerPreset(layer));
             if("NPNO".equals(engine)&&!plate){
@@ -2519,13 +2519,23 @@ public final class MainActivity extends Activity {
         TextView text=EditorUi.label(this,caption,8);text.setTextColor(EditorUi.MUTED);cell.addView(text,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,14)));
         LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,-2,1);cp.setMargins(EditorUi.dp(this,2),0,EditorUi.dp(this,2),0);parent.addView(cell,cp);
     }
-    private void buildHammondControls(int layer,LinearLayout body){
+    private void buildHammondControls(int layer,LinearLayout body){buildHammondControls(layer,body,null,0,null);}
+    private void buildHammondControls(int layer,LinearLayout body,String[] presetItems,int presetSelected,PresetSelection presetSelection){
         final int l=layer;
+        final LinearLayout realBody=body;
+        if(presetItems!=null){
+            // Desktop walnut cabinet: MAIN / OPTIONS tabs on the left, preset menu on the right.
+            LinearLayout cabinet=EditorUi.column(this);cabinet.setBackground(EditorUi.background(0xff7a4420));int cp=EditorUi.dp(this,6);cabinet.setPadding(cp,cp,cp,cp);
+            LinearLayout.LayoutParams cl=new LinearLayout.LayoutParams(-1,-2);cl.setMargins(EditorUi.dp(this,3),EditorUi.dp(this,8),EditorUi.dp(this,3),EditorUi.dp(this,4));realBody.addView(cabinet,cl);
+            body=cabinet;
+        }
         // Page switcher, like the desktop MAIN / OPTIONS tabs.
         final LinearLayout main=EditorUi.column(this),options=EditorUi.column(this);
         final Button[] tabs=new Button[2];String[] tabNames={"MAIN","OPTIONS"};
-        LinearLayout tabRow=EditorUi.gridRow(body);
-        for(int i=0;i<2;i++){tabs[i]=EditorUi.button(this,tabNames[i],()->{});tabs[i].setMinHeight(EditorUi.dp(this,36));tabs[i].setMinimumHeight(EditorUi.dp(this,36));LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,EditorUi.dp(this,36),1);tp.setMargins(1,0,1,2);tabRow.addView(tabs[i],tp);}
+        LinearLayout tabRow=presetItems!=null?new LinearLayout(this):EditorUi.gridRow(body);
+        if(presetItems!=null){tabRow.setGravity(Gravity.CENTER_VERTICAL);body.addView(tabRow,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,40)));}
+        for(int i=0;i<2;i++){tabs[i]=EditorUi.button(this,tabNames[i],()->{});tabs[i].setMinHeight(EditorUi.dp(this,36));tabs[i].setMinimumHeight(EditorUi.dp(this,36));LinearLayout.LayoutParams tp=presetItems!=null?new LinearLayout.LayoutParams(EditorUi.dp(this,96),EditorUi.dp(this,34)):new LinearLayout.LayoutParams(0,EditorUi.dp(this,36),1);tp.setMargins(1,0,1,2);tabRow.addView(tabs[i],tp);}
+        if(presetItems!=null){View spacer=new View(this);tabRow.addView(spacer,new LinearLayout.LayoutParams(0,1,1));LinearLayout ph=new LinearLayout(this);tabRow.addView(ph,new LinearLayout.LayoutParams(EditorUi.dp(this,300),-2));EditorUi.selectorCell(ph,"",presetItems,presetSelected,i->presetSelection.apply(i));}
         final java.util.function.IntConsumer select=page->{
             main.setVisibility(page==0?View.VISIBLE:View.GONE);options.setVisibility(page==1?View.VISIBLE:View.GONE);
             for(int j=0;j<2;j++){tabs[j].setBackground(EditorUi.background(j==page?EditorUi.TEXT:EditorUi.SURFACE));tabs[j].setTextColor(j==page?EditorUi.BACKGROUND:EditorUi.TEXT);}
