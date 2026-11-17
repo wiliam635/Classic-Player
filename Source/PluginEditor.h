@@ -423,6 +423,7 @@ private:
     void refreshLiveSetVolumeIndicators();
     void chooseLiveSetSlot(int slot);
     void loadLiveSetSlot(int slot);
+    void continueLiveSetSwitch(int bank, int slot, unsigned int generation, int waitedMs, bool settled);
     void addLayer(ClassicPlayerAudioProcessor::LayerType type = ClassicPlayerAudioProcessor::LayerType::sf2);
     void removeLayer(int layer);
     void reorderLayerFromDrag(int layer, juce::Point<int> screenPosition);

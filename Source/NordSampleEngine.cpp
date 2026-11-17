@@ -242,6 +242,10 @@ void NordSampleEngine::stopLayerSounds(int index)
     layer.monoNote = -1;
     layer.monoChannel = 1;
     layer.nordFx.reset();
+    layer.reverb.reset();
+    layer.eq.reset();
+    layer.cutoffState.fill(0.0f);
+    layer.compressorEnvelope.fill(0.0f);
     for (auto& voice : layer.voices) voice = {};
 }
 
@@ -262,6 +266,10 @@ void NordSampleEngine::stopAllSounds()
         layer.monoNote = -1;
         layer.monoChannel = 1;
         layer.nordFx.reset();
+        layer.reverb.reset();
+        layer.eq.reset();
+        layer.cutoffState.fill(0.0f);
+        layer.compressorEnvelope.fill(0.0f);
         for (auto& voice : layer.voices) voice = {};
     }
 }

@@ -1216,6 +1216,8 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             if (liveSetFadingIn && liveSetFadePosition >= liveSetFadeFrames)
                 liveSetFadingIn = false;
         }
+    if (liveSetFadingOut && liveSetFadePosition >= liveSetFadeFrames)
+        liveSetFadeOutDone.store(true, std::memory_order_release);
 
     // Publish the final stereo mix for the visual analyser. The audio callback
     // only performs atomic stores; FFT/windowing runs on the editor thread.
@@ -4257,6 +4259,7 @@ void ClassicPlayerAudioProcessor::beginLiveSetFadeOut()
     liveSetFadingOut = true;
     liveSetFadeOutStartMs.store(juce::jmax<juce::uint32>(1, juce::Time::getMillisecondCounter()),
                                 std::memory_order_relaxed);
+    liveSetFadeOutDone.store(false, std::memory_order_release);
     liveSetFadePosition = 0;
     liveSetFadeFrames = juce::jmax(1, juce::roundToInt(currentSampleRate * 0.12));
 }

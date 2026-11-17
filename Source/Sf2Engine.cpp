@@ -281,6 +281,16 @@ void Sf2Engine::stopLayerSounds(int index)
     if (!juce::isPositiveAndBelow(index, layerCount)) return;
     const juce::ScopedLock guard(lock);
     auto& layer = layers[(size_t) index];
+    // An OFF layer is not processed, so its effect tails would stay frozen until it is switched on.
+    layer.nativeReverb.reset();
+    layer.eq.reset();
+    layer.compressorEnvelope = { 0.0f, 0.0f };
+    layer.filterState = { 0.0f, 0.0f };
+    layer.highPassInput = { 0.0f, 0.0f };
+    layer.highPassOutput = { 0.0f, 0.0f };
+    layer.lowPassState = { 0.0f, 0.0f };
+    layer.effectTailPending = false;
+    layer.effectQuietSamples = 0;
     if (layer.synth == nullptr) return;
     for (int channel = 0; channel < 16; ++channel)
     {
@@ -300,6 +310,20 @@ void Sf2Engine::stopLayerSounds(int index)
 void Sf2Engine::stopAllSounds()
 {
     const juce::ScopedLock guard(lock);
+    // A program/Live Set change leaves the audio thread idle while the next program loads, so
+    // reverb, EQ and compressor state would stay frozen and replay the old tail when audio resumes.
+    for (auto& layer : layers)
+    {
+        layer.nativeReverb.reset();
+        layer.eq.reset();
+        layer.compressorEnvelope = { 0.0f, 0.0f };
+        layer.filterState = { 0.0f, 0.0f };
+        layer.highPassInput = { 0.0f, 0.0f };
+        layer.highPassOutput = { 0.0f, 0.0f };
+        layer.lowPassState = { 0.0f, 0.0f };
+        layer.effectTailPending = false;
+        layer.effectQuietSamples = 0;
+    }
     for (auto& layer : layers)
     {
         if (layer.synth == nullptr) continue;

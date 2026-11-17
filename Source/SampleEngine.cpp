@@ -287,6 +287,11 @@ void SampleEngine::stopLayerSounds(int index)
     auto& layer = layers[(size_t) index];
     layer.sustainDown.fill(false);
     layer.nordFx.reset();
+    layer.reverb.reset();
+    layer.eq.reset();
+    layer.compressorEnvelope = {};
+    layer.pianoLowEqState = {};
+    layer.pianoHighEqState = {};
     for (auto& voice : layer.voices) voice = {};
 }
 
@@ -297,6 +302,12 @@ void SampleEngine::stopAllSounds()
     {
         layer.sustainDown.fill(false);
         layer.nordFx.reset();
+        // Idle audio thread during a program change: clear frozen effect tails (see Sf2Engine).
+        layer.reverb.reset();
+        layer.eq.reset();
+        layer.compressorEnvelope = {};
+        layer.pianoLowEqState = {};
+        layer.pianoHighEqState = {};
         for (auto& voice : layer.voices) voice = {};
     }
 }

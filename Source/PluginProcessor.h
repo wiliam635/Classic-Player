@@ -296,6 +296,8 @@ public:
     void clearLiveSetSlot(int bank, int slot);
     juce::Result loadLiveSetSlot(int bank, int slot);
     void beginLiveSetFadeOut();
+    // True once the audio thread has faded the old program to silence (set by processBlock).
+    bool isLiveSetFadeOutComplete() const noexcept { return liveSetFadeOutDone.load(std::memory_order_acquire); }
     void cancelLiveSetFade();
     // Decode Nord samples used by a Live Set bank on a worker thread. The
     // decoded instruments are held in a bounded cache for fast slot changes.
@@ -510,6 +512,7 @@ private:
     // Set when a Live Set fade-out starts, cleared when the new program takes over.
     // The message-thread timer uses it to un-mute if the switch never completes.
     std::atomic<juce::uint32> liveSetFadeOutStartMs { 0 };
+    std::atomic<bool> liveSetFadeOutDone { false };
     juce::TimeSliceThread recordingThread { "Classic Player WAV Writer" };
     std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> recordingWriter;
     std::atomic<juce::AudioFormatWriter::ThreadedWriter*> activeRecordingWriter { nullptr };

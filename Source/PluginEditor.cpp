@@ -12864,28 +12864,49 @@ void ClassicPlayerAudioProcessorEditor::loadLiveSetSlot(int slot)
     classicProcessor.preloadLiveSetBank(bank);
     classicProcessor.beginLiveSetFadeOut();
     const auto generation = ++liveSetSwitchGeneration;
-    juce::Timer::callAfterDelay(135,
-        [safe = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this),
-         bank, slot, generation]
+    // The old program fades out for 0.12 s on the audio thread. Wait for it to confirm silence
+    // (instead of a fixed delay) before replacing the program, so voices are never cut while audible.
+    juce::Timer::callAfterDelay(110,
+        [safe = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this), bank, slot, generation]
         {
-            if (safe == nullptr || generation != safe->liveSetSwitchGeneration) return;
-            for (auto& strip : safe->strips)
-                if (strip != nullptr)
-                    strip->closeExternalInstrumentEditor();
-            const auto result = safe->classicProcessor.loadLiveSetSlot(bank, slot);
-            if (result.failed())
-            {
-                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
-                                                       "Live Set", result.getErrorMessage());
-                return;
-            }
-            safe->activeLiveSetSlot = slot;
-            safe->loadedLiveSetBank = bank;
-            safe->programBox.setText(safe->classicProcessor.currentSavedProgramName(),
-                                     juce::dontSendNotification);
-            safe->refreshProgramLibrary();
-            safe->refreshAfterProgramLoad();
+            if (safe != nullptr) safe->continueLiveSetSwitch(bank, slot, generation, 110, false);
         });
+}
+
+void ClassicPlayerAudioProcessorEditor::continueLiveSetSwitch(int bank, int slot, unsigned int generation,
+                                                              int waitedMs, bool settled)
+{
+    if (generation != liveSetSwitchGeneration) return;
+    const auto faded = classicProcessor.isLiveSetFadeOutComplete();
+    if ((!faded && waitedMs < 700) || (faded && !settled))
+    {
+        // Poll until the audio thread reports silence; then give the device's output queue
+        // a short margin (already-queued buffers are silent, but this costs nothing audible).
+        const auto nextSettled = faded;
+        juce::Timer::callAfterDelay(faded ? 30 : 10,
+            [safe = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this),
+             bank, slot, generation, waitedMs, nextSettled]
+            {
+                if (safe != nullptr)
+                    safe->continueLiveSetSwitch(bank, slot, generation, waitedMs + (nextSettled ? 30 : 10), nextSettled);
+            });
+        return;
+    }
+    for (auto& strip : strips)
+        if (strip != nullptr)
+            strip->closeExternalInstrumentEditor();
+    const auto result = classicProcessor.loadLiveSetSlot(bank, slot);
+    if (result.failed())
+    {
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                                               "Live Set", result.getErrorMessage());
+        return;
+    }
+    activeLiveSetSlot = slot;
+    loadedLiveSetBank = bank;
+    programBox.setText(classicProcessor.currentSavedProgramName(), juce::dontSendNotification);
+    refreshProgramLibrary();
+    refreshAfterProgramLoad();
 }
 
 void ClassicPlayerAudioProcessorEditor::loadSelectedProgram()

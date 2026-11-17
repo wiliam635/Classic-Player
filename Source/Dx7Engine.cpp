@@ -301,14 +301,32 @@ void Dx7Engine::stopLayerSounds(int index)
 {
     if (!juce::isPositiveAndBelow(index, layerCount)) return;
     const juce::ScopedLock guard(lock);
-    for (auto& voice : layers[(size_t) index].voices) voice = {};
+    auto& layer = layers[(size_t) index];
+    layer.reverb.reset();
+    layer.eq.reset();
+    layer.compressorEnvelope = {};
+    layer.filterState = {};
+    layer.dcInput = {};
+    layer.dcOutput = {};
+    if (layer.chorusDelay.getNumSamples() > 0) layer.chorusDelay.clear();
+    for (auto& voice : layer.voices) voice = {};
 }
 
 void Dx7Engine::stopAllSounds()
 {
     const juce::ScopedLock guard(lock);
     for (auto& layer : layers)
+    {
+        // Idle audio thread during a program change: clear frozen effect tails (see Sf2Engine).
+        layer.reverb.reset();
+        layer.eq.reset();
+        layer.compressorEnvelope = {};
+        layer.filterState = {};
+        layer.dcInput = {};
+        layer.dcOutput = {};
+        if (layer.chorusDelay.getNumSamples() > 0) layer.chorusDelay.clear();
         for (auto& voice : layer.voices) voice = {};
+    }
 }
 
 float Dx7Engine::getLayerPeak(int index) const
