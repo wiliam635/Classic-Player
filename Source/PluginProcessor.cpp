@@ -1241,6 +1241,13 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         }
     if (liveSetFadingOut && liveSetFadePosition >= liveSetFadeFrames)
         liveSetFadeOutDone.store(true, std::memory_order_release);
+    if (liveSetFadingOut || liveSetFadingIn || liveSetSwapState.load(std::memory_order_relaxed) != 0)
+    {
+        auto postPeak = 0.0f;
+        for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+            postPeak = juce::jmax(postPeak, buffer.getMagnitude(channel, 0, buffer.getNumSamples()));
+        liveSetPostFadePeak.store(postPeak, std::memory_order_relaxed);
+    }
 
     // Publish the final stereo mix for the visual analyser. The audio callback
     // only performs atomic stores; FFT/windowing runs on the editor thread.
@@ -4373,11 +4380,31 @@ void ClassicPlayerAudioProcessor::performStagedLiveSetSwap()
 
     // The old sound ends here: 35 ms fade so the cut itself cannot click. All MIDI is held
     // by the audio thread meanwhile (state 2), including the note that triggered the switch.
+    const auto swapStartMs = juce::Time::getMillisecondCounterHiRes();
+    const auto gapsBefore = blockGapCount.load(std::memory_order_relaxed);
     beginLiveSetFadeOut(0.035);
-    for (int i = 0; i < 50 && !isLiveSetFadeOutComplete(); ++i)
+    int fadeWaits = 0;
+    for (; fadeWaits < 50 && !isLiveSetFadeOutComplete(); ++fadeWaits)
         juce::Thread::sleep(2);
+    const auto fadeDoneMs = juce::Time::getMillisecondCounterHiRes() - swapStartMs;
+    const auto peakAtFadeEnd = liveSetPostFadePeak.load(std::memory_order_relaxed);
 
+    const auto loadStartMs = juce::Time::getMillisecondCounterHiRes();
     const auto result = loadProgram(stagedLiveSetProgram);
+    const auto loadMs = juce::Time::getMillisecondCounterHiRes() - loadStartMs;
+    {
+        // Diagnostic written next to the programs so a real switch can be inspected afterwards.
+        juce::String line;
+        line << juce::Time::getCurrentTime().toString(true, true) << " | fade ate silencio: "
+             << juce::String(fadeDoneMs, 1) << " ms (" << fadeWaits << " esperas, concluido="
+             << (isLiveSetFadeOutComplete() ? "sim" : "NAO") << ") | pico de saida ao fim do fade: "
+             << juce::String(peakAtFadeEnd, 5) << " | loadProgram: " << juce::String(loadMs, 1)
+             << " ms | falhas de audio durante a troca: "
+             << (blockGapCount.load(std::memory_order_relaxed) - gapsBefore)
+             << " | maior intervalo entre blocos: " << juce::String(maxBlockGapMs.load(std::memory_order_relaxed), 1)
+             << " ms | resultado: " << (result.wasOk() ? "ok" : result.getErrorMessage()) << "\n";
+        programStorageDirectory().getChildFile("liveset-diagnostico.txt").appendText(line);
+    }
     {
         const juce::ScopedLock callbackLock(getCallbackLock());
         liveSetFadingOut = false;

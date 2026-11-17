@@ -524,6 +524,7 @@ private:
     std::atomic<bool> liveSetFadeOutDone { false };
     // 0 idle, 1 staged (waiting for the first note), 2 swapping (MIDI is held), 3 replay held MIDI.
     std::atomic<int> liveSetSwapState { 0 };
+    std::atomic<float> liveSetPostFadePeak { 0.0f }; // output peak of the last block while a switch is active (diagnostic)
     juce::MidiBuffer liveSetHeldMidi;
     juce::File stagedLiveSetProgram;
     std::array<std::shared_ptr<Sf2Engine::PreparedSoundFont>, Sf2Engine::layerCount> stagedSoundFonts {};
