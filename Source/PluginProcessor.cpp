@@ -301,6 +301,18 @@ void ClassicPlayerAudioProcessor::timerCallback()
     if (const auto fadeStart = liveSetFadeOutStartMs.load(std::memory_order_relaxed);
         fadeStart != 0 && juce::Time::getMillisecondCounter() - fadeStart > 4000)
         cancelLiveSetFade();
+    if (const auto until = swapWatchUntilMs.load(std::memory_order_relaxed);
+        until != 0 && static_cast<juce::int32>(juce::Time::getMillisecondCounter() - until) > 0)
+    {
+        swapWatchUntilMs.store(0, std::memory_order_relaxed);
+        juce::String line;
+        line << "    2,5 s apos a troca: blocos=" << swapWatchBlocks.load()
+             << " | maior tempo de processamento de um bloco: "
+             << juce::String(swapWatchMaxBlockMs.load(), 2) << " ms | blocos acima de 80% do orcamento: "
+             << swapWatchOverruns.load() << " | travadas (intervalos longos): " << swapWatchGaps.load()
+             << " | maior travada: " << juce::String(swapWatchMaxGapMs.load(), 1) << " ms\n";
+        programStorageDirectory().getChildFile("liveset-diagnostico.txt").appendText(line);
+    }
     // Message-thread updates and file I/O work even with the editor closed.
     if (startupSettingsDirty.exchange(false)) saveStartupSettings();
 }
@@ -712,6 +724,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 {
     juce::AudioProcessLoadMeasurer::ScopedTimer cpuTimer(audioLoad, buffer.getNumSamples());
     lastAudioBlockMs.store(juce::Time::getMillisecondCounter(), std::memory_order_relaxed);
+    const auto blockStartHi = juce::Time::getMillisecondCounterHiRes();
     {
         // Diagnostic: a gap far longer than one buffer means the audio thread was
         // blocked (for example by the callback lock during a program restore).
@@ -721,6 +734,12 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         if (lastBlockStartMs > 0.0 && gapMs < 2000.0 && gapMs > expectedMs * 3.0 + 5.0)
         {
             blockGapCount.fetch_add(1, std::memory_order_relaxed);
+            if (swapWatchUntilMs.load(std::memory_order_relaxed) != 0)
+            {
+                swapWatchGaps.fetch_add(1, std::memory_order_relaxed);
+                if (gapMs > swapWatchMaxGapMs.load(std::memory_order_relaxed))
+                    swapWatchMaxGapMs.store(gapMs, std::memory_order_relaxed);
+            }
             if (gapMs > maxBlockGapMs.load(std::memory_order_relaxed))
                 maxBlockGapMs.store(gapMs, std::memory_order_relaxed);
         }
@@ -1257,6 +1276,17 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // disk I/O directly in the real-time audio callback.
     if (auto* writer = activeRecordingWriter.load(std::memory_order_acquire))
         writer->write(buffer.getArrayOfReadPointers(), buffer.getNumSamples());
+
+    if (swapWatchUntilMs.load(std::memory_order_relaxed) != 0)
+    {
+        const auto took = juce::Time::getMillisecondCounterHiRes() - blockStartHi;
+        const auto budgetMs = 1000.0 * buffer.getNumSamples() / juce::jmax(1.0, currentSampleRate);
+        if (took > swapWatchMaxBlockMs.load(std::memory_order_relaxed))
+            swapWatchMaxBlockMs.store(took, std::memory_order_relaxed);
+        if (took > budgetMs * 0.8)
+            swapWatchOverruns.fetch_add(1, std::memory_order_relaxed);
+        swapWatchBlocks.fetch_add(1, std::memory_order_relaxed);
+    }
 }
 
 void ClassicPlayerAudioProcessor::captureSpectrum(const juce::AudioBuffer<float>& buffer) noexcept
@@ -4405,6 +4435,13 @@ void ClassicPlayerAudioProcessor::performStagedLiveSetSwap()
              << " ms | resultado: " << (result.wasOk() ? "ok" : result.getErrorMessage()) << "\n";
         programStorageDirectory().getChildFile("liveset-diagnostico.txt").appendText(line);
     }
+    swapWatchMaxBlockMs.store(0.0, std::memory_order_relaxed);
+    swapWatchMaxGapMs.store(0.0, std::memory_order_relaxed);
+    swapWatchOverruns.store(0, std::memory_order_relaxed);
+    swapWatchGaps.store(0, std::memory_order_relaxed);
+    swapWatchBlocks.store(0, std::memory_order_relaxed);
+    swapWatchUntilMs.store(juce::jmax<juce::uint32>(1, juce::Time::getMillisecondCounter() + 2500),
+                           std::memory_order_relaxed);
     {
         const juce::ScopedLock callbackLock(getCallbackLock());
         liveSetFadingOut = false;
