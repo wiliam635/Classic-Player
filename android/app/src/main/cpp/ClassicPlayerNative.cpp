@@ -34,6 +34,7 @@ constexpr int kLowPolyphonyEngineLimit = 32;
 static_assert(nord_android::maxVoices >= kMaximumPolyphony,
               "NPNO voice storage must cover the shared polyphony ceiling");
 constexpr int kHammondDelayFrames = 1204;
+constexpr int kHammondVibratoFrames = 1024; // > 10 ms up to 96 kHz
 constexpr float kHammondOutputCalibration = 3.25f;
 
 std::array<tsf*, kLayerCount> fonts {};
@@ -282,11 +283,19 @@ struct HammondVoice {
     bool active=false,down=false,releasing=false;
     int note=-1,channel=0,age=0,releaseAge=0;
     float envelope=0.0f,releaseStart=0.0f,percussion=0.0f,click=0.0f;
+    bool percussionSlow=false;
     double percussionPhase=0.0,percussionStep=0.0;
     std::array<double,13> phase{},step{};
 };
 struct HammondLayer {
-    int preset=0, leslie=1, manualLeslie=1, percussion=0;
+    int preset=0, leslie=1, manualLeslie=1, percussion=0; // percussion = harmonic multiplier: 0 off, 2 = 2nd, 3 = 3rd (as on the desktop)
+    int vibrato=0; // scanner: 0 off, 1..3 = V1..V3, 4..6 = C1..C3
+    bool percussionSoft=false,percussionSlow=false;
+    float leslieBalance=.5f; // 0 = drum only, .5 = even, 1 = horn only
+    float vibratoDepthSmoothed=0.0f,vibratoWetSmoothed=0.0f,balanceSmoothed=.5f;
+    std::array<float,kHammondVibratoFrames> vibratoDelay{};
+    int vibratoPosition=0;
+    double vibratoPhase=0.0;
     bool modulationWheelOverride=false;
     std::array<float,9> bars{};
     std::array<float,9> smoothedBars{};
@@ -806,17 +815,19 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetHammondPreset(JNIEnv
     if(layer<0||layer>=kLayerCount||preset<0||preset>=(int)hammondNames.size())return JNI_FALSE;
     std::lock_guard<std::mutex> lock(synthMutex); auto& organ=hammondLayers[(size_t)layer]; organ.preset=preset; organ.bars=hammondBars[(size_t)preset];
     organ.leslie=preset==7?2:preset==6?0:1; organ.manualLeslie=organ.leslie;organ.modulationWheelOverride=false;
-    organ.percussion=preset==3?1:0; organ.voices={}; return JNI_TRUE;
+    organ.percussion=preset==3?3:0;organ.percussionSoft=false;organ.percussionSlow=false; organ.voices={}; return JNI_TRUE;
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetHammondControls(JNIEnv* env,jclass,jint layer,jintArray bars,jint leslie,jboolean updateLeslie,jint percussion,jfloat click,jfloat leakage,jfloat drive,jfloat level)
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetHammondControls(JNIEnv* env,jclass,jint layer,jintArray bars,jint leslie,jboolean updateLeslie,jint percussion,jfloat click,jfloat leakage,jfloat drive,jfloat level,jint vibrato,jboolean percussionSoft,jboolean percussionSlow,jfloat leslieBalance)
 {
     if(layer<0||layer>=kLayerCount||bars==nullptr||env->GetArrayLength(bars)<9)return;
     jint values[9]{};env->GetIntArrayRegion(bars,0,9,values);std::lock_guard<std::mutex> lock(synthMutex);
     auto& organ=hammondLayers[(size_t)layer];for(int i=0;i<9;++i)organ.bars[(size_t)i]=std::clamp(values[i],0,8)/8.0f;
     if(updateLeslie==JNI_TRUE){organ.leslie=std::clamp((int)leslie,0,2);organ.manualLeslie=organ.leslie;organ.modulationWheelOverride=false;}
-    organ.percussion=std::clamp((int)percussion,0,2);
+    organ.percussion=percussion==2||percussion==3?(int)percussion:0;
+    organ.vibrato=std::clamp((int)vibrato,0,6);organ.percussionSoft=percussionSoft==JNI_TRUE;organ.percussionSlow=percussionSlow==JNI_TRUE;
+    organ.leslieBalance=std::isfinite((float)leslieBalance)?std::clamp((float)leslieBalance,0.0f,1.0f):.5f;
     organ.click=std::clamp((float)click,0.0f,1.0f);organ.leakage=std::clamp((float)leakage,0.0f,1.0f);
     organ.drive=std::clamp((float)drive,0.0f,1.0f);organ.level=std::clamp((float)level,0.0f,1.0f);
 }
@@ -1115,8 +1126,9 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
                 target->step[partial]=frequency/kSampleRate;
             }
             if(first&&organ.percussion>0){
-                target->percussion=.12f*(organ.percussion==2?1.0f:.72f);
-                target->percussionStep=std::min(base*(organ.percussion==2?2.0:1.0),kSampleRate*.45)/kSampleRate;
+                target->percussion=organ.percussionSoft?.072f:.12f;
+                target->percussionSlow=organ.percussionSlow;
+                target->percussionStep=std::min(base*organ.percussion,kSampleRate*.45)/kSampleRate;
             }
             target->click=organ.click*.06f;
         }
@@ -1365,6 +1377,10 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
             const int releaseSamples=std::max(1,(int)(std::max(15.0f,layerRelease[li]*1000.0f)*.001f*kSampleRate));
             const float barSmoothing=1.0f-std::exp(-1.0f/(.015f*kSampleRate));
             const float percussionDecay=std::exp(std::log(.0001f/.12f)/(.08f*kSampleRate));
+            const float percussionDecaySlow=std::exp(std::log(.0001f/.12f)/(.28f*kSampleRate));
+            static constexpr float vibratoDepthMs[3]={.12f,.25f,.40f};
+            const float vibratoDepthTarget=organ.vibrato==0?0.0f:vibratoDepthMs[(organ.vibrato-1)%3];
+            const float vibratoWetTarget=organ.vibrato==0?0.0f:organ.vibrato<=3?1.0f:.5f;
             const float clickDecay=std::exp(-8.0f/(kSampleRate*.015f));
             const float crossoverCoefficient=1.0f-std::exp(-6.2831853f*800.0f/kSampleRate);
             const float rotaryDepthSmoothing=1.0f-std::exp(-1.0f/(.02f*kSampleRate));
@@ -1401,7 +1417,7 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
                         tone+=hammondSine(voice.percussionPhase)*voice.percussion;
                         voice.percussionPhase+=voice.percussionStep;
                         voice.percussionPhase-=std::floor(voice.percussionPhase);
-                        voice.percussion*=percussionDecay;
+                        voice.percussion*=voice.percussionSlow?percussionDecaySlow:percussionDecay;
                     }
                     if(voice.click>1.0e-7f){
                         organ.noise=organ.noise*1664525u+1013904223u;
@@ -1412,6 +1428,25 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
                 }
                 value=value*(1.0f-drive)+std::tanh(2.0f*value*(1.0f+drive*8.0f))/std::tanh(2.0f)*drive/(1.0f+drive*2.0f);
                 value*=organ.level;
+                {
+                    // Scanner vibrato/chorus (same model as the desktop engine).
+                    organ.vibratoDepthSmoothed+=(vibratoDepthTarget-organ.vibratoDepthSmoothed)*rotaryDepthSmoothing;
+                    organ.vibratoWetSmoothed+=(vibratoWetTarget-organ.vibratoWetSmoothed)*rotaryDepthSmoothing;
+                    organ.vibratoDelay[(size_t)organ.vibratoPosition]=value;
+                    organ.vibratoPhase+=6.9/kSampleRate;organ.vibratoPhase-=std::floor(organ.vibratoPhase);
+                    const float wet=organ.vibratoWetSmoothed;
+                    if(wet>.0001f){
+                        const double offset=(.0012+.001*organ.vibratoDepthSmoothed*(1.0+hammondSine(organ.vibratoPhase)))*kSampleRate;
+                        const int whole=(int)std::floor(offset),size=kHammondVibratoFrames;
+                        const int a=(organ.vibratoPosition-whole+size)%size,b=(a+size-1)%size;
+                        const float fraction=(float)(offset-whole);
+                        const float modulated=organ.vibratoDelay[(size_t)a]+fraction*(organ.vibratoDelay[(size_t)b]-organ.vibratoDelay[(size_t)a]);
+                        value=value*(1.0f-wet)+modulated*wet;
+                    }
+                    organ.vibratoPosition=(organ.vibratoPosition+1)%kHammondVibratoFrames;
+                }
+                organ.balanceSmoothed+=(organ.leslieBalance-organ.balanceSmoothed)*rotaryDepthSmoothing;
+                const float bandGain[2]={std::min(2.0f,2.0f*(1.0f-organ.balanceSmoothed)),std::min(2.0f,2.0f*organ.balanceSmoothed)};
                 organ.crossover+=crossoverCoefficient*(value-organ.crossover);
                 const float bands[2]={organ.crossover,value-organ.crossover};
                 const float targetDepth=organ.leslie>0?1.0f:0.0f;
@@ -1429,7 +1464,7 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
                     const int a=(organ.rotaryDelayPosition-whole+size)%size,b=(a+size-1)%size;
                     const float fraction=(float)(offset-whole);
                     const float rotated=(delay[(size_t)a]+fraction*(delay[(size_t)b]-delay[(size_t)a]))
-                            *(.7f+modulation*(rotor?.12f:.08f));
+                            *(.7f+modulation*(rotor?.12f:.08f))*bandGain[rotor];
                     const float pan=modulation*(rotor?.65f:.4f);
                     left+=rotated*std::sqrt(.5f*(1.0f-pan));
                     right+=rotated*std::sqrt(.5f*(1.0f+pan));

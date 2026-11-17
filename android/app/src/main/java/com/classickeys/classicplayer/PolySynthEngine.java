@@ -174,7 +174,7 @@ final class PolySynthEngine {
     private static native int nativeHammondPresetCount();
     private static native String nativeHammondPresetName(int preset);
     private static native boolean nativeSetHammondPreset(int layer, int preset);
-    private static native void nativeSetHammondControls(int layer, int[] bars, int leslie, boolean updateLeslie, int percussion, float click, float leakage, float drive, float level);
+    private static native void nativeSetHammondControls(int layer, int[] bars, int leslie, boolean updateLeslie, int percussion, float click, float leakage, float drive, float level, int vibrato, boolean percussionSoft, boolean percussionSlow, float leslieBalance);
     private static native void nativeUnloadAll();
     private static native void nativeClearLayer(int layer);
     private static native void nativeSetMaster(float value);
@@ -323,7 +323,7 @@ final class PolySynthEngine {
     int hammondPresetCount() { return nativeHammondPresetCount(); }
     String hammondPresetName(int preset) { return nativeHammondPresetName(preset); }
     boolean setHammondPreset(int layer, int preset) { return nativeSetHammondPreset(layer, preset); }
-    void setHammondControls(int layer,int[] bars,int leslie,boolean updateLeslie,int percussion,float click,float leakage,float drive,float level){nativeSetHammondControls(layer,bars,leslie,updateLeslie,percussion,click,leakage,drive,level);}
+    void setHammondControls(int layer,int[] bars,int leslie,boolean updateLeslie,int percussion,float click,float leakage,float drive,float level,int vibrato,boolean percussionSoft,boolean percussionSlow,float leslieBalance){nativeSetHammondControls(layer,bars,leslie,updateLeslie,percussion,click,leakage,drive,level,vibrato,percussionSoft,percussionSlow,leslieBalance);}
     void setMaster(float value) { nativeSetMaster(value); }
     void clearLayer(int layer) { nativeClearLayer(layer); }
     void setLayerGain(int layer, float value) { nativeSetLayerGain(layer, value); }

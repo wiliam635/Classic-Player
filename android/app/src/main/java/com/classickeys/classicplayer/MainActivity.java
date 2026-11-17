@@ -1605,7 +1605,7 @@ public final class MainActivity extends Activity {
                          .putInt(p+"routeChannel",screen.routeChannel[layer]).putInt(p+"routeOctave",screen.routeOctave[layer]).putInt(p+"routeVelocity",screen.routeVelocity[layer]).putInt(p+"routeMode",screen.routeMode[layer]).putBoolean(p+"routeSustain",screen.routeSustain[layer])
                          .putInt(p+"hammondLeslie",screen.hammondLeslie[layer]).putInt(p+"hammondPercussion",screen.hammondPercussion[layer]);
                         for(int bar=0;bar<9;bar++)e.putInt(p+"hammondBar"+bar,screen.hammondBars[layer][bar]);
-                        for(int control=0;control<4;control++)e.putFloat(p+"hammondExtra"+control,screen.hammondExtras[layer][control]);
+                        for(int control=0;control<4;control++)e.putFloat(p+"hammondExtra"+control,screen.hammondExtras[layer][control]);e.putInt(p+"hammondVibrato",screen.hammondVibrato[layer]).putInt(p+"hammondVibratoType",screen.hammondVibratoType[layer]).putBoolean(p+"hammondPercSoft",screen.hammondPercSoft[layer]).putBoolean(p+"hammondPercSlow",screen.hammondPercSlow[layer]).putFloat(p+"hammondBalance",screen.hammondBalance[layer]);
                         for(int control=0;control<19;control++)e.putFloat(p+"analogControl"+control,screen.analogControls[layer][control]);
                         e.putFloat(p+"analogOsc1Tune",screen.analogOsc1Tune[layer]);
                         for(int osc=0;osc<3;osc++)e.putInt(p+"analogWave"+osc,screen.analogWaves[layer][osc]).putBoolean(p+"analogEnabled"+osc,screen.analogOscillatorEnabled[layer][osc]);
@@ -1647,7 +1647,7 @@ public final class MainActivity extends Activity {
             .putFloat("comp_threshold_"+layer,live.getFloat(p+"compThreshold",.126f)).putFloat("comp_ratio_"+layer,live.getFloat(p+"compRatio",4)).putFloat("comp_attack_"+layer,live.getFloat(p+"compAttack",10)).putFloat("comp_release_"+layer,live.getFloat(p+"compRelease",120)).putFloat("comp_makeup_"+layer,live.getFloat(p+"compMakeup",0))
             .putFloat("control_cutoff_"+layer,live.getFloat(p+"cutoff",100)).putFloat("control_reverb_"+layer,live.getFloat(p+"reverbSend",0)).putFloat("control_comp_"+layer,version>=13?live.getFloat(p+"compMix",0):0f).putFloat("control_chorus_"+layer,live.getFloat(p+"chorus",0)).putFloat("reverb_size_"+layer,live.getFloat(p+"reverbSize",55)).putFloat("reverb_damping_"+layer,live.getFloat(p+"reverbDamping",45)).putFloat("reverb_width_"+layer,live.getFloat(p+"reverbWidth",100))
             .putInt("route_channel_"+layer,live.getInt(p+"routeChannel",-1)).putInt("route_octave_"+layer,live.getInt(p+"routeOctave",0)).remove("route_low_"+layer).remove("route_high_"+layer).putInt("route_velocity_"+layer,live.getInt(p+"routeVelocity",0)).putInt("route_mode_"+layer,live.getInt(p+"routeMode",0)).putBoolean("route_sustain_"+layer,live.getBoolean(p+"routeSustain",true))
-            .putInt("hammond_leslie_"+layer,live.getInt(p+"hammondLeslie",1)).putInt("hammond_percussion_"+layer,live.getInt(p+"hammondPercussion",0));
+            .putInt("hammond_leslie_"+layer,live.getInt(p+"hammondLeslie",1)).putInt("hammond_percussion_"+layer,live.getInt(p+"hammondPercussion",0)).putInt("hammond_vibrato_"+layer,live.getInt(p+"hammondVibrato",0)).putInt("hammond_vibrato_type_"+layer,live.getInt(p+"hammondVibratoType",0)).putBoolean("hammond_perc_soft_"+layer,live.getBoolean(p+"hammondPercSoft",false)).putBoolean("hammond_perc_slow_"+layer,live.getBoolean(p+"hammondPercSlow",false)).putFloat("hammond_balance_"+layer,live.getFloat(p+"hammondBalance",.5f));
             for(int bar=0;bar<9;bar++)e.putInt("hammond_bar_"+layer+"_"+bar,live.getInt(p+"hammondBar"+bar,6));
             for(int control=0;control<4;control++)e.putFloat(new String[]{"hammond_click_","hammond_leakage_","hammond_drive_","hammond_level_"}[control]+layer,live.getFloat(p+"hammondExtra"+control,new float[]{.15f,.12f,.12f,.8f}[control]));
             for(int control=0;control<19;control++)e.putFloat("analog_control_"+layer+"_"+control,live.getFloat(p+"analogControl"+control,screen.analogControls[layer][control]));
@@ -2468,26 +2468,83 @@ public final class MainActivity extends Activity {
         bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar s,int v,boolean user){readout.setText(v+" %");if(user)onChange.accept(v);}public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){}});
         cell.addView(row,new LinearLayout.LayoutParams(-1,-2));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,-2,1);cp.setMargins(3,2,3,2);parent.addView(cell,cp);
     }
-    private void buildHammondControlsDesktop(int layer,LinearLayout body){
-        final int l=layer;
-        final EffectGraphs.Drawbars bars=new EffectGraphs.Drawbars(this);bars.set(screen.hammondBars[l]);
-        bars.listener=(bar,value)->screen.setHammondBar(l,bar,value);
-        body.addView(bars,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,230)));
-        LinearLayout opts=EditorUi.gridRow(body);
-        segmented(opts,"LESLIE ROTOR",new String[]{"PARAR","CHORALE","FAST"},screen.hammondLeslie[l],i->screen.setHammondOption(l,true,i));
-        segmented(opts,"PERCUSSION",new String[]{"OFF","2ND","3RD"},screen.hammondPercussion[l],i->screen.setHammondOption(l,false,i));
-        LinearLayout extras=EditorUi.gridRow(body);String[] labels={"KEY CLICK","LEAKAGE","DRIVE","LEVEL"};
-        for(int i=0;i<4;i++){final int index=i;sliderCell(extras,labels[i],Math.round(screen.hammondExtras[l][i]*100),v->screen.setHammondExtra(l,index,v/100f));}
+    private static final int ORGAN_GOLD=0xffb59a5c;
+    /** Gold section caption on a dark panel, like the desktop organ editor. */
+    private LinearLayout organSection(LinearLayout parent,String title,float weight){
+        LinearLayout box=EditorUi.column(this);box.setPadding(EditorUi.dp(this,6),EditorUi.dp(this,4),EditorUi.dp(this,6),EditorUi.dp(this,6));
+        android.graphics.drawable.GradientDrawable bg=new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xff2b2c30,0xff17181a});bg.setCornerRadius(EditorUi.dp(this,5));bg.setStroke(1,0xff4a3a22);box.setBackground(bg);
+        TextView caption=EditorUi.label(this,title,9);caption.setTextColor(ORGAN_GOLD);caption.setTypeface(null,android.graphics.Typeface.BOLD);caption.setGravity(Gravity.CENTER);box.addView(caption,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,18)));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,weight);lp.setMargins(EditorUi.dp(this,3),EditorUi.dp(this,3),EditorUi.dp(this,3),EditorUi.dp(this,3));parent.addView(box,lp);return box;
+    }
+    /** Two stacked toggle halves (top = on-state label) standing in for the desktop rocker switch. */
+    private void organRocker(LinearLayout parent,String caption,String topLabel,String bottomLabel,boolean top,java.util.function.Consumer<Boolean> onChange){
+        LinearLayout cell=EditorUi.column(this);cell.setGravity(Gravity.CENTER_HORIZONTAL);
+        final Button up=EditorUi.button(this,topLabel,()->{}),down=EditorUi.button(this,bottomLabel,()->{});
+        final boolean[] state={top};
+        final Runnable[] refresh=new Runnable[1];
+        refresh[0]=()->{up.setBackground(EditorUi.background(state[0]?EditorUi.TEXT:EditorUi.SURFACE));up.setTextColor(state[0]?EditorUi.BACKGROUND:EditorUi.TEXT);down.setBackground(EditorUi.background(state[0]?EditorUi.SURFACE:EditorUi.TEXT));down.setTextColor(state[0]?EditorUi.TEXT:EditorUi.BACKGROUND);};
+        for(Button b:new Button[]{up,down}){b.setTextSize(10);b.setMinHeight(EditorUi.dp(this,30));b.setMinimumHeight(EditorUi.dp(this,30));b.setPadding(0,0,0,0);}
+        up.setOnClickListener(v->{state[0]=true;refresh[0].run();onChange.accept(true);});
+        down.setOnClickListener(v->{state[0]=false;refresh[0].run();onChange.accept(false);});
+        refresh[0].run();
+        cell.addView(up,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,30)));cell.addView(down,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,30)));
+        TextView text=EditorUi.label(this,caption,8);text.setTextColor(EditorUi.MUTED);cell.addView(text,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,14)));
+        LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,-2,1);cp.setMargins(EditorUi.dp(this,2),0,EditorUi.dp(this,2),0);parent.addView(cell,cp);
     }
     private void buildHammondControls(int layer,LinearLayout body){
-        if(EditorUi.compact){buildHammondControlsDesktop(layer,body);return;}
-        final int l=layer;String[] barNames={"16′","5⅓′","8′","4′","2⅔′","2′","1⅗′","1⅓′","1′"};
-        for(int rowIndex=0;rowIndex<3;rowIndex++){LinearLayout row=EditorUi.gridRow(body);for(int col=0;col<3;col++){
-            final int bar=rowIndex*3+col;LinearLayout cell=EditorUi.column(this);cell.setPadding(EditorUi.dp(this,3),0,EditorUi.dp(this,3),0);TextView label=EditorUi.label(this,barNames[bar]+"  "+screen.hammondBars[l][bar],9);cell.addView(label,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,17)));
-            SeekBar control=new SeekBar(this);control.setProgressTintList(android.content.res.ColorStateList.valueOf(EditorUi.ACCENT));control.setThumbTintList(android.content.res.ColorStateList.valueOf(EditorUi.ACCENT));control.setMax(8);control.setProgress(Math.max(0,screen.hammondBars[l][bar]));control.setContentDescription("Drawbar "+barNames[bar]);control.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar s,int value,boolean user){if(user){screen.setHammondBar(l,bar,value);label.setText(barNames[bar]+"  "+value);}}public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){}});cell.addView(control,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,34)));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,-2,1);row.addView(cell,cp);
-        }}
-        LinearLayout opts=EditorUi.gridRow(body);EditorUi.selectorCell(opts,"LESLIE",new String[]{"STOP","CHORALE","FAST"},screen.hammondLeslie[l],i->screen.setHammondOption(l,true,i));EditorUi.selectorCell(opts,"PERCUSSÃO",new String[]{"OFF","2ND","3RD"},screen.hammondPercussion[l],i->screen.setHammondOption(l,false,i));
-        LinearLayout knobs=EditorUi.knobRow(body);String[] labels={"KEY CLICK","LEAKAGE","DRIVE","LEVEL"};for(int i=0;i<4;i++){final int index=i;EditorUi.knob(knobs,labels[i],screen.hammondExtras[l][i]*100,0,100," %",v->screen.setHammondExtra(l,index,v/100f));}
+        final int l=layer;
+        // Page switcher, like the desktop MAIN / OPTIONS tabs.
+        final LinearLayout main=EditorUi.column(this),options=EditorUi.column(this);
+        final Button[] tabs=new Button[2];String[] tabNames={"MAIN","OPTIONS"};
+        LinearLayout tabRow=EditorUi.gridRow(body);
+        for(int i=0;i<2;i++){tabs[i]=EditorUi.button(this,tabNames[i],()->{});tabs[i].setMinHeight(EditorUi.dp(this,36));tabs[i].setMinimumHeight(EditorUi.dp(this,36));LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,EditorUi.dp(this,36),1);tp.setMargins(1,0,1,2);tabRow.addView(tabs[i],tp);}
+        final java.util.function.IntConsumer select=page->{
+            main.setVisibility(page==0?View.VISIBLE:View.GONE);options.setVisibility(page==1?View.VISIBLE:View.GONE);
+            for(int j=0;j<2;j++){tabs[j].setBackground(EditorUi.background(j==page?EditorUi.TEXT:EditorUi.SURFACE));tabs[j].setTextColor(j==page?EditorUi.BACKGROUND:EditorUi.TEXT);}
+        };
+        tabs[0].setOnClickListener(v->select.accept(0));tabs[1].setOnClickListener(v->select.accept(1));
+        body.addView(main,new LinearLayout.LayoutParams(-1,-2));body.addView(options,new LinearLayout.LayoutParams(-1,-2));
+
+        // MAIN: drawbars plus vibrato / drive / Leslie / percussion.
+        final EffectGraphs.Drawbars bars=new EffectGraphs.Drawbars(this);bars.set(screen.hammondBars[l]);
+        bars.listener=(bar,value)->screen.setHammondBar(l,bar,value);
+        main.addView(bars,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,EditorUi.compact?230:210)));
+        final boolean wide=EditorUi.compact;
+        LinearLayout rowA=new LinearLayout(this);LinearLayout rowB=wide?rowA:new LinearLayout(this);
+        main.addView(rowA,new LinearLayout.LayoutParams(-1,-2));if(!wide)main.addView(rowB,new LinearLayout.LayoutParams(-1,-2));
+        // Vibrato / chorus: ON-OFF rocker plus V1..C3 selector.
+        LinearLayout vib=organSection(rowA,"VIBRATO / CHORUS",wide?2.4f:1.6f);
+        LinearLayout vibRow=new LinearLayout(this);vib.addView(vibRow,new LinearLayout.LayoutParams(-1,-2));
+        final int[] vibType={screen.hammondVibratoType[l]};
+        final boolean[] vibOn={screen.hammondVibrato[l]>0};
+        organRocker(vibRow,"ON / OFF","ON","OFF",vibOn[0],on->{vibOn[0]=on;screen.setHammondVibrato(l,on,vibType[0]);});
+        LinearLayout vibSelect=new LinearLayout(this);segmented(vibSelect,"TYPE",new String[]{"V1","V2","V3","C1","C2","C3"},vibType[0],i->{vibType[0]=i;screen.setHammondVibrato(l,vibOn[0],i);});
+        LinearLayout.LayoutParams vsp=new LinearLayout.LayoutParams(0,-2,3);vibRow.addView(vibSelect,vsp);
+        // Drive.
+        LinearLayout driveBox=organSection(rowA,"DRIVE",1f);
+        LinearLayout driveRow=EditorUi.knobRow(driveBox);EditorUi.knob(driveRow,"DRIVE",screen.hammondExtras[l][2]*100,0,100," %",v->screen.setHammondExtra(l,2,v/100f));
+        // Leslie.
+        LinearLayout leslieBox=organSection(rowB,"LESLIE",1.2f);
+        LinearLayout leslieRow=new LinearLayout(this);leslieBox.addView(leslieRow,new LinearLayout.LayoutParams(-1,-2));
+        segmented(leslieRow,"ROTOR",new String[]{"STOP","SLOW","FAST"},screen.hammondLeslie[l],i->screen.setHammondOption(l,true,i));
+        // Percussion: four rockers.
+        LinearLayout percBox=organSection(rowB,"PERCUSSION",wide?2.6f:2f);
+        LinearLayout percRow=new LinearLayout(this);percBox.addView(percRow,new LinearLayout.LayoutParams(-1,-2));
+        final boolean[] percOn={screen.hammondPercussion[l]>0};final int[] harmonic={screen.hammondPercHarmonic[l]==1?1:2};
+        organRocker(percRow,"ON / OFF","ON","OFF",percOn[0],on->{percOn[0]=on;screen.setHammondPercussionOn(l,on,harmonic[0]);});
+        organRocker(percRow,"VOLUME","SOFT","NORM",screen.hammondPercSoft[l],soft->screen.setHammondPercussionVoicing(l,soft,screen.hammondPercSlow[l]));
+        organRocker(percRow,"DECAY","FAST","SLOW",!screen.hammondPercSlow[l],fast->screen.setHammondPercussionVoicing(l,screen.hammondPercSoft[l],!fast));
+        organRocker(percRow,"HARMONIC","3RD","2ND",harmonic[0]==2,third->{harmonic[0]=third?2:1;if(percOn[0])screen.setHammondPercussionOn(l,true,harmonic[0]);else screen.hammondPercHarmonic[l]=harmonic[0];});
+
+        // OPTIONS: level, key click, leakage and the Leslie horn/drum balance.
+        LinearLayout optionRow=new LinearLayout(this);options.addView(optionRow,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout levelBox=organSection(optionRow,"OUTPUT",1f);
+        LinearLayout levelKnobs=EditorUi.knobRow(levelBox);EditorUi.knob(levelKnobs,"LEVEL",screen.hammondExtras[l][3]*100,0,100," %",v->screen.setHammondExtra(l,3,v/100f));
+        LinearLayout toneBox=organSection(optionRow,"TONEWHEEL",2f);
+        LinearLayout toneKnobs=EditorUi.knobRow(toneBox);EditorUi.knob(toneKnobs,"KEY CLICK",screen.hammondExtras[l][0]*100,0,100," %",v->screen.setHammondExtra(l,0,v/100f));EditorUi.knob(toneKnobs,"LEAKAGE",screen.hammondExtras[l][1]*100,0,100," %",v->screen.setHammondExtra(l,1,v/100f));
+        LinearLayout balanceBox=organSection(optionRow,"LESLIE",1f);
+        LinearLayout balanceKnobs=EditorUi.knobRow(balanceBox);EditorUi.knob(balanceKnobs,"HORN / DRUM",screen.hammondBalance[l]*100,0,100," %",v->screen.setHammondBalance(l,v/100f));
+        select.accept(0);
     }
 
     private void buildAnalogOscillatorControls(int layer,LinearLayout body){
@@ -2667,7 +2724,7 @@ public final class MainActivity extends Activity {
             json.put("eqLow",screen.eqLow[layer]).put("eqMid",screen.eqMid[layer]).put("eqHigh",screen.eqHigh[layer]).put("eqLowFreq",screen.eqLowFreq[layer]).put("eqMidFreq",screen.eqMidFreq[layer]).put("eqHighFreq",screen.eqHighFreq[layer]).put("eqLowQ",screen.eqLowQ[layer]).put("eqMidQ",screen.eqMidQ[layer]).put("eqHighQ",screen.eqHighQ[layer]).put("eqHighPass",screen.eqHighPass[layer]).put("eqLowPass",screen.eqLowPass[layer]);
             json.put("compThreshold",screen.compressorThreshold[layer]).put("compRatio",screen.compressorRatio[layer]).put("compAttack",screen.compressorAttackMs[layer]).put("compRelease",screen.compressorReleaseMs[layer]).put("compMakeup",screen.compressorMakeupDb[layer]).put("reverbSize",screen.reverbSize[layer]).put("reverbDamping",screen.reverbDamping[layer]).put("reverbWidth",screen.reverbWidth[layer]);
             json.put("routeChannel",screen.routeChannel[layer]).put("routeOctave",screen.routeOctave[layer]).put("routeVelocity",screen.routeVelocity[layer]).put("routeMode",screen.routeMode[layer]).put("routeSustain",screen.routeSustain[layer]);
-            json.put("hammondLeslie",screen.hammondLeslie[layer]).put("hammondPercussion",screen.hammondPercussion[layer]);for(int i=0;i<9;i++)json.put("hammondBar"+i,screen.hammondBars[layer][i]);for(int i=0;i<4;i++)json.put("hammondExtra"+i,screen.hammondExtras[layer][i]);
+            json.put("hammondLeslie",screen.hammondLeslie[layer]).put("hammondPercussion",screen.hammondPercussion[layer]);for(int i=0;i<9;i++)json.put("hammondBar"+i,screen.hammondBars[layer][i]);for(int i=0;i<4;i++)json.put("hammondExtra"+i,screen.hammondExtras[layer][i]);json.put("hammondVibrato",screen.hammondVibrato[layer]).put("hammondVibratoType",screen.hammondVibratoType[layer]).put("hammondPercSoft",screen.hammondPercSoft[layer]).put("hammondPercSlow",screen.hammondPercSlow[layer]).put("hammondBalance",(double)screen.hammondBalance[layer]);
             json.put("analogPink",screen.analogPinkNoise[layer]).put("analogMono",screen.analogMonophonic[layer]).put("analogOsc1Tune",screen.analogOsc1Tune[layer]);for(int i=0;i<19;i++)json.put("analogControl"+i,screen.analogControls[layer][i]);for(int i=0;i<3;i++)json.put("analogWave"+i,screen.analogWaves[layer][i]).put("analogEnabled"+i,screen.analogOscillatorEnabled[layer][i]);
             JSONObject learn=new JSONObject();SharedPreferences cc=getSharedPreferences("midi_learn",MODE_PRIVATE);for(int i=0;i<5;i++){String key=layerLearnKey(layer,i);learn.put("cc"+i,cc.getInt(key,-1)).put("channel"+i,cc.getInt(key+"_channel",-1));}json.put("midiLearn",learn);
             pendingLayerPresetJson=json.toString(2);pendingLayerPresetLayer=layer;Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/json").putExtra(Intent.EXTRA_TITLE,"Classic Player Layer "+(layer+1)+".json");startActivityForResult(intent,722);
@@ -2716,7 +2773,7 @@ public final class MainActivity extends Activity {
         screen.setLearnedVolume(layer,(float)json.optDouble("volume",screen.layerVolumes[layer]));screen.setLayerPan(layer,(float)json.optDouble("pan",screen.layerPan[layer]));
         screen.setLayerRouting(layer,json.optInt("routeChannel",screen.routeChannel[layer]),json.optInt("routeOctave",screen.routeOctave[layer]),json.optInt("routeVelocity",screen.routeVelocity[layer]),json.optBoolean("routeSustain",screen.routeSustain[layer]),json.optInt("routeMode",screen.routeMode[layer]));
         boolean requestedMute=json.optBoolean("mute",false);screen.solo[layer]=json.optBoolean("solo",false);prefs.edit().putBoolean("solo_"+layer,screen.solo[layer]).apply();
-        if(engine.equals("HAMMOND")){screen.hammondLeslie[layer]=json.optInt("hammondLeslie",screen.hammondLeslie[layer]);screen.hammondPercussion[layer]=json.optInt("hammondPercussion",screen.hammondPercussion[layer]);for(int i=0;i<9;i++)screen.hammondBars[layer][i]=json.optInt("hammondBar"+i,screen.hammondBars[layer][i]);for(int i=0;i<4;i++)screen.hammondExtras[layer][i]=(float)json.optDouble("hammondExtra"+i,screen.hammondExtras[layer][i]);screen.persistHammond(layer);screen.applyHammond(layer,true);}
+        if(engine.equals("HAMMOND")){screen.hammondLeslie[layer]=json.optInt("hammondLeslie",screen.hammondLeslie[layer]);screen.hammondPercussion[layer]=json.optInt("hammondPercussion",screen.hammondPercussion[layer]);for(int i=0;i<9;i++)screen.hammondBars[layer][i]=json.optInt("hammondBar"+i,screen.hammondBars[layer][i]);for(int i=0;i<4;i++)screen.hammondExtras[layer][i]=(float)json.optDouble("hammondExtra"+i,screen.hammondExtras[layer][i]);screen.hammondVibrato[layer]=json.optInt("hammondVibrato",0);screen.hammondVibratoType[layer]=json.optInt("hammondVibratoType",0);screen.hammondPercSoft[layer]=json.optBoolean("hammondPercSoft",false);screen.hammondPercSlow[layer]=json.optBoolean("hammondPercSlow",false);screen.hammondBalance[layer]=(float)json.optDouble("hammondBalance",.5);screen.persistHammond(layer);screen.applyHammond(layer,true);}
         if(engine.equals("ANALOG")){screen.setAnalogOsc1Tune(layer,(float)json.optDouble("analogOsc1Tune",screen.analogOsc1Tune[layer]));for(int i=0;i<19;i++)screen.setAnalogControl(layer,i,(float)json.optDouble("analogControl"+i,screen.analogControls[layer][i]));for(int i=0;i<3;i++){screen.setAnalogWave(layer,i,json.optInt("analogWave"+i,screen.analogWaves[layer][i]));screen.setAnalogOption(layer,i,json.optBoolean("analogEnabled"+i,screen.analogOscillatorEnabled[layer][i]));}screen.setAnalogOption(layer,3,json.optBoolean("analogPink",screen.analogPinkNoise[layer]));screen.setAnalogOption(layer,4,json.optBoolean("analogMono",screen.analogMonophonic[layer]));}
         JSONObject learn=json.optJSONObject("midiLearn");if(learn!=null){SharedPreferences.Editor cc=getSharedPreferences("midi_learn",MODE_PRIVATE).edit();for(int i=0;i<5;i++){String key=layerLearnKey(layer,i);int value=learn.optInt("cc"+i,-1);if(value<0){cc.remove(key).remove(key+"_channel");}else{cc.putInt(key,value).putInt(key+"_channel",learn.optInt("channel"+i,-1));}cc.putBoolean(key+"_relative",false);}cc.apply();}
         setLayerMuted(layer,requestedMute);screen.applyLayerGains();screen.invalidate();
@@ -2799,6 +2856,7 @@ public final class MainActivity extends Activity {
         private final boolean[] routeSustain={true,true,true,true,true,true};
         private final int[][] hammondBars=new int[6][9];private final int[] hammondLeslie=new int[6],hammondPercussion=new int[6];
         private final float[][] hammondExtras=new float[6][4];
+        private final int[] hammondVibrato=new int[6],hammondVibratoType=new int[6],hammondPercHarmonic=new int[6];private final boolean[] hammondPercSoft=new boolean[6],hammondPercSlow=new boolean[6];private final float[] hammondBalance=new float[6];
         private final boolean[] modulationEnabled=new boolean[6];
         // Analog editor: the same 19 desktop parameters plus oscillator
         // waveforms/enables, pink noise, and mono/poly mode.
@@ -2864,7 +2922,7 @@ public final class MainActivity extends Activity {
             eqLowFreq[i]=p.getFloat("eq_low_freq_"+i,220);eqMidFreq[i]=p.getFloat("eq_mid_freq_"+i,1200);eqHighFreq[i]=p.getFloat("eq_high_freq_"+i,4200);eqLowQ[i]=p.getFloat("eq_low_q_"+i,.707f);eqMidQ[i]=p.getFloat("eq_mid_q_"+i,1);eqHighQ[i]=p.getFloat("eq_high_q_"+i,.707f);eqHighPass[i]=p.getFloat("eq_highpass_"+i,20);eqLowPass[i]=p.getFloat("eq_lowpass_"+i,20000);
             compressorThreshold[i]=p.getFloat("comp_threshold_"+i,compressorThreshold[i]);compressorRatio[i]=p.getFloat("comp_ratio_"+i,compressorRatio[i]);layerVolumes[i]=p.getFloat("control_volume_"+i,layerVolumes[i]);layerPan[i]=p.getFloat("control_pan_"+i,0);muted[i]=p.getBoolean("muted_"+i,false);solo[i]=p.getBoolean("solo_"+i,false);
             layerCutoff[i]=p.getFloat("control_cutoff_"+i,100);layerReverb[i]=p.getFloat("control_reverb_"+i,0);layerCompMix[i]=p.getFloat("control_comp_"+i,0);layerChorus[i]=p.getFloat("control_chorus_"+i,0);reverbSize[i]=p.getFloat("reverb_size_"+i,55);reverbDamping[i]=p.getFloat("reverb_damping_"+i,45);reverbWidth[i]=p.getFloat("reverb_width_"+i,100);compressorAttackMs[i]=p.getFloat("comp_attack_"+i,10);compressorReleaseMs[i]=p.getFloat("comp_release_"+i,120);compressorMakeupDb[i]=p.getFloat("comp_makeup_"+i,0);
-            int preset=p.getInt("hammond_preset_"+i,0);for(int b=0;b<9;b++)hammondBars[i][b]=p.getInt("hammond_bar_"+i+"_"+b,-1);hammondLeslie[i]=p.getInt("hammond_leslie_"+i,preset==6?0:preset==7?2:1);hammondPercussion[i]=p.getInt("hammond_percussion_"+i,preset==3?1:0);hammondExtras[i][0]=p.getFloat("hammond_click_"+i,.15f);hammondExtras[i][1]=p.getFloat("hammond_leakage_"+i,.12f);hammondExtras[i][2]=p.getFloat("hammond_drive_"+i,.12f);hammondExtras[i][3]=p.getFloat("hammond_level_"+i,.8f);
+            int preset=p.getInt("hammond_preset_"+i,0);for(int b=0;b<9;b++)hammondBars[i][b]=p.getInt("hammond_bar_"+i+"_"+b,-1);hammondLeslie[i]=p.getInt("hammond_leslie_"+i,preset==6?0:preset==7?2:1);hammondPercussion[i]=p.getInt("hammond_percussion_"+i,preset==3?2:0);hammondExtras[i][0]=p.getFloat("hammond_click_"+i,.15f);hammondExtras[i][1]=p.getFloat("hammond_leakage_"+i,.12f);hammondExtras[i][2]=p.getFloat("hammond_drive_"+i,.12f);hammondExtras[i][3]=p.getFloat("hammond_level_"+i,.8f);hammondVibrato[i]=p.getInt("hammond_vibrato_"+i,0);hammondVibratoType[i]=Math.max(0,Math.min(5,p.getInt("hammond_vibrato_type_"+i,Math.max(0,hammondVibrato[i]-1))));hammondPercSoft[i]=p.getBoolean("hammond_perc_soft_"+i,false);hammondPercSlow[i]=p.getBoolean("hammond_perc_slow_"+i,false);hammondBalance[i]=p.getFloat("hammond_balance_"+i,.5f);hammondPercHarmonic[i]=hammondPercussion[i]==1?1:2;
         }}
         private void loadLiveNames(){SharedPreferences live=getSharedPreferences("live_set",MODE_PRIVATE);for(int i=0;i<8;i++)names[i]=live.getString("bank_"+liveBank+"_slot_"+i+"_name","VAZIO");postInvalidate();}
         void setMidiStatus(String value) { midiStatus = value; postInvalidate(); }
@@ -2910,13 +2968,17 @@ public final class MainActivity extends Activity {
         void setAnalogWave(int layer,int oscillator,int value){if(layer<0||layer>=6||oscillator<0||oscillator>=3)return;analogWaves[layer][oscillator]=value;getSharedPreferences("layers",MODE_PRIVATE).edit().putInt("analog_wave_"+layer+"_"+oscillator,value).apply();applyAnalog(layer);}
         void setAnalogOption(int layer,int option,boolean value){if(layer<0||layer>=6)return;SharedPreferences.Editor p=getSharedPreferences("layers",MODE_PRIVATE).edit();if(option<3){analogOscillatorEnabled[layer][option]=value;p.putBoolean("analog_enabled_"+layer+"_"+option,value);}else if(option==3){analogPinkNoise[layer]=value;p.putBoolean("analog_pink_"+layer,value);}else{analogMonophonic[layer]=value;p.putBoolean("analog_mono_"+layer,value);}p.apply();applyAnalog(layer);}
         private void applyAnalog(int layer){if(audioEngine!=null&&layer>=0&&layer<6){int[] flags=new int[8];for(int i=0;i<3;i++){flags[i]=analogWaves[layer][i];flags[i+3]=analogOscillatorEnabled[layer][i]?1:0;}flags[6]=analogPinkNoise[layer]?1:0;flags[7]=analogMonophonic[layer]?1:0;float[] controls=new float[24];System.arraycopy(analogControls[layer],0,controls,0,19);controls[19]=analogOsc1Tune[layer];System.arraycopy(analogExtra[layer],0,controls,20,4);audioEngine.setAnalogControls(layer,controls,flags);}}
-        void setHammondPresetDefaults(int layer,int preset){final float[][] bars={{.8f,.5f,1f,.8f,.3f,.5f,.2f,.3f,.2f},{.5f,.3f,1f,.6f,.2f,.3f,.1f,.1f,0f},{1f,.8f,1f,.9f,.7f,.8f,.6f,.7f,.6f},{.3f,.2f,1f,.7f,.1f,.2f,0f,0f,0f},{1f,1f,1f,1f,1f,1f,1f,1f,1f},{1f,.7f,1f,.9f,.5f,.7f,.3f,.5f,.4f},{.5f,.4f,1f,.7f,.3f,.4f,.2f,.2f,.1f},{.8f,.6f,1f,.9f,.5f,.7f,.4f,.5f,.3f}};for(int b=0;b<9;b++)hammondBars[layer][b]=Math.round(bars[preset][b]*8);hammondLeslie[layer]=preset==7?2:preset==6?0:1;hammondPercussion[layer]=preset==3?1:0;persistHammond(layer);applyHammond(layer,true);}
+        void setHammondPresetDefaults(int layer,int preset){final float[][] bars={{.8f,.5f,1f,.8f,.3f,.5f,.2f,.3f,.2f},{.5f,.3f,1f,.6f,.2f,.3f,.1f,.1f,0f},{1f,.8f,1f,.9f,.7f,.8f,.6f,.7f,.6f},{.3f,.2f,1f,.7f,.1f,.2f,0f,0f,0f},{1f,1f,1f,1f,1f,1f,1f,1f,1f},{1f,.7f,1f,.9f,.5f,.7f,.3f,.5f,.4f},{.5f,.4f,1f,.7f,.3f,.4f,.2f,.2f,.1f},{.8f,.6f,1f,.9f,.5f,.7f,.4f,.5f,.3f}};for(int b=0;b<9;b++)hammondBars[layer][b]=Math.round(bars[preset][b]*8);hammondLeslie[layer]=preset==7?2:preset==6?0:1;hammondPercussion[layer]=preset==3?2:0;hammondPercHarmonic[layer]=2;hammondPercSoft[layer]=false;hammondPercSlow[layer]=false;persistHammond(layer);applyHammond(layer,true);}
         void setHammondBar(int layer,int bar,int value){hammondBars[layer][bar]=value;persistHammond(layer);applyHammond(layer);}
         void setHammondOption(int layer,boolean leslie,int value){if(leslie)hammondLeslie[layer]=value;else hammondPercussion[layer]=value;persistHammond(layer);applyHammond(layer,leslie);}
+        void setHammondVibrato(int layer,boolean on,int type){hammondVibratoType[layer]=type;hammondVibrato[layer]=on?type+1:0;persistHammond(layer);applyHammond(layer);}
+        void setHammondPercussionOn(int layer,boolean on,int harmonicIndex){hammondPercHarmonic[layer]=harmonicIndex;hammondPercussion[layer]=on?harmonicIndex:0;persistHammond(layer);applyHammond(layer);}
+        void setHammondPercussionVoicing(int layer,boolean soft,boolean slow){hammondPercSoft[layer]=soft;hammondPercSlow[layer]=slow;persistHammond(layer);applyHammond(layer);}
+        void setHammondBalance(int layer,float value){hammondBalance[layer]=value;persistHammond(layer);applyHammond(layer);}
         void setHammondExtra(int layer,int index,float value){hammondExtras[layer][index]=value;persistHammond(layer);applyHammond(layer,false);}
-        private void persistHammond(int layer){SharedPreferences.Editor p=getSharedPreferences("layers",MODE_PRIVATE).edit();for(int b=0;b<9;b++)p.putInt("hammond_bar_"+layer+"_"+b,hammondBars[layer][b]);p.putInt("hammond_leslie_"+layer,hammondLeslie[layer]).putInt("hammond_percussion_"+layer,hammondPercussion[layer]).putFloat("hammond_click_"+layer,hammondExtras[layer][0]).putFloat("hammond_leakage_"+layer,hammondExtras[layer][1]).putFloat("hammond_drive_"+layer,hammondExtras[layer][2]).putFloat("hammond_level_"+layer,hammondExtras[layer][3]).apply();}
+        private void persistHammond(int layer){SharedPreferences.Editor p=getSharedPreferences("layers",MODE_PRIVATE).edit();for(int b=0;b<9;b++)p.putInt("hammond_bar_"+layer+"_"+b,hammondBars[layer][b]);p.putInt("hammond_leslie_"+layer,hammondLeslie[layer]).putInt("hammond_percussion_"+layer,hammondPercussion[layer]).putFloat("hammond_click_"+layer,hammondExtras[layer][0]).putFloat("hammond_leakage_"+layer,hammondExtras[layer][1]).putFloat("hammond_drive_"+layer,hammondExtras[layer][2]).putFloat("hammond_level_"+layer,hammondExtras[layer][3]).putInt("hammond_vibrato_"+layer,hammondVibrato[layer]).putInt("hammond_vibrato_type_"+layer,hammondVibratoType[layer]).putBoolean("hammond_perc_soft_"+layer,hammondPercSoft[layer]).putBoolean("hammond_perc_slow_"+layer,hammondPercSlow[layer]).putFloat("hammond_balance_"+layer,hammondBalance[layer]).apply();}
         private void applyHammond(int layer){applyHammond(layer,false);}
-        private void applyHammond(int layer,boolean updateLeslie){if(audioEngine!=null){int[] bars=hammondBars[layer].clone();for(int b=0;b<9;b++)if(bars[b]<0)bars[b]=6;audioEngine.setHammondControls(layer,bars,hammondLeslie[layer],updateLeslie,hammondPercussion[layer],hammondExtras[layer][0],hammondExtras[layer][1],hammondExtras[layer][2],hammondExtras[layer][3]);}}
+        private void applyHammond(int layer,boolean updateLeslie){if(audioEngine!=null){int[] bars=hammondBars[layer].clone();for(int b=0;b<9;b++)if(bars[b]<0)bars[b]=6;audioEngine.setHammondControls(layer,bars,hammondLeslie[layer],updateLeslie,hammondPercussion[layer]==0?0:hammondPercussion[layer]+1,hammondExtras[layer][0],hammondExtras[layer][1],hammondExtras[layer][2],hammondExtras[layer][3],hammondVibrato[layer],hammondPercSoft[layer],hammondPercSlow[layer],hammondBalance[layer]);}}
         void applyLoadedEditorState(int layer){SharedPreferences p=getSharedPreferences("layers",MODE_PRIVATE);layerVolumes[layer]=p.getFloat("control_volume_"+layer,layerVolumes[layer]);layerPan[layer]=p.getFloat("control_pan_"+layer,0);int storedEngine=p.getInt("engine_"+layer,0);modulationEnabled[layer]=p.getBoolean("modulation_enabled_"+layer,storedEngine==4);muted[layer]=p.getBoolean("muted_"+layer,false);solo[layer]=p.getBoolean("solo_"+layer,false);applyLayerGains();if(audioEngine!=null){audioEngine.setLayerGain(layer,faderGain(layerVolumes[layer]));audioEngine.setLayerPan(layer,layerPan[layer]);audioEngine.setLayerModulationEnabled(layer,modulationEnabled[layer]);audioEngine.setLayerEnvelope(layer,layerAttack[layer],layerRelease[layer]);audioEngine.setLayerEq(layer,eqLow[layer],eqMid[layer],eqHigh[layer],eqLowFreq[layer],eqMidFreq[layer],eqHighFreq[layer],eqLowQ[layer],eqMidQ[layer],eqHighQ[layer],eqHighPass[layer],eqLowPass[layer]);audioEngine.setLayerCompressor(layer,compressorThreshold[layer],compressorRatio[layer],compressorAttackMs[layer],compressorReleaseMs[layer],compressorMakeupDb[layer]);audioEngine.setLayerTone(layer,layerCutoff[layer],layerReverb[layer],layerCompMix[layer],layerChorus[layer]);audioEngine.setLayerReverb(layer,reverbSize[layer],reverbDamping[layer],reverbWidth[layer]);applyLayerRouting(layer);if("ANALOG".equals(engineName(layer)))applyAnalog(layer);if("HAMMOND".equals(engineName(layer)))applyHammond(layer,true);}if(isPadEngine(layer)&&padEngine!=null){boolean continuous=engineName(layer).startsWith("CONT");padEngine.setGain(faderGain(layerVolumes[layer]),continuous);padEngine.setPan(layerPan[layer],continuous);padEngine.setEq(eqLow[layer],eqMid[layer],eqHigh[layer],eqLowFreq[layer],eqMidFreq[layer],eqHighFreq[layer],eqLowQ[layer],eqMidQ[layer],eqHighQ[layer],eqHighPass[layer],eqLowPass[layer],continuous);}}
 
         private void text(Canvas canvas, String value, float x, float y, float size, int colour) {
