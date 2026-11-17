@@ -7172,6 +7172,20 @@ ClassicPlayerAudioProcessorEditor::LayerStrip::LayerStrip(
         applyOffLook(offButton.getToggleState());
         mixStateChanged();
     };
+    offButton.onRightClick = [this]
+    {
+        using Target = ClassicPlayerAudioProcessor::LearnTarget;
+        juce::PopupMenu menu;
+        menu.addItem(1, juce::String::fromUTF8("MIDI Learn: ligar/desligar esta layer"));
+        menu.addItem(2, juce::String::fromUTF8("Limpar MIDI Learn"), processor.midiLearnCC(index, Target::off) >= 0);
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&offButton),
+            [safe = juce::Component::SafePointer<LayerStrip>(this)](int choice)
+            {
+                if (safe == nullptr) return;
+                if (choice == 1) safe->processor.beginMidiLearn(safe->index, Target::off);
+                else if (choice == 2) safe->processor.clearMidiLearn(safe->index, Target::off);
+            });
+    };
     muteButton.setTooltip("Ativar ou silenciar esta layer; o volume do fader permanece salvo");
     muteButton.onClick = [this]
     {
@@ -9218,8 +9232,11 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::resized()
     const bool isPadLayer = type == ClassicPlayerAudioProcessor::LayerType::drumPads
                          || type == ClassicPlayerAudioProcessor::LayerType::continuousPads;
     engineTagBounds = {};
-    offButton.setVisible(!isPadLayer);
-    if (!isPadLayer)
+    // Pad layers have no engine tag row: the switch sits at the right end of the title row.
+    offButton.setVisible(!isPadLayer || top.getWidth() >= 60);
+    if (isPadLayer)
+        offButton.setBounds(top.removeFromRight(56).reduced(0, 1));
+    else
     {
         auto tagRow = area.removeFromTop(22);
         offButton.setBounds(tagRow.removeFromRight(56));
@@ -10061,6 +10078,15 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateMeter()
     // while this strip is hidden (Live Set view, another tab). They resync on
     // the first tick after it becomes visible again.
     if (!isShowing()) return;
+    {
+        using Target = ClassicPlayerAudioProcessor::LearnTarget;
+        const auto offCC = processor.midiLearnCC(index, Target::off);
+        offButton.setBadge(processor.isMidiLearning(index, Target::off) ? "CC?" : juce::String());
+        const auto offTip = juce::String::fromUTF8("Liga ou desliga a layer por completo: desligada ela para de processar e não usa CPU. MUTE (M) só silencia.")
+            + juce::String::fromUTF8("\nBotão direito: MIDI Learn.")
+            + (offCC >= 0 ? "  Atribuído: CC " + juce::String(offCC) : juce::String());
+        if (offButton.getTooltip() != offTip) offButton.setTooltip(offTip);
+    }
     // MIDI Learn updates the processor from the message-thread bridge. Mirror
     // the current parameter values explicitly so the on-screen knobs follow
     // the physical controller even when a host delays attachment callbacks.

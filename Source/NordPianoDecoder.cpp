@@ -1,4 +1,5 @@
 #include "NordPianoDecoder.h"
+#include "SystemMemory.h"
 
 #include <algorithm>
 #include <array>
@@ -33,7 +34,7 @@ std::uint64_t decodedAudioBudget(size_t sourceBytes)
     const auto totalMemoryBytes = memoryMiB > 0
         ? static_cast<std::uint64_t>(memoryMiB) * bytesPerMiB
         : 4ull * 1024ull * bytesPerMiB;
-    const auto budgetForImport = totalMemoryBytes / 3;
+    const auto budgetForImport = SystemMemory::limitByAvailable(totalMemoryBytes / 3);
     if (budgetForImport <= sourceBytes)
         return 0;
     return std::min(hardDecodedAudioLimit, budgetForImport - sourceBytes);
@@ -422,7 +423,7 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
                     highestAttackLayer = std::max(highestAttackLayer, static_cast<int>(layer));
                 const auto result = decodeStroke(body + audioCursor, audioBytes, channels,
                                                  expectedFrames, blockCount, record,
-                                                 stroke.interleavedPcm);
+                                                 stroke.interleavedPcm.vec());
                 if (result.failed())
                     return result;
                 if (bank == 0)

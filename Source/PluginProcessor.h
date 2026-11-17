@@ -24,7 +24,7 @@ class ClassicPlayerAudioProcessor final : public juce::AudioProcessor,
 {
 public:
     // Keep existing indices stable because mappings are serialized by index.
-    enum class LearnTarget { volume = 0, cutoff, reverb, compressor, release, mute, count };
+    enum class LearnTarget { volume = 0, cutoff, reverb, compressor, release, mute, off, count };
     void beginMasterMidiLearn();
     void resetMasterMidiLearn();
     bool isMasterMidiLearning() const { return masterLearning.load(); }
@@ -531,6 +531,8 @@ private:
     std::array<int, Sf2Engine::layerCount> savedSf2Banks {};
     std::array<int, Sf2Engine::layerCount> savedSf2Programs {};
     static constexpr int learnTargetCount = static_cast<int>(LearnTarget::count);
+    static_assert(learnTargetCount <= static_cast<int>(std::tuple_size<decltype(Sf2Engine::LayerConfig::learnedControlCCs)>::value),
+                  "Sf2Engine::LayerConfig::learnedControlCCs needs one slot per LearnTarget");
     // A MIDI controller is identified by CC *and* channel. Some keyboards
     // send the same CC from several faders on different Part channels.
     std::array<std::array<std::atomic<int>, learnTargetCount>, Sf2Engine::layerCount> learnedCCs {};
@@ -564,6 +566,9 @@ private:
     // The toggle count is consumed on the message thread and written to APVTS.
     std::array<std::atomic<bool>, Sf2Engine::layerCount> learnedMuteCCPressed {};
     std::array<std::atomic<int>, Sf2Engine::layerCount> pendingLayerMuteToggles {};
+    // Layer ON/OFF MIDI Learn: toggles on the low-to-high edge of the learned CC.
+    std::array<std::atomic<bool>, Sf2Engine::layerCount> learnedOffPressed {};
+    std::array<std::atomic<int>, Sf2Engine::layerCount> pendingLayerOffToggles {};
     // -1 = unknown, 0 = momentary button, 1 = latched/toggle button.  This lets
     // Mute Learn support both common controller behaviours without requiring a
     // separate preference in the UI.

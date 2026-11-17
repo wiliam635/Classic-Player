@@ -1,4 +1,5 @@
 #include "NordLegacySampleDecoder.h"
+#include "SystemMemory.h"
 
 #include <algorithm>
 #include <array>
@@ -635,7 +636,7 @@ std::uint64_t decodedBudget(std::size_t sourceBytes)
     const auto memoryMiB = juce::SystemStats::getMemorySizeInMegabytes();
     const auto totalBytes = memoryMiB > 0
         ? static_cast<std::uint64_t>(memoryMiB) * bytesPerMiB : 4ull * 1024ull * bytesPerMiB;
-    const auto totalBudget = std::min(maxDecodedBytes, totalBytes / 3);
+    const auto totalBudget = std::min(maxDecodedBytes, SystemMemory::limitByAvailable(totalBytes / 3));
     return totalBudget > sourceBytes ? totalBudget - sourceBytes : 0;
 }
 

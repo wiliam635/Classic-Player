@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "SystemMemory.h"
 #include "VelocityCurve.h"
 #include "NordBundleProgram.h"
 #include "OutputSafety.h"
@@ -410,6 +411,8 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
         for (auto& value : layer) value.store(-1.0f);
     for (auto& pressed : learnedMuteCCPressed) pressed.store(false, std::memory_order_relaxed);
     for (auto& toggles : pendingLayerMuteToggles) toggles.store(0, std::memory_order_relaxed);
+    for (auto& pressed : learnedOffPressed) pressed.store(false, std::memory_order_relaxed);
+    for (auto& toggles : pendingLayerOffToggles) toggles.store(0, std::memory_order_relaxed);
     for (auto& mode : learnedMuteCCModes) mode.store(-1, std::memory_order_relaxed);
     for (auto& time : learnedMuteHighTimes) time.store(0, std::memory_order_relaxed);
     for (auto& state : pendingLayerMuteStates) state.store(-1, std::memory_order_relaxed);
@@ -1066,6 +1069,7 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     for(int layer=0;layer<activeLayerCount();++layer)
     {
         if(layerType(layer)!=LayerType::continuousPads)continue;
+        if(isLayerOff(layer))continue; // OFF: no MIDI handling, no filtering, no rendering
         auto& bank=continuousPads(layer);const auto config=engine.getConfig(layer);
         const auto inspect=[&](const juce::MidiBuffer& events){for(const auto event:events)
         {const auto message=event.getMessage();
@@ -1579,7 +1583,7 @@ void ClassicPlayerAudioProcessor::processDrumPads(juce::AudioBuffer<float>& outp
     {
         if(layerType(layer)!=LayerType::drumPads)continue;
         const auto target=engine.getConfig(layer).enabled && !isLayerMuted(layer)
-            ? parameters.getRawParameterValue("layer"+juce::String(layer+1)+"Gain")->load()/100.f : 0.f;
+            ? realtimeLayerParameters[(size_t)layer].Gain->load(std::memory_order_relaxed)/100.f : 0.f;
         auto& gain=drumLayerGains[(size_t)layer];
         if(!drumGainReady[(size_t)layer]){gain.setCurrentAndTargetValue(target);drumGainReady[(size_t)layer]=true;}
         gain.setTargetValue(target);
@@ -2031,6 +2035,20 @@ void ClassicPlayerAudioProcessor::stopLayerSounds(int layer)
     analogSynthEngine.unload(layer);
     hammondEngine.unload(layer);
     nordOrganEngine.unload(layer);
+    switch (layerType(layer))
+    {
+        case LayerType::continuousPads:
+            if (continuousBanks[(size_t) layer] != nullptr) continuousBanks[(size_t) layer]->stopImmediately();
+            break;
+        case LayerType::drumPads:
+            for (auto& pad : drumPads)
+            {
+                pad.trigger.store(0, std::memory_order_release);
+                pad.position.store(-1, std::memory_order_release);
+            }
+            break;
+        default: break;
+    }
 }
 
 void ClassicPlayerAudioProcessor::setLayerMuted(int layer, bool muted)
@@ -2920,6 +2938,11 @@ void ClassicPlayerAudioProcessor::clearMidiLearn(int layer, LearnTarget target)
     learnedChannels[(size_t) layer][(size_t) targetIndex].store(-1, std::memory_order_relaxed);
     pendingCCValues[(size_t) layer][(size_t) targetIndex].store(-1.0f, std::memory_order_relaxed);
     realtimeCCValues[(size_t) layer][(size_t) targetIndex].store(-1.0f, std::memory_order_relaxed);
+    if (target == LearnTarget::off)
+    {
+        learnedOffPressed[(size_t) layer].store(false, std::memory_order_relaxed);
+        pendingLayerOffToggles[(size_t) layer].store(0, std::memory_order_relaxed);
+    }
     if (target == LearnTarget::mute)
     {
         learnedMuteCCPressed[(size_t) layer].store(false, std::memory_order_relaxed);
@@ -2949,6 +2972,8 @@ void ClassicPlayerAudioProcessor::resetMidiLearn(int layer)
     learnedMuteCCModes[(size_t) layer].store(-1, std::memory_order_relaxed);
     learnedMuteHighTimes[(size_t) layer].store(0, std::memory_order_relaxed);
     pendingLayerMuteStates[(size_t) layer].store(-1, std::memory_order_relaxed);
+    learnedOffPressed[(size_t) layer].store(false, std::memory_order_relaxed);
+    pendingLayerOffToggles[(size_t) layer].store(0, std::memory_order_relaxed);
 
     auto active = activeMidiLearn.load(std::memory_order_relaxed);
     if (active >= 0 && active / learnTargetCount == layer)
@@ -3023,6 +3048,9 @@ void ClassicPlayerAudioProcessor::consumeMidiControlUpdates()
             setLayerMuted(layer, muteState != 0);
         else if ((muteToggles & 1) != 0)
             setLayerMuted(layer, !isLayerMuted(layer));
+
+        if ((pendingLayerOffToggles[(size_t) layer].exchange(0, std::memory_order_acq_rel) & 1) != 0)
+            setLayerOff(layer, !isLayerOff(layer));
 
         const auto prefix = "layer" + juce::String(layer + 1);
         for (int target = 0; target < static_cast<int>(suffixes.size()); ++target)
@@ -3199,6 +3227,19 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
             {
                 const auto muteChannel = learnedChannels[(size_t) layer][(size_t) LearnTarget::mute].load(std::memory_order_relaxed);
                 if (muteChannel < 0 || muteChannel == channel) continue;
+            }
+
+            if (target == static_cast<int>(LearnTarget::off))
+            {
+                // Same rules as mute's toggle path: never act on the gesture that just
+                // learned the CC, and toggle only on the low-to-high edge (127 on press,
+                // 0 on release); duplicate deliveries are absorbed by the latch.
+                if (wasLearning) { learnedOffPressed[(size_t) layer].store(controllerValue >= 64, std::memory_order_relaxed); continue; }
+                const auto pressed = controllerValue >= 64;
+                const auto wasPressed = learnedOffPressed[(size_t) layer].exchange(pressed, std::memory_order_acq_rel);
+                if (pressed && !wasPressed)
+                    pendingLayerOffToggles[(size_t) layer].fetch_add(1, std::memory_order_release);
+                continue;
             }
 
             if (target == static_cast<int>(LearnTarget::mute))
@@ -3672,7 +3713,8 @@ void ClassicPlayerAudioProcessor::loadNordBundleProgram(const juce::File& folder
         std::map<std::string, std::shared_ptr<NordPianoDecoder::Instrument>> pianos;
         std::map<std::string, std::shared_ptr<NordSampleDecoder::Instrument>> samples;
         uint64_t decodedBytes = 0;
-        const auto memoryBudget = NordBundlePolicy::decodedBudgetBytes(juce::SystemStats::getMemorySizeInMegabytes());
+        const auto memoryBudget = SystemMemory::limitByAvailable(
+            NordBundlePolicy::decodedBudgetBytes(juce::SystemStats::getMemorySizeInMegabytes()));
         if (result.wasOk())
         {
             for (auto& part : prepared->parts)

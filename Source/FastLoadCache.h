@@ -2,8 +2,10 @@
 
 #include "NordPianoDecoder.h"
 #include "NordSampleDecoder.h"
+#include "PcmBuffer.h"
 #include <juce_core/juce_core.h>
 #include <algorithm>
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -16,10 +18,16 @@
 // The cache is only an accelerator: the original file is never modified, the cache is keyed
 // on path + size + modification time, and any mismatch or damage silently falls back to the
 // normal decoder. Cache hits reproduce the in-memory instrument bit for bit.
+//
+// On a hit the PCM is not copied into RAM: the file is memory-mapped read-only and every zone /
+// stroke points into the mapping (see PcmBuffer). The OS pages audio in on demand and may evict
+// it again, so resident memory stays low. A background thread warms the start and loop region of
+// each sample so the first notes do not wait on the disk. Set CLASSIC_PLAYER_NO_MMAP to read the
+// PCM into RAM instead.
 namespace FastLoadCache
 {
 constexpr juce::uint32 magic = 0x43504643; // "CPFC"
-constexpr juce::uint32 formatVersion = 2;   // bump when the decoder/prepare output changes
+constexpr juce::uint32 formatVersion = 3;   // bump when the decoder/prepare output changes (3: PCM blocks 2-byte aligned for mmap)
 constexpr juce::int64 maxCacheBytes = 6LL * 1024 * 1024 * 1024;
 
 enum class Kind : juce::uint32 { piano = 1, sample = 2 };
@@ -104,6 +112,79 @@ inline bool loadVector(juce::InputStream& in, std::vector<T>& values, juce::uint
     budget -= bytes;
     values.resize((size_t) count);
     return bytes == 0 || readBytes(in, values.data(), bytes);
+}
+
+inline bool mappingDisabled()
+{
+    return juce::SystemStats::getEnvironmentVariable("CLASSIC_PLAYER_NO_MMAP", {}).isNotEmpty();
+}
+
+inline std::shared_ptr<juce::MemoryMappedFile> mapCache(const juce::File& file)
+{
+    if (mappingDisabled()) return {};
+    auto map = std::make_shared<juce::MemoryMappedFile>(file, juce::MemoryMappedFile::readOnly);
+    return map->getData() != nullptr ? map : nullptr;
+}
+
+struct WarmRange { size_t offset = 0, bytes = 0; };
+
+// Reads the first `headBytes` of a PCM block and its loop region so those pages are in the file cache.
+inline void addWarmRanges(std::vector<WarmRange>& ranges, size_t blockOffset, size_t blockBytes,
+                          size_t loopStartByte, size_t loopEndByte)
+{
+    constexpr size_t headBytes = 512 * 1024, loopCap = 2 * 1024 * 1024;
+    ranges.push_back({ blockOffset, std::min(blockBytes, headBytes) });
+    if (loopEndByte > loopStartByte && loopEndByte <= blockBytes)
+        ranges.push_back({ blockOffset + loopStartByte, std::min(loopEndByte - loopStartByte, loopCap) });
+}
+
+inline void warmAsync(std::shared_ptr<juce::MemoryMappedFile> map, std::vector<WarmRange> ranges)
+{
+    if (map == nullptr || ranges.empty()) return;
+    juce::Thread::launch([map = std::move(map), ranges = std::move(ranges)]
+    {
+        static std::atomic<unsigned> sink { 0 };
+        const auto* base = static_cast<const unsigned char*>(map->getData());
+        const auto size = map->getSize();
+        unsigned sum = 0;
+        for (const auto& range : ranges)
+            for (size_t o = 0; o < range.bytes && range.offset + o < size; o += 4096)
+                sum += base[range.offset + o];
+        sink.fetch_add(sum, std::memory_order_relaxed);
+    });
+}
+
+// PCM block: padded so the samples start on an even file offset (mappable as int16), then count, then data.
+inline void savePcm(juce::OutputStream& out, const PcmBuffer& pcm)
+{
+    if (out.getPosition() & 1) out.writeByte(0);
+    out.writeInt64((juce::int64) pcm.size());
+    writeBytes(out, pcm.data(), (juce::uint64) pcm.size() * sizeof(std::int16_t));
+}
+
+// Maps the block when a mapping is available; otherwise reads it into RAM within `budget`.
+// `dataOffset` / `bytes` report where the samples sit in the file (for warm-up ranges).
+inline bool loadPcm(juce::FileInputStream& in, PcmBuffer& pcm, juce::uint64& budget,
+                    const std::shared_ptr<juce::MemoryMappedFile>& map,
+                    size_t& dataOffset, size_t& bytesOut)
+{
+    if (in.getPosition() & 1) in.skipNextBytes(1);
+    const auto count = (juce::uint64) in.readInt64();
+    if (count > (juce::uint64) in.getNumBytesRemaining() / sizeof(std::int16_t)) return false;
+    const auto bytes = count * sizeof(std::int16_t);
+    const auto position = (juce::uint64) in.getPosition();
+    dataOffset = (size_t) position;
+    bytesOut = (size_t) bytes;
+    if (map != nullptr && bytes > 0)
+    {
+        if (position + bytes > (juce::uint64) map->getSize() || (position & 1) != 0) return false;
+        pcm.mapFrom(map, (size_t) position, (size_t) count);
+        return in.setPosition((juce::int64) (position + bytes));
+    }
+    if (bytes > budget) return false;
+    budget -= bytes;
+    pcm.vec().resize((size_t) count);
+    return bytes == 0 || readBytes(in, pcm.vec().data(), bytes);
 }
 
 template <typename T>
@@ -207,7 +288,7 @@ inline void storePiano(const juce::File& source, std::shared_ptr<NordPianoDecode
             out.writeInt((int) stroke.trimDb);
             out.writeInt((int) stroke.loopStartFrame);
             out.writeInt((int) stroke.loopEndFrame);
-            saveVector(out, stroke.interleavedPcm);
+            savePcm(out, stroke.interleavedPcm);
         }
         out.writeInt((int) 0x454E4421); // end marker "END!"
     });
@@ -220,6 +301,8 @@ inline bool loadPiano(const juce::File& source, NordPianoDecoder::Instrument& in
     if (!openChecked(source, Kind::piano, in)) return false;
     NordPianoDecoder::Instrument loaded;
     juce::uint64 budget = maxDecodedBytes;
+    const auto map = mapCache(cacheFile(sourceKey(source, Kind::piano)));
+    std::vector<WarmRange> warm;
     if (!readString(in, loaded.name) || !readString(in, loaded.voicing)) return false;
     loaded.streamVersion = (std::uint16_t) in.readInt();
     loaded.channels = in.readInt();
@@ -239,11 +322,17 @@ inline bool loadPiano(const juce::File& source, NordPianoDecoder::Instrument& in
         stroke.trimDb = (std::uint16_t) in.readInt();
         stroke.loopStartFrame = (std::uint32_t) in.readInt();
         stroke.loopEndFrame = (std::uint32_t) in.readInt();
-        if (!loadVector(in, stroke.interleavedPcm, budget)) return false;
+        size_t dataOffset = 0, dataBytes = 0;
+        if (!loadPcm(in, stroke.interleavedPcm, budget, map, dataOffset, dataBytes)) return false;
+        if (map != nullptr)
+            addWarmRanges(warm, dataOffset, dataBytes,
+                          (size_t) stroke.loopStartFrame * (size_t) loaded.channels * sizeof(std::int16_t),
+                          (size_t) stroke.loopEndFrame * (size_t) loaded.channels * sizeof(std::int16_t));
     }
     if ((juce::uint32) in.readInt() != 0x454E4421u) return false;
     touch(cacheFile(sourceKey(source, Kind::piano)));
     instrument = std::move(loaded);
+    warmAsync(map, std::move(warm));
     return true;
 }
 
@@ -265,7 +354,7 @@ inline void storeSample(const juce::File& source, std::shared_ptr<NordSampleDeco
             out.writeInt64((juce::int64) zone.loopStart);
             out.writeInt64((juce::int64) zone.loopEnd);
             out.writeInt64((juce::int64) zone.clippedSamples);
-            saveVector(out, zone.pcm);
+            savePcm(out, zone.pcm);
         }
         out.writeInt((int) 0x454E4421);
     });
@@ -278,6 +367,8 @@ inline bool loadSample(const juce::File& source, NordSampleDecoder::Instrument& 
     if (!openChecked(source, Kind::sample, in)) return false;
     NordSampleDecoder::Instrument loaded;
     juce::uint64 budget = maxDecodedBytes;
+    const auto map = mapCache(cacheFile(sourceKey(source, Kind::sample)));
+    std::vector<WarmRange> warm;
     if (!readString(in, loaded.name)
         || !readBytes(in, loaded.gain.data(), loaded.gain.size() * sizeof(float))
         || !readBytes(in, loaded.detune.data(), loaded.detune.size() * sizeof(float))) return false;
@@ -294,11 +385,17 @@ inline bool loadSample(const juce::File& source, NordSampleDecoder::Instrument& 
         zone.loopStart = (size_t) in.readInt64();
         zone.loopEnd = (size_t) in.readInt64();
         zone.clippedSamples = (size_t) in.readInt64();
-        if (!loadVector(in, zone.pcm, budget)) return false;
+        size_t dataOffset = 0, dataBytes = 0;
+        if (!loadPcm(in, zone.pcm, budget, map, dataOffset, dataBytes)) return false;
+        if (map != nullptr)
+            addWarmRanges(warm, dataOffset, dataBytes,
+                          zone.loopStart * (size_t) zone.channels * sizeof(std::int16_t),
+                          zone.loopEnd * (size_t) zone.channels * sizeof(std::int16_t));
     }
     if ((juce::uint32) in.readInt() != 0x454E4421u) return false;
     touch(cacheFile(sourceKey(source, Kind::sample)));
     instrument = std::move(loaded);
+    warmAsync(map, std::move(warm));
     return true;
 }
 }

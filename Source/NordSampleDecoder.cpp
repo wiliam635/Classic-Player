@@ -278,7 +278,7 @@ juce::Result NordSampleDecoder::decode(const juce::File& file, Instrument& outpu
         }
         const auto maxInstrumentSamples = size_t{128} * 1024u * 1024u;
         const auto requestedSampleBudget = static_cast<size_t>(std::min<std::uint64_t>(
-            maxInstrumentSamples, maxDecodedBytes / sizeof(float)));
+            maxInstrumentSamples, maxDecodedBytes / sizeof(NordSampleDecoder::Pcm)));
         size_t totalSamples = 0;
         std::array<const Section*, 128> zoneStrokes {};
         for (size_t zoneIndex = 0; zoneIndex < count; ++zoneIndex)

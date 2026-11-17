@@ -120,6 +120,23 @@ private:
     {
     public:
         PowerSwitch() : juce::Button("power") { setClickingTogglesState(true); }
+        // Right click opens the MIDI Learn menu instead of toggling the layer.
+        std::function<void()> onRightClick;
+        // Short text shown instead of ON/OFF (e.g. "CC?" while waiting for a controller).
+        void setBadge(const juce::String& text)
+        {
+            if (text != badge) { badge = text; repaint(); }
+        }
+        void mouseDown(const juce::MouseEvent& e) override
+        {
+            if (e.mods.isPopupMenu()) { if (onRightClick) onRightClick(); return; }
+            juce::Button::mouseDown(e);
+        }
+        void mouseUp(const juce::MouseEvent& e) override
+        {
+            if (e.mods.isPopupMenu()) return;
+            juce::Button::mouseUp(e);
+        }
         void paintButton(juce::Graphics& g, bool over, bool down) override
         {
             const bool off = getToggleState();
@@ -136,10 +153,12 @@ private:
             g.fillEllipse(knobX, b.getY() + 3.0f, knobSize, knobSize);
             g.setColour(juce::Colours::white);
             g.setFont(juce::FontOptions(11.5f, juce::Font::bold));
-            g.drawText(off ? "OFF" : "ON",
+            g.drawText(badge.isNotEmpty() ? badge : (off ? "OFF" : "ON"),
                        off ? b.withTrimmedLeft(knobSize + 6.0f) : b.withTrimmedRight(knobSize + 6.0f),
                        juce::Justification::centred);
         }
+    private:
+        juce::String badge;
     };
 
     class CpuMeter final : public juce::Component, public juce::SettableTooltipClient

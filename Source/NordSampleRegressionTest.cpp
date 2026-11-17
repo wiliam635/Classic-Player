@@ -1,6 +1,7 @@
 #include "NordSampleEngine.h"
 #include "NordLegacySampleDecoder.h"
 #include "NordSampleExport.h"
+#include "FastLoadCache.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -583,10 +584,62 @@ struct NordSampleRegressionTests
         }
     }
 
+    // The fast-load cache maps PCM straight from disk. Verify the aligned block layout, that a
+    // mapped buffer reads back the exact samples without owning heap memory, and that mutating
+    // one detaches it into a private copy.
+    static void pcmBufferMapping()
+    {
+        PcmBuffer source;
+        for (int i = 0; i < 5000; ++i) source.push_back((std::int16_t) (i * 7 - 12000));
+        const auto file = juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("cp_pcm_map", ".bin");
+        {
+            juce::FileOutputStream out(file);
+            require(out.openedOk(), "temp file not writable");
+            out.writeByte(1);                       // odd header: savePcm must pad to an even offset
+            FastLoadCache::savePcm(out, source);
+            out.writeInt(0x454E4421);
+        }
+        {
+            juce::FileInputStream in(file);
+            require(in.openedOk() && in.readByte() == 1, "temp file header");
+            auto map = FastLoadCache::mapCache(file);
+            require(map != nullptr, "could not map cache-style file");
+            PcmBuffer mapped;
+            juce::uint64 budget = 0; // a mapped load must not consume the RAM budget
+            size_t offset = 0, bytes = 0;
+            require(FastLoadCache::loadPcm(in, mapped, budget, map, offset, bytes), "mapped load failed");
+            require(mapped.isMapped() && mapped.capacity() == 0 && mapped.size() == source.size()
+                    && mapped == source && (offset & 1) == 0 && bytes == source.size() * 2,
+                    "mapped PCM differs from the stored samples");
+            require(in.readInt() == 0x454E4421, "stream not left after the PCM block");
+
+            PcmBuffer copy = mapped;
+            copy.vec()[10] = 1234;
+            require(!copy.isMapped() && copy[10] == 1234 && mapped[10] != 1234 && mapped.isMapped(),
+                    "editing a mapped buffer must copy it first");
+        }
+        {
+            juce::FileInputStream in(file);
+            in.readByte();
+            PcmBuffer owned;
+            juce::uint64 budget = 1u << 20;
+            size_t offset = 0, bytes = 0;
+            require(FastLoadCache::loadPcm(in, owned, budget, nullptr, offset, bytes)
+                    && !owned.isMapped() && owned == source, "unmapped load must match");
+            juce::uint64 tiny = 16;
+            in.setPosition(0); in.readByte();
+            PcmBuffer rejected;
+            require(!FastLoadCache::loadPcm(in, rejected, tiny, nullptr, offset, bytes),
+                    "unmapped load must respect the memory budget");
+        }
+        file.deleteFile();
+    }
+
     static void run(int argc, char** argv)
     {
         decodedSampleCacheSharesPcm();
         decoderUsesExplicitRegionPointers();
+        pcmBufferMapping();
         padLoopCrossfade();
         audioAndSustain();
         adsrSustain();

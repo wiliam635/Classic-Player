@@ -35,8 +35,9 @@ public:
         int muteCCChannel = -1;
         // Learned layer controls belong to the Classic mixer, not to every
         // SoundFont listening on the same MIDI channel.
-        std::array<int, 6> learnedControlCCs { -1, -1, -1, -1, -1, -1 };
-        std::array<int, 6> learnedControlChannels { -1, -1, -1, -1, -1, -1 };
+        // One slot per ClassicPlayerAudioProcessor::LearnTarget (static_assert in PluginProcessor.h).
+        std::array<int, 7> learnedControlCCs { -1, -1, -1, -1, -1, -1, -1 };
+        std::array<int, 7> learnedControlChannels { -1, -1, -1, -1, -1, -1, -1 };
         NordSplit nordSplit;
         NordArpSettings nordArp;
         int lowNote = 0;

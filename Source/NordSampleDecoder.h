@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_core/juce_core.h>
+#include "PcmBuffer.h"
 #include <array>
 #include <vector>
 #include <cstdint>
@@ -27,7 +28,7 @@ struct Zone
     int root = 60, low = 0, high = 127, velocityLow = 0, velocityHigh = 127, channels = 1;
     float gain = 1.0f;
     size_t secondStart = 0, loopStart = 0, loopEnd = 0, clippedSamples = 0;
-    std::vector<Pcm> pcm;
+    PcmBuffer pcm;
     size_t frames() const noexcept { return pcm.size() / static_cast<size_t>(channels); }
 };
 

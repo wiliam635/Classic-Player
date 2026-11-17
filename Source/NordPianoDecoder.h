@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_core/juce_core.h>
+#include "PcmBuffer.h"
 #include <array>
 #include <cstdint>
 #include <limits>
@@ -18,7 +19,7 @@ struct Stroke
     std::uint16_t trimDb = 0;
     std::uint32_t loopStartFrame = 0;
     std::uint32_t loopEndFrame = 0;
-    std::vector<std::int16_t> interleavedPcm;
+    PcmBuffer interleavedPcm;
 
     int frameCount(int channels) const
     {
