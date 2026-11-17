@@ -4371,17 +4371,19 @@ void ClassicPlayerAudioProcessor::performStagedLiveSetSwap()
     stagedAfterSwap = nullptr;
     if (before) before();
 
-    // The old sound ends here: a few ms of fade so the cut itself cannot click. All MIDI is held
+    // The old sound ends here: 35 ms fade so the cut itself cannot click. All MIDI is held
     // by the audio thread meanwhile (state 2), including the note that triggered the switch.
-    beginLiveSetFadeOut(0.012);
-    for (int i = 0; i < 40 && !isLiveSetFadeOutComplete(); ++i)
+    beginLiveSetFadeOut(0.035);
+    for (int i = 0; i < 50 && !isLiveSetFadeOutComplete(); ++i)
         juce::Thread::sleep(2);
 
     const auto result = loadProgram(stagedLiveSetProgram);
     {
         const juce::ScopedLock callbackLock(getCallbackLock());
         liveSetFadingOut = false;
-        liveSetFadingIn = false; // the new program is silent until the held notes are replayed
+        liveSetFadingIn = true; // very short ramp so the new program's first samples never start with an edge
+        liveSetFadePosition = 0;
+        liveSetFadeFrames = juce::jmax(1, juce::roundToInt(currentSampleRate * 0.008));
         liveSetFadeOutStartMs.store(0, std::memory_order_relaxed);
     }
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
