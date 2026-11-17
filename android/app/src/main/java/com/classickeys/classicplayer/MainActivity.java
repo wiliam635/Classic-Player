@@ -1215,11 +1215,7 @@ public final class MainActivity extends Activity {
     private void resetDockedLayer(int layer){
         if(layer<0||layer>=6)return;
         closeDockedInspector();
-        clearLayer(layer);
-        screen.setLearnedVolume(layer,.8f);screen.setLayerPan(layer,0f);
-        screen.setLayerTone(layer,100f,0f,0f,0f);screen.setLayerPreGain(layer,0f);
-        screen.setLayerEq(layer,0f,0f,0f,220f,1200f,4200f,.707f,1f,.707f,20f,20000f);
-        screen.applyLayerGains();screen.invalidate();
+        deleteLayerCompletely(layer);
         screen.setAudioStatus("Layer "+(layer+1)+" restaurada");
     }
     private void setMixerRightInset(int px){
@@ -1254,10 +1250,41 @@ public final class MainActivity extends Activity {
         else openSoundFontEditor(layer);
     }
 
+    /** Asks which library category an imported sample belongs to before it is copied. */
+    private void chooseImportCategory(String what,String current,java.util.function.Consumer<String> done){
+        new EditorUi.Alert(this).setTitle("CATEGORIA DO "+what).setItems(NORD_CATEGORIES,(d,which)->done.accept(NORD_CATEGORIES[which])).show();
+    }
+    /** Empties a layer (it leaves the mixer) and restores its mixer controls to their defaults. */
+    private void deleteLayerCompletely(int layer){
+        if(layer<0||layer>=6)return;
+        clearLayer(layer);
+        screen.setLearnedVolume(layer,.8f);screen.setLayerPan(layer,0f);
+        screen.setLayerTone(layer,100f,0f,0f,0f);screen.setLayerPreGain(layer,0f);
+        screen.setLayerEq(layer,0f,0f,0f,220f,1200f,4200f,.707f,1f,.707f,20f,20000f);
+        screen.applyLayerGains();screen.invalidate();
+    }
+    private void confirmDeleteLayer(final int layer){
+        new EditorUi.Alert(this).setTitle("EXCLUIR LAYER "+(layer+1))
+                .setMessage("A layer sai do mixer e volta aos valores padrão. Os arquivos importados continuam na biblioteca.")
+                .setPositiveButton("EXCLUIR",(d,w)->{closeDockedInspector();deleteLayerCompletely(layer);screen.setAudioStatus("Layer "+(layer+1)+" excluída");})
+                .setNegativeButton("CANCELAR",null).show();
+    }
+    /** Starts from zero: every layer is emptied; the library, master level and saved performances stay. */
+    private void confirmResetMixer(){
+        new EditorUi.Alert(this).setTitle("ZERAR MIXER")
+                .setMessage("Remove todas as layers e devolve volume, EQ e efeitos ao padrão. A biblioteca e as performances salvas não são apagadas.")
+                .setPositiveButton("ZERAR",(d,w)->{
+                    closeDockedInspector();
+                    if(audioEngine!=null)audioEngine.allNotesOff();
+                    for(int i=0;i<6;i++)deleteLayerCompletely(i);
+                    screen.setAudioStatus("Mixer zerado");
+                }).setNegativeButton("CANCELAR",null).show();
+    }
+
     private void showLayerActions(final int layer) {
         final String engine = screen.engineName(layer);
         EditorUi.Panel panel=new EditorUi.Panel(this,"LAYER "+(layer+1)+" · "+engine,"Escolha o que deseja ajustar.");
-        String[] actions={"EDITAR MOTOR ATUAL","TROCAR MOTOR","LIMPAR LAYER"};for(int i=0;i<actions.length;i+=2){LinearLayout row=EditorUi.gridRow(panel.body);for(int j=i;j<Math.min(i+2,actions.length);j++){final int action=j;Button b=EditorUi.button(this,actions[action],()->{panel.dialog.dismiss();if(action==1){panicAndChooseLayerSource(layer);return;}if(action==2){clearLayer(layer);return;}openLayerEditor(layer);});row.addView(b,new LinearLayout.LayoutParams(0,EditorUi.dp(this,44),1));}}
+        String[] actions={"EDITAR MOTOR ATUAL","TROCAR MOTOR","EXCLUIR LAYER"};for(int i=0;i<actions.length;i+=2){LinearLayout row=EditorUi.gridRow(panel.body);for(int j=i;j<Math.min(i+2,actions.length);j++){final int action=j;Button b=EditorUi.button(this,actions[action],()->{panel.dialog.dismiss();if(action==1){panicAndChooseLayerSource(layer);return;}if(action==2){confirmDeleteLayer(layer);return;}openLayerEditor(layer);});row.addView(b,new LinearLayout.LayoutParams(0,EditorUi.dp(this,44),1));}}
         LinearLayout move=EditorUi.gridRow(panel.body);
         Button left=EditorUi.button(this,"← MOVER LAYER",()->{screen.moveLayer(layer,-1);panel.dialog.dismiss();});
         Button right=EditorUi.button(this,"MOVER LAYER →",()->{screen.moveLayer(layer,1);panel.dialog.dismiss();});
@@ -1797,8 +1824,9 @@ public final class MainActivity extends Activity {
             boolean continuous=pendingContinuous;String path=cachePad(data.getData(),pendingPad,continuous);if(path!=null){String name=padDisplayName(data.getData(),pendingPad);padEngine.load(pendingPad,path,continuous,name);getSharedPreferences("pads",MODE_PRIVATE).edit().putString(padSampleKey(continuous,pendingPad),path).putString(padNameKey(continuous,pendingPad),name).apply();screen.setAudioStatus("ÁUDIO: PAD "+(pendingPad+1)+" carregado");screen.invalidate();}pendingPad=-1;return;
         }
         if(requestCode==702&&resultCode==RESULT_OK&&data!=null&&data.getData()!=null&&pendingLayer>=0){
-            final Uri uri=data.getData();final int layer=pendingLayer;final String category=pendingNordCategory;
+            final Uri uri=data.getData();final int layer=pendingLayer;final String defaultCategory=pendingNordCategory;
             pendingLayer=-1;
+            chooseImportCategory("NPNO",defaultCategory,category->{
             screen.setAudioStatus("NPNO: copiando para a biblioteca…");
             try{fontImporter.execute(()->{
                 String path=cacheNord(uri,category);
@@ -1808,6 +1836,7 @@ public final class MainActivity extends Activity {
                     loadNordLibraryFile(layer,new File(path),category,!"NPNO".equals(screen.engineName(layer)));
                 });
             });}catch(java.util.concurrent.RejectedExecutionException ex){screen.setAudioStatus("NPNO: importação indisponível");}
+            });
             return;
         }
         if (requestCode == 701 && resultCode == RESULT_OK && data != null && data.getData() != null && pendingLayer >= 0) {
@@ -1831,6 +1860,9 @@ public final class MainActivity extends Activity {
             catch (SecurityException ignored) { }
             final int layer = pendingLayer;
             pendingLayer = -1;
+            final SharedPreferences sfCategories = getSharedPreferences("sf2_categories", MODE_PRIVATE);
+            chooseImportCategory("SF2", sfCategories.getString("import_category", NORD_CATEGORIES[4]), category -> {
+            sfCategories.edit().putString("import_category", category).apply();
             screen.setAudioStatus("ÁUDIO: importando SF2…");
             try {
                 fontImporter.execute(() -> {
@@ -1848,6 +1880,7 @@ public final class MainActivity extends Activity {
             } catch (java.util.concurrent.RejectedExecutionException ignored) {
                 screen.setAudioStatus("SF2: importação indisponível");
             }
+            });
         }
     }
 
@@ -3408,6 +3441,7 @@ public final class MainActivity extends Activity {
                 paint.setColor(teal);canvas.drawRoundRect(thumbLeft,trackTop,thumbLeft+thumbWidth,trackBottom,trackBottom-trackTop,trackBottom-trackTop,paint);
             }
             if(dockInset==0)button(canvas,"TEMA · "+EditorUi.THEME_NAMES[EditorUi.themeIndex],left,h*.943f,Math.min(w*.34f,EditorUi.dp(getContext(),185)),h*.991f,false);
+            if(dockInset==0){float zl=Math.min(w*.34f,EditorUi.dp(getContext(),185))+EditorUi.dp(getContext(),12);button(canvas,"ZERAR MIXER",zl,h*.943f,zl+EditorUi.dp(getContext(),170),h*.991f,false);}
             if(dockInset==0)button(canvas, "SALVAR PERFORMANCE", Math.max(w*.40f,w*.88f-EditorUi.dp(getContext(),230)), h*.943f, w*.88f-EditorUi.dp(getContext(),12), h*.991f, false);
             if(dockInset!=0)button(canvas, "PANIC", left, h*.943f, w-left, h*.991f, false);
             else button(canvas, "PANIC", w*.88f, h*.943f, w-left, h*.991f, false);
@@ -3539,6 +3573,8 @@ public final class MainActivity extends Activity {
             if(liveSet&&tap&&event.getY()>h*.90f&&event.getX()<300){savingLiveSlot=!savingLiveSlot;invalidate();return true;}
             if (!liveSet && !settings && tap && event.getY() >= h*.943f && event.getY() <= h*.991f) {
                 if(dockInset!=0){if(event.getX()>=18&&event.getX()<=mw-18){panicMidiState();invalidate();}return true;}
+                {float zl=Math.min(w*.34f,EditorUi.dp(getContext(),185))+EditorUi.dp(getContext(),12);
+                 if(event.getX()>=zl&&event.getX()<=zl+EditorUi.dp(getContext(),170)){confirmResetMixer();return true;}}
                 if(event.getX()>=18&&event.getX()<=Math.min(w*.34f,EditorUi.dp(getContext(),185))){showThemeChooser();return true;}
                 if(dockInset==0&&event.getX()>=Math.max(w*.40f,w*.88f-EditorUi.dp(getContext(),230))&&event.getX()<=w*.88f-EditorUi.dp(getContext(),12)){choosePerformanceSlot();return true;}
                 if (event.getX() >= w*.88f && event.getX() <= w-18) { panicMidiState(); invalidate(); return true; }
