@@ -398,12 +398,41 @@ void distributeLayerVoiceBudgets()
         }
     }
 }
-constexpr std::array<const char*,8> hammondNames { "Jimmy Gospel", "Jazz Ballad", "Rock Organ", "Percussive B3", "Full Drawbar", "Gospel Fullness", "Slow Leslie", "Fast Leslie" };
-constexpr std::array<std::array<float,9>,8> hammondBars {{
-    {{.8f,.5f,1.f,.8f,.3f,.5f,.2f,.3f,.2f}}, {{.5f,.3f,1.f,.6f,.2f,.3f,.1f,.1f,0.f}},
-    {{1.f,.8f,1.f,.9f,.7f,.8f,.6f,.7f,.6f}}, {{.3f,.2f,1.f,.7f,.1f,.2f,0.f,0.f,0.f}},
-    {{1.f,1.f,1.f,1.f,1.f,1.f,1.f,1.f,1.f}}, {{1.f,.7f,1.f,.9f,.5f,.7f,.3f,.5f,.4f}},
-    {{.5f,.4f,1.f,.7f,.3f,.4f,.2f,.2f,.1f}}, {{.8f,.6f,1.f,.9f,.5f,.7f,.4f,.5f,.3f}}
+constexpr std::array<const char*,33> hammondNames { "Jimmy Gospel", "Jazz Ballad", "Rock Organ", "Percussive B3", "Full Drawbar", "Jazz Green Onions", "The House Is Rockin", "The Way It Is", "Whiter Shade", "Gospel Fullness", "Blues 888000000", "Cinema Swell", "Cathedral Soft", "The Ballad", "Soul 888", "Jazz Rotary", "Deep Warmth", "Bright Gospel", "Soft Strings", "Power Chords", "Blues Lead", "The Boxer", "Nights In White", "Church Full", "Gritty Rock", "Funky Clav Organ", "Late Night Jazz", "Slow Leslie", "Fast Leslie", "Percussive Jazz", "Vintage Combo", "Big Theatre", "Minimalist" };
+constexpr std::array<std::array<float,9>,33> hammondBars {{
+    {8.0f/8.0f,8.0f/8.0f,7.0f/8.0f,6.0f/8.0f,8.0f/8.0f,5.0f/8.0f,4.0f/8.0f,3.0f/8.0f,2.0f/8.0f},
+    {8.0f/8.0f,6.0f/8.0f,8.0f/8.0f,7.0f/8.0f,5.0f/8.0f,4.0f/8.0f,3.0f/8.0f,2.0f/8.0f,1.0f/8.0f},
+    {8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,6.0f/8.0f,5.0f/8.0f,4.0f/8.0f,3.0f/8.0f,2.0f/8.0f},
+    {8.0f/8.0f,7.0f/8.0f,6.0f/8.0f,8.0f/8.0f,7.0f/8.0f,3.0f/8.0f,2.0f/8.0f,1.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f},
+    {8.0f/8.0f,8.0f/8.0f,5.0f/8.0f,6.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,4.0f/8.0f,0.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,6.0f/8.0f,8.0f/8.0f,6.0f/8.0f,5.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,6.0f/8.0f,8.0f/8.0f,7.0f/8.0f,6.0f/8.0f,4.0f/8.0f,3.0f/8.0f,2.0f/8.0f,1.0f/8.0f},
+    {8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,7.0f/8.0f,8.0f/8.0f,6.0f/8.0f,5.0f/8.0f,4.0f/8.0f,3.0f/8.0f},
+    {8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,5.0f/8.0f,8.0f/8.0f,7.0f/8.0f,4.0f/8.0f,3.0f/8.0f,2.0f/8.0f,1.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,4.0f/8.0f,7.0f/8.0f,6.0f/8.0f,4.0f/8.0f,2.0f/8.0f,1.0f/8.0f,0.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,5.0f/8.0f,8.0f/8.0f,6.0f/8.0f,5.0f/8.0f,3.0f/8.0f,2.0f/8.0f,1.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,6.0f/8.0f,8.0f/8.0f,7.0f/8.0f,5.0f/8.0f,4.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,3.0f/8.0f,7.0f/8.0f,5.0f/8.0f,3.0f/8.0f,2.0f/8.0f,1.0f/8.0f,0.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,6.0f/8.0f,4.0f/8.0f,3.0f/8.0f,2.0f/8.0f,1.0f/8.0f},
+    {8.0f/8.0f,4.0f/8.0f,6.0f/8.0f,7.0f/8.0f,5.0f/8.0f,4.0f/8.0f,3.0f/8.0f,2.0f/8.0f,1.0f/8.0f},
+    {8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,6.0f/8.0f,4.0f/8.0f,2.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,8.0f/8.0f,6.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,6.0f/8.0f,8.0f/8.0f,6.0f/8.0f,5.0f/8.0f,4.0f/8.0f,3.0f/8.0f,2.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,5.0f/8.0f,8.0f/8.0f,7.0f/8.0f,6.0f/8.0f,4.0f/8.0f,3.0f/8.0f,2.0f/8.0f,1.0f/8.0f},
+    {8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,6.0f/8.0f,4.0f/8.0f,2.0f/8.0f},
+    {8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,7.0f/8.0f,5.0f/8.0f,3.0f/8.0f,1.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,8.0f/8.0f,6.0f/8.0f,5.0f/8.0f,4.0f/8.0f,2.0f/8.0f,1.0f/8.0f,0.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,4.0f/8.0f,7.0f/8.0f,6.0f/8.0f,4.0f/8.0f,3.0f/8.0f,2.0f/8.0f,1.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,6.0f/8.0f,8.0f/8.0f,7.0f/8.0f,5.0f/8.0f,3.0f/8.0f,2.0f/8.0f,1.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,7.0f/8.0f,6.0f/8.0f,4.0f/8.0f,3.0f/8.0f,2.0f/8.0f,1.0f/8.0f},
+    {8.0f/8.0f,7.0f/8.0f,6.0f/8.0f,8.0f/8.0f,7.0f/8.0f,4.0f/8.0f,2.0f/8.0f,0.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,5.0f/8.0f,7.0f/8.0f,6.0f/8.0f,4.0f/8.0f,3.0f/8.0f,1.0f/8.0f,0.0f/8.0f,0.0f/8.0f},
+    {8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,8.0f/8.0f,7.0f/8.0f,5.0f/8.0f,3.0f/8.0f,1.0f/8.0f},
+    {8.0f/8.0f,0.0f/8.0f,8.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f,0.0f/8.0f}
 }};
 constexpr std::array<double,13> hammondRatios {.5,1.5,1.,2.,3.,4.,5.,6.,8.,.9438743126816935,1.0594630943592953,1.4983070768766815,2.0};
 const std::array<float,4097> hammondSineTable=[] {
@@ -814,8 +843,8 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetHammondPreset(JNIEnv
 {
     if(layer<0||layer>=kLayerCount||preset<0||preset>=(int)hammondNames.size())return JNI_FALSE;
     std::lock_guard<std::mutex> lock(synthMutex); auto& organ=hammondLayers[(size_t)layer]; organ.preset=preset; organ.bars=hammondBars[(size_t)preset];
-    organ.leslie=preset==7?2:preset==6?0:1; organ.manualLeslie=organ.leslie;organ.modulationWheelOverride=false;
-    organ.percussion=preset==3?3:0;organ.percussionSoft=false;organ.percussionSlow=false; organ.voices={}; return JNI_TRUE;
+    organ.leslie=preset==28?2:1; organ.manualLeslie=organ.leslie;organ.modulationWheelOverride=false;
+    organ.percussion=preset==3||preset==29?3:0;organ.percussionSoft=false;organ.percussionSlow=false; organ.voices={}; return JNI_TRUE;
 }
 
 extern "C" JNIEXPORT void JNICALL
