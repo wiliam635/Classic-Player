@@ -628,6 +628,7 @@ struct LiveSetLayoutRegressionAccess
             for(auto* control:mixerFooter)
             {
                 const auto bounds=control->getBounds();
+                if(bounds.isEmpty()) continue; // hidden on purpose (the virtual keyboard toggle is now part of PALCO / MIXER)
                 check(editor->interfaceCanvas.getLocalBounds().contains(bounds),"mixer footer clipped");
                 check(bounds.getX()>=previousRight,"mixer footer order or overlap");
                 check(bounds.getY()==editor->recordingButton.getY(),"mixer footer not on one row");
