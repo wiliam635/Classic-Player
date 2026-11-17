@@ -1156,7 +1156,8 @@ public final class MainActivity extends Activity {
         else panel.body.addView(EditorUi.label(this,"Nenhum NPNO nesta categoria.",11));
         LinearLayout actions=EditorUi.gridRow(panel.body);
         EditorUi.addButton(actions,"IMPORTAR NPNO",()->{panel.dialog.dismiss();openNordPicker(layer,category);});
-        if("NPNO".equals(screen.engineName(layer)))EditorUi.addButton(actions,"CONTROLES",()->{panel.dialog.dismiss();showPresetEditor(layer,"LAYER "+(layer+1)+" · NPNO","Ajuste a layer Nord.",new String[]{screen.layerNames[layer]},0,i->{},"IMPORTAR NPNO",()->openNordPicker(layer,category));});
+        if(panel.docked&&"NPNO".equals(screen.engineName(layer)))buildDockedLayerBox(layer,panel.body);
+        else if("NPNO".equals(screen.engineName(layer)))EditorUi.addButton(actions,"CONTROLES",()->{panel.dialog.dismiss();showPresetEditor(layer,"LAYER "+(layer+1)+" · NPNO","Ajuste a layer Nord.",new String[]{screen.layerNames[layer]},0,i->{},"IMPORTAR NPNO",()->openNordPicker(layer,category));});
         EditorUi.addButton(panel.footer,"FECHAR",panel.dialog::dismiss);panel.show();
     }
 
@@ -1580,6 +1581,14 @@ public final class MainActivity extends Activity {
     }
     private void openPadPicker(int pad,boolean continuous){
         pendingPad=pad;pendingContinuous=continuous;Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("audio/*");startActivityForResult(i,710);
+    }
+    private void choosePerformanceSlot(){
+        SharedPreferences live=getSharedPreferences("live_set",MODE_PRIVATE);
+        String[] banks=new String[8];for(int i=0;i<8;i++)banks[i]="BANCO "+(i+1);
+        new EditorUi.Alert(this).setTitle("SALVAR PERFORMANCE · BANCO").setItems(banks,(d,bank)->{
+            String[] slots=new String[8];for(int i=0;i<8;i++)slots[i]=(i+1)+" · "+live.getString("bank_"+bank+"_slot_"+i+"_name","VAZIO");
+            new EditorUi.Alert(this).setTitle("BANCO "+(bank+1)+" · SLOT").setItems(slots,(d2,slot)->saveLiveSlot(bank,slot)).show();
+        }).show();
     }
     private void saveLiveSlot(final int bank,final int slot){
         EditText input=new EditText(this);input.setHint("Nome da programação");input.setSingleLine(true);
@@ -2400,6 +2409,23 @@ public final class MainActivity extends Activity {
         }
     }
     /** Rounded section box with a small caption, used by the docked inspector like the desktop panels. */
+    private void buildDockedLayerBox(int layer,LinearLayout body){
+        LinearLayout wrap=new LinearLayout(this);wrap.setOrientation(LinearLayout.HORIZONTAL);body.addView(wrap,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout box=desktopBox("CONTROLES DA CAMADA",wrap);
+        LinearLayout row=EditorUi.knobRow(box);
+        layerMidiKnobs[layer][0]=EditorUi.knob(row,"VOLUME",screen.layerVolumes[layer]*100f,0,100," %",v->screen.setLearnedVolume(layer,v/100f));
+        EditorUi.knob(row,"ATTACK ms",screen.layerAttack[layer]*1000f,.1f,100," ms",v->screen.setLayerEnvelope(layer,v/1000f,screen.layerRelease[layer]));
+        EditorUi.knob(row,"RELEASE ms",screen.layerRelease[layer]*1000f,0f,2000," ms",v->screen.setLayerEnvelope(layer,screen.layerAttack[layer],v/1000f));
+        layerMidiKnobs[layer][1]=EditorUi.knob(row,"CUTOFF",screen.layerCutoff[layer],0,100," %",v->screen.setLayerTone(layer,v,screen.layerReverb[layer],screen.layerCompMix[layer],screen.layerChorus[layer]));
+        row=EditorUi.knobRow(box);
+        layerMidiKnobs[layer][2]=EditorUi.knob(row,"REVERB",screen.layerReverb[layer]*100f,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],v/100f,screen.layerCompMix[layer],screen.layerChorus[layer]));
+        layerMidiKnobs[layer][3]=EditorUi.knob(row,"COMP",screen.layerCompMix[layer]*100f,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],v/100f,screen.layerChorus[layer]));
+        EditorUi.knob(row,"CHORUS",screen.layerChorus[layer]*100,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],screen.layerCompMix[layer],v/100));
+        EditorUi.knob(row,"PAN",screen.layerPan[layer]*100,-100,100,"",v->screen.setLayerPan(layer,v/100));
+        LinearLayout ms=EditorUi.gridRow(box);
+        EditorUi.selectorCell(ms,"MUTE",new String[]{"SOM ATIVO","MUTE"},screen.muted[layer]?1:0,i->setLayerMuted(layer,i==1));
+        EditorUi.selectorCell(ms,"SOLO",new String[]{"NORMAL","SOLO"},screen.solo[layer]?1:0,i->{screen.solo[layer]=i==1;getSharedPreferences("layers",MODE_PRIVATE).edit().putBoolean("solo_"+layer,screen.solo[layer]).apply();screen.applyLayerGains();screen.invalidate();});
+    }
     private LinearLayout desktopBox(String title,LinearLayout parent){
         LinearLayout box=EditorUi.column(this);box.setBackground(EditorUi.background(EditorUi.SURFACE));
         int pad=EditorUi.dp(this,8);box.setPadding(pad,pad,pad,pad);
@@ -3326,7 +3352,7 @@ public final class MainActivity extends Activity {
             float masterW=mixerMasterWidth(),masterX = w - EditorUi.dp(getContext(),18) - masterW;
             box(canvas, masterX, top, masterX+masterW, top+cardH, EditorUi.PANEL, false);
             paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(EditorUi.dp(getContext(),1));paint.setColor(EditorUi.BORDER);canvas.drawRoundRect(masterX,top,masterX+masterW,top+cardH,EditorUi.dp(getContext(),7),EditorUi.dp(getContext(),7),paint);paint.setStyle(Paint.Style.FILL);
-            paint.setTextAlign(Paint.Align.CENTER); text(canvas, "MASTER", masterX+52, top+h*.05f, h*.019f, textColour); paint.setTextAlign(Paint.Align.LEFT);
+            paint.setTextAlign(Paint.Align.CENTER); text(canvas, "MASTER", masterX+masterW/2f, top+h*.05f, h*.019f, textColour); paint.setTextAlign(Paint.Align.LEFT);
             float masterTop = top+h*.12f, masterBottom = top+cardH-h*.09f;
             drawMeter(canvas, masterX+EditorUi.dp(getContext(),15), masterTop, EditorUi.dp(getContext(),13), masterBottom, audioEngine == null ? 0f : audioEngine.masterPeak());
             drawFader(canvas, masterX+masterW*.60f, masterTop, masterBottom, masterW, masterVolume);
@@ -3340,6 +3366,7 @@ public final class MainActivity extends Activity {
                 paint.setColor(teal);canvas.drawRoundRect(thumbLeft,trackTop,thumbLeft+thumbWidth,trackBottom,trackBottom-trackTop,trackBottom-trackTop,paint);
             }
             button(canvas,"TEMA · "+EditorUi.THEME_NAMES[EditorUi.themeIndex],left,h*.943f,Math.min(w*.34f,EditorUi.dp(getContext(),185)),h*.991f,false);
+            button(canvas, "SALVAR PERFORMANCE", Math.max(w*.40f,w*.88f-EditorUi.dp(getContext(),230)), h*.943f, w*.88f-EditorUi.dp(getContext(),12), h*.991f, false);
             button(canvas, "PANIC", w*.88f, h*.943f, w-left, h*.991f, false);
             postInvalidateDelayed(70);
         }
@@ -3469,6 +3496,7 @@ public final class MainActivity extends Activity {
             if(liveSet&&tap&&event.getY()>h*.90f&&event.getX()<300){savingLiveSlot=!savingLiveSlot;invalidate();return true;}
             if (!liveSet && !settings && tap && event.getY() >= h*.943f && event.getY() <= h*.991f) {
                 if(event.getX()>=18&&event.getX()<=Math.min(w*.34f,EditorUi.dp(getContext(),185))){showThemeChooser();return true;}
+                if(event.getX()>=Math.max(w*.40f,w*.88f-EditorUi.dp(getContext(),230))&&event.getX()<=w*.88f-EditorUi.dp(getContext(),12)){choosePerformanceSlot();return true;}
                 if (event.getX() >= w*.88f && event.getX() <= w-18) { panicMidiState(); invalidate(); return true; }
             }
             if (!liveSet && dragging && event.getY() > h * .17f && event.getY() < h * .93f) {

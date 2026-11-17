@@ -261,7 +261,7 @@ final class EditorUi {
         void setValue(float next){value=Math.max(min,Math.min(max,next));describe();invalidate();}
         String format(){return String.format(Locale.ROOT,"%.1f%s",value,unit);}
         @Override protected void onDraw(Canvas c){
-            float w=getWidth(),h=getHeight(),cx=w/2,cy=h*.46f,r=Math.min(w*.32f,h*.27f);p.setShader(null);p.setStyle(Paint.Style.FILL);p.setColor(TEXT);p.setTextAlign(Paint.Align.CENTER);p.setTextSize(dp(getContext(),8));c.drawText(label,cx,dp(getContext(),10),p);
+            float w=getWidth(),h=getHeight(),cx=w/2,top=dp(getContext(),13),foot=dp(getContext(),18),cy=top+(h-top-foot)/2f,r=Math.max(dp(getContext(),10),Math.min(w*.32f,(h-top-foot)/2f-dp(getContext(),7)));p.setShader(null);p.setStyle(Paint.Style.FILL);p.setColor(TEXT);p.setTextAlign(Paint.Align.CENTER);p.setTextSize(dp(getContext(),8));c.drawText(label,cx,dp(getContext(),10),p);
             // Same metal knob as the desktop ClassicLookAndFeel: dark bezel, grey-to-black
             // gradient body, accent arc outside the rim and a pointer ending in a dot.
             p.setColor(0xff080d11);c.drawCircle(cx,cy,r+dp(getContext(),3),p);
