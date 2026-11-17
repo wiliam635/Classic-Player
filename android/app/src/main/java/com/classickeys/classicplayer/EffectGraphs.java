@@ -34,7 +34,7 @@ final class EffectGraphs {
         }
         private float dp(float v) { return EditorUi.dp(getContext(), v); }
         private RectF area() { return new RectF(dp(18), dp(24), getWidth() - dp(18), getHeight() - dp(24)); }
-        private RectF plot() { RectF a = area(); return new RectF(a.left + dp(74), a.top + dp(4), a.right - dp(74), a.bottom - dp(25)); }
+        private RectF plot() { RectF a = area(); return new RectF(a.left + dp(74), a.top + dp(4), a.right - dp(74), a.bottom - dp(31)); }
         private float x(RectF r, float db) { return r.left + r.width() * (Math.max(-60f, Math.min(6f, db)) + 60f) / 66f; }
         private float y(RectF r, float db) { return r.bottom - r.height() * (Math.max(-60f, Math.min(12f, db)) + 60f) / 72f; }
         private float transfer(float in, float threshold, float rat, float makeup, float m) {
@@ -64,7 +64,7 @@ final class EffectGraphs {
             for (int db = -60; db <= 0; db += 15) {
                 float gx = x(r, db), gy = y(r, db);
                 p.setStyle(Paint.Style.STROKE); p.setColor(0xff354346); c.drawLine(gx, r.top, gx, r.bottom, p); c.drawLine(r.left, gy, r.right, gy, p);
-                p.setStyle(Paint.Style.FILL); p.setColor(EditorUi.MUTED); p.setTextAlign(Paint.Align.CENTER); c.drawText(String.valueOf(db), gx, r.bottom + dp(13), p);
+                p.setStyle(Paint.Style.FILL); p.setColor(EditorUi.MUTED); p.setTextAlign(Paint.Align.CENTER); c.drawText(String.valueOf(db), gx, r.bottom + dp(12), p);
             }
             p.setStyle(Paint.Style.STROKE); p.setColor(0xff657578); c.drawLine(x(r, -60), y(r, -60), x(r, 6), y(r, 6), p);
             Path curve = new Path();
@@ -81,12 +81,12 @@ final class EffectGraphs {
             }
             p.setStyle(Paint.Style.FILL); p.setColor(EditorUi.TEXT); c.drawCircle(x(r, inputDb), y(r, outputDb), dp(4.5f), p);
             float my = area.top + dp(25), mh = area.height() - dp(58);
-            meter(c, area.left + dp(18), my, mh, dp(18), (inputDb + 60f) / 60f, 0xff4ac0aa, "INPUT EST.");
+            meter(c, area.left + dp(18), my, mh, dp(18), (inputDb + 60f) / 60f, 0xff4ac0aa, "INPUT");
             meter(c, area.left + dp(48), my, mh, dp(12), reduction / 24f, EditorUi.HIGHLIGHT, "GR");
             meter(c, area.right - dp(45), my, mh, dp(18), (outputDb + 60f) / 60f, 0xff4ac0aa, "OUTPUT");
             p.setStyle(Paint.Style.FILL); p.setColor(EditorUi.TEXT); p.setTextSize(dp(12)); p.setTextAlign(Paint.Align.CENTER); p.setFakeBoldText(true);
             c.drawText("COMPRESSOR DA LAYER", area.centerX(), dp(18), p); p.setFakeBoldText(false);
-            p.setTextSize(dp(9)); p.setColor(EditorUi.MUTED); c.drawText("CURVA", r.centerX(), area.bottom - dp(5), p);
+            p.setTextSize(dp(9)); p.setColor(EditorUi.MUTED); c.drawText("CURVA", r.centerX(), area.bottom - dp(4), p);
             p.setColor(EditorUi.HIGHLIGHT); c.drawText(String.format(java.util.Locale.ROOT, "%.1f dB GR EST.", reduction), r.centerX(), area.top + dp(16), p);
         }
         @Override public boolean onTouchEvent(MotionEvent e) {

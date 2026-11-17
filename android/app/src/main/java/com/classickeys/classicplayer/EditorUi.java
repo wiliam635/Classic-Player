@@ -276,7 +276,7 @@ final class EditorUi {
             dashed(c,l,t,r,t,grid);dashed(c,l,sustainY,r,sustainY,grid);for(float gx:new float[]{x1,x2,x3})dashed(c,gx,t,gx,b,grid);
             p.setStyle(Paint.Style.STROKE);p.setColor(BORDER);p.setStrokeWidth(dp(k,1));c.drawLine(l,b,r,b,p);
             p.setStyle(Paint.Style.FILL);p.setColor(MUTED);p.setTextSize(dp(k,10));p.setTextAlign(Paint.Align.RIGHT);
-            c.drawText("100%",l-dp(k,8),t+dp(k,4),p);c.drawText("Sustain",l-dp(k,8),sustainY+dp(k,4),p);c.drawText("0%",l-dp(k,8),b+dp(k,4),p);
+            if(Math.abs(sustainY-t)>dp(k,12))c.drawText("100%",l-dp(k,8),t+dp(k,4),p);c.drawText("Sustain",l-dp(k,8),sustainY+dp(k,4),p);c.drawText("0%",l-dp(k,8),b+dp(k,4),p);
             android.graphics.Path path=new android.graphics.Path();path.moveTo(x0,b);path.lineTo(x1,t);path.lineTo(x2,sustainY);path.lineTo(x3,sustainY);path.lineTo(x4,b);
             p.setStyle(Paint.Style.STROKE);p.setColor(0xff1682ff);p.setStrokeWidth(dp(k,3));p.setStrokeJoin(Paint.Join.ROUND);p.setStrokeCap(Paint.Cap.ROUND);c.drawPath(path,p);p.setStrokeCap(Paint.Cap.BUTT);
             p.setStyle(Paint.Style.FILL);p.setColor(0xffff493f);c.drawCircle(x1,t,dp(k,5),p);p.setColor(0xffffc400);c.drawCircle(x2,sustainY,dp(k,5),p);p.setColor(0xff38d76b);c.drawCircle(x3,sustainY,dp(k,5),p);
