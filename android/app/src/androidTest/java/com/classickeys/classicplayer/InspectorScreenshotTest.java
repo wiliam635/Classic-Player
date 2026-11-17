@@ -14,6 +14,7 @@ import androidx.test.platform.app.InstrumentationRegistry;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import java.io.*;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import static org.junit.Assert.*;
 
@@ -126,7 +127,9 @@ public class InspectorScreenshotTest {
             Method analog = MainActivity.class.getDeclaredMethod("activateAnalog", int.class); analog.setAccessible(true);
             Method hammond = MainActivity.class.getDeclaredMethod("activateHammond", int.class); hammond.setAccessible(true);
             Method nord = MainActivity.class.getDeclaredMethod("loadNordLibraryFile", int.class, File.class, String.class, boolean.class); nord.setAccessible(true);
-            File npno = new File(context.getCacheDir(), "Royal Grand 3D Sml 6.1.npno");
+            Method nordDir = MainActivity.class.getDeclaredMethod("nordDirectory", String.class); nordDir.setAccessible(true);
+            File libraryDir = (File) nordDir.invoke(main, "Piano Acústico"); libraryDir.mkdirs();
+            File npno = new File(libraryDir, "Royal Grand 3D Sml 6.1.npno");
             try (InputStream in = instrumentation.getContext().getAssets().open("fixture-royal-grand.npno"); OutputStream out = new FileOutputStream(npno)) {
                 byte[] buf = new byte[1 << 16]; int n; while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
             }
@@ -136,9 +139,15 @@ public class InspectorScreenshotTest {
                 sf.invoke(main, 1, sf2, true);
                 analog.invoke(main, 2);
                 hammond.invoke(main, 3);
-                nord.invoke(main, 4, npno, "Piano Acustico", true);
+                nord.invoke(main, 4, npno, "Piano Acústico", true);
             } catch (Exception e) { throw new RuntimeException(e); } });
             Thread.sleep(12000);
+            Field engineField = MainActivity.class.getDeclaredField("audioEngine"); engineField.setAccessible(true);
+            Method info = engineField.getType().getDeclaredMethod("nordLoadInfo"); info.setAccessible(true);
+            report.append("NPNO first load: ").append(info.invoke(engineField.get(main))).append('\n');
+            instrumentation.runOnMainSync(() -> { try { nord.invoke(main, 4, npno, "Piano Acústico", false); } catch (Exception e) { throw new RuntimeException(e); } });
+            Thread.sleep(6000);
+            report.append("NPNO second load: ").append(info.invoke(engineField.get(main))).append('\n');
             for (int k = 0; k < 3; k++) { if (clickText("GOT IT")) Thread.sleep(800); }
             for (int k = 0; k < 3; k++) { if (clickText("FECHAR")) Thread.sleep(900); }
             shot("all-0-mixer.png", dir);
