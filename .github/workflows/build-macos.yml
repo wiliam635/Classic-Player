@@ -17,7 +17,7 @@ jobs:
       - name: Define download version
         shell: bash
         run: |
-          echo "DOWNLOAD_VERSION=3.5.0" >> "$GITHUB_ENV"
+          echo "DOWNLOAD_VERSION=3.1.0" >> "$GITHUB_ENV"
 
       - name: Preflight native source
         run: |
@@ -74,7 +74,7 @@ jobs:
           lipo -archs "build/Classic Player 2.0 macOS Universal.vst3/Contents/MacOS/Classic Player" | grep -q x86_64
           lipo -archs "build/Classic Player 2.0 macOS Universal.component/Contents/MacOS/Classic Player" | grep -q arm64
           lipo -archs "build/Classic Player 2.0 macOS Universal.component/Contents/MacOS/Classic Player" | grep -q x86_64
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' 'build/Classic Player 2.0 macOS Universal.app/Contents/Info.plist')" = "3.5.0"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' 'build/Classic Player 2.0 macOS Universal.app/Contents/Info.plist')" = "3.1.0"
           test -n "$(/usr/libexec/PlistBuddy -c 'Print :NSBluetoothAlwaysUsageDescription' 'build/Classic Player 2.0 macOS Universal.app/Contents/Info.plist')"
           test -f "outputs/installers/Classic-Player-${DOWNLOAD_VERSION}-macOS-High-Sierra-a-Tahoe-Universal.pkg"
           test -f "outputs/installers/Classic-Player-${DOWNLOAD_VERSION}-macOS-High-Sierra-a-Tahoe-Universal-App.zip"
