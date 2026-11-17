@@ -13,57 +13,95 @@ final class EffectGraphs {
     private EffectGraphs() {}
     static final int CYAN = 0xff2bb8e6;
 
-    /** Compressor transfer curve (input dB to output dB). Drag the threshold point sideways and the end point vertically. */
+    /** Compressor transfer curve with the desktop CompressorResponseView layout: -60..+6 dB input, yellow
+     *  threshold line and handles, estimated input / gain-reduction / output meters. Drag the threshold point
+     *  sideways and the +6 dB point vertically. */
     static final class CompressorGraph extends View {
         interface Listener { void changed(float thresholdDb, float ratio); void released(); }
         final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        float thresholdDb = -18f, ratio = 4f, makeupDb = 0f;
+        float thresholdDb = -18f, ratio = 4f, makeupDb = 0f, mix = 0f;
+        /** Live sources polled at ~15 Hz while the graph is on screen. */
+        java.util.function.Supplier<Float> peakSource, mixSource;
         Listener listener;
         private int drag = -1;
+        private final Runnable tick = new Runnable() { @Override public void run() { if (isAttachedToWindow()) { invalidate(); postDelayed(this, 66); } } };
         CompressorGraph(Context c) { super(c); }
+        @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); postDelayed(tick, 66); }
+        @Override protected void onDetachedFromWindow() { removeCallbacks(tick); super.onDetachedFromWindow(); }
         void set(float thresholdLinear, float ratio, float makeupDb) {
             this.thresholdDb = (float) Math.max(-60.0, Math.min(0.0, 20.0 * Math.log10(Math.max(.001f, thresholdLinear))));
             this.ratio = Math.max(1f, ratio); this.makeupDb = makeupDb; invalidate();
         }
-        private RectF plot() { Context k = getContext(); return new RectF(EditorUi.dp(k, 40), EditorUi.dp(k, 34), getWidth() - EditorUi.dp(k, 18), getHeight() - EditorUi.dp(k, 34)); }
-        private float x(RectF r, float db) { return r.left + r.width() * (Math.max(-60f, Math.min(0f, db)) + 60f) / 60f; }
-        private float y(RectF r, float db) { return r.bottom - r.height() * (Math.max(-60f, Math.min(0f, db)) + 60f) / 60f; }
-        private float out(float in) { return (in <= thresholdDb ? in : thresholdDb + (in - thresholdDb) / ratio) + makeupDb; }
+        private float dp(float v) { return EditorUi.dp(getContext(), v); }
+        private RectF area() { return new RectF(dp(18), dp(24), getWidth() - dp(18), getHeight() - dp(24)); }
+        private RectF plot() { RectF a = area(); return new RectF(a.left + dp(74), a.top + dp(4), a.right - dp(74), a.bottom - dp(25)); }
+        private float x(RectF r, float db) { return r.left + r.width() * (Math.max(-60f, Math.min(6f, db)) + 60f) / 66f; }
+        private float y(RectF r, float db) { return r.bottom - r.height() * (Math.max(-60f, Math.min(12f, db)) + 60f) / 72f; }
+        private float transfer(float in, float threshold, float rat, float makeup, float m) {
+            float over = Math.max(0f, in - threshold), reduction = over * (1f - 1f / rat);
+            float gain = (1f - m) + m * (float) Math.pow(10.0, (makeup - reduction) / 20.0);
+            return in + 20f * (float) Math.log10(Math.max(1e-6f, gain));
+        }
+        private void meter(Canvas c, float mx, float my, float mh, float width, float amount, int colour, String label) {
+            p.setStyle(Paint.Style.FILL); p.setColor(0xff090d0f); c.drawRect(mx, my, mx + width, my + mh, p);
+            p.setColor(colour); c.drawRect(mx, my + mh * (1f - Math.max(0f, Math.min(1f, amount))), mx + width, my + mh, p);
+            p.setStyle(Paint.Style.STROKE); p.setColor(EditorUi.MUTED); p.setStrokeWidth(dp(1)); c.drawRect(mx, my, mx + width, my + mh, p);
+            p.setStyle(Paint.Style.FILL); p.setColor(EditorUi.MUTED); p.setTextSize(dp(8)); p.setFakeBoldText(true); p.setTextAlign(Paint.Align.CENTER);
+            c.drawText(label, mx + width / 2f, my + mh + dp(11), p); p.setFakeBoldText(false);
+        }
         @Override protected void onDraw(Canvas c) {
-            Context k = getContext(); RectF r = plot(); float w = getWidth(), h = getHeight();
-            p.setStyle(Paint.Style.FILL); p.setColor(EditorUi.FIELD); c.drawRoundRect(new RectF(0, 0, w, h), EditorUi.dp(k, 6), EditorUi.dp(k, 6), p);
-            p.setColor(EditorUi.TEXT); p.setTextSize(EditorUi.dp(k, 12)); p.setTextAlign(Paint.Align.CENTER); p.setFakeBoldText(true);
-            c.drawText("COMPRESSOR DA LAYER", w / 2f, EditorUi.dp(k, 20), p); p.setFakeBoldText(false);
-            p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(EditorUi.dp(k, 1)); p.setColor(EditorUi.BORDER);
-            for (int i = 0; i <= 4; i++) { float gx = r.left + r.width() * i / 4f, gy = r.top + r.height() * i / 4f; c.drawLine(gx, r.top, gx, r.bottom, p); c.drawLine(r.left, gy, r.right, gy, p); }
-            p.setColor(EditorUi.MUTED); p.setStrokeWidth(EditorUi.dp(k, 1)); c.drawLine(r.left, r.bottom, r.right, r.top, p);
-            p.setStyle(Paint.Style.FILL); p.setTextSize(EditorUi.dp(k, 10)); p.setColor(EditorUi.MUTED);
-            for (int i = 0; i <= 4; i++) { String t = String.valueOf(-60 + 15 * i); p.setTextAlign(Paint.Align.CENTER); c.drawText(t, r.left + r.width() * i / 4f, r.bottom + EditorUi.dp(k, 14), p); p.setTextAlign(Paint.Align.RIGHT); c.drawText(t, r.left - EditorUi.dp(k, 5), r.bottom - r.height() * i / 4f + EditorUi.dp(k, 4), p); }
-            p.setTextAlign(Paint.Align.CENTER); c.drawText("ENTRADA dB", r.centerX(), h - EditorUi.dp(k, 6), p);
-            Path curve = new Path(); boolean first = true;
-            for (int i = 0; i <= 120; i++) { float in = -60f + 60f * i / 120f; float px = x(r, in), py = y(r, out(in)); if (first) { curve.moveTo(px, py); first = false; } else curve.lineTo(px, py); }
-            Path fill = new Path(curve); fill.lineTo(r.right, r.bottom); fill.lineTo(r.left, r.bottom); fill.close();
-            p.setStyle(Paint.Style.FILL); p.setColor(0x33f5a524); c.drawPath(fill, p);
-            p.setStyle(Paint.Style.STROKE); p.setColor(EditorUi.ACCENT); p.setStrokeWidth(EditorUi.dp(k, 2.5f)); c.drawPath(curve, p);
-            p.setColor(CYAN); p.setStrokeWidth(EditorUi.dp(k, 1.5f)); float tx = x(r, thresholdDb); c.drawLine(tx, r.top, tx, r.bottom, p);
-            p.setStyle(Paint.Style.FILL); p.setColor(EditorUi.FIELD); p.setStyle(Paint.Style.FILL);
-            float[][] handles = {{tx, y(r, out(thresholdDb))}, {x(r, 0), y(r, out(0))}};
-            for (float[] hnd : handles) { p.setStyle(Paint.Style.FILL); p.setColor(EditorUi.FIELD); c.drawCircle(hnd[0], hnd[1], EditorUi.dp(k, 8), p); p.setStyle(Paint.Style.STROKE); p.setColor(CYAN); p.setStrokeWidth(EditorUi.dp(k, 3)); c.drawCircle(hnd[0], hnd[1], EditorUi.dp(k, 8), p); }
-            p.setStyle(Paint.Style.FILL); p.setTextAlign(Paint.Align.LEFT); p.setColor(CYAN); p.setTextSize(EditorUi.dp(k, 10));
-            c.drawText(String.format(java.util.Locale.ROOT, "%.1f dB · %.1f:1", thresholdDb, ratio), tx + EditorUi.dp(k, 6), r.top + EditorUi.dp(k, 12), p);
+            Context k = getContext(); RectF area = area(), r = plot(); float w = getWidth(), h = getHeight();
+            if (mixSource != null) { Float m = mixSource.get(); if (m != null) mix = Math.max(0f, Math.min(1f, m)); }
+            float peak = peakSource != null && peakSource.get() != null ? peakSource.get() : 0f;
+            float outputDb = Math.max(-60f, Math.min(6f, 20f * (float) Math.log10(Math.max(1e-6f, peak))));
+            float inputDb = outputDb;
+            for (int i = 0; i < 6; i++) inputDb = Math.max(-60f, Math.min(6f, inputDb + outputDb - transfer(inputDb, thresholdDb, ratio, makeupDb, mix)));
+            float reduction = Math.max(0f, inputDb - transfer(inputDb, thresholdDb, ratio, 0f, mix));
+            p.setStyle(Paint.Style.FILL); p.setColor(0xff101617); c.drawRoundRect(new RectF(0, 0, w, h), dp(6), dp(6), p);
+            p.setColor(0xff161d20); c.drawRoundRect(area, dp(10), dp(10), p);
+            p.setStyle(Paint.Style.STROKE); p.setColor(0xff303a3c); p.setStrokeWidth(dp(1)); c.drawRoundRect(area, dp(10), dp(10), p);
+            p.setStyle(Paint.Style.FILL); p.setTextSize(dp(9)); p.setColor(EditorUi.MUTED);
+            for (int db = -60; db <= 0; db += 15) {
+                float gx = x(r, db), gy = y(r, db);
+                p.setStyle(Paint.Style.STROKE); p.setColor(0xff354346); c.drawLine(gx, r.top, gx, r.bottom, p); c.drawLine(r.left, gy, r.right, gy, p);
+                p.setStyle(Paint.Style.FILL); p.setColor(EditorUi.MUTED); p.setTextAlign(Paint.Align.CENTER); c.drawText(String.valueOf(db), gx, r.bottom + dp(13), p);
+            }
+            p.setStyle(Paint.Style.STROKE); p.setColor(0xff657578); c.drawLine(x(r, -60), y(r, -60), x(r, 6), y(r, 6), p);
+            Path curve = new Path();
+            for (int i = 0; i <= 120; i++) { float in = -60f + 66f * i / 120f; float px = x(r, in), py = y(r, transfer(in, thresholdDb, ratio, makeupDb, mix)); if (i == 0) curve.moveTo(px, py); else curve.lineTo(px, py); }
+            Path fill = new Path(curve); fill.lineTo(x(r, 6), y(r, -60)); fill.lineTo(x(r, -60), y(r, -60)); fill.close();
+            p.setStyle(Paint.Style.FILL); p.setColor((EditorUi.ACCENT & 0x00ffffff) | 0x38000000); c.drawPath(fill, p);
+            p.setStyle(Paint.Style.STROKE); p.setColor(EditorUi.ACCENT); p.setStrokeWidth(dp(2)); c.drawPath(curve, p);
+            float tx = x(r, thresholdDb);
+            p.setColor(EditorUi.HIGHLIGHT); p.setStrokeWidth(dp(1.5f)); c.drawLine(tx, r.top, tx, r.bottom, p);
+            float[][] handles = {{tx, y(r, transfer(thresholdDb, thresholdDb, ratio, makeupDb, mix))}, {x(r, 6), y(r, transfer(6f, thresholdDb, ratio, makeupDb, mix))}};
+            for (float[] hnd : handles) {
+                p.setStyle(Paint.Style.FILL); p.setColor(EditorUi.HIGHLIGHT); c.drawCircle(hnd[0], hnd[1], dp(8), p);
+                p.setColor(0xff101617); c.drawCircle(hnd[0], hnd[1], dp(3), p);
+            }
+            p.setStyle(Paint.Style.FILL); p.setColor(EditorUi.TEXT); c.drawCircle(x(r, inputDb), y(r, outputDb), dp(4.5f), p);
+            float my = area.top + dp(25), mh = area.height() - dp(58);
+            meter(c, area.left + dp(18), my, mh, dp(18), (inputDb + 60f) / 60f, 0xff4ac0aa, "INPUT EST.");
+            meter(c, area.left + dp(48), my, mh, dp(12), reduction / 24f, EditorUi.HIGHLIGHT, "GR");
+            meter(c, area.right - dp(45), my, mh, dp(18), (outputDb + 60f) / 60f, 0xff4ac0aa, "OUTPUT");
+            p.setStyle(Paint.Style.FILL); p.setColor(EditorUi.TEXT); p.setTextSize(dp(12)); p.setTextAlign(Paint.Align.CENTER); p.setFakeBoldText(true);
+            c.drawText("COMPRESSOR DA LAYER", area.centerX(), dp(18), p); p.setFakeBoldText(false);
+            p.setTextSize(dp(9)); p.setColor(EditorUi.MUTED); c.drawText("CURVA", r.centerX(), area.bottom - dp(5), p);
+            p.setColor(EditorUi.HIGHLIGHT); c.drawText(String.format(java.util.Locale.ROOT, "%.1f dB GR EST.", reduction), r.centerX(), area.top + dp(16), p);
         }
         @Override public boolean onTouchEvent(MotionEvent e) {
-            RectF r = plot(); Context k = getContext(); float reach = EditorUi.dp(k, 36);
+            RectF r = plot(); float reach = dp(36);
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN: {
-                    float d1 = (float) Math.hypot(e.getX() - x(r, thresholdDb), e.getY() - y(r, out(thresholdDb))), d2 = (float) Math.hypot(e.getX() - x(r, 0), e.getY() - y(r, out(0)));
+                    float d1 = (float) Math.hypot(e.getX() - x(r, thresholdDb), e.getY() - y(r, transfer(thresholdDb, thresholdDb, ratio, makeupDb, mix)));
+                    float d2 = (float) Math.hypot(e.getX() - x(r, 6), e.getY() - y(r, transfer(6f, thresholdDb, ratio, makeupDb, mix)));
                     drag = Math.min(d1, d2) > reach ? -1 : (d1 <= d2 ? 0 : 1);
                     if (drag >= 0) getParent().requestDisallowInterceptTouchEvent(true);
                     return drag >= 0; }
                 case MotionEvent.ACTION_MOVE: {
                     if (drag < 0) return false;
-                    if (drag == 0) thresholdDb = Math.max(-60f, Math.min(-1f, -60f + 60f * (e.getX() - r.left) / r.width()));
-                    else { float outDb = -60f + 60f * (r.bottom - e.getY()) / r.height() - makeupDb; float span = -thresholdDb; float gain = outDb - thresholdDb; ratio = Math.max(1f, Math.min(20f, gain <= .05f ? 20f : span / gain)); }
+                    if (drag == 0) thresholdDb = Math.max(-60f, Math.min(-1f, -60f + 66f * (e.getX() - r.left) / r.width()));
+                    else { float outDb = -60f + 72f * (r.bottom - e.getY()) / r.height() - makeupDb; float gain = outDb - thresholdDb; float span = 6f - thresholdDb; ratio = Math.max(1f, Math.min(20f, gain <= .05f ? 20f : span / gain)); }
                     if (listener != null) listener.changed(thresholdDb, ratio);
                     invalidate(); return true; }
                 case MotionEvent.ACTION_UP: case MotionEvent.ACTION_CANCEL:
@@ -108,9 +146,10 @@ final class EffectGraphs {
         }
         @Override protected void onDraw(Canvas c) {
             Context k = getContext(); RectF r = plot(); float w = getWidth(), h = getHeight();
-            p.setStyle(Paint.Style.FILL); p.setColor(EditorUi.FIELD); c.drawRoundRect(new RectF(0, 0, w, h), EditorUi.dp(k, 6), EditorUi.dp(k, 6), p);
+            p.setStyle(Paint.Style.FILL); p.setColor(0xff0a1118); c.drawRoundRect(new RectF(0, 0, w, h), EditorUi.dp(k, 6), EditorUi.dp(k, 6), p);
+            p.setColor(0xff25323c); c.drawRect(r, p);
             p.setColor(EditorUi.TEXT); p.setTextSize(EditorUi.dp(k, 12)); p.setTextAlign(Paint.Align.CENTER); p.setFakeBoldText(true); c.drawText("EQ PARAMETRICO DA LAYER", w / 2f, EditorUi.dp(k, 20), p); p.setFakeBoldText(false);
-            p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(EditorUi.dp(k, 1)); p.setColor(EditorUi.BORDER);
+            p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(EditorUi.dp(k, 1)); p.setColor(0xff33434e);
             for (int db = -18; db <= 18; db += 6) { float gy = y(r, db); c.drawLine(r.left, gy, r.right, gy, p); }
             float[] marks = {20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000};
             for (float m : marks) { float gx = x(r, m); c.drawLine(gx, r.top, gx, r.bottom, p); }
@@ -118,15 +157,17 @@ final class EffectGraphs {
             p.setTextAlign(Paint.Align.RIGHT); for (int db = -18; db <= 18; db += 6) c.drawText(String.valueOf(db), r.left - EditorUi.dp(k, 5), y(r, db) + EditorUi.dp(k, 4), p);
             p.setTextAlign(Paint.Align.CENTER); for (float m : marks) c.drawText(m >= 1000 ? (m / 1000f == (int) (m / 1000f) ? String.valueOf((int) (m / 1000f)) : String.valueOf(m / 1000f)) + "k" : String.valueOf((int) m), x(r, m), r.bottom + EditorUi.dp(k, 14), p);
             c.drawText("Arraste os pontos para ajustar frequência e ganho", r.centerX(), h - EditorUi.dp(k, 6), p);
-            p.setStyle(Paint.Style.STROKE); p.setColor(EditorUi.MUTED); p.setStrokeWidth(EditorUi.dp(k, 1)); c.drawLine(r.left, y(r, 0), r.right, y(r, 0), p);
+            p.setStyle(Paint.Style.STROKE); p.setColor(0xff60727e); p.setStrokeWidth(EditorUi.dp(k, 1)); c.drawLine(r.left, y(r, 0), r.right, y(r, 0), p);
             Path curve = new Path();
             for (int i = 0; i <= 240; i++) { float f = (float) (20.0 * Math.pow(1000.0, i / 240.0)); float px = x(r, f), py = y(r, responseDb(f)); if (i == 0) curve.moveTo(px, py); else curve.lineTo(px, py); }
-            p.setColor(EditorUi.ACCENT); p.setStrokeWidth(EditorUi.dp(k, 2.5f)); c.drawPath(curve, p);
+            Path area = new Path(curve); area.lineTo(r.right, y(r, 0)); area.lineTo(r.left, y(r, 0)); area.close();
+            p.setStyle(Paint.Style.FILL); p.setColor((EditorUi.ACCENT & 0x00ffffff) | 0x2e000000); c.drawPath(area, p);
+            p.setStyle(Paint.Style.STROKE); p.setColor(EditorUi.ACCENT); p.setStrokeWidth(EditorUi.dp(k, 2.2f)); c.drawPath(curve, p);
             for (int b = 0; b < 3; b++) {
                 float px = x(r, freq[b]), py = y(r, gain[b]);
-                p.setStyle(Paint.Style.FILL); p.setColor(EditorUi.FIELD); c.drawCircle(px, py, EditorUi.dp(k, 9), p);
-                p.setStyle(Paint.Style.STROKE); p.setColor(CYAN); p.setStrokeWidth(EditorUi.dp(k, 2.5f)); c.drawCircle(px, py, EditorUi.dp(k, 9), p);
-                p.setStyle(Paint.Style.FILL); p.setColor(EditorUi.TEXT); p.setTextAlign(Paint.Align.CENTER); p.setTextSize(EditorUi.dp(k, 10)); c.drawText(String.valueOf(b + 1), px, py + EditorUi.dp(k, 4), p);
+                p.setStyle(Paint.Style.FILL); p.setColor(0xffd9e4e8); c.drawCircle(px, py, EditorUi.dp(k, 8), p);
+                p.setStyle(Paint.Style.STROKE); p.setColor(EditorUi.BACKGROUND); p.setStrokeWidth(EditorUi.dp(k, 1)); c.drawCircle(px, py, EditorUi.dp(k, 8), p);
+                p.setStyle(Paint.Style.FILL); p.setColor(EditorUi.BACKGROUND); p.setTextAlign(Paint.Align.CENTER); p.setFakeBoldText(true); p.setTextSize(EditorUi.dp(k, 10)); c.drawText(String.valueOf(b + 1), px, py + EditorUi.dp(k, 4), p); p.setFakeBoldText(false);
             }
         }
         @Override public boolean onTouchEvent(MotionEvent e) {

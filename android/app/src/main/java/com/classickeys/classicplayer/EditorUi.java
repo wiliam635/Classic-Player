@@ -260,23 +260,31 @@ final class EditorUi {
         final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);float attackMs,decayMs,sustainPercent,releaseMs;final float maxAttack,maxRelease;
         EnvelopeGraph(Context c,float attackMs,float decayMs,float sustainPercent,float releaseMs,float maxAttack,float maxRelease){super(c);this.maxAttack=maxAttack;this.maxRelease=maxRelease;set(attackMs,decayMs,sustainPercent,releaseMs);}
         void set(float attackMs,float decayMs,float sustainPercent,float releaseMs){this.attackMs=attackMs;this.decayMs=decayMs;this.sustainPercent=sustainPercent;this.releaseMs=releaseMs;invalidate();}
+        private void dashed(Canvas c,float x1,float y1,float x2,float y2,int colour){p.setStyle(Paint.Style.STROKE);p.setColor(colour);p.setStrokeWidth(dp(getContext(),1));p.setPathEffect(new android.graphics.DashPathEffect(new float[]{dp(getContext(),3.5f),dp(getContext(),3.5f)},0));c.drawLine(x1,y1,x2,y2,p);p.setPathEffect(null);}
+        /** Layout, colours and stage weights follow the desktop AdsrEnvelopeGraph. */
         @Override protected void onDraw(Canvas c){
-            Context k=getContext();float w=getWidth(),h=getHeight(),l=dp(k,34),r=w-dp(k,14),t=dp(k,38),b=h-dp(k,34);
-            p.setStyle(Paint.Style.FILL);p.setColor(FIELD);c.drawRoundRect(new RectF(0,0,w,h),dp(k,5),dp(k,5),p);
-            p.setColor(TEXT);p.setTextSize(dp(k,14));p.setTextAlign(Paint.Align.LEFT);p.setFakeBoldText(true);c.drawText("Gráfico do Ciclo ADSR",dp(k,14),dp(k,22),p);p.setFakeBoldText(false);
-            p.setColor(MUTED);p.setTextSize(dp(k,9));c.drawText("100%",dp(k,4),t+dp(k,3),p);c.drawText("0%",dp(k,10),b,p);
-            p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(dp(k,1));p.setColor(BORDER);c.drawLine(l,b,r,b,p);c.drawLine(l,t,r,t,p);
-            float span=r-l,aw=Math.max(.05f,Math.min(.2f,attackMs/Math.max(1f,maxAttack)*.2f)),dw=decayMs>0?Math.max(.05f,Math.min(.22f,decayMs/2000f*.22f)):.0f,rw=Math.max(.12f,Math.min(.35f,releaseMs/Math.max(1f,maxRelease)*.35f)),sw=Math.max(.1f,1f-aw-dw-rw);
+            Context k=getContext();float w=getWidth(),h=getHeight();
+            p.setStyle(Paint.Style.FILL);p.setColor(PANEL);c.drawRoundRect(new RectF(0,0,w,h),dp(k,5),dp(k,5),p);
+            p.setColor(TEXT);p.setTextSize(dp(k,15));p.setTextAlign(Paint.Align.LEFT);p.setFakeBoldText(true);c.drawText("Gráfico do Ciclo ADSR",dp(k,14),dp(k,22),p);p.setFakeBoldText(false);
+            float l=dp(k,61)+dp(k,8),r=w-dp(k,20),t=dp(k,39),b=h-dp(k,52);
+            double attackSeconds=attackMs*.001,releaseSeconds=releaseMs*.001;
+            double[] weights={.8+.5*Math.sqrt(Math.max(0,attackSeconds)),.8+.5*Math.sqrt(Math.max(0,decayMs*.001)),2.3,.8+.35*Math.sqrt(Math.max(0,releaseSeconds))};
+            double total=weights[0]+weights[1]+weights[2]+weights[3];float span=r-l;
+            float x0=l,x1=x0+span*(float)(weights[0]/total),x2=x1+span*(float)(weights[1]/total),x3=x2+span*(float)(weights[2]/total),x4=r;
             float level=decayMs>0?Math.max(0f,Math.min(1f,sustainPercent*.01f)):1f;float sustainY=b-(b-t)*level;
-            float x0=l,x1=x0+span*aw,x2=x1+span*dw,x3=x2+span*sw,x4=Math.min(r,x3+span*rw);
+            int grid=(BORDER&0x00ffffff)|0x88000000;
+            dashed(c,l,t,r,t,grid);dashed(c,l,sustainY,r,sustainY,grid);for(float gx:new float[]{x1,x2,x3})dashed(c,gx,t,gx,b,grid);
+            p.setStyle(Paint.Style.STROKE);p.setColor(BORDER);p.setStrokeWidth(dp(k,1));c.drawLine(l,b,r,b,p);
+            p.setStyle(Paint.Style.FILL);p.setColor(MUTED);p.setTextSize(dp(k,10));p.setTextAlign(Paint.Align.RIGHT);
+            c.drawText("100%",l-dp(k,8),t+dp(k,4),p);c.drawText("Sustain",l-dp(k,8),sustainY+dp(k,4),p);c.drawText("0%",l-dp(k,8),b+dp(k,4),p);
             android.graphics.Path path=new android.graphics.Path();path.moveTo(x0,b);path.lineTo(x1,t);path.lineTo(x2,sustainY);path.lineTo(x3,sustainY);path.lineTo(x4,b);
-            android.graphics.Path fill=new android.graphics.Path(path);fill.lineTo(x0,b);fill.close();
-            p.setStyle(Paint.Style.FILL);p.setColor(0x33f5a524);c.drawPath(fill,p);
-            p.setStyle(Paint.Style.STROKE);p.setColor(ACCENT);p.setStrokeWidth(dp(k,2));c.drawPath(path,p);
-            p.setStyle(Paint.Style.FILL);p.setColor(0xffe5483c);c.drawCircle(x1,t,dp(k,5),p);p.setColor(ACCENT);c.drawCircle(x2,sustainY,dp(k,5),p);p.setColor(0xff3cc46a);c.drawCircle(x3,sustainY,dp(k,5),p);
-            p.setColor(MUTED);p.setTextSize(dp(k,9));p.setTextAlign(Paint.Align.CENTER);
-            c.drawText("Ataque",(x0+x1)/2f,b+dp(k,13),p);if(decayMs>0)c.drawText("Decaimento",(x1+x2)/2f,b+dp(k,13),p);c.drawText("Sustentação (Tecla Pressionada)",(x2+x3)/2f,b+dp(k,13),p);c.drawText("Liberação",(x3+x4)/2f,b+dp(k,13),p);
-            p.setTextAlign(Paint.Align.LEFT);p.setColor(0xff4b8bff);c.drawText("Note On",l,b+dp(k,26),p);p.setColor(0xffe5483c);p.setTextAlign(Paint.Align.CENTER);c.drawText("Note Off",x3,b+dp(k,26),p);
+            p.setStyle(Paint.Style.STROKE);p.setColor(0xff1682ff);p.setStrokeWidth(dp(k,3));p.setStrokeJoin(Paint.Join.ROUND);p.setStrokeCap(Paint.Cap.ROUND);c.drawPath(path,p);p.setStrokeCap(Paint.Cap.BUTT);
+            p.setStyle(Paint.Style.FILL);p.setColor(0xffff493f);c.drawCircle(x1,t,dp(k,5),p);p.setColor(0xffffc400);c.drawCircle(x2,sustainY,dp(k,5),p);p.setColor(0xff38d76b);c.drawCircle(x3,sustainY,dp(k,5),p);
+            p.setColor(TEXT);p.setTextSize(dp(k,10));p.setFakeBoldText(true);p.setTextAlign(Paint.Align.CENTER);float ly=b+dp(k,17);
+            c.drawText("Ataque",(x0+x1)/2f,ly,p);c.drawText("Decaimento",(x1+x2)/2f,ly,p);c.drawText("Sustentação (Tecla Pressionada)",(x2+x3)/2f,ly,p);c.drawText("Liberação",(x3+x4)/2f,ly,p);
+            float ny=ly+dp(k,17);p.setColor(0xff1682ff);p.setTextAlign(Paint.Align.LEFT);c.drawText("Note On",x0-dp(k,18),ny,p);
+            p.setColor(0xffff493f);p.setTextAlign(Paint.Align.CENTER);c.drawText("Note Off",x3,ny,p);
+            p.setFakeBoldText(false);p.setColor(MUTED);p.setTextAlign(Paint.Align.RIGHT);c.drawText("Tempo",x4+dp(k,4),ny,p);
         }
     }
 

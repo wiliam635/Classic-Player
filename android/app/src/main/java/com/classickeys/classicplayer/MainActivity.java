@@ -2578,7 +2578,7 @@ public final class MainActivity extends Activity {
             if(EditorUi.compact){
                 final EffectGraphs.CompressorGraph comp=new EffectGraphs.CompressorGraph(this);
                 final Runnable pull=()->comp.set(screen.compressorThreshold[layer],screen.compressorRatio[layer],screen.compressorMakeupDb[layer]);
-                pull.run();graph.onValues=pull;
+                pull.run();graph.onValues=pull;comp.mixSource=()->screen.layerCompMix[layer];comp.peakSource=()->audioEngine.layerPeak(layer);
                 comp.listener=new EffectGraphs.CompressorGraph.Listener(){
                     public void changed(float thresholdDb,float ratio){screen.setLayerCompressor(layer,(float)Math.pow(10,thresholdDb/20f),ratio,screen.compressorAttackMs[layer],screen.compressorReleaseMs[layer],screen.compressorMakeupDb[layer]);}
                     public void released(){renderEffectEditorBody(layer,effect,body,page,showAdjustments,showPresets);}
