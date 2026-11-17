@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 
 namespace nord_android {
@@ -178,6 +179,11 @@ bool loadCache(const std::string& path,size_t budget,Instrument& out){
 void storeCache(const std::string& path,const Instrument& in){
     const std::string key=cacheKey(path);if(key.empty())return;
     const std::string finalPath=cachePathFor(path),tmp=finalPath+".tmp";
+    // The cache holds uncompressed PCM (about 3x the .npno): only write it when
+    // the volume keeps at least 512 MB free afterwards.
+    uint64_t need=0;for(const auto& s:in.strokes)need+=uint64_t(s.samples)*2;
+    struct statvfs vfs{};
+    if(statvfs(path.c_str(),&vfs)!=0||uint64_t(vfs.f_bavail)*vfs.f_frsize<need+(uint64_t(512)<<20))return;
     FILE* f=std::fopen(tmp.c_str(),"wb");if(!f)return;bool ok=true;size_t at=0;
     auto put=[&](const void* d,size_t n){if(ok&&std::fwrite(d,1,n,f)!=n)ok=false;at+=n;};
     auto u32=[&](uint32_t v){put(&v,4);};

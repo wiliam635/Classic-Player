@@ -132,7 +132,9 @@ final class EditorUi {
         /** Set right before creating an editor panel: the next Panel docks on the right edge (desktop inspector behaviour). */
         static boolean dockNext;
         /** Like the desktop: a narrow layer strip + master on the left, everything else is the inspector. */
-        static int dockWidth(Context c){android.util.DisplayMetrics m=c.getResources().getDisplayMetrics();return Math.max(Math.round(m.widthPixels*.5f),m.widthPixels-dp(c,320));}
+        static int dockReserveDp=320;
+        static int dockWidth(Context c){android.util.DisplayMetrics m=c.getResources().getDisplayMetrics();return Math.max(Math.round(m.widthPixels*.5f),m.widthPixels-dp(c,dockReserveDp));}
+        Runnable onReset;Button resetButton;
         static java.util.function.Consumer<Panel> dockHook;
         static long dockClosedAt;
         static int dockTop,dockHeight;
@@ -153,6 +155,11 @@ final class EditorUi {
                 LinearLayout top=new LinearLayout(a);top.setGravity(Gravity.CENTER_VERTICAL);
                 top.addView(heading,new LinearLayout.LayoutParams(0,dp(a,40),1));
                 Button close=button(a,"FECHAR",()->dialog.dismiss());close.setTextSize(10);close.setMinHeight(dp(a,36));close.setMinimumHeight(dp(a,36));
+                final Button reset=button(a,"RESET",()->{});reset.setTextSize(10);reset.setMinHeight(dp(a,36));reset.setMinimumHeight(dp(a,36));reset.setVisibility(View.GONE);resetButton=reset;
+                final boolean[] armed={false};
+                final Runnable disarm=()->{armed[0]=false;reset.setText("RESET");reset.setBackground(background(FIELD));};
+                reset.setOnClickListener(v->{if(!armed[0]){armed[0]=true;reset.setText("CONFIRMAR?");reset.setBackground(background(0xff7a1f24));reset.postDelayed(disarm,4000);}else{reset.removeCallbacks(disarm);disarm.run();if(onReset!=null)onReset.run();}});
+                LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(dp(a,110),dp(a,40));rp.setMargins(0,0,dp(a,6),0);top.addView(reset,rp);
                 top.addView(close,new LinearLayout.LayoutParams(dp(a,96),dp(a,40)));
                 root.addView(top,new LinearLayout.LayoutParams(-1,dp(a,44)));
             }else root.addView(heading,new LinearLayout.LayoutParams(-1,dp(a,28)));
@@ -170,7 +177,7 @@ final class EditorUi {
             // screens; the footer stays fixed and never covers the last row.
                 scroll.maxHeight=Math.max(dp(body.getContext(),64),m.heightPixels-dp(body.getContext(),220));
             if(docked){
-                dockClosedAt=0;footer.setVisibility(View.GONE);if(dockHook!=null)dockHook.accept(this);
+                dockClosedAt=0;footer.setVisibility(View.GONE);if(dockHook!=null)dockHook.accept(this);if(resetButton!=null&&onReset!=null)resetButton.setVisibility(View.VISIBLE);
                 scroll.maxHeight=0;dialog.setCanceledOnTouchOutside(false);
                 dialog.show();android.view.Window dw=dialog.getWindow();
                 if(dw!=null){dw.setBackgroundDrawableResource(android.R.color.transparent);dw.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);

@@ -385,7 +385,7 @@ public final class MainActivity extends Activity {
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         screen = new ClassicPlayerView(this);
         setContentView(screen);
-        EditorUi.Panel.dockHook=p->{EditorUi.knobDp=92;EditorUi.compact=true;dockedInspector=p;setMixerRightInset(EditorUi.Panel.dockWidth(this));screen.setOnlyLayer(dockedLayer);p.onClose=()->{if(dockedInspector==p){dockedInspector=null;EditorUi.knobDp=68;EditorUi.compact=false;setMixerRightInset(0);screen.setOnlyLayer(-1);}};};
+        EditorUi.Panel.dockHook=p->{EditorUi.knobDp=92;EditorUi.compact=true;dockedInspector=p;final int resetLayer=dockedLayer;p.onReset=()->resetDockedLayer(resetLayer);updateDockReserve();setMixerRightInset(EditorUi.Panel.dockWidth(this));screen.setOnlyLayer(dockedLayer);p.onClose=()->{if(dockedInspector==p){dockedInspector=null;EditorUi.knobDp=68;EditorUi.compact=false;setMixerRightInset(0);screen.setOnlyLayer(-1);}};};
         midiManager = (MidiManager) getSystemService(MIDI_SERVICE);
         audioEngine = new PolySynthEngine(this);
         SharedPreferences audioPrefs=getSharedPreferences("audio",MODE_PRIVATE);
@@ -1207,6 +1207,21 @@ public final class MainActivity extends Activity {
         screen.setOnlyLayer(-1);
     }
     /** The header stays full width, like the desktop; only the area below it is shared with the inspector. */
+    /** The docked inspector keeps only the selected layer strip on the left, like the desktop. */
+    private void updateDockReserve(){
+        EditorUi.Panel.dockReserveDp=dockedLayer>=0&&dockedLayer<6&&screen.isPadLayer(dockedLayer)?18+300+12:18+142+12;
+    }
+    /** Desktop RESET: unload the layer and restore its mixer controls to their defaults. */
+    private void resetDockedLayer(int layer){
+        if(layer<0||layer>=6)return;
+        closeDockedInspector();
+        clearLayer(layer);
+        screen.setLearnedVolume(layer,.8f);screen.setLayerPan(layer,0f);
+        screen.setLayerTone(layer,100f,0f,0f,0f);screen.setLayerPreGain(layer,0f);
+        screen.setLayerEq(layer,0f,0f,0f,220f,1200f,4200f,.707f,1f,.707f,20f,20000f);
+        screen.applyLayerGains();screen.invalidate();
+        screen.setAudioStatus("Layer "+(layer+1)+" restaurada");
+    }
     private void setMixerRightInset(int px){
         screen.setDockInset(px);
         EditorUi.Panel.dockTop=Math.round(screen.getHeight()*.15f);
@@ -1216,6 +1231,7 @@ public final class MainActivity extends Activity {
         if (screen.muted[layer]) { screen.setAudioStatus("DESMUTE A LAYER "+(layer+1)+" PARA EDITAR O MOTOR"); return; }
         closeDockedInspector();
         dockedLayer=layer;
+        updateDockReserve();
         setMixerRightInset(EditorUi.Panel.dockWidth(this));
         screen.setOnlyLayer(layer);
         EditorUi.Panel.dockNext=true;
@@ -3251,7 +3267,7 @@ public final class MainActivity extends Activity {
             for(int p=0;p<position;p++)x+=mixerCardWidth(activeLayerAt(p),w)+gap;
             return x;
         }
-        private float mixerMasterWidth(){return EditorUi.dp(getContext(),104);}
+        private float mixerMasterWidth(){return dockInset!=0?0f:EditorUi.dp(getContext(),104);}
         private float mixerViewportRight(float w){return w-EditorUi.dp(getContext(),18)-mixerMasterWidth()-EditorUi.dp(getContext(),10);}
         private float mixerContentWidth(float w){int count=activeLayerCount();if(count==0)return 0;float width=0,gap=EditorUi.dp(getContext(),8);for(int p=0;p<count;p++)width+=mixerCardWidth(activeLayerAt(p),w);return width+gap*(count-1);}
         private float mixerMaxScroll(float w){return Math.max(0,mixerContentWidth(w)-(mixerViewportRight(w)-EditorUi.dp(getContext(),18)));}
@@ -3368,6 +3384,7 @@ public final class MainActivity extends Activity {
                 paint.setTextAlign(Paint.Align.LEFT);
             }
             canvas.restore();
+            if(dockInset==0){
             float masterW=mixerMasterWidth(),masterX = w - EditorUi.dp(getContext(),18) - masterW;
             box(canvas, masterX, top, masterX+masterW, top+cardH, EditorUi.PANEL, false);
             paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(EditorUi.dp(getContext(),1));paint.setColor(EditorUi.BORDER);canvas.drawRoundRect(masterX,top,masterX+masterW,top+cardH,EditorUi.dp(getContext(),7),EditorUi.dp(getContext(),7),paint);paint.setStyle(Paint.Style.FILL);
@@ -3376,6 +3393,7 @@ public final class MainActivity extends Activity {
             drawMeter(canvas, masterX+EditorUi.dp(getContext(),15), masterTop, EditorUi.dp(getContext(),13), masterBottom, audioEngine == null ? 0f : audioEngine.masterPeak());
             drawFader(canvas, masterX+masterW*.60f, masterTop, masterBottom, masterW, masterVolume);
             paint.setTextAlign(Paint.Align.CENTER); text(canvas, faderLabel(masterVolume), masterX+masterW*.55f, top+cardH-h*.027f, h*.016f, textColour); paint.setTextAlign(Paint.Align.LEFT);
+            }
             float scrollMax=mixerMaxScroll(w);
             if(scrollMax>0){
                 float trackTop=h*.938f,trackBottom=trackTop+EditorUi.dp(getContext(),4),trackWidth=viewRight-viewLeft;
