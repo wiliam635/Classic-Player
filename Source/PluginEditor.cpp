@@ -12864,12 +12864,12 @@ void ClassicPlayerAudioProcessorEditor::loadLiveSetSlot(int slot)
     classicProcessor.preloadLiveSetBank(bank);
     classicProcessor.beginLiveSetFadeOut();
     const auto generation = ++liveSetSwitchGeneration;
-    // The old program fades out for 0.12 s on the audio thread. Wait for it to confirm silence
+    // The old program fades out for 0.25 s on the audio thread. Wait for it to confirm silence
     // (instead of a fixed delay) before replacing the program, so voices are never cut while audible.
-    juce::Timer::callAfterDelay(110,
+    juce::Timer::callAfterDelay(200,
         [safe = juce::Component::SafePointer<ClassicPlayerAudioProcessorEditor>(this), bank, slot, generation]
         {
-            if (safe != nullptr) safe->continueLiveSetSwitch(bank, slot, generation, 110, false);
+            if (safe != nullptr) safe->continueLiveSetSwitch(bank, slot, generation, 200, false);
         });
 }
 

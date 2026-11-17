@@ -4247,7 +4247,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLiveSetSlot(int bank, int slot)
         liveSetFadingIn = true;
         liveSetFadeOutStartMs.store(0, std::memory_order_relaxed);
         liveSetFadePosition = 0;
-        liveSetFadeFrames = juce::jmax(1, juce::roundToInt(currentSampleRate * 0.09));
+        liveSetFadeFrames = juce::jmax(1, juce::roundToInt(currentSampleRate * 0.14));
     }
     return result;
 }
@@ -4261,7 +4261,7 @@ void ClassicPlayerAudioProcessor::beginLiveSetFadeOut()
                                 std::memory_order_relaxed);
     liveSetFadeOutDone.store(false, std::memory_order_release);
     liveSetFadePosition = 0;
-    liveSetFadeFrames = juce::jmax(1, juce::roundToInt(currentSampleRate * 0.12));
+    liveSetFadeFrames = juce::jmax(1, juce::roundToInt(currentSampleRate * 0.25));
 }
 
 void ClassicPlayerAudioProcessor::cancelLiveSetFade()
