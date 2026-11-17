@@ -531,6 +531,9 @@ private:
     std::function<void()> stagedBeforeSwap;
     std::function<void(juce::Result)> stagedAfterSwap;
     void performStagedLiveSetSwap();
+    void routeIncomingMidiMessage(const juce::String& sourceId, const juce::MidiMessage& message);
+    juce::CriticalSection heldInputLock;
+    std::vector<std::pair<juce::String, juce::MidiMessage>> heldInputMessages;
     struct LiveSetSwapTrigger : juce::AsyncUpdater
     {
         explicit LiveSetSwapTrigger(ClassicPlayerAudioProcessor& o) : owner(o) {}

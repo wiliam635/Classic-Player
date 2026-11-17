@@ -4044,6 +4044,26 @@ void ClassicPlayerAudioProcessor::handleIncomingMidiMessage(juce::MidiInput* sou
     const auto sourceId = source != nullptr ? source->getIdentifier() : juce::String{};
     captureSplitNote(message);
     processLiveSetSlotMidiMessage(message);
+    // Staged Live Set switch: the first note-on after the click triggers the swap; it and
+    // everything after it is held until the new program is in place (see stageLiveSetSlot).
+    if (liveSetSwapState.load(std::memory_order_acquire) == 1 && message.isNoteOn())
+    {
+        int expected = 1;
+        if (liveSetSwapState.compare_exchange_strong(expected, 2, std::memory_order_acq_rel))
+            liveSetSwapTrigger.triggerAsyncUpdate();
+    }
+    if (liveSetSwapState.load(std::memory_order_acquire) == 2)
+    {
+        const juce::ScopedLock heldLock(heldInputLock);
+        heldInputMessages.emplace_back(sourceId, message);
+        return;
+    }
+    routeIncomingMidiMessage(sourceId, message);
+}
+
+void ClassicPlayerAudioProcessor::routeIncomingMidiMessage(const juce::String& sourceId,
+                                                           const juce::MidiMessage& message)
+{
     // Capture the controller used for Learn before applying the per-layer
     // device filter.  A selected layer may be listening to a different input
     // than the one the musician is moving during setup; Learn must still see
@@ -4369,7 +4389,14 @@ void ClassicPlayerAudioProcessor::performStagedLiveSetSwap()
         stagedSoundFonts[(size_t) i].reset();
         stagedSoundFontPaths[(size_t) i] = {};
     }
-    liveSetSwapState.store(3, std::memory_order_release); // audio thread replays the held MIDI
+    liveSetSwapState.store(3, std::memory_order_release); // audio thread replays on-screen keyboard MIDI
+    std::vector<std::pair<juce::String, juce::MidiMessage>> held;
+    {
+        const juce::ScopedLock heldLock(heldInputLock);
+        held.swap(heldInputMessages);
+    }
+    for (const auto& item : held)
+        routeIncomingMidiMessage(item.first, item.second); // hardware MIDI held before the swap
     if (after) after(result);
 }
 
