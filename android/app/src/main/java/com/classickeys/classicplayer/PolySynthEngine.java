@@ -156,6 +156,8 @@ final class PolySynthEngine {
 
     private static native boolean nativeLoadLayer(int layer, String absolutePath);
     private static native boolean nativeLoadDx7(int layer, String absolutePath);
+    private static native String nativeNordLoadInfo();
+    String nordLoadInfo() { return nativeNordLoadInfo(); }
     private static native String nativeLoadNord(int layer, String absolutePath, long decodedBudgetBytes, boolean finitePiano);
     private static native void nativeSetNordEqMode(int layer, int mode);
     private static native void nativeSetLayerPolyphony(int layer, int cap);

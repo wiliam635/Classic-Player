@@ -125,24 +125,30 @@ public class InspectorScreenshotTest {
             Method sf = MainActivity.class.getDeclaredMethod("loadSoundFontLibraryFile", int.class, File.class, boolean.class); sf.setAccessible(true);
             Method analog = MainActivity.class.getDeclaredMethod("activateAnalog", int.class); analog.setAccessible(true);
             Method hammond = MainActivity.class.getDeclaredMethod("activateHammond", int.class); hammond.setAccessible(true);
+            Method nord = MainActivity.class.getDeclaredMethod("loadNordLibraryFile", int.class, File.class, String.class, boolean.class); nord.setAccessible(true);
+            File npno = new File(context.getCacheDir(), "Royal Grand 3D Sml 6.1.npno");
+            try (InputStream in = instrumentation.getContext().getAssets().open("fixture-royal-grand.npno"); OutputStream out = new FileOutputStream(npno)) {
+                byte[] buf = new byte[1 << 16]; int n; while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            }
             instrumentation.runOnMainSync(() -> { try {
                 login.invoke(main, "");
                 dx7.invoke(main, 0, R.raw.dx7_bank_1, "Divine Masquerade 1");
                 sf.invoke(main, 1, sf2, true);
                 analog.invoke(main, 2);
                 hammond.invoke(main, 3);
+                nord.invoke(main, 4, npno, "Piano Acustico", true);
             } catch (Exception e) { throw new RuntimeException(e); } });
-            Thread.sleep(2000);
+            Thread.sleep(12000);
             for (int k = 0; k < 3; k++) { if (clickText("GOT IT")) Thread.sleep(800); }
             for (int k = 0; k < 3; k++) { if (clickText("FECHAR")) Thread.sleep(900); }
             shot("all-0-mixer.png", dir);
             View content = activity.findViewById(android.R.id.content);
             int[] at = new int[2]; content.getLocationOnScreen(at);
             float density = context.getResources().getDisplayMetrics().density, h = content.getHeight();
-            String[] names = {"DX7", "SF2", "ANALOG", "HAMMOND"};
+            String[] names = {"DX7", "SF2", "ANALOG", "HAMMOND", "NPNO"};
             String[] normalTabs = {"SOM", "ENVELOPE", "MIDI", "EFEITOS", "VELOCIDADE"};
             String[] analogTabs = {"SOM", "MIDI", "EFEITOS"};
-            for (int layer = 0; layer < 4; layer++) {
+            for (int layer = 0; layer < 5; layer++) {
                 if (clickText("GOT IT")) Thread.sleep(800);
                 tap(at[0] + (18 + layer * 150 + 60) * density, at[1] + h * .17f + h * .16f + 24 * density);
                 Thread.sleep(2000);

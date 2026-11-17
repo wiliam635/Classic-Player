@@ -5,6 +5,13 @@
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <chrono>
+#include <cstdio>
+#include <mutex>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace nord_android {
 namespace {
@@ -67,12 +74,12 @@ bool decode(const uint8_t* audio,size_t bytes,int channels,uint32_t expected,uin
 }
 void smoothLoop(Stroke& s,int channels){
     int start=(int)s.loopStart,end=(int)s.loopEnd,length=end-start;
-    if(length<8||end>(int)(s.pcm.size()/size_t(channels)))return;
+    if(length<8||end>(int)(s.samples/size_t(channels)))return;
     int maxFade=(int)(length*.45),aim=std::min(maxFade,(int)std::lround(.55*sampleRate));
     double frequency=440.0*std::pow(2.0,(s.root-69)/12.0),period=sampleRate/frequency;
     int low=std::max(2,(int)std::lround(aim-period)),high=std::min(maxFade,(int)std::lround(aim+period));
     if(low>high)return;int step=std::max(1,(int)std::lround(period/24.0)),fade=low;double best=-2,corr=0;
-    auto read=[&](int frame,int ch){return double(s.pcm[size_t(frame)*size_t(channels)+size_t(ch)]);};
+    auto read=[&](int frame,int ch){return double(s.data[size_t(frame)*size_t(channels)+size_t(ch)]);};
     for(int candidate=low;candidate<=high;candidate+=step){
         double dot=0,head=0,tail=0;
         for(int f=0;f<candidate;f+=8)for(int ch=0;ch<channels;++ch){double a=read(start+f,ch),b=read(end-candidate+f,ch);dot+=a*b;head+=a*a;tail+=b*b;}
@@ -89,11 +96,11 @@ void smoothLoop(Stroke& s,int channels){
     for(int f=0;f<fade&&compensate;++f)for(int ch=0;ch<channels;++ch)
         if(std::abs(blend(f,ch,true))>32767){compensate=false;break;}
     for(int f=0;f<fade;++f)for(int ch=0;ch<channels;++ch)
-        s.pcm[size_t(end-fade+f)*size_t(channels)+size_t(ch)]=(int16_t)std::lround(blend(f,ch,compensate));
+        s.owned[size_t(end-fade+f)*size_t(channels)+size_t(ch)]=(int16_t)std::lround(blend(f,ch,compensate));
     s.loopStart+=(uint32_t)fade;
 }
 void sampleStereo(const Stroke& s,int channels,double position,float& left,float& right){
-    const int count=(int)(s.pcm.size()/size_t(channels));
+    const int count=(int)(s.samples/size_t(channels));
     if(!count){left=right=0.f;return;}
     const int first=std::clamp((int)position,0,count-1);
     const float t=(float)(position-first),t2=t*t,t3=t2*t;
@@ -113,14 +120,95 @@ void sampleStereo(const Stroke& s,int channels,double position,float& left,float
     float l=0.f,r=0.f;
     for(int i=0;i<4;++i){
         const size_t offset=size_t(frames[i])*size_t(channels);
-        l+=coefficients[i]*float(s.pcm[offset]);
-        r+=coefficients[i]*float(s.pcm[offset+size_t(channels>1)]);
+        l+=coefficients[i]*float(s.data[offset]);
+        r+=coefficients[i]*float(s.data[offset+size_t(channels>1)]);
     }
     left=l/32768.f;right=r/32768.f;
 }
 }
 
+bool loadDecoded(const std::string& path,size_t budget,Instrument& out,std::string& error);
+
+namespace {
+std::mutex infoMutex;std::string infoText;
+void setInfo(const std::string& s){std::lock_guard<std::mutex> l(infoMutex);infoText=s;}
+constexpr uint32_t cacheMagic=0x43504643u,cacheVersion=1,cacheEnd=0x21444e45u;
+struct Mapping{void* base=nullptr;size_t size=0;~Mapping(){if(base&&base!=MAP_FAILED)munmap(base,size);}};
+std::string cachePathFor(const std::string& path){return path+".cpfc";}
+std::string cacheKey(const std::string& path){
+    struct stat st{};if(stat(path.c_str(),&st)!=0)return {};
+    char buf[96];std::snprintf(buf,sizeof buf,"|%lld|%lld|%d",(long long)st.st_size,(long long)st.st_mtime,(int)cacheVersion);
+    return path+buf;
+}
+struct Reader{const uint8_t* p;size_t n,at=0;
+    bool u32(uint32_t& v){if(at+4>n)return false;std::memcpy(&v,p+at,4);at+=4;return true;}
+    bool u64(uint64_t& v){if(at+8>n)return false;std::memcpy(&v,p+at,8);at+=8;return true;}
+    bool u8(uint8_t& v){if(at+1>n)return false;v=p[at++];return true;}
+    bool bytes(void* dst,size_t len){if(len>n-at)return false;std::memcpy(dst,p+at,len);at+=len;return true;}
+    bool str(std::string& s){uint32_t len;if(!u32(len)||len>n-at)return false;s.assign((const char*)p+at,len);at+=len;return true;}
+};
+bool loadCache(const std::string& path,size_t budget,Instrument& out){
+    const std::string key=cacheKey(path);if(key.empty())return false;
+    int fd=open(cachePathFor(path).c_str(),O_RDONLY);if(fd<0)return false;
+    struct stat st{};if(fstat(fd,&st)!=0||st.st_size<64){close(fd);return false;}
+    auto map=std::make_shared<Mapping>();map->size=(size_t)st.st_size;
+    map->base=mmap(nullptr,map->size,PROT_READ,MAP_PRIVATE,fd,0);close(fd);
+    if(map->base==MAP_FAILED){map->base=nullptr;return false;}
+    Reader r{(const uint8_t*)map->base,map->size};uint32_t magic,version,count;std::string storedKey;
+    if(!r.u32(magic)||magic!=cacheMagic||!r.u32(version)||version!=cacheVersion||!r.str(storedKey)||storedKey!=key)return false;
+    Instrument result;uint32_t channels,velocityScale;uint32_t gain;uint8_t signedTrim;
+    if(!r.str(result.name)||!r.u32(channels)||!r.u32(gain)||!r.u32(velocityScale)||!r.u8(signedTrim))return false;
+    if(channels<1||channels>2)return false;
+    result.channels=(int)channels;result.gainTenthsDb=(int)(int32_t)gain;result.velocityScale=(int)velocityScale;result.signedTrim=signedTrim!=0;
+    if(!r.bytes(result.keyMap.data(),128)||!r.bytes(result.fineTune.data(),128)||!r.u32(count)||count>100000)return false;
+    result.strokes.reserve(count);uint64_t total=0;
+    for(uint32_t i=0;i<count;++i){
+        Stroke s;uint8_t pad;uint16_t trim;uint32_t ls,le;uint64_t samples;
+        if(!r.u8(s.root)||!r.u8(s.bank)||!r.u8(s.velocityLayer)||!r.u8(pad))return false;
+        if(r.at+2>r.n)return false;std::memcpy(&trim,r.p+r.at,2);r.at+=2;
+        if(!r.u32(ls)||!r.u32(le)||!r.u64(samples))return false;
+        if(r.at&1)++r.at;
+        if(samples>(r.n-r.at)/2||samples%channels!=0)return false;
+        s.trim=trim;s.loopStart=ls;s.loopEnd=le;s.data=(const int16_t*)(r.p+r.at);s.samples=(size_t)samples;
+        r.at+=(size_t)samples*2;total+=samples*2;result.strokes.push_back(std::move(s));
+    }
+    uint32_t end;if(!r.u32(end)||end!=cacheEnd||total>budget)return false;
+    result.backing=map;result.fromCache=true;out=std::move(result);return true;
+}
+void storeCache(const std::string& path,const Instrument& in){
+    const std::string key=cacheKey(path);if(key.empty())return;
+    const std::string finalPath=cachePathFor(path),tmp=finalPath+".tmp";
+    FILE* f=std::fopen(tmp.c_str(),"wb");if(!f)return;bool ok=true;size_t at=0;
+    auto put=[&](const void* d,size_t n){if(ok&&std::fwrite(d,1,n,f)!=n)ok=false;at+=n;};
+    auto u32=[&](uint32_t v){put(&v,4);};
+    auto str=[&](const std::string& s){u32((uint32_t)s.size());put(s.data(),s.size());};
+    u32(cacheMagic);u32(cacheVersion);str(key);str(in.name);u32((uint32_t)in.channels);u32((uint32_t)(int32_t)in.gainTenthsDb);u32((uint32_t)in.velocityScale);
+    uint8_t st=in.signedTrim?1:0;put(&st,1);put(in.keyMap.data(),128);put(in.fineTune.data(),128);u32((uint32_t)in.strokes.size());
+    for(const auto& s:in.strokes){
+        uint8_t head[4]={s.root,s.bank,s.velocityLayer,0};put(head,4);uint16_t trim=s.trim;put(&trim,2);
+        u32(s.loopStart);u32(s.loopEnd);uint64_t samples=s.samples;put(&samples,8);
+        if(at&1){uint8_t z=0;put(&z,1);}
+        put(s.data,s.samples*2);
+    }
+    u32(cacheEnd);
+    ok=std::fclose(f)==0&&ok;
+    if(!ok||std::rename(tmp.c_str(),finalPath.c_str())!=0)std::remove(tmp.c_str());
+}
+}
+
 bool load(const std::string& path,size_t budget,Instrument& out,std::string& error){
+    const auto begin=std::chrono::steady_clock::now();
+    auto elapsed=[&]{return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-begin).count();};
+    Instrument cached;
+    if(loadCache(path,budget,cached)){cached.loadMs=elapsed();setInfo("cache "+std::to_string((int)cached.loadMs)+" ms");out=std::move(cached);return true;}
+    if(!loadDecoded(path,budget,out,error))return false;
+    const double decodeMs=elapsed();storeCache(path,out);out.loadMs=decodeMs;
+    setInfo("decodificado "+std::to_string((int)decodeMs)+" ms, cache gravado em "+std::to_string((int)(elapsed()-decodeMs))+" ms");
+    return true;
+}
+std::string lastLoadInfo(){std::lock_guard<std::mutex> l(infoMutex);return infoText;}
+
+bool loadDecoded(const std::string& path,size_t budget,Instrument& out,std::string& error){
     std::ifstream stream(path,std::ios::binary|std::ios::ate);
     if(!stream){error="Arquivo NPNO não encontrado";return false;}
     const std::streamoff fileSize=stream.tellg();
@@ -169,7 +257,8 @@ bool load(const std::string& path,size_t budget,Instrument& out,std::string& err
             uint32_t loopStart=be32(rec+0x1c),loopLength=be32(rec+0x20);
             if(loopStart>0&&loopLength>0&&loopStart<frames&&loopLength<=frames-loopStart){s.loopStart=loopStart;s.loopEnd=loopStart+loopLength;}
             result.signedTrim|=s.trim>=0x8000;
-            if(!decode(body+cursor,bytesForStroke,channels,frames,blocks,rec,s.pcm,error))return false;
+            if(!decode(body+cursor,bytesForStroke,channels,frames,blocks,rec,s.owned,error))return false;
+            s.data=s.owned.data();s.samples=s.owned.size();
             if(s.bank==0)attackRoots[(size_t)root]=true;
             smoothLoop(s,channels);result.strokes.push_back(std::move(s));
         }
@@ -241,7 +330,7 @@ void render(Layer& layer,float* stereo,int frames,int outputRate,int budget,floa
     const float decayTarget=std::clamp(sustainPercent*.01f,0.f,1.f);
     const float decayStep=decayMs>0?(1.f-decayTarget)/std::max(1.f,decayMs*.001f*outputRate):0.f;
     for(int vi=0;vi<voices;++vi){auto& v=layer.voices[(size_t)vi];if(!v.active||v.stroke<0)continue;
-        const auto& s=piano.strokes[(size_t)v.stroke];int total=(int)(s.pcm.size()/size_t(piano.channels));
+        const auto& s=piano.strokes[(size_t)v.stroke];int total=(int)(s.samples/size_t(piano.channels));
         const float releaseFactor=std::exp(std::log(.0001f)/std::max(1.f,std::max(.005f,v.releaseSeconds)*outputRate));
         for(int f=0;f<frames;++f){
             if(layer.finitePiano&&++v.age>=(uint64_t)(outputRate*v.decaySeconds)){v={};break;}

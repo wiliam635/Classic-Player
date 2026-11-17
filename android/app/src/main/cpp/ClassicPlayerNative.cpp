@@ -632,6 +632,12 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadNord(
     return nullptr;
 }
 
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeNordLoadInfo(JNIEnv* env,jclass)
+{
+    return env->NewStringUTF(nord_android::lastLoadInfo().c_str());
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetNordEqMode(JNIEnv*,jclass,jint layer,jint mode)
 {

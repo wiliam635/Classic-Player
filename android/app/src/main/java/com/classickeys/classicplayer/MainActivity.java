@@ -1135,7 +1135,7 @@ public final class MainActivity extends Activity {
                 }
                 save.apply();screen.applyLoadedEditorState(layer);
                 audioEngine.setNordEqMode(layer,getSharedPreferences("layers",MODE_PRIVATE).getInt("nord_eq_mode_"+layer,-1));
-                screen.setAudioStatus("NPNO: "+name+" carregado");screen.invalidate();
+                screen.setAudioStatus("NPNO: "+name+" carregado ("+audioEngine.nordLoadInfo()+")");screen.invalidate();
                 if(libraryReplacePanel!=null){finishLibraryReplace();openNordEditor(layer);}
             });
         });}catch(java.util.concurrent.RejectedExecutionException ex){screen.setAudioStatus("NPNO: importação indisponível");}
@@ -1982,10 +1982,10 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(EditorUi.dp(this,3),EditorUi.dp(this,6),EditorUi.dp(this,3),EditorUi.dp(this,4));body.addView(plate,lp);
         if(!nord){buildSf2Library(layer,panel,body,items,selected,selection,secondaryLabel,secondaryAction);return;}
         LinearLayout holder=new LinearLayout(this);body.addView(holder,new LinearLayout.LayoutParams(-1,-2));
-        LinearLayout card=desktopBox("BIBLIOTECA NPNO",holder);
-        LinearLayout top=new LinearLayout(this);card.addView(top,new LinearLayout.LayoutParams(-1,-2));
-        LinearLayout sel=new LinearLayout(this);top.addView(sel,new LinearLayout.LayoutParams(0,-2,1));
-        EditorUi.selector(sel,"CATEGORIA",NORD_CATEGORIES,Math.max(0,java.util.Arrays.asList(NORD_CATEGORIES).indexOf(category)),which->{
+        LinearLayout card=desktopBox("",holder);
+        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);card.addView(top,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout sel=new LinearLayout(this);top.addView(sel,new LinearLayout.LayoutParams(0,-2,1.5f));
+        EditorUi.selectorCell(sel,"CATEGORIA",NORD_CATEGORIES,Math.max(0,java.util.Arrays.asList(NORD_CATEGORIES).indexOf(category)),which->{
             p.edit().putString("nord_browser_category_"+layer,NORD_CATEGORIES[which]).apply();
             renderLayerEditorPage(layer,panel,0,items,selected,selection,secondaryLabel,secondaryAction);});
         final String cat=category;
@@ -1994,20 +1994,24 @@ public final class MainActivity extends Activity {
         String[] names=new String[files.length];int cur=0;String current=p.getString("npno_"+layer,"");
         for(int i=0;i<files.length;++i){names[i]=files[i].getName().replaceFirst("(?i)\\.npno$","");if(files[i].getAbsolutePath().equals(current))cur=i;}
         final File[] library=files;
-        if(files.length>0)EditorUi.selector(sel,"BIBLIOTECA NPNO",names,cur,which->{libraryReplacePanel=panel;loadNordLibraryFile(layer,library[which],cat,false);});
-        else sel.addView(EditorUi.label(this,"Nenhum NPNO nesta categoria.",11));
-        LinearLayout acts=EditorUi.gridRow(card);EditorUi.addButton(acts,"IMPORTAR NPNO",()->{panel.dialog.dismiss();openNordPicker(layer,cat);});
-        LinearLayout eqHolder=new LinearLayout(this);card.addView(eqHolder,new LinearLayout.LayoutParams(-1,-2));
-        segmented(eqHolder,"EQ",new String[]{"OFF","SOFT","MID","BRIGHT"},p.getInt("nord_eq_mode_"+layer,-1)+1,which->{p.edit().putInt("nord_eq_mode_"+layer,which-1).apply();if(audioEngine!=null)audioEngine.setNordEqMode(layer,which-1);});
-        LinearLayout opts=EditorUi.gridRow(card);
+        if(files.length>0)EditorUi.selectorCell(sel,"BIBLIOTECA NPNO",names,cur,which->{libraryReplacePanel=panel;loadNordLibraryFile(layer,library[which],cat,false);});
+        else sel.addView(EditorUi.label(this,"Nenhum NPNO nesta categoria.",11),new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout acts=EditorUi.column(this);top.addView(acts,new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout acts1=EditorUi.gridRow(acts);
+        EditorUi.addButton(acts1,"IMPORTAR NPNO",()->{panel.dialog.dismiss();openNordPicker(layer,cat);});
+        EditorUi.addButton(acts1,"BANCOS IMPORTADOS",()->showImportedNord(layer,panel));
+        LinearLayout acts2=EditorUi.gridRow(acts);
+        EditorUi.addConfirmButton(acts2,"EXCLUIR NPNO","CONFIRMAR EXCLUSÃO?",()->confirmDeleteNord(layer,panel));
+        // Desktop second box: EQ mode plus DYN COMP / SOFT REL / CAUDA NPNO on one row.
+        LinearLayout holder2=new LinearLayout(this);body.addView(holder2,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout card2=desktopBox("",holder2);
+        LinearLayout opts=EditorUi.gridRow(card2);
+        segmented(opts,"EQ",new String[]{"OFF","SOFT","MID","BRIGHT"},p.getInt("nord_eq_mode_"+layer,-1)+1,which->{p.edit().putInt("nord_eq_mode_"+layer,which-1).apply();if(audioEngine!=null)audioEngine.setNordEqMode(layer,which-1);});
+        ((LinearLayout.LayoutParams)opts.getChildAt(0).getLayoutParams()).weight=2.6f;
         EditorUi.selectorCell(opts,"DYN COMP",new String[]{"OFF","1","2","3"},p.getInt("nord_dyn_"+layer,0),i->{p.edit().putInt("nord_dyn_"+layer,i).apply();applyNordOptions(layer);});
         segmented(opts,"SOFT REL",new String[]{"NAO","SIM"},p.getBoolean("nord_soft_"+layer,false)?1:0,i->{p.edit().putBoolean("nord_soft_"+layer,i==1).apply();applyNordOptions(layer);});
         final float[] decays={4f,8f,12f,15f};float curDecay=p.getFloat("nord_decay_"+layer,15f);int decayIdx=3;for(int d=0;d<decays.length;d++)if(Math.abs(decays[d]-curDecay)<.5f)decayIdx=d;
         EditorUi.selectorCell(opts,"CAUDA NPNO",new String[]{"CURTA 4s","MEDIA 8s","LONGA 12s","ORIGINAL 15s"},decayIdx,i->{p.edit().putFloat("nord_decay_"+layer,decays[i]).apply();applyNordOptions(layer);});
-        acts.removeAllViews();
-        EditorUi.addButton(acts,"IMPORTAR NPNO",()->{panel.dialog.dismiss();openNordPicker(layer,cat);});
-        EditorUi.addButton(acts,"BANCOS IMPORTADOS",()->showImportedNord(layer,panel));
-        EditorUi.addConfirmButton(acts,"EXCLUIR NPNO","CONFIRMAR EXCLUSÃO?",()->confirmDeleteNord(layer,panel));
     }
 
     private void showImportedNord(final int layer,final EditorUi.Panel host){
@@ -2024,7 +2028,7 @@ public final class MainActivity extends Activity {
     private void confirmDeleteNord(final int layer,final EditorUi.Panel host){
         final String path=getSharedPreferences("layers",MODE_PRIVATE).getString("npno_"+layer,"");
         if(path.isEmpty()){android.widget.Toast.makeText(this,"Nenhum NPNO carregado nesta layer.",android.widget.Toast.LENGTH_SHORT).show();return;}
-        host.dialog.dismiss();clearLayer(layer);new File(path).delete();screen.invalidate();
+        host.dialog.dismiss();clearLayer(layer);new File(path).delete();new File(path+".cpfc").delete();screen.invalidate();
     }
     private String sf2Category(File f){return getSharedPreferences("sf2_categories",MODE_PRIVATE).getString(f.getName(),NORD_CATEGORIES[4]);}
     private void buildSf2Library(final int layer,final EditorUi.Panel panel,LinearLayout body,final String[] items,final int selected,
@@ -2184,7 +2188,7 @@ public final class MainActivity extends Activity {
                     EditorUi.knob(row,"EQ LOW dB",screen.eqLow[layer],-18,18," dB",v->{screen.eqLow[layer]=v;applyLayerEqFromScreen(layer);});
                     EditorUi.knob(row,"EQ MID dB",screen.eqMid[layer],-18,18," dB",v->{screen.eqMid[layer]=v;applyLayerEqFromScreen(layer);});
                     EditorUi.knob(row,"EQ HIGH dB",screen.eqHigh[layer],-18,18," dB",v->{screen.eqHigh[layer]=v;applyLayerEqFromScreen(layer);});
-                    EditorUi.knob(row,"PAN",screen.layerPan[layer]*100,-100,100,"",v->screen.setLayerPan(layer,v/100));
+                    EditorUi.knob(row,"GAIN MOTOR dB",screen.layerPreGainDb[layer],-18,18," dB",v->screen.setLayerPreGain(layer,v));
                 }else{
                     row=EditorUi.knobRow(rightBox);
                     layerMidiKnobs[layer][2]=EditorUi.knob(row,"REVERB",screen.layerReverb[layer]*100f,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],v/100f,screen.layerCompMix[layer],screen.layerChorus[layer]));
@@ -2432,7 +2436,7 @@ public final class MainActivity extends Activity {
         LinearLayout box=EditorUi.column(this);box.setBackground(EditorUi.background(EditorUi.SURFACE));
         int pad=EditorUi.dp(this,8);box.setPadding(pad,pad,pad,pad);
         TextView caption=EditorUi.label(this,title,10);caption.setGravity(Gravity.START);caption.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
-        box.addView(caption,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,24)));
+        if(!title.isEmpty())box.addView(caption,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,24)));
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMargins(EditorUi.dp(this,3),EditorUi.dp(this,6),EditorUi.dp(this,3),EditorUi.dp(this,4));
         parent.addView(box,lp);return box;
     }
@@ -2880,6 +2884,9 @@ public final class MainActivity extends Activity {
         private final int[] layerOrder={0,1,2,3,4,5};
         private final float[] layerVolumes = {0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f};
         private final float[] layerPan={0,0,0,0,0,0};
+        private final float[] layerPreGainDb={0,0,0,0,0,0};
+        void setLayerPreGain(int layer,float db){if(layer<0||layer>=6)return;layerPreGainDb[layer]=Math.max(-18,Math.min(18,db));getSharedPreferences("layers",MODE_PRIVATE).edit().putFloat("pregain_db_"+layer,layerPreGainDb[layer]).apply();applyLayerGains();}
+        private float preGainLin(int layer){return (float)Math.pow(10.0,layerPreGainDb[layer]/20.0);}
         private final float[] layerAttack = {0.005f,0.005f,0.005f,0.005f,0.005f,0.005f};
         private final float[] layerRelease = {0.05f,0.05f,0.05f,0.05f,0.05f,0.05f};
         private final boolean[] sf2OriginalSound={false,false,false,false,false,false};
@@ -2958,7 +2965,7 @@ public final class MainActivity extends Activity {
             sf2OriginalSound[i]=false;
             eqLow[i]=p.contains("eq_low_db_"+i)?p.getFloat("eq_low_db_"+i,0):(float)(20*Math.log10(Math.max(.125f,p.getFloat("eq_low_"+i,1))));eqMid[i]=p.contains("eq_mid_db_"+i)?p.getFloat("eq_mid_db_"+i,0):(float)(20*Math.log10(Math.max(.125f,p.getFloat("eq_mid_"+i,1))));eqHigh[i]=p.contains("eq_high_db_"+i)?p.getFloat("eq_high_db_"+i,0):(float)(20*Math.log10(Math.max(.125f,p.getFloat("eq_high_"+i,1))));
             eqLowFreq[i]=p.getFloat("eq_low_freq_"+i,220);eqMidFreq[i]=p.getFloat("eq_mid_freq_"+i,1200);eqHighFreq[i]=p.getFloat("eq_high_freq_"+i,4200);eqLowQ[i]=p.getFloat("eq_low_q_"+i,.707f);eqMidQ[i]=p.getFloat("eq_mid_q_"+i,1);eqHighQ[i]=p.getFloat("eq_high_q_"+i,.707f);eqHighPass[i]=p.getFloat("eq_highpass_"+i,20);eqLowPass[i]=p.getFloat("eq_lowpass_"+i,20000);
-            compressorThreshold[i]=p.getFloat("comp_threshold_"+i,compressorThreshold[i]);compressorRatio[i]=p.getFloat("comp_ratio_"+i,compressorRatio[i]);layerVolumes[i]=p.getFloat("control_volume_"+i,layerVolumes[i]);layerPan[i]=p.getFloat("control_pan_"+i,0);muted[i]=p.getBoolean("muted_"+i,false);solo[i]=p.getBoolean("solo_"+i,false);
+            compressorThreshold[i]=p.getFloat("comp_threshold_"+i,compressorThreshold[i]);compressorRatio[i]=p.getFloat("comp_ratio_"+i,compressorRatio[i]);layerVolumes[i]=p.getFloat("control_volume_"+i,layerVolumes[i]);layerPan[i]=p.getFloat("control_pan_"+i,0);layerPreGainDb[i]=p.getFloat("pregain_db_"+i,0);muted[i]=p.getBoolean("muted_"+i,false);solo[i]=p.getBoolean("solo_"+i,false);
             layerCutoff[i]=p.getFloat("control_cutoff_"+i,100);layerReverb[i]=p.getFloat("control_reverb_"+i,0);layerCompMix[i]=p.getFloat("control_comp_"+i,0);layerChorus[i]=p.getFloat("control_chorus_"+i,0);reverbSize[i]=p.getFloat("reverb_size_"+i,55);reverbDamping[i]=p.getFloat("reverb_damping_"+i,45);reverbWidth[i]=p.getFloat("reverb_width_"+i,100);compressorAttackMs[i]=p.getFloat("comp_attack_"+i,10);compressorReleaseMs[i]=p.getFloat("comp_release_"+i,120);compressorMakeupDb[i]=p.getFloat("comp_makeup_"+i,0);
             int preset=p.getInt("hammond_preset_"+i,0);for(int b=0;b<9;b++)hammondBars[i][b]=p.getInt("hammond_bar_"+i+"_"+b,-1);hammondLeslie[i]=p.getInt("hammond_leslie_"+i,preset==28?2:1);hammondPercussion[i]=p.getInt("hammond_percussion_"+i,preset==3||preset==29?2:0);hammondExtras[i][0]=p.getFloat("hammond_click_"+i,.15f);hammondExtras[i][1]=p.getFloat("hammond_leakage_"+i,.12f);hammondExtras[i][2]=p.getFloat("hammond_drive_"+i,.12f);hammondExtras[i][3]=p.getFloat("hammond_level_"+i,.8f);hammondVibrato[i]=p.getInt("hammond_vibrato_"+i,0);hammondVibratoType[i]=Math.max(0,Math.min(5,p.getInt("hammond_vibrato_type_"+i,Math.max(0,hammondVibrato[i]-1))));hammondPercSoft[i]=p.getBoolean("hammond_perc_soft_"+i,false);hammondPercSlow[i]=p.getBoolean("hammond_perc_slow_"+i,false);hammondBalance[i]=p.getFloat("hammond_balance_"+i,.5f);hammondPercHarmonic[i]=hammondPercussion[i]==1?1:2;
         }}
@@ -3017,7 +3024,7 @@ public final class MainActivity extends Activity {
         private void persistHammond(int layer){SharedPreferences.Editor p=getSharedPreferences("layers",MODE_PRIVATE).edit();for(int b=0;b<9;b++)p.putInt("hammond_bar_"+layer+"_"+b,hammondBars[layer][b]);p.putInt("hammond_leslie_"+layer,hammondLeslie[layer]).putInt("hammond_percussion_"+layer,hammondPercussion[layer]).putFloat("hammond_click_"+layer,hammondExtras[layer][0]).putFloat("hammond_leakage_"+layer,hammondExtras[layer][1]).putFloat("hammond_drive_"+layer,hammondExtras[layer][2]).putFloat("hammond_level_"+layer,hammondExtras[layer][3]).putInt("hammond_vibrato_"+layer,hammondVibrato[layer]).putInt("hammond_vibrato_type_"+layer,hammondVibratoType[layer]).putBoolean("hammond_perc_soft_"+layer,hammondPercSoft[layer]).putBoolean("hammond_perc_slow_"+layer,hammondPercSlow[layer]).putFloat("hammond_balance_"+layer,hammondBalance[layer]).apply();}
         private void applyHammond(int layer){applyHammond(layer,false);}
         private void applyHammond(int layer,boolean updateLeslie){if(audioEngine!=null){int[] bars=hammondBars[layer].clone();for(int b=0;b<9;b++)if(bars[b]<0)bars[b]=6;audioEngine.setHammondControls(layer,bars,hammondLeslie[layer],updateLeslie,hammondPercussion[layer]==0?0:hammondPercussion[layer]+1,hammondExtras[layer][0],hammondExtras[layer][1],hammondExtras[layer][2],hammondExtras[layer][3],hammondVibrato[layer],hammondPercSoft[layer],hammondPercSlow[layer],hammondBalance[layer]);}}
-        void applyLoadedEditorState(int layer){SharedPreferences p=getSharedPreferences("layers",MODE_PRIVATE);layerVolumes[layer]=p.getFloat("control_volume_"+layer,layerVolumes[layer]);layerPan[layer]=p.getFloat("control_pan_"+layer,0);int storedEngine=p.getInt("engine_"+layer,0);modulationEnabled[layer]=p.getBoolean("modulation_enabled_"+layer,storedEngine==4);muted[layer]=p.getBoolean("muted_"+layer,false);solo[layer]=p.getBoolean("solo_"+layer,false);applyLayerGains();if(audioEngine!=null){audioEngine.setLayerGain(layer,faderGain(layerVolumes[layer]));audioEngine.setLayerPan(layer,layerPan[layer]);audioEngine.setLayerModulationEnabled(layer,modulationEnabled[layer]);audioEngine.setLayerEnvelope(layer,layerAttack[layer],layerRelease[layer]);audioEngine.setLayerEq(layer,eqLow[layer],eqMid[layer],eqHigh[layer],eqLowFreq[layer],eqMidFreq[layer],eqHighFreq[layer],eqLowQ[layer],eqMidQ[layer],eqHighQ[layer],eqHighPass[layer],eqLowPass[layer]);audioEngine.setLayerCompressor(layer,compressorThreshold[layer],compressorRatio[layer],compressorAttackMs[layer],compressorReleaseMs[layer],compressorMakeupDb[layer]);audioEngine.setLayerTone(layer,layerCutoff[layer],layerReverb[layer],layerCompMix[layer],layerChorus[layer]);audioEngine.setLayerReverb(layer,reverbSize[layer],reverbDamping[layer],reverbWidth[layer]);applyLayerRouting(layer);if("ANALOG".equals(engineName(layer)))applyAnalog(layer);if("HAMMOND".equals(engineName(layer)))applyHammond(layer,true);}if(isPadEngine(layer)&&padEngine!=null){boolean continuous=engineName(layer).startsWith("CONT");padEngine.setGain(faderGain(layerVolumes[layer]),continuous);padEngine.setPan(layerPan[layer],continuous);padEngine.setEq(eqLow[layer],eqMid[layer],eqHigh[layer],eqLowFreq[layer],eqMidFreq[layer],eqHighFreq[layer],eqLowQ[layer],eqMidQ[layer],eqHighQ[layer],eqHighPass[layer],eqLowPass[layer],continuous);}}
+        void applyLoadedEditorState(int layer){SharedPreferences p=getSharedPreferences("layers",MODE_PRIVATE);layerVolumes[layer]=p.getFloat("control_volume_"+layer,layerVolumes[layer]);layerPan[layer]=p.getFloat("control_pan_"+layer,0);layerPreGainDb[layer]=p.getFloat("pregain_db_"+layer,0);int storedEngine=p.getInt("engine_"+layer,0);modulationEnabled[layer]=p.getBoolean("modulation_enabled_"+layer,storedEngine==4);muted[layer]=p.getBoolean("muted_"+layer,false);solo[layer]=p.getBoolean("solo_"+layer,false);applyLayerGains();if(audioEngine!=null){audioEngine.setLayerGain(layer,faderGain(layerVolumes[layer])*preGainLin(layer));audioEngine.setLayerPan(layer,layerPan[layer]);audioEngine.setLayerModulationEnabled(layer,modulationEnabled[layer]);audioEngine.setLayerEnvelope(layer,layerAttack[layer],layerRelease[layer]);audioEngine.setLayerEq(layer,eqLow[layer],eqMid[layer],eqHigh[layer],eqLowFreq[layer],eqMidFreq[layer],eqHighFreq[layer],eqLowQ[layer],eqMidQ[layer],eqHighQ[layer],eqHighPass[layer],eqLowPass[layer]);audioEngine.setLayerCompressor(layer,compressorThreshold[layer],compressorRatio[layer],compressorAttackMs[layer],compressorReleaseMs[layer],compressorMakeupDb[layer]);audioEngine.setLayerTone(layer,layerCutoff[layer],layerReverb[layer],layerCompMix[layer],layerChorus[layer]);audioEngine.setLayerReverb(layer,reverbSize[layer],reverbDamping[layer],reverbWidth[layer]);applyLayerRouting(layer);if("ANALOG".equals(engineName(layer)))applyAnalog(layer);if("HAMMOND".equals(engineName(layer)))applyHammond(layer,true);}if(isPadEngine(layer)&&padEngine!=null){boolean continuous=engineName(layer).startsWith("CONT");padEngine.setGain(faderGain(layerVolumes[layer]),continuous);padEngine.setPan(layerPan[layer],continuous);padEngine.setEq(eqLow[layer],eqMid[layer],eqHigh[layer],eqLowFreq[layer],eqMidFreq[layer],eqHighFreq[layer],eqLowQ[layer],eqMidQ[layer],eqHighQ[layer],eqHighPass[layer],eqLowPass[layer],continuous);}}
 
         private void text(Canvas canvas, String value, float x, float y, float size, int colour) {
             paint.setStyle(Paint.Style.FILL); paint.setColor(colour); paint.setTextSize(size);
@@ -3127,7 +3134,7 @@ public final class MainActivity extends Activity {
         private void applyLayerGains() {
             boolean anySolo = hasSolo();
             for (int i = 0; i < 6; i++) {
-                float gain=(!muted[i] && (!anySolo || solo[i])) ? faderGain(layerVolumes[i]) : 0f;
+                float gain=(!muted[i] && (!anySolo || solo[i])) ? faderGain(layerVolumes[i])*preGainLin(i) : 0f;
                 if(audioEngine!=null)audioEngine.setLayerGain(i,gain);
                 if(isPadLayer(i)&&padEngine!=null){boolean continuous=engineNames[i].startsWith("CONT");padEngine.setEnabled(gain>0f,continuous);padEngine.setGain(gain,continuous);}
             }
