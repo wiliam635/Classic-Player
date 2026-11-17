@@ -2135,7 +2135,7 @@ public final class MainActivity extends Activity {
                 TextView loaded=EditorUi.label(this,screen.layerNames[layer],11);loaded.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);loaded.setSingleLine(true);loaded.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);body.addView(loaded,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,22)));
             }
             if(!plate&&!("HAMMOND".equals(engine)&&panel.docked))EditorUi.selector(body,"TIMBRE",items,selected,which->{selection.apply(which);if(analog)renderLayerEditorPage(layer,panel,page,items,which,selection,secondaryLabel,secondaryAction);});
-            LinearLayout source=EditorUi.gridRow(body);if(secondaryLabel!=null&&!plate)EditorUi.addButton(source,secondaryLabel,()->{panel.dialog.dismiss();secondaryAction.run();});if(!panel.docked&&(secondaryLabel==null||!secondaryLabel.equals("TROCAR MOTOR")))EditorUi.addButton(source,"TROCAR MOTOR",()->{panel.dialog.dismiss();panicAndChooseLayerSource(layer);});
+            LinearLayout source=EditorUi.gridRow(body);if(secondaryLabel!=null&&!plate&&!(panel.docked&&"TROCAR MOTOR".equals(secondaryLabel)))EditorUi.addButton(source,secondaryLabel,()->{panel.dialog.dismiss();secondaryAction.run();});if(!panel.docked&&(secondaryLabel==null||!secondaryLabel.equals("TROCAR MOTOR")))EditorUi.addButton(source,"TROCAR MOTOR",()->{panel.dialog.dismiss();panicAndChooseLayerSource(layer);});
             if(source.getChildCount()==0)body.removeView(source);
             if("HAMMOND".equals(engine))buildHammondControls(layer,body,panel.docked?items:null,selected,ix->{selection.apply(ix);renderLayerEditorPage(layer,panel,0,items,ix,selection,secondaryLabel,secondaryAction);});
             if(analog)buildAnalogOscillatorControls(layer,body);
