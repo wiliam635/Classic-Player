@@ -257,6 +257,7 @@ struct AnalogVoice {
     std::array<double,3> phase{}; std::array<float,3> increment{},targetIncrement{};
     double pitch=69.0,lfoPhase=0.0; float envelope=0.0f,filterState=0.0f,pinkState=0.0f,filterEnvelope=1.0f;
     uint32_t noiseState=0x12345678u;
+    bool legato=false; // mono retune without restarting the envelope (desktop browser Mono/Legato)
 };
 struct AnalogLayer {
     int preset=0;
@@ -268,6 +269,8 @@ struct AnalogLayer {
     std::array<AnalogVoice,kVoicePoolCapacity> voices {};
     float modWheel=0.0f;
     bool pinkNoise=false,monophonic=false;
+    // Last-note priority bookkeeping for the monophonic mode (desktop heldNotes/noteOrder).
+    std::array<bool,128> held {};std::array<uint64_t,128> order {};uint64_t sequence=0;
     // Filter ADSR + glide. Defaults reproduce the earlier fixed behaviour exactly:
     // attack 0, sustain 0 and a decay of twice the amp decay (-1 = automatic).
     float filterAttackMs=0.0f,filterDecayMs=-1.0f,filterSustainPercent=0.0f,glideMs=0.0f;
@@ -1067,6 +1070,43 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetPreset(JNIEnv*, jcla
     return JNI_TRUE;
 }
 
+// Desktop Analog (browser-compatible mono): a key pressed while another is held
+// retunes the running voice at once and keeps its envelope; releasing the newest
+// key returns to the previous held key; only the last release closes the envelope.
+static void analogRetune(AnalogLayer& analog,AnalogVoice& voice,int routedNote,int channel,bool glide)
+{
+    voice.note=routedNote;voice.channel=channel;voice.releasing=false;voice.legato=true;
+    const float semitones[3]={analog.oscillator1Semitones,analog.controls[3],analog.controls[4]};
+    for(int osc=0;osc<3;++osc){
+        const double tune=std::pow(2.0,(double)semitones[osc]/12.0);
+        voice.targetIncrement[(size_t)osc]=(float)(440.0*std::pow(2.0,(double)(routedNote-69)/12.0)*tune/kSampleRate);
+        if(!glide)voice.increment[(size_t)osc]=voice.targetIncrement[(size_t)osc];
+    }
+    voice.pitch=routedNote;
+}
+static void analogNoteOff(size_t li,int routedNote,int channel)
+{
+    auto& analog=analogLayers[li];
+    const bool glide=layerMidiMode[li]==2||analog.glideMs>0.0f;
+    if(!analog.monophonic||layerMidiMode[li]!=0){
+        for(auto& voice:analog.voices)
+            if(voice.active&&voice.note==routedNote&&voice.channel==channel)voice.releasing=true;
+        return;
+    }
+    const int index=std::clamp(routedNote,0,127);
+    analog.held[(size_t)index]=false;
+    int replacement=-1;uint64_t newest=0;
+    for(int candidate=0;candidate<128;++candidate)
+        if(analog.held[(size_t)candidate]&&analog.order[(size_t)candidate]>=newest){newest=analog.order[(size_t)candidate];replacement=candidate;}
+    AnalogVoice* running=nullptr;
+    for(auto& voice:analog.voices)if(voice.active&&!voice.releasing){running=&voice;break;}
+    if(replacement>=0){
+        if(running&&running->note!=replacement)analogRetune(analog,*running,replacement,channel,glide);
+        return;
+    }
+    for(auto& voice:analog.voices)if(voice.active)voice.releasing=true;
+}
+
 static void applyNoteOn(jint note, jint velocity, jint midiChannel)
 {
     if (note < 0 || note > 127 || velocity <= 0 || midiChannel < 0 || midiChannel > 15) return;
@@ -1106,7 +1146,8 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
             }
             for(auto& old:hammondLayers[li].voices)old={};
             for(auto& old:nordLayers[li].voices)old={};
-            for(auto& old:analogLayers[li].voices)if(old.active){priorAnalogPitch=old.pitch;hasPriorAnalog=true;old={};}
+            const bool analogLegato=engineTypes[li]==EngineType::analog&&analogLayers[li].monophonic&&layerMidiMode[li]==0;
+            if(!analogLegato)for(auto& old:analogLayers[li].voices)if(old.active){priorAnalogPitch=old.pitch;hasPriorAnalog=true;old={};}
             routedNotes[li][(size_t)midiChannel][(size_t)note]=routedNote+1;
         }
         if (engineTypes[li]==EngineType::sf2 && fonts[li]!=nullptr)
@@ -1130,6 +1171,23 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
         }
         else if(engineTypes[(size_t)layer]==EngineType::analog) {
             auto& analog=analogLayers[(size_t)layer]; AnalogVoice* target=nullptr;
+            if(analog.monophonic&&layerMidiMode[li]==0){
+                const int index=std::clamp(routedNote,0,127);
+                AnalogVoice* running=nullptr;
+                for(auto& voice:analog.voices)if(voice.active&&!voice.releasing){running=&voice;break;}
+                if(!running){
+                    analog.held.fill(false);
+                    // A tail from the previous note is cut, like the desktop's single mono voice.
+                    for(auto& voice:analog.voices)if(voice.active)voice={};
+                }
+                analog.held[(size_t)index]=true;analog.order[(size_t)index]=++analog.sequence;
+                if(running){
+                    // Desktop treats the first 80 ms as one simultaneous chord: keep the voice as is.
+                    if(running->age>=(int)(kSampleRate*0.08))
+                        analogRetune(analog,*running,routedNote,midiChannel,analog.glideMs>0.0f);
+                    continue;
+                }
+            }
             for(int i=0;i<voiceBudget;++i)if(!analog.voices[(size_t)i].active){target=&analog.voices[(size_t)i];break;}
             if(target==nullptr){target=&analog.voices[0];for(int i=1;i<voiceBudget;++i){auto& voice=analog.voices[(size_t)i];if((voice.releasing&&!target->releasing)||(voice.releasing==target->releasing&&voice.age>target->age))target=&voice;}}
             *target={}; target->active=true; target->note=routedNote; target->channel=midiChannel;
@@ -1211,9 +1269,7 @@ static void applyNoteOff(jint note, jint midiChannel)
             for (auto& voice: dxLayers[li].voices)
                 if (voice.active && voice.note == routedNote && voice.channel==midiChannel && voice.synth) {voice.synth->keyup();voice.released=true;}
         // With no sustain hold, close the custom-engine envelope normally.
-        if (type == EngineType::analog)
-            for (auto& voice: analogLayers[(size_t)layer].voices)
-                if (voice.active && voice.note == routedNote && voice.channel==midiChannel) voice.releasing=true;
+        if (type == EngineType::analog) analogNoteOff(li,routedNote,midiChannel);
         if (type == EngineType::hammond)
             for (auto& voice: hammondLayers[(size_t)layer].voices)
                 if (voice.active && voice.note == routedNote && voice.channel==midiChannel) releaseHammondVoice(voice);
@@ -1272,8 +1328,7 @@ static void applyControl(jint controller, jint value, jint midiChannel)
                     // Note Off here for either sample engine.
                     if(engineTypes[li]==EngineType::nord||engineTypes[li]==EngineType::sf2)continue;
                     if (engineTypes[li] == EngineType::analog) {
-                        for (auto& voice: analogLayers[li].voices)
-                            if (voice.active && voice.note == routedNote && voice.channel==midiChannel) voice.releasing=true;
+                        analogNoteOff(li,routedNote,midiChannel);
                     } else if (engineTypes[li] == EngineType::hammond) {
                         for (auto& voice: hammondLayers[li].voices)
                             if (voice.active && voice.note == routedNote && voice.channel==midiChannel) releaseHammondVoice(voice);
@@ -1520,6 +1575,7 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
             const float filterDecaySamples=analog.filterDecayMs>0.0f?analog.filterDecayMs*.001f*kSampleRate:decaySamples*2.0f;
             const float filterDecay=std::exp(-1.0f/std::max(1.0f,filterDecaySamples));
             const float filterSustain=analog.filterSustainPercent*.01f;
+            const float legatoDecay=std::exp(-1.0f/(kSampleRate*0.008f));
             const bool glideActive=layerMidiMode[li]==2||analog.glideMs>0.0f;
             const float glideCoefficient=analog.glideMs>0.0f?1.0f-std::exp(-1.0f/std::max(1.0f,analog.glideMs*.001f*kSampleRate)):.0008f;
             for(int voiceIndex=0;voiceIndex<layerVoiceBudgets[li];++voiceIndex){
@@ -1529,6 +1585,7 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
                     if(++voice.age>kInternalVoiceSafetySamples){voice={};break;}
                     if(glideActive)for(int osc=0;osc<3;++osc)voice.increment[(size_t)osc]+=(voice.targetIncrement[(size_t)osc]-voice.increment[(size_t)osc])*glideCoefficient;
                     if(voice.releasing)voice.envelope*=releaseFactor;
+                    else if(voice.legato)voice.envelope=sustain+(voice.envelope-sustain)*legatoDecay;
                     else if((float)voice.age<attackSamples)voice.envelope=std::min(1.0f,(float)voice.age/attackSamples);
                     else if((float)voice.age<attackSamples+decaySamples)voice.envelope=1.0f-(1.0f-sustain)*((float)voice.age-attackSamples)/decaySamples;
                     else voice.envelope=sustain;

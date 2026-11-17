@@ -174,6 +174,10 @@ bool loadCache(const std::string& path,size_t budget,Instrument& out){
         r.at+=(size_t)samples*2;total+=samples*2;result.strokes.push_back(std::move(s));
     }
     uint32_t end;if(!r.u32(end)||end!=cacheEnd||total>budget)return false;
+    // Touch every page here, on the import worker: a first read that faults from
+    // flash inside the audio callback would stall it and overload the stream.
+    madvise(map->base,map->size,MADV_WILLNEED);
+    {volatile uint8_t sink=0;uint8_t acc=sink;for(size_t o=0;o<map->size;o+=4096)acc^=((const uint8_t*)map->base)[o];sink=acc;}
     result.backing=map;result.fromCache=true;out=std::move(result);return true;
 }
 void storeCache(const std::string& path,const Instrument& in){

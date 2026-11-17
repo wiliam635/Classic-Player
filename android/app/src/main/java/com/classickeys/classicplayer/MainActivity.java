@@ -2873,16 +2873,21 @@ public final class MainActivity extends Activity {
             paint.setColor(EditorUi.BORDER);canvas.drawRoundRect(sx,mid+h*.03f,cr,mid+h*.046f,8,8,paint);
             paint.setColor(EditorUi.ACCENT);canvas.drawRoundRect(sx,mid+h*.03f,sx+(cr-sx)*padCutoff,mid+h*.046f,8,8,paint);
         }
+        private boolean stripGesture;
         private boolean stripTouch(MotionEvent e,float mw,float h){
             int a=e.getActionMasked();float[] g=stripGeom(mw,h);float x=e.getX(),y=e.getY();float mid=(g[1]+g[3])*.5f;float cx=g[4],cr=g[5],sx=cx+(cr-cx)*.50f;
             if(a==MotionEvent.ACTION_DOWN){
                 if(y<g[1]||y>g[3]+h*.01f)return false;
+                stripGesture=true;
                 if(x>=g[0]&&x<=g[2]){float gap=EditorUi.dp(getContext(),6);float cw=(g[2]-g[0]-11*gap)/12f;int i=(int)((x-g[0])/(cw+gap));if(i>=0&&i<12){stripPad=i;padEngine.trigger(i,true);invalidate();}return true;}
                 if(x>=cx&&x<cx+(cr-cx)*.46f){if(y<mid){padEngine.stopAll(true);stripPad=-1;}else if(padLayerActive&&continuousPadActive&&padLayerIndex>=0)openPadEditor(padLayerIndex,true);else android.widget.Toast.makeText(getContext(),"Pads de fábrica carregados. Para trocar os áudios, adicione uma layer Pads Contínuos.",android.widget.Toast.LENGTH_LONG).show();invalidate();return true;}
                 if(x>=sx){stripDrag=y<mid?1:2;}else return true;
             }
             if(stripDrag!=0&&(a==MotionEvent.ACTION_DOWN||a==MotionEvent.ACTION_MOVE)){float f=Math.max(0f,Math.min(1f,(x-sx)/(cr-sx)));if(stripDrag==1)padVolume=f;else padCutoff=f;applyPadStripAudio();invalidate();return true;}
-            if(stripDrag!=0&&(a==MotionEvent.ACTION_UP||a==MotionEvent.ACTION_CANCEL)){stripDrag=0;return true;}
+            if(stripDrag!=0&&(a==MotionEvent.ACTION_UP||a==MotionEvent.ACTION_CANCEL)){stripDrag=0;stripGesture=false;return true;}
+            // The rest of a gesture that started on the pad strip belongs to it: letting the
+            // finger-up reach the mixer cards opened the layer editor above the pads.
+            if(stripGesture){if(a==MotionEvent.ACTION_UP||a==MotionEvent.ACTION_CANCEL)stripGesture=false;return true;}
             return false;
         }
         private boolean settings = false;
@@ -3336,7 +3341,7 @@ public final class MainActivity extends Activity {
                 button(canvas, "S", x + cardW*.74f, top+h*.016f, x+cardW*.90f, top+h*.063f, solo[i],EditorUi.HIGHLIGHT);
                 String source = presetNames[i].isEmpty() ? layerNames[i] : presetNames[i];
                 fittedText(canvas, source, x + EditorUi.dp(getContext(),10), x + cardW - EditorUi.dp(getContext(),10), top + h * .086f, h * .015f, EditorUi.MUTED);
-                button(canvas, "EDITAR", x+EditorUi.dp(getContext(),10), top+h*.098f, x+cardW*.72f, top+h*.15f, false);
+                button(canvas, muted[i]?"OFF":"ON", x+EditorUi.dp(getContext(),10), top+h*.098f, x+cardW*.72f, top+h*.15f, !muted[i], 0xff2bbf6e);
                 button(canvas, "⋯", x+cardW*.74f, top+h*.098f, x+cardW-EditorUi.dp(getContext(),10), top+h*.15f, false);
                 if(isPadLayer(i)){
                     boolean continuous=engineNames[i].startsWith("CONT");
@@ -3566,7 +3571,7 @@ public final class MainActivity extends Activity {
                     }
                     if (tap && event.getY() >= h*.17f+h*.098f && event.getY() <= h*.17f+h*.16f) {
                         if(layerTouchX >= cardX+cardW*.74f)showLayerActions(layer);
-                        else openLayerEditor(layer);
+                        else{setLayerMuted(layer,!muted[layer]);applyLayerGains();invalidate();}
                         return true;
                     }
                     if(isPadLayer(layer)){
