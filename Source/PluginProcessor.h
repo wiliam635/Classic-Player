@@ -435,8 +435,16 @@ private:
     void captureSplitNote(const juce::MidiMessage&);
     juce::SmoothedValue<float> masterGain;
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameters();
+    using PreparedPianos = std::array<std::shared_ptr<NordPianoDecoder::Instrument>, Sf2Engine::layerCount>;
+    using PreparedNordSamples = std::array<std::shared_ptr<NordSampleDecoder::Instrument>, Sf2Engine::layerCount>;
     void restoreLayerPaths(
-        const std::array<std::shared_ptr<Sf2Engine::PreparedSoundFont>, Sf2Engine::layerCount>& preparedSoundFonts);
+        const std::array<std::shared_ptr<Sf2Engine::PreparedSoundFont>, Sf2Engine::layerCount>& preparedSoundFonts,
+        PreparedPianos& preparedPianos, PreparedNordSamples& preparedNordSamples);
+    // Decodes (or maps from the fast cache) the NPNO/NSMP files a saved performance uses, before the audio lock is
+    // taken. Layers that already hold a prepared instrument are skipped.
+    void prepareNordInstruments(const juce::ValueTree& state, int layerCountToRestore,
+                                PreparedPianos& pianos, PreparedNordSamples& samples,
+                                std::array<juce::String, Sf2Engine::layerCount>& paths);
     void stopAllSoundsBeforeProgramChange();
     void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage&) override;
     void processMidiControlMessage(const juce::MidiMessage&, int layerFilter = -1);
@@ -536,6 +544,9 @@ private:
     juce::File stagedLiveSetProgram;
     std::array<std::shared_ptr<Sf2Engine::PreparedSoundFont>, Sf2Engine::layerCount> stagedSoundFonts {};
     std::array<juce::String, Sf2Engine::layerCount> stagedSoundFontPaths;
+    PreparedPianos stagedPianos {};
+    PreparedNordSamples stagedNordSamples {};
+    std::array<juce::String, Sf2Engine::layerCount> stagedNordPaths;
     std::function<void()> stagedBeforeSwap;
     std::function<void(juce::Result)> stagedAfterSwap;
     void performStagedLiveSetSwap();

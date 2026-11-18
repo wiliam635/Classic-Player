@@ -39,6 +39,9 @@ public:
     juce::Result prepareSample(const juce::File&, std::shared_ptr<NordPianoDecoder::Instrument>&,
                                std::uint64_t maxDecodedBytes = std::numeric_limits<std::uint64_t>::max());
     juce::Result preloadSample(const juce::File& file);
+private:
+    std::mutex prepareMutex; // one decode at a time: a preload in flight is awaited, not repeated
+public:
     void unload(int layer);
     void stopAllSounds();
     void stopLayerSounds(int layer);

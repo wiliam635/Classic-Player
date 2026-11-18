@@ -173,6 +173,7 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file,
 juce::Result SampleEngine::prepareSample(const juce::File& file,
     std::shared_ptr<NordPianoDecoder::Instrument>& decoded, std::uint64_t maxDecodedBytes)
 {
+    const std::lock_guard<std::mutex> prepareGuard(prepareMutex);
     if (!file.existsAsFile() || !file.hasFileExtension(".npno"))
         return juce::Result::fail("Selecione um piano Nord NPNO valido.");
     decoded = findCachedPiano(file);

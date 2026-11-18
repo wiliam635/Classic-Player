@@ -111,6 +111,7 @@ juce::Result NordSampleEngine::loadSample(int layerIndex, const juce::File& file
 juce::Result NordSampleEngine::prepareSample(const juce::File& file,
     std::shared_ptr<NordSampleDecoder::Instrument>& decoded, std::uint64_t maxDecodedBytes)
 {
+    const std::lock_guard<std::mutex> prepareGuard(prepareMutex);
     if (!file.existsAsFile() || !file.hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
         return juce::Result::fail("Selecione uma amostra Nord valida.");
     decoded = findCachedInstrument(file);

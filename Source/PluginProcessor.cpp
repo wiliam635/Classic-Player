@@ -18,7 +18,7 @@ bool categoryReleaseDefault(const juce::String& category, float& release)
 {
     if (category == "Piano Acustico" || category == "Upright Piano")
     {
-        release = 30.0f;
+        release = 55.0f; // ~0.68 s: the hardware Nord SF2 references release in 0.59-0.70 s (was 30 = 0.3 s)
         return true;
     }
     if (category == "Piano Eletrico" || category == "Piano DX" || category == "Organ")
@@ -4372,6 +4372,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLiveSetSlot(int bank, int slot)
 juce::Result ClassicPlayerAudioProcessor::stageLiveSetSlot(int bank, int slot, std::function<void()> beforeSwap,
                                                             std::function<void(juce::Result)> afterSwap)
 {
+    const auto stageStartMs = juce::Time::getMillisecondCounterHiRes();
     const auto program = liveSetSlotProgram(bank, slot);
     if (!program.existsAsFile())
         return juce::Result::fail("Esta posicao do Live Set nao possui uma programacao salva.");
@@ -4410,6 +4411,20 @@ juce::Result ClassicPlayerAudioProcessor::stageLiveSetSlot(int bank, int slot, s
         else
             stagedSoundFonts[(size_t) i].reset();
     }
+    // NPNO / NSMP files too, so the swap on the first note only has to attach them.
+    for (int i = 0; i < Sf2Engine::layerCount; ++i)
+    {
+        stagedPianos[(size_t) i].reset();
+        stagedNordSamples[(size_t) i].reset();
+        stagedNordPaths[(size_t) i] = {};
+    }
+    prepareNordInstruments(state, layerCountToRestore, stagedPianos, stagedNordSamples, stagedNordPaths);
+    {
+        juce::String line;
+        line << juce::Time::getCurrentTime().toString(true, true) << " | selecao do slot: preparo de SF2/NPNO/NSMP em "
+             << juce::String(juce::Time::getMillisecondCounterHiRes() - stageStartMs, 1) << " ms\n";
+        programStorageDirectory().getChildFile("liveset-diagnostico.txt").appendText(line);
+    }
     stagedLiveSetProgram = program;
     stagedBeforeSwap = std::move(beforeSwap);
     stagedAfterSwap = std::move(afterSwap);
@@ -4426,6 +4441,12 @@ void ClassicPlayerAudioProcessor::cancelStagedLiveSetSwitch()
         {
             stagedSoundFonts[(size_t) i].reset();
             stagedSoundFontPaths[(size_t) i] = {};
+        }
+        for (int i = 0; i < Sf2Engine::layerCount; ++i)
+        {
+            stagedPianos[(size_t) i].reset();
+            stagedNordSamples[(size_t) i].reset();
+            stagedNordPaths[(size_t) i] = {};
         }
         stagedBeforeSwap = nullptr;
         stagedAfterSwap = nullptr;
@@ -4492,6 +4513,9 @@ void ClassicPlayerAudioProcessor::performStagedLiveSetSwap()
     {
         stagedSoundFonts[(size_t) i].reset();
         stagedSoundFontPaths[(size_t) i] = {};
+        stagedPianos[(size_t) i].reset();
+        stagedNordSamples[(size_t) i].reset();
+        stagedNordPaths[(size_t) i] = {};
     }
     liveSetSwapState.store(3, std::memory_order_release); // audio thread replays on-screen keyboard MIDI
     std::vector<std::pair<juce::String, juce::MidiMessage>> held;
@@ -5415,6 +5439,22 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                         + juce::String(i + 1) + ": " + result.getErrorMessage());
             }
 
+            // NPNO / NSMP instruments are decoded (or mapped from the fast cache) here, outside the audio lock, like SF2:
+            // doing it inside restoreLayerPaths() froze the audio callback and the UI for the whole read.
+            PreparedPianos preparedPianos {};
+            PreparedNordSamples preparedNordSamples {};
+            std::array<juce::String, Sf2Engine::layerCount> preparedNordPaths;
+            for (int i = 0; i < layerCountToRestore; ++i)
+                if (stagedNordPaths[(size_t) i].isNotEmpty()
+                    && stagedNordPaths[(size_t) i] == state.getProperty("sf2Layer" + juce::String(i + 1)).toString())
+                {
+                    preparedPianos[(size_t) i] = std::move(stagedPianos[(size_t) i]);
+                    preparedNordSamples[(size_t) i] = std::move(stagedNordSamples[(size_t) i]);
+                    preparedNordPaths[(size_t) i] = stagedNordPaths[(size_t) i];
+                    stagedNordPaths[(size_t) i] = {};
+                }
+            prepareNordInstruments(state, layerCountToRestore, preparedPianos, preparedNordSamples, preparedNordPaths);
+
             const juce::ScopedLock callbackLock(getCallbackLock());
             // Keep an instrument already present in the same layer. Reloading
             // an unchanged SF2 (or decoding a Nord sample) can stall a Live Set
@@ -6109,7 +6149,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 }
                 engine.setConfig(i, config);
             }
-            restoreLayerPaths(preparedSoundFonts);
+            restoreLayerPaths(preparedSoundFonts, preparedPianos, preparedNordSamples);
             migrateLegacyContinuousPadLayers(state);
         }
     }
@@ -6146,8 +6186,33 @@ void ClassicPlayerAudioProcessor::migrateLegacyContinuousPadLayers(const juce::V
             removeLayer(layer);
 }
 
+void ClassicPlayerAudioProcessor::prepareNordInstruments(const juce::ValueTree& state, int layerCountToRestore,
+                                                         PreparedPianos& pianos, PreparedNordSamples& samples,
+                                                         std::array<juce::String, Sf2Engine::layerCount>& paths)
+{
+    for (int i = 0; i < layerCountToRestore; ++i)
+    {
+        if (pianos[(size_t) i] != nullptr || samples[(size_t) i] != nullptr) continue;
+        const auto path = state.getProperty("sf2Layer" + juce::String(i + 1)).toString();
+        if (path.isEmpty() || soundFontPath(i) == path) continue; // nothing saved, or already loaded in this layer
+        const juce::File file(path);
+        if (!file.existsAsFile()) continue;
+        if (file.hasFileExtension(".npno"))
+        {
+            if (sampleEngine.prepareSample(file, pianos[(size_t) i]).wasOk()) paths[(size_t) i] = path;
+            else pianos[(size_t) i].reset();
+        }
+        else if (file.hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
+        {
+            if (nordSampleEngine.prepareSample(file, samples[(size_t) i]).wasOk()) paths[(size_t) i] = path;
+            else samples[(size_t) i].reset();
+        }
+    }
+}
+
 void ClassicPlayerAudioProcessor::restoreLayerPaths(
-    const std::array<std::shared_ptr<Sf2Engine::PreparedSoundFont>, Sf2Engine::layerCount>& preparedSoundFonts)
+    const std::array<std::shared_ptr<Sf2Engine::PreparedSoundFont>, Sf2Engine::layerCount>& preparedSoundFonts,
+    PreparedPianos& preparedPianos, PreparedNordSamples& preparedNordSamples)
 {
     for (int i = 0; i < Sf2Engine::layerCount; ++i)
         if ((layerType(i) == LayerType::sf2 || layerType(i) == LayerType::nord
@@ -6163,12 +6228,14 @@ void ClassicPlayerAudioProcessor::restoreLayerPaths(
             if (layerType(i) == LayerType::nordSample
                 || juce::File(savedPaths[(size_t) i]).hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
             {
-                if (nordSampleEngine.loadSample(i, juce::File(savedPaths[(size_t) i])).failed())
+                if (nordSampleEngine.loadSample(i, juce::File(savedPaths[(size_t) i]),
+                                                std::move(preparedNordSamples[(size_t) i])).failed())
                     juce::Logger::writeToLog("Não foi possível restaurar a amostra Nord da layer " + juce::String(i + 1));
             }
             else if (juce::File(savedPaths[(size_t) i]).hasFileExtension(".npno"))
             {
-                if (sampleEngine.loadSample(i, juce::File(savedPaths[(size_t) i])).wasOk())
+                if (sampleEngine.loadSample(i, juce::File(savedPaths[(size_t) i]),
+                                            std::move(preparedPianos[(size_t) i])).wasOk())
                 {
                     layerTypes[(size_t) i].store(static_cast<int>(LayerType::nord), std::memory_order_relaxed);
                     nordLoaded[(size_t) i].store(true, std::memory_order_release);

@@ -128,14 +128,15 @@ inline std::shared_ptr<juce::MemoryMappedFile> mapCache(const juce::File& file)
 
 struct WarmRange { size_t offset = 0, bytes = 0; };
 
-// Reads the first `headBytes` of a PCM block and its loop region so those pages are in the file cache.
+// Reads the first part of a PCM block so the first notes do not wait on the disk. Only the head is warmed: the
+// per-voice prefetcher (PianoPrefetch.h) keeps the rest of a sounding note resident. Warming every loop region too
+// read most of a multi-hundred-MB cache on every load, which flooded the disk and slowed Live Set switches (worst on
+// Windows, where each Live Set bank preload multiplied it).
 inline void addWarmRanges(std::vector<WarmRange>& ranges, size_t blockOffset, size_t blockBytes,
-                          size_t loopStartByte, size_t loopEndByte)
+                          size_t /*loopStartByte*/, size_t /*loopEndByte*/)
 {
-    constexpr size_t headBytes = 512 * 1024, loopCap = 2 * 1024 * 1024;
+    constexpr size_t headBytes = 96 * 1024;
     ranges.push_back({ blockOffset, std::min(blockBytes, headBytes) });
-    if (loopEndByte > loopStartByte && loopEndByte <= blockBytes)
-        ranges.push_back({ blockOffset + loopStartByte, std::min(loopEndByte - loopStartByte, loopCap) });
 }
 
 inline void warmAsync(std::shared_ptr<juce::MemoryMappedFile> map, std::vector<WarmRange> ranges)
@@ -324,7 +325,7 @@ inline bool loadPiano(const juce::File& source, NordPianoDecoder::Instrument& in
         stroke.loopEndFrame = (std::uint32_t) in.readInt();
         size_t dataOffset = 0, dataBytes = 0;
         if (!loadPcm(in, stroke.interleavedPcm, budget, map, dataOffset, dataBytes)) return false;
-        if (map != nullptr)
+        if (map != nullptr && stroke.bank == 0) // pedal/release banks are rarely played; they load on demand
             addWarmRanges(warm, dataOffset, dataBytes,
                           (size_t) stroke.loopStartFrame * (size_t) loaded.channels * sizeof(std::int16_t),
                           (size_t) stroke.loopEndFrame * (size_t) loaded.channels * sizeof(std::int16_t));

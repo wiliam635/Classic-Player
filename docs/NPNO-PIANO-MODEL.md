@@ -50,3 +50,18 @@ motor tocando o NPNO do mesmo piano:
   2/4/6/8/9,5 s em C3/C4/C5 (antes, uns 10 dB acima).
 
 Não alterado: release. O Nord solta em 0,70 s (controle ≈ 55); o padrão dos pianos acústicos continua 30 (0,3 s).
+
+## Carga do Live Set (relato de lentidão no Windows)
+
+Causas encontradas no caminho de troca de performance:
+- O piano NPNO e as amostras NSMP eram decodificados dentro do bloqueio do áudio (`restoreLayerPaths`), congelando
+  áudio e tela durante toda a leitura. Agora são preparados antes do bloqueio (como o SF2) e já ao selecionar o
+  slot do Live Set; a troca na primeira nota só anexa o instrumento.
+- A "aquecida" do cache lia a cabeça (512 KiB) e a região de loop (até 2 MiB) de cada uma das ~1.200 amostras: quase
+  o arquivo inteiro a cada carga, e o preload de um banco multiplicava isso. Agora só os primeiros 96 KiB do banco
+  normal; o resto é lido à frente de cada nota pelo prefetcher.
+- Um preload em andamento e uma carga do usuário podiam decodificar o mesmo arquivo duas vezes; `prepareSample`
+  agora é serializado, então a segunda espera a primeira e encontra o resultado no cache.
+- `liveset-diagnostico.txt` registra o tempo de preparo ao selecionar o slot e o do `loadProgram` na troca.
+
+Release padrão dos pianos acústicos novos: 55 (≈0,68 s), na faixa dos SF2 do Nord (0,59 a 0,70 s).
