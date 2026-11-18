@@ -143,6 +143,7 @@ private:
 
     std::array<Layer, layerCount> layers;
     PianoPrefetcher prefetcher; // keeps mapped NPNO pages resident ahead of playback
+    std::vector<PianoPrefetcher::Voice> prefetchScratch; // audio-thread scratch for publishPrefetch (heap, sized in prepare)
     std::array<juce::MidiBuffer, layerCount> combinedMidi;
     juce::AudioBuffer<float> scratch;
     juce::AudioFormatManager formats;

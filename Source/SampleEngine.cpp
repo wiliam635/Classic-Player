@@ -57,6 +57,7 @@ void SampleEngine::prepare(double sampleRate, int maximumBlockSize)
     currentSampleRate = juce::jmax(1.0, sampleRate);
     currentBlockSize = juce::jmax(1, maximumBlockSize);
     scratch.setSize(2, currentBlockSize, false, false, true);
+    prefetchScratch.assign((size_t) PianoPrefetcher::maxVoices, PianoPrefetcher::Voice {});
     prefetcher.start();
     for (auto& events : combinedMidi)
         events.ensureSize(64 * 1024);
@@ -710,7 +711,8 @@ void SampleEngine::publishPrefetch(Layer& layer)
 {
     const auto index = static_cast<int>(&layer - layers.data());
     if (!juce::isPositiveAndBelow(index, layerCount)) return; // layers not owned by this engine (tests)
-    std::array<PianoPrefetcher::Voice, (size_t) PianoPrefetcher::maxVoices> info;
+    if (prefetchScratch.size() < (size_t) PianoPrefetcher::maxVoices) return; // prepare() not called yet
+    auto& info = prefetchScratch;
     int count = 0;
     if (layer.pianoLoaded && layer.piano != nullptr)
         for (const auto& voice : layer.voices)

@@ -29,7 +29,7 @@ public:
         bool looped = false;
     };
 
-    PianoPrefetcher() : juce::Thread("NPNO prefetch") {}
+    PianoPrefetcher() : juce::Thread("NPNO prefetch"), slots((size_t) maxLayers) {}
     ~PianoPrefetcher() override { stopThread(2000); }
 
     void start() { if (!isThreadRunning()) startThread(); }
@@ -125,5 +125,5 @@ private:
     }
 
     juce::SpinLock spin;
-    std::array<Slot, (size_t) maxLayers> slots;
+    std::vector<Slot> slots; // heap: SampleEngine can live on a small (1 MB) stack, e.g. in the Windows tests
 };
