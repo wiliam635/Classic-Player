@@ -1400,7 +1400,29 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeVoiceBudget(JNIEnv*,jcl
     return layerVoiceBudgets[(size_t)layer];
 }
 
+// Audio callback load: time spent rendering a block as a share of the block's
+// own duration (100% = the callback uses its whole budget and will underrun).
+static std::atomic<float> renderLoadAverage{0.0f},renderLoadPeak{0.0f};
+static bool renderClassicPlayerPcmImpl(int16_t* output,int frames,bool realtime);
 bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
+{
+    const auto begin=std::chrono::steady_clock::now();
+    const bool rendered=renderClassicPlayerPcmImpl(output,frames,realtime);
+    if(rendered&&frames>0){
+        const double spent=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-begin).count();
+        const double budget=1000.0*std::min(frames,kMaxFrames)/kSampleRate;
+        const float percent=(float)(100.0*spent/budget);
+        renderLoadAverage.store(renderLoadAverage.load(std::memory_order_relaxed)*0.97f+percent*0.03f,std::memory_order_relaxed);
+        renderLoadPeak.store(std::max(percent,renderLoadPeak.load(std::memory_order_relaxed)*0.998f),std::memory_order_relaxed);
+    }
+    return rendered;
+}
+extern "C" JNIEXPORT jfloat JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeRenderLoadAverage(JNIEnv*,jclass){return renderLoadAverage.load(std::memory_order_relaxed);}
+extern "C" JNIEXPORT jfloat JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeRenderLoadPeak(JNIEnv*,jclass){return renderLoadPeak.load(std::memory_order_relaxed);}
+
+static bool renderClassicPlayerPcmImpl(int16_t* output,int frames,bool realtime)
 {
     if (output == nullptr || frames <= 0) return false;
     frames = std::min(frames, kMaxFrames);

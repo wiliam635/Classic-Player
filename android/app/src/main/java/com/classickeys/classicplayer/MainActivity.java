@@ -3368,6 +3368,14 @@ public final class MainActivity extends Activity {
             layerScrollX=Math.max(0,Math.min(mixerMaxScroll(w),layerScrollX));
             String focusText=focusedLayer>=0&&focusedLayer<6&&!"VAZIA".equals(engineNames[focusedLayer])?" · FOCO LAYER "+(focusedLayer+1):"";
             fittedText(canvas, "MIXER · " + allLayerCount() + " / 6 LAYERS"+focusText, left, w-EditorUi.dp(getContext(),18), h * .16f, h * .024f, EditorUi.MUTED);
+            if(dockInset==0&&audioEngine!=null){
+                float[] load=audioEngine.renderLoad();
+                int peak=Math.round(load[1]);
+                int colour=peak>=70?EditorUi.HIGHLIGHT:EditorUi.MUTED;
+                paint.setTextAlign(Paint.Align.RIGHT);
+                text(canvas,"ÁUDIO CPU "+Math.round(load[0])+"% · PICO "+peak+"%",w-EditorUi.dp(getContext(),180),h*.16f,h*.02f,colour);
+                paint.setTextAlign(Paint.Align.LEFT);
+            }
             setContentDescription("Mixer, "+activeCount+" layers. Deslize horizontalmente para percorrer as layers; master permanece fixo à direita.");
             if (activeCount == 0)
                 text(canvas, "TOQUE EM + LAYER PARA ADICIONAR UM MOTOR", left + 12, h * .36f, h * .024f, EditorUi.MUTED);

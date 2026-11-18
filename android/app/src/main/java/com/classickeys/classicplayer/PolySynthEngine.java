@@ -203,6 +203,10 @@ final class PolySynthEngine {
     private static native void nativeRender(short[] output, int frames);
     private static native float nativeLayerPeak(int layer);
     private static native float nativeMasterPeak();
+    private static native float nativeRenderLoadAverage();
+    private static native float nativeRenderLoadPeak();
+    /** Audio callback load in percent of its time budget: {average, recent peak}. */
+    float[] renderLoad() { return new float[]{nativeRenderLoadAverage(), nativeRenderLoadPeak()}; }
     private static native int nativeActiveVoices(int layer);
     private static native int nativeVoiceBudget(int layer);
     private static native boolean nativeStartOutput(int deviceId,int bufferFrames,int sampleRateMode);
