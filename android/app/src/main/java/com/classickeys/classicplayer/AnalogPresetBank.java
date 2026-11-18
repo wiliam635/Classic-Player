@@ -65,7 +65,7 @@ final class AnalogPresetBank {
         osc1Tune[0]=v[3];controls[3]=v[4];controls[4]=v[5];controls[5]=0;
         controls[6]=(float)(100*Math.log(v[6]/25.0)/Math.log(700.0));
         controls[7]=v[7]*5;controls[8]=0;
-        controls[9]=v[8]*1000;controls[10]=v[9]*1000;controls[11]=v[10]*100;controls[12]=v[11]*1000;
+        controls[9]=v[8]*1000;controls[10]=v[9]*1000;controls[11]=v[10]*100;controls[12]=0; // desktop: factory programs start at zero release (the renderer keeps a 15 ms minimum)
         controls[13]=v[12];controls[14]=0;controls[15]=v[13]*100;
         controls[16]=controls[17]=controls[18]=0;
         System.arraycopy(WAVES[i],0,waves,0,3);for(int osc=0;osc<3;osc++)enabled[osc]=true;

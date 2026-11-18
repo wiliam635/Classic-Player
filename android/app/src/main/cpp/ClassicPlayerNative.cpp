@@ -256,12 +256,29 @@ std::once_flag dxInitOnce;
 // A hard safety limit prevents a malformed/missing MIDI Note Off from leaving
 // an oscillator active forever. Normal Note Off still stops it immediately.
 constexpr int kInternalVoiceSafetySamples = kSampleRate * 8;
+// Removes only the discontinuity when a voice is replaced or retuned (same
+// 3 ms smoothstep as the desktop AudioTransition).
+struct AnalogTransition {
+    float last=0.0f,correction=0.0f; int remaining=0,length=1; bool pending=false;
+    void retarget(){length=std::max(1,(int)(kSampleRate*0.003));pending=true;}
+    float process(float value){
+        if(pending){correction=last-value;remaining=length;pending=false;}
+        if(remaining>0){const float t=(float)remaining--/(float)length;value+=correction*t*t*(3.0f-2.0f*t);}
+        return last=value;
+    }
+};
+// Same voice model as the desktop "browser 12 dB" Analog engine (approved sound):
+// exponential amplitude envelope, Web Audio style 2nd-order low-pass, per-voice LFO.
+enum AnalogStage : int { analogAttack=0, analogDecay, analogSustain, analogRelease, analogLegato };
 struct AnalogVoice {
     bool active=false,releasing=false; int note=-1,channel=0; int age=0;
-    std::array<double,3> phase{}; std::array<float,3> increment{},targetIncrement{};
-    double pitch=69.0,lfoPhase=0.0; float envelope=0.0f,filterState=0.0f,pinkState=0.0f,filterEnvelope=1.0f;
+    double pitch=69.0;
+    float frequency=440.0f,phase1=0.0f,phase2=0.0f,phase3=0.0f,pinkState=0.0f;
     uint32_t noiseState=0x12345678u;
-    bool legato=false; // mono retune without restarting the envelope (desktop browser Mono/Legato)
+    int ampStage=analogAttack; double ampElapsed=0.0; float ampValue=0.0001f; int releaseElapsed=0;
+    double biquadX1=0,biquadX2=0,biquadY1=0,biquadY2=0,lfoPhase=0.0;
+    bool legato=false; // mono retune without restarting the envelope (desktop Mono/Legato)
+    AnalogTransition transition;
 };
 struct AnalogLayer {
     int preset=0;
@@ -271,7 +288,7 @@ struct AnalogLayer {
     std::array<int,3> waves {1,1,0};
     std::array<bool,3> oscillatorEnabled {true,true,true};
     std::array<AnalogVoice,kVoicePoolCapacity> voices {};
-    float modWheel=0.0f;
+    float modWheel=0.0f,lfoPhase=0.0f;
     bool pinkNoise=false,monophonic=false;
     // Last-note priority bookkeeping for the monophonic mode (desktop heldNotes/noteOrder).
     std::array<bool,128> held {};std::array<uint64_t,128> order {};uint64_t sequence=0;
@@ -459,6 +476,32 @@ void releaseHammondVoice(HammondVoice& voice)
 {
     if(!voice.active||voice.releasing)return;
     voice.down=false;voice.releasing=true;voice.releaseAge=0;voice.releaseStart=voice.envelope;
+}
+
+// Band-limited oscillators and noise exactly as in the desktop AnalogSynthEngine.
+inline float analogWrap(float value){return value-std::floor(value);}
+inline float analogNoise(uint32_t& state){
+    state=state*1664525u+1013904223u;
+    return (float)((state>>8)&0x00ffffffu)/8388607.5f-1.0f;
+}
+inline float analogPolyBlep(float phase,float increment){
+    if(increment<=0.0f)return 0.0f;
+    if(phase<increment){const float t=phase/increment;return t+t-t*t-1.0f;}
+    if(phase>1.0f-increment){const float t=(phase-1.0f)/increment;return t*t+t+t+1.0f;}
+    return 0.0f;
+}
+// type: 0 triangle, 1 saw, 2 square, 3 pulse, 4 sine (5, an old reverse saw, plays as saw).
+inline float analogBlepWave(int type,float phase,float increment){
+    constexpr float twoPi=6.28318530718f;
+    if(type==1||type==5)phase=analogWrap(phase+0.5f); // Web Audio's saw is centred on the zero crossing
+    phase=analogWrap(phase);
+    switch(type){
+        case 0:return std::asin(std::sin(twoPi*phase))*(2.0f/3.14159265359f);
+        case 4:return std::sin(twoPi*phase);
+        case 2:{float out=phase<0.5f?1.0f:-1.0f;out+=analogPolyBlep(phase,increment);out-=analogPolyBlep(analogWrap(phase+0.5f),increment);return out;}
+        case 3:{constexpr float duty=0.28f;float out=phase<duty?1.0f:-1.0f;out+=analogPolyBlep(phase,increment);out-=analogPolyBlep(analogWrap(phase-duty),increment);return out;}
+        default:return 2.0f*phase-1.0f-analogPolyBlep(phase,increment);
+    }
 }
 
 float analogWave(int type,double phase)
@@ -1079,14 +1122,11 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetPreset(JNIEnv*, jcla
 // key returns to the previous held key; only the last release closes the envelope.
 static void analogRetune(AnalogLayer& analog,AnalogVoice& voice,int routedNote,int channel,bool glide)
 {
+    (void)analog;(void)glide; // the desktop Analog has no glide: the retune is immediate
     voice.note=routedNote;voice.channel=channel;voice.releasing=false;voice.legato=true;
-    const float semitones[3]={analog.oscillator1Semitones,analog.controls[3],analog.controls[4]};
-    for(int osc=0;osc<3;++osc){
-        const double tune=std::pow(2.0,(double)semitones[osc]/12.0);
-        voice.targetIncrement[(size_t)osc]=(float)(440.0*std::pow(2.0,(double)(routedNote-69)/12.0)*tune/kSampleRate);
-        if(!glide)voice.increment[(size_t)osc]=voice.targetIncrement[(size_t)osc];
-    }
+    voice.frequency=440.0f*std::pow(2.0f,((float)routedNote-69.0f)/12.0f);
     voice.pitch=routedNote;
+    voice.transition.retarget();
 }
 static void analogNoteOff(size_t li,int routedNote,int channel)
 {
@@ -1175,15 +1215,16 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
                     voiceBudget,layerAttack[li],layerTimbreFloor[li]);
         }
         else if(engineTypes[(size_t)layer]==EngineType::analog) {
-            auto& analog=analogLayers[(size_t)layer]; AnalogVoice* target=nullptr;
+            auto& analog=analogLayers[(size_t)layer]; AnalogVoice* target=nullptr;float previousAnalogSample=0.0f;
             if(analog.monophonic&&layerMidiMode[li]==0){
                 const int index=std::clamp(routedNote,0,127);
                 AnalogVoice* running=nullptr;
                 for(auto& voice:analog.voices)if(voice.active&&!voice.releasing){running=&voice;break;}
                 if(!running){
                     analog.held.fill(false);
-                    // A tail from the previous note is cut, like the desktop's single mono voice.
-                    for(auto& voice:analog.voices)if(voice.active)voice={};
+                    // A tail from the previous note is cut, like the desktop's single mono voice;
+                    // its last sample is remembered so the new note does not click.
+                    for(auto& voice:analog.voices)if(voice.active){previousAnalogSample=voice.transition.last;voice={};}
                 }
                 analog.held[(size_t)index]=true;analog.order[(size_t)index]=++analog.sequence;
                 if(running){
@@ -1196,9 +1237,12 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
             for(int i=0;i<voiceBudget;++i)if(!analog.voices[(size_t)i].active){target=&analog.voices[(size_t)i];break;}
             if(target==nullptr){target=&analog.voices[0];for(int i=1;i<voiceBudget;++i){auto& voice=analog.voices[(size_t)i];if((voice.releasing&&!target->releasing)||(voice.releasing==target->releasing&&voice.age>target->age))target=&voice;}}
             *target={}; target->active=true; target->note=routedNote; target->channel=midiChannel;
-            target->pitch=((layerMidiMode[li]==2||analog.glideMs>0.0f)&&hasPriorAnalog)?priorAnalogPitch:routedNote;
-            const float semitones[3]={analog.oscillator1Semitones,analog.controls[3],analog.controls[4]};
-            for(int osc=0;osc<3;++osc){const double tune=std::pow(2.0,(double)semitones[osc]/12.0);target->targetIncrement[(size_t)osc]=(float)(440.0*std::pow(2.0,(double)(routedNote-69)/12.0)*tune/kSampleRate);target->increment[(size_t)osc]=(float)(440.0*std::pow(2.0,(target->pitch-69.0)/12.0)*tune/kSampleRate);}
+            (void)priorAnalogPitch;(void)hasPriorAnalog; // no glide in the desktop Analog
+            target->pitch=routedNote;
+            target->frequency=440.0f*std::pow(2.0f,((float)routedNote-69.0f)/12.0f);
+            target->noiseState=0x12345678u^(uint32_t)(routedNote*1664525);
+            target->ampStage=analogAttack;target->ampValue=0.0001f;target->ampElapsed=0.0;
+            target->transition.last=previousAnalogSample;target->transition.retarget();
         }
         else if(engineTypes[(size_t)layer]==EngineType::hammond) {
             auto& organ=hammondLayers[(size_t)layer];
@@ -1612,44 +1656,90 @@ static bool renderClassicPlayerPcmImpl(int16_t* output,int frames,bool realtime)
             }
         }
         else if(engineTypes[(size_t)layer]==EngineType::analog) {
+            // Same model as the desktop AnalogSynthEngine in its approved "browser 12 dB" mode.
             auto& analog=analogLayers[(size_t)layer];const auto& control=analog.controls;
-            const float attackSamples=std::max(1.0f,control[9]*.001f*kSampleRate),decaySamples=std::max(1.0f,control[10]*.001f*kSampleRate),releaseMs=std::max(1.0f,control[12]);
-            const float releaseFactor=std::exp(-1.0f/(releaseMs*.001f*kSampleRate)),sustain=control[11]*.01f;
-            const float baseCutoff=25.0f*std::pow(700.0f,control[6]*.01f),resonance=std::min(.82f,control[7]*.008f),drive=control[16]*.06f;
-            const float lfoStep=6.28318530718f*control[13]/kSampleRate;
-            const float filterAttackSamples=analog.filterAttackMs*.001f*kSampleRate;
-            const float filterDecaySamples=analog.filterDecayMs>0.0f?analog.filterDecayMs*.001f*kSampleRate:decaySamples*2.0f;
-            const float filterDecay=std::exp(-1.0f/std::max(1.0f,filterDecaySamples));
-            const float filterSustain=analog.filterSustainPercent*.01f;
-            const float legatoDecay=std::exp(-1.0f/(kSampleRate*0.008f));
-            const bool glideActive=layerMidiMode[li]==2||analog.glideMs>0.0f;
-            const float glideCoefficient=analog.glideMs>0.0f?1.0f-std::exp(-1.0f/std::max(1.0f,analog.glideMs*.001f*kSampleRate)):.0008f;
+            const double sr=kSampleRate;
+            const float ratios[3]={std::exp2(analog.oscillator1Semitones/12.0f),std::exp2(control[3]/12.0f),std::exp2(control[4]/12.0f)};
+            const float levels[3]={control[0]*.01f,control[1]*.01f,control[2]*.01f};
+            const double attackSamples=std::max(1.0,sr*control[9]*0.001),decaySamples=std::max(1.0,sr*control[10]*0.001);
+            const float sustain=std::max(0.001f,0.34f*(control[11]*.01f));
+            const double releaseSeconds=std::max(0.015,(double)control[12]*0.001);
+            const float releaseCoefficient=(float)std::exp(-1.0/(sr*std::max(0.003,releaseSeconds/5.0)));
+            const int releaseLimit=(int)((releaseSeconds+0.03)*sr);
+            const float legatoCoefficient=(float)std::exp(-1.0/(sr*0.008));
+            const float baseCutoff=25.0f*std::pow(700.0f,std::clamp(control[6],0.0f,100.0f)/100.0f);
+            const float lfoToFilterHz=control[15]*4.2f;      // percent of the original 420 Hz depth
+            const double lfoStep=(double)control[13]/sr;
+            const float resonanceDb=control[7]*0.2f;          // Q in dB, as Web Audio
+            const float noiseLevel=control[5]*.01f,mixerDrive=std::clamp(control[16]*.01f,0.0f,1.0f);
+            const float mixDrive=1.0f+mixerDrive*3.0f;
+            const float lfoToPitch=control[14];
+            // The pitch LFO belongs to the layer (one phase shared by all voices).
+            std::array<float,kMaxFrames> layerLfo;
+            if(lfoToPitch!=0.0f)for(int sample=0;sample<frames;++sample){
+                analog.lfoPhase+=control[13]/(float)sr;analog.lfoPhase-=std::floor(analog.lfoPhase);
+                layerLfo[(size_t)sample]=std::sin(analog.lfoPhase*6.28318530718f);
+            }
+            // Filter coefficients are constant over the block unless the per-voice LFO moves the cutoff.
+            const auto biquad=[&](float cutoffHz,double& b0,double& b1,double& a1,double& a2){
+                const double frequency=std::clamp((double)cutoffHz,0.01,sr*0.4999);
+                const double omega=6.283185307179586*frequency/sr,cosine=std::cos(omega);
+                const double alpha=std::sin(omega)/(2.0*std::pow(10.0,(double)resonanceDb/20.0));
+                const double a0=1.0+alpha;
+                b0=(1.0-cosine)*0.5/a0;b1=(1.0-cosine)/a0;a1=-2.0*cosine/a0;a2=(1.0-alpha)/a0;
+            };
+            double fixedB0=0,fixedB1=0,fixedA1=0,fixedA2=0;
+            if(lfoToFilterHz==0.0f)biquad(baseCutoff,fixedB0,fixedB1,fixedA1,fixedA2);
             for(int voiceIndex=0;voiceIndex<layerVoiceBudgets[li];++voiceIndex){
                 auto& voice=analog.voices[(size_t)voiceIndex];
                 if(!voice.active)continue;
                 for(int sample=0;sample<frames;++sample){
-                    if(++voice.age>kInternalVoiceSafetySamples){voice={};break;}
-                    if(glideActive)for(int osc=0;osc<3;++osc)voice.increment[(size_t)osc]+=(voice.targetIncrement[(size_t)osc]-voice.increment[(size_t)osc])*glideCoefficient;
-                    if(voice.releasing)voice.envelope*=releaseFactor;
-                    else if(voice.legato)voice.envelope=sustain+(voice.envelope-sustain)*legatoDecay;
-                    else if((float)voice.age<attackSamples)voice.envelope=std::min(1.0f,(float)voice.age/attackSamples);
-                    else if((float)voice.age<attackSamples+decaySamples)voice.envelope=1.0f-(1.0f-sustain)*((float)voice.age-attackSamples)/decaySamples;
-                    else voice.envelope=sustain;
-                    if(voice.envelope<.00015f){voice={};break;}
-                    voice.lfoPhase+=lfoStep;if(voice.lfoPhase>=6.28318530718)voice.lfoPhase-=6.28318530718;
-                    if(filterAttackSamples>1.0f&&voice.age==1)voice.filterEnvelope=0.0f;
-                    const float lfo=(float)std::sin(voice.lfoPhase),filterEnvelope=voice.filterEnvelope;
-                    if(filterAttackSamples>1.0f&&(float)voice.age<=filterAttackSamples)voice.filterEnvelope=(float)voice.age/filterAttackSamples;
-                    else voice.filterEnvelope=filterSustain+(voice.filterEnvelope-filterSustain)*filterDecay;
-                    float mixed=0.0f,total=0.0f;
-                    for(int osc=0;osc<3;++osc){if(!analog.oscillatorEnabled[(size_t)osc])continue;voice.phase[(size_t)osc]+=voice.increment[(size_t)osc];if(voice.phase[(size_t)osc]>=1.0)voice.phase[(size_t)osc]-=std::floor(voice.phase[(size_t)osc]);const float level=control[osc]*.01f;mixed+=analogWave(analog.waves[(size_t)osc],voice.phase[(size_t)osc])*level;total+=level;}
-                    if(control[5]>0.01f){voice.noiseState^=voice.noiseState<<13;voice.noiseState^=voice.noiseState>>17;voice.noiseState^=voice.noiseState<<5;const float white=(float)(voice.noiseState&0xffff)/32767.5f-1.0f;float noise=white;if(analog.pinkNoise){voice.pinkState+=(white-voice.pinkState)*.045f;noise=voice.pinkState*2.5f;}mixed+=noise*control[5]*.0018f;}
-                    if(total>1.0f)mixed/=total;
-                    mixed=std::tanh(mixed*(1.0f+drive));
-                    float cutoff=baseCutoff*std::exp2((control[8]*.04f*filterEnvelope+(voice.note-60)*control[17]*.012f+control[15]*.06f*lfo+control[18]*.04f*analog.modWheel)/12.0f);
-                    cutoff=std::clamp(cutoff,30.0f,18000.0f);const float alpha=std::clamp(6.2831853f*cutoff/kSampleRate,.0001f,.95f);
-                    voice.filterState+=alpha*(mixed-voice.filterState*(1.0f+resonance));
-                    scratch[(size_t)sample*2]+=voice.filterState*voice.envelope*.24f;
+                    if(voice.releasing&&voice.ampStage!=analogRelease){voice.ampStage=analogRelease;voice.releaseElapsed=0;}
+                    else if(voice.legato&&voice.ampStage!=analogRelease){voice.ampStage=analogLegato;voice.legato=false;}
+                    switch(voice.ampStage){
+                        case analogAttack:
+                            voice.ampValue=(float)(0.0001*std::pow(3400.0,std::min(1.0,voice.ampElapsed/attackSamples)));
+                            if(++voice.ampElapsed>=attackSamples){voice.ampStage=analogDecay;voice.ampElapsed=0.0;}
+                            break;
+                        case analogDecay:
+                            voice.ampValue=(float)(0.34*std::pow((double)sustain/0.34,std::min(1.0,voice.ampElapsed/decaySamples)));
+                            if(++voice.ampElapsed>=decaySamples){voice.ampStage=analogSustain;voice.ampElapsed=0.0;}
+                            break;
+                        case analogSustain:voice.ampValue=sustain;break;
+                        case analogLegato:voice.ampValue=sustain+(voice.ampValue-sustain)*legatoCoefficient;break;
+                        default:
+                            voice.ampValue=0.0001f+(voice.ampValue-0.0001f)*releaseCoefficient;
+                            break;
+                    }
+                    if(voice.ampStage==analogRelease&&++voice.releaseElapsed>releaseLimit){voice=AnalogVoice{};break;}
+                    const float semitones=lfoToPitch!=0.0f?layerLfo[(size_t)sample]*lfoToPitch:0.0f;
+                    const float pitchRatio=std::abs(semitones)<1.0e-7f?1.0f:std::exp2(semitones/12.0f);
+                    const float base=voice.frequency*pitchRatio;
+                    const float inc1=std::clamp(base*ratios[0]/(float)sr,0.0f,0.49f),inc2=std::clamp(base*ratios[1]/(float)sr,0.0f,0.49f),inc3=std::clamp(base*ratios[2]/(float)sr,0.0f,0.49f);
+                    const float p1=voice.phase1,p2=voice.phase2,p3=voice.phase3;
+                    voice.phase1=analogWrap(voice.phase1+inc1);voice.phase2=analogWrap(voice.phase2+inc2);voice.phase3=analogWrap(voice.phase3+inc3);
+                    float mixed=0.0f;
+                    if(analog.oscillatorEnabled[0])mixed+=analogBlepWave(analog.waves[0],p1,inc1)*levels[0];
+                    if(analog.oscillatorEnabled[1])mixed+=analogBlepWave(analog.waves[1],p2,inc2)*levels[1];
+                    if(analog.oscillatorEnabled[2])mixed+=analogBlepWave(analog.waves[2],p3,inc3)*levels[2];
+                    float noise=analogNoise(voice.noiseState);
+                    if(analog.pinkNoise)noise=0.98f*voice.pinkState+0.02f*noise;
+                    voice.pinkState=noise;
+                    mixed+=noise*noiseLevel;
+                    if(mixerDrive>0.0f)mixed=std::tanh(mixed*mixDrive)/mixDrive;
+                    double b0=fixedB0,b1=fixedB1,a1=fixedA1,a2=fixedA2;
+                    if(lfoToFilterHz!=0.0f){
+                        const float lfo=(float)std::sin(voice.lfoPhase*6.283185307179586);
+                        voice.lfoPhase+=lfoStep;voice.lfoPhase-=std::floor(voice.lfoPhase);
+                        biquad(baseCutoff+lfo*lfoToFilterHz,b0,b1,a1,a2);
+                    }else{voice.lfoPhase+=lfoStep;voice.lfoPhase-=std::floor(voice.lfoPhase);}
+                    const double out=b0*mixed+b1*voice.biquadX1+b0*voice.biquadX2-a1*voice.biquadY1-a2*voice.biquadY2;
+                    voice.biquadX2=voice.biquadX1;voice.biquadX1=mixed;voice.biquadY2=voice.biquadY1;voice.biquadY1=out;
+                    // 0.45 browser master (velocity-insensitive VCA) and the desktop's -6 dB Analog trim.
+                    float output=(float)out*voice.ampValue*0.45f*0.5011872f;
+                    ++voice.age;
+                    output=voice.transition.process(output);
+                    scratch[(size_t)sample*2]+=output;
                 }
             }
             for(int sample=0;sample<frames;++sample) scratch[(size_t)sample*2+1]=scratch[(size_t)sample*2];
