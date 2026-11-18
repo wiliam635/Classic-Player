@@ -1086,7 +1086,34 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     renderExternalInstruments(buffer, midi);
     dx7Engine.process(buffer, midi, &routedMidiBuffers, dx7LayerConfigs);
     analogSynthEngine.process(buffer, midi, analogRouting, &routedMidiBuffers);
+    // The engine applies MIDI (mod wheel -> Leslie speed, mapped CCs -> drawbars/level, Learn) to the
+    // block-local copy only. Write any change back to the stored config so the editor follows the
+    // controller; unchanged values are never touched, so morph/preset state is preserved.
+    struct HammondLive
+    {
+        int leslie = 0, preset = 0, learning = -1;
+        float level = 0.0f;
+        std::array<int, 9> bars {};
+        std::array<int, 11> cc {}, channel {};
+        bool operator==(const HammondLive& o) const noexcept
+        { return leslie == o.leslie && preset == o.preset && learning == o.learning && level == o.level
+              && bars == o.bars && cc == o.cc && channel == o.channel; }
+    };
+    const auto liveOf = [](const HammondEngine::Config& c)
+    { return HammondLive { c.leslie, c.preset, c.learning, c.level, c.bars, c.cc, c.channel }; };
+    std::array<HammondLive, Sf2Engine::layerCount> hammondBefore {};
+    for (int i = 0; i < Sf2Engine::layerCount; ++i)
+        if (layerType(i) == LayerType::hammond) hammondBefore[(size_t) i] = liveOf(hammondRouting[(size_t) i]);
     hammondEngine.process(buffer, midi, hammondRouting, &routedMidiBuffers);
+    for (int i = 0; i < Sf2Engine::layerCount; ++i)
+    {
+        if (layerType(i) != LayerType::hammond) continue;
+        const auto after = liveOf(hammondRouting[(size_t) i]);
+        if (after == hammondBefore[(size_t) i]) continue;
+        auto& stored = hammondLayerConfigs[(size_t) i];
+        stored.leslie = after.leslie; stored.preset = after.preset; stored.learning = after.learning;
+        stored.level = after.level; stored.bars = after.bars; stored.cc = after.cc; stored.channel = after.channel;
+    }
     nordOrganEngine.process(buffer, midi, nordOrganRouting, &routedMidiBuffers);
     // MIDI morphs take effect on the next render block, never before their
     // event timestamp. Engine gain/filter smoothing prevents controller steps.

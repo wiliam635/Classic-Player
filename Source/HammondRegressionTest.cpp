@@ -1144,6 +1144,21 @@ static void hammondPresetAndWheel()
     check(releaseParameter!=nullptr,"layer release parameter missing");
     check(std::abs(releaseParameter->convertFrom0to1(releaseParameter->getValue()))<0.001f,
           "new Hammond layer did not default to zero release");
+    {
+        // The mod wheel (CC1) changes the Leslie speed; the stored config the editor reads must follow.
+        p->prepareToPlay(48000,256);
+        ContinuousPadRegressionAccess::activateForTest(*p);
+        juce::AudioBuffer<float> wheelAudio(2,256);
+        const auto wheel=[&](int value){
+            wheelAudio.clear();juce::MidiBuffer wheelMidi;
+            wheelMidi.addEvent(juce::MidiMessage::controllerEvent(1,1,value),0);
+            p->processBlock(wheelAudio,wheelMidi);};
+        auto leslieStart=p->hammondConfig(0);leslieStart.leslie=1;p->setHammondConfig(0,leslieStart);
+        wheel(127);
+        check(p->hammondConfig(0).leslie==2,"mod wheel up did not move the Hammond Leslie to FAST in the stored config");
+        wheel(0);
+        check(p->hammondConfig(0).leslie==1,"mod wheel down did not move the Hammond Leslie to SLOW in the stored config");
+    }
     for(int factoryPreset=0;factoryPreset<HammondEngine::presetNames().size();++factoryPreset)
         check(std::abs(HammondEngine::preset(factoryPreset).routing.release)<0.001f,
               "Hammond factory preset has nonzero release");
