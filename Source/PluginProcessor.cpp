@@ -1792,6 +1792,10 @@ juce::Result ClassicPlayerAudioProcessor::loadNordPiano(int layer, const juce::F
     {
         auto routing = layerConfig(layer);
         routing.pianoReleaseSamplesEnabled = category == "Upright Piano";
+        // New piano loads use the measured piano model (wider volume range and per-key decay). Saved
+        // performances restore their own values and keep the old behaviour.
+        routing.pianoDynamicsExponent = 2.2f;
+        routing.pianoNaturalDecay = true;
         setLayerConfig(layer, routing);
     }
 
@@ -4923,6 +4927,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
     const juce::StringArray oneBased {
         "layerType", "dx7Layer", "dx7Patch", "sf2Layer", "sf2Bank", "sf2Program", "pianoTimbre", "pianoDecaySeconds",
         "pianoSoftRelease", "pianoDynamicCompression", "pianoTimbreFloor", "pianoPedalResonance",
+        "pianoDynamicsExponent", "pianoNaturalDecay",
         "nordTremoloMix", "nordTremoloRate", "nordFlangerMix", "nordFlangerRate",
         "nordSplitLowPoint", "nordSplitHighPoint", "nordSplitLowWidth", "nordSplitHighWidth",
         "nordMorphVolumeWheel", "nordMorphVolumePressure", "nordMorphVolumePedal",
@@ -5163,6 +5168,8 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("pianoDynamicCompression" + juce::String(i + 1), config.pianoDynamicCompression, nullptr);
         state.setProperty("pianoTimbreFloor" + juce::String(i + 1), config.pianoTimbreFloor, nullptr);
         state.setProperty("pianoPedalResonance" + juce::String(i + 1), config.pianoPedalResonance, nullptr);
+        state.setProperty("pianoDynamicsExponent" + juce::String(i + 1), config.pianoDynamicsExponent, nullptr);
+        state.setProperty("pianoNaturalDecay" + juce::String(i + 1), config.pianoNaturalDecay, nullptr);
         state.setProperty("pianoReleaseSamplesEnabled" + juce::String(i + 1),
                           config.pianoReleaseSamplesEnabled, nullptr);
         const auto fxKey = juce::String(i + 1);
@@ -5926,6 +5933,10 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     "pianoTimbreFloor" + juce::String(i + 1), 1)));
                 config.pianoPedalResonance = static_cast<bool>(state.getProperty(
                     "pianoPedalResonance" + juce::String(i + 1), false));
+                config.pianoDynamicsExponent = juce::jlimit(1.0f, 3.0f, static_cast<float>(state.getProperty(
+                    "pianoDynamicsExponent" + juce::String(i + 1), 1.0f)));
+                config.pianoNaturalDecay = static_cast<bool>(state.getProperty(
+                    "pianoNaturalDecay" + juce::String(i + 1), false));
                 const auto savedPianoPath = state.getProperty("sf2Layer" + juce::String(i + 1)).toString();
                 const auto uprightReleaseDefault = savedPianoPath.containsIgnoreCase("upright");
                 config.pianoReleaseSamplesEnabled = static_cast<bool>(state.getProperty(

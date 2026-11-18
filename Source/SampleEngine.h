@@ -75,6 +75,11 @@ private:
         float pianoDecaySeconds = 15.0f; // captured at note-on to avoid jumps during playback
         bool pianoRelease = false;
         bool waitingForSustain = false;
+        // Natural NPNO decay: set at note-on, applied once the voice reaches its sustain loop.
+        bool naturalDecay = false;
+        bool loopDecayActive = false;
+        float loopDecayGain = 1.0f;
+        float loopDecayMul = 1.0f; // per output sample
     };
 
     struct Layer

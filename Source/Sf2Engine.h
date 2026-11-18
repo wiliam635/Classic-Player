@@ -71,6 +71,13 @@ public:
         int pianoDynamicCompression = 0; // 0 off, 1-3 lift quiet notes without changing sample layer
         bool pianoPedalResonance = false; // opt-in NPNO pedal-down bank; disabled for existing performances
         bool pianoReleaseSamplesEnabled = false; // NPNO key-off bank is reserved for Upright Piano categories
+        // NPNO piano model measured against a reference Nord-style player (see docs/NPNO-PIANO-MODEL.md).
+        // pianoDynamicsExponent: voice level follows velocity^exponent (1 = old linear law). Only the volume
+        // changes; the sample/timbre layer is still chosen from the shaped velocity.
+        float pianoDynamicsExponent = 1.0f;
+        // pianoNaturalDecay: after the recorded decay ends and the sustain loop starts, the note keeps
+        // decaying at a per-key rate (instead of holding the loop level until the global tail fades it).
+        bool pianoNaturalDecay = false;
         NordEffectSettings nordFx;
         NordMorphSettings nordMorph;
         float gain = 0.8f;

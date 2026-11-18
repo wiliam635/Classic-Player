@@ -388,7 +388,7 @@ SampleEngine::Voice& SampleEngine::allocateVoice(Layer& layer, int polyphony)
             const auto seconds = static_cast<double>(v.age) / currentSampleRate;
             const auto decay = v.sampleIndex >= 0
                 ? juce::jmax(0.0, 1.0 - seconds / v.pianoDecaySeconds) : 1.0;
-            return v.level * v.releaseGain * v.attackGain * static_cast<float>(decay * decay);
+            return v.level * v.releaseGain * v.attackGain * v.loopDecayGain * static_cast<float>(decay * decay);
         };
         if (rank < candidateRank
             || (rank == candidateRank
@@ -569,7 +569,11 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     // Dynamic compression lifts the quietest keystrokes but preserves the
     // original velocity used above to select the sample/timbre layer.
     const auto dynamicLift = 0.10f * juce::jlimit(0, 3, routing.pianoDynamicCompression);
-    candidate->level = (velocity + (1.0f - velocity) * dynamicLift) * strokeGain
+    // Piano dynamics: a real piano's soft notes are far quieter than the old linear law gave. The exponent
+    // only shapes the volume; layer selection already happened with the shaped velocity.
+    const auto levelVelocity = (!routing.velocitySensitivityOff && routing.pianoDynamicsExponent > 1.001f)
+        ? std::pow(velocity, juce::jlimit(1.0f, 3.0f, routing.pianoDynamicsExponent)) : velocity;
+    candidate->level = (levelVelocity + (1.0f - levelVelocity) * dynamicLift) * strokeGain
         * routing.nordSplit.gain(inputNote < 0 ? note - routing.octave*12 : inputNote);
     candidate->velocity = velocity;
     const auto attackSamples = juce::jmax(1.0, layerAttackSeconds(routing.attack) * currentSampleRate);
@@ -581,6 +585,16 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     candidate->releaseCoefficient = 0.0f;
     candidate->pianoRelease = stroke.bank == 2;
     candidate->pianoDecaySeconds = juce::jlimit(3.0f, 15.0f, routing.pianoDecaySeconds);
+    // Per-key decay once the sustain loop starts: about 3.3 dB/s at C3, rising roughly 0.09 dB/s per
+    // semitone (4.4 dB/s at C4, 5.4 dB/s at C5). Fitted to the reference measurement of the same NPNO.
+    candidate->naturalDecay = routing.pianoNaturalDecay && layer.finitePiano && stroke.bank != 2
+                              && stroke.loopEndFrame > stroke.loopStartFrame;
+    candidate->loopDecayActive = false;
+    candidate->loopDecayGain = 1.0f;
+    {
+        const auto slopeDb = juce::jlimit(1.5, 9.0, 3.3 + 0.09 * static_cast<double>(note - 48));
+        candidate->loopDecayMul = static_cast<float>(std::pow(10.0, -slopeDb / 20.0 / currentSampleRate));
+    }
     candidate->waitingForSustain = false;
 }
 
@@ -885,6 +899,16 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 voice.active = false;
                 break;
             }
+            if (loopedPiano && voice.naturalDecay)
+            {
+                if (!voice.loopDecayActive && voice.position >= pianoStroke->loopStartFrame)
+                    voice.loopDecayActive = true;
+                if (voice.loopDecayActive)
+                {
+                    voice.loopDecayGain *= voice.loopDecayMul;
+                    if (voice.loopDecayGain < 1.0e-4f) { voice.active = false; break; } // -80 dB: free the voice
+                }
+            }
             // Keep cycling during Release so the layer knob, rather than the
             // PCM end, determines the tail after a key/pedal is released.
             if (loopedPiano
@@ -905,9 +929,22 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             }
 
             const auto remaining = juce::jlimit(0.0, 1.0, 1.0 - elapsedDecay);
-            const auto lifetimeGain = isPianoVoice && finitePiano
-                ? static_cast<float>(remaining * remaining) : 1.0f;
-            const auto gain = voice.level * voice.releaseGain * voice.attackGain * voice.decayGain * lifetimeGain;
+            float lifetimeGain = 1.0f;
+            if (isPianoVoice && finitePiano)
+            {
+                if (voice.naturalDecay)
+                {
+                    // The per-key decay shapes the note; the CAUDA setting only ends it, with a short final fade.
+                    const auto fadeSeconds = juce::jmin(2.0, 0.5 * static_cast<double>(voice.pianoDecaySeconds));
+                    const auto leftSeconds = remaining * static_cast<double>(voice.pianoDecaySeconds);
+                    const auto fade = static_cast<float>(juce::jmin(1.0, leftSeconds / fadeSeconds));
+                    lifetimeGain = fade * fade;
+                }
+                else
+                    lifetimeGain = static_cast<float>(remaining * remaining);
+            }
+            const auto gain = voice.level * voice.releaseGain * voice.attackGain * voice.decayGain * lifetimeGain
+                            * voice.loopDecayGain;
             float left = 0.0f;
             float right = 0.0f;
             if (isPianoVoice)

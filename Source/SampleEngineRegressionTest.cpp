@@ -222,6 +222,62 @@ struct SampleEngineRegressionTests
         require(!layer.sustainDown[0], "Panic left the pedal latched");
     }
 
+    // Piano model fitted to a reference player: the volume follows velocity^exponent (soft notes far
+    // quieter than the old linear law) and, once the sustain loop is running, each key decays at its own rate.
+    static void pianoDynamicsAndNaturalDecay()
+    {
+        const auto peakAt = [](float exponent, int velocity)
+        {
+            auto engine = instrument(48000.0);
+            auto& layer = engine->layers[0];
+            auto routing = config();
+            routing.enabled = true;
+            routing.pianoDynamicsExponent = exponent;
+            juce::AudioBuffer<float> audio(2, 4096);
+            juce::MidiBuffer midi;
+            midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(velocity)), 0);
+            engine->renderLayer(layer, audio, midi, routing);
+            return audio.getMagnitude(0, 0, 4096);
+        };
+        const auto db = [](float value) { return 20.0f * std::log10(std::max(value, 1.0e-9f)); };
+        const auto linearDrop = db(peakAt(1.0f, 64)) - db(peakAt(1.0f, 127));
+        require(std::abs(linearDrop - (-5.95f)) < 0.6f, "Default piano law is no longer linear in velocity");
+        const auto modelDrop = db(peakAt(2.2f, 64)) - db(peakAt(2.2f, 127));
+        require(std::abs(modelDrop - (-13.1f)) < 0.7f, "Piano dynamics exponent did not widen the soft/hard range");
+        const auto softDrop = db(peakAt(2.2f, 20)) - db(peakAt(2.2f, 127));
+        require(softDrop < -30.0f && softDrop > -38.0f, "Soft notes are not in the measured range below the loud ones");
+
+        const auto decayOver = [](int note, bool natural)
+        {
+            auto engine = instrument(48000.0);
+            auto& layer = engine->layers[0];
+            auto routing = config();
+            routing.enabled = true;
+            routing.pianoNaturalDecay = natural;
+            routing.pianoDecaySeconds = 15.0f;
+            juce::AudioBuffer<float> audio(2, 4096);
+            juce::MidiBuffer midi;
+            midi.addEvent(juce::MidiMessage::noteOn(1, note, static_cast<juce::uint8>(100)), 0);
+            float early = 0.0f, late = 0.0f;
+            for (int block = 0; block < 24; ++block)
+            {
+                audio.clear();
+                engine->renderLayer(layer, audio, midi, routing);
+                midi.clear();
+                if (block == 11) early = audio.getRMSLevel(0, 0, 4096);
+                if (block == 23) late = audio.getRMSLevel(0, 0, 4096);
+            }
+            return 20.0f * std::log10(std::max(late, 1.0e-9f) / std::max(early, 1.0e-9f));
+        };
+        // 12 blocks of 4096 frames at 48 kHz = 1.024 s between the two measurements.
+        const auto c3 = decayOver(48, true), c5 = decayOver(72, true), old = decayOver(48, false);
+        require(std::abs(c3 - (-3.3f * 1.024f)) < 0.35f, "Natural decay at C3 is not ~3.3 dB/s");
+        require(std::abs(c5 - (-5.46f * 1.024f)) < 0.35f, "Natural decay at C5 is not ~5.5 dB/s");
+        require(c5 < c3 - 1.5f, "Higher keys must decay faster than lower keys");
+        require(old > -2.0f, "The old tail law changed for pianos without the natural decay option");
+        std::cout << "Piano dynamics law and per-key natural decay passed\n";
+    }
+
     static void pedalResonanceIsOptional()
     {
         auto engine = instrument(48000.0);
@@ -712,6 +768,7 @@ struct SampleEngineRegressionTests
         stealing();
         positiveOnlyTenthsDbTrim();
         pedalResonanceIsOptional();
+        pianoDynamicsAndNaturalDecay();
         uprightReleaseReflections();
         stageFourPianoControls();
         crossfades();
