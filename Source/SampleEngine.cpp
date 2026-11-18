@@ -393,7 +393,7 @@ SampleEngine::Voice& SampleEngine::allocateVoice(Layer& layer, int polyphony)
             const auto seconds = static_cast<double>(v.age) / currentSampleRate;
             const auto decay = v.sampleIndex >= 0
                 ? juce::jmax(0.0, 1.0 - seconds / v.pianoDecaySeconds) : 1.0;
-            return v.level * v.releaseGain * v.attackGain * v.loopDecayGain * static_cast<float>(decay * decay);
+            return v.level * v.releaseGain * v.attackGain * v.loopDecayGain * v.earlyDecayGain * static_cast<float>(decay * decay);
         };
         if (rank < candidateRank
             || (rank == candidateRank
@@ -600,6 +600,11 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
                               && stroke.loopEndFrame > stroke.loopStartFrame;
     candidate->loopDecayActive = false;
     candidate->loopDecayGain = 1.0f;
+    // Hardware Nord output decays about 10 dB more than the raw NPNO sample over the first 4 s (measured on the
+    // White Grand and Royal Grand 3D: 2.5 dB/s). Same fit for both pianos; applied only with the piano model.
+    candidate->earlyDecayGain = 1.0f;
+    candidate->earlyDecayMul = candidate->naturalDecay
+        ? static_cast<float>(std::pow(10.0, -2.5 / 20.0 / currentSampleRate)) : 1.0f;
     {
         const auto slopeDb = juce::jlimit(1.5, 9.0, 3.3 + 0.09 * static_cast<double>(note - 48));
         candidate->loopDecayMul = static_cast<float>(std::pow(10.0, -slopeDb / 20.0 / currentSampleRate));
@@ -934,6 +939,8 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 voice.active = false;
                 break;
             }
+            if (voice.naturalDecay && voice.age < static_cast<std::uint64_t>(4.0 * currentSampleRate))
+                voice.earlyDecayGain *= voice.earlyDecayMul;
             if (loopedPiano && voice.naturalDecay)
             {
                 if (!voice.loopDecayActive && voice.position >= pianoStroke->loopStartFrame)
@@ -979,7 +986,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                     lifetimeGain = static_cast<float>(remaining * remaining);
             }
             const auto gain = voice.level * voice.releaseGain * voice.attackGain * voice.decayGain * lifetimeGain
-                            * voice.loopDecayGain;
+                            * voice.loopDecayGain * voice.earlyDecayGain;
             float left = 0.0f;
             float right = 0.0f;
             if (isPianoVoice)

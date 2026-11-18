@@ -81,6 +81,8 @@ private:
         bool loopDecayActive = false;
         float loopDecayGain = 1.0f;
         float loopDecayMul = 1.0f; // per output sample
+        float earlyDecayGain = 1.0f; // fast initial decay of the first seconds (see startPianoVoice)
+        float earlyDecayMul = 1.0f;  // per output sample while the voice is younger than 4 s
     };
 
     struct Layer

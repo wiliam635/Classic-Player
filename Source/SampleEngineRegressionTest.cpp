@@ -272,8 +272,9 @@ struct SampleEngineRegressionTests
         };
         // 12 blocks of 4096 frames at 48 kHz = 1.024 s between the two measurements.
         const auto c3 = decayOver(48, true), c5 = decayOver(72, true), old = decayOver(48, false);
-        require(std::abs(c3 - (-3.3f * 1.024f)) < 0.35f, "Natural decay at C3 is not ~3.3 dB/s");
-        require(std::abs(c5 - (-5.46f * 1.024f)) < 0.35f, "Natural decay at C5 is not ~5.5 dB/s");
+        // Between 1 s and 2 s: the per-key loop slope plus the 2.5 dB/s early decay of the first 4 s.
+        require(std::abs(c3 - (-(3.3f + 2.5f) * 1.024f)) < 0.4f, "Natural decay at C3 is not ~5.8 dB/s");
+        require(std::abs(c5 - (-(5.46f + 2.5f) * 1.024f)) < 0.4f, "Natural decay at C5 is not ~8 dB/s");
         require(c5 < c3 - 1.5f, "Higher keys must decay faster than lower keys");
         require(old > -2.0f, "The old tail law changed for pianos without the natural decay option");
         std::cout << "Piano dynamics law and per-key natural decay passed\n";

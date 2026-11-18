@@ -34,3 +34,19 @@ O motor antigo segurava o nível do loop e só aplicava uma queda quadrática ig
 
 Limites: a taxa de decaimento foi ajustada em um piano (White Grand XL); outros pianos têm amostras
 com outros pontos de loop. A reflexão/ressonância e a amostra de soltura não foram alteradas.
+
+## Segunda calibração: Nord de verdade (SF2 amostrado do hardware)
+
+`Nord White Grand.sf2` e `Nord Royal 3D.sf2` (amostrados direto de um Nord) trazem o envelope real: release de
+0,70 s, sem decay no envelope, amostras de 9 a 13 s sem loop e 7 camadas de velocity. Comparando com o nosso
+motor tocando o NPNO do mesmo piano:
+
+- Volume por velocity (rel. à velocity 127): dentro de 2,4 dB do Nord em v20 e v64 (nos dois pianos).
+- Queda depois dos primeiros segundos: a inclinação do Nord (3,2 / 4,1 / 5,5 dB/s em C3/C4/C5) bate com a do
+  modelo por tecla.
+- Faltava queda nos primeiros 4 s: o Nord cai cerca de 10 dB a mais que a amostra NPNO crua. Foi adicionado
+  `earlyDecayMul` (2,5 dB/s durante os primeiros 4 s, só com o modelo de piano ligado).
+- Resultado: erro médio da queda de 2,7 dB (White Grand) e 2,6 dB (Royal Grand 3D) contra o Nord, ao longo de
+  2/4/6/8/9,5 s em C3/C4/C5 (antes, uns 10 dB acima).
+
+Não alterado: release. O Nord solta em 0,70 s (controle ≈ 55); o padrão dos pianos acústicos continua 30 (0,3 s).
