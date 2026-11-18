@@ -93,6 +93,10 @@ std::array<std::array<std::array<float,kChorusFrames>,2>,kLayerCount> layerChoru
 std::array<std::array<int,2>,kLayerCount> layerChorusCursor{};
 int effectCursor = 0;
 std::array<float, kLayerCount> layerPeaks {};
+// A layer whose gain is 0 (MUTE, or another layer soloed) renders nothing once
+// its release tails had this long to finish, and ignores new notes meanwhile.
+constexpr int kSilentGraceSamples = kSampleRate * 3;
+std::array<int, kLayerCount> silentSamples {};
 std::array<std::atomic<float>, kLayerCount> publishedLayerPeaks {
     0.0f,0.0f,0.0f,0.0f,0.0f,0.0f
 };
@@ -1115,6 +1119,7 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
         const auto li=(size_t)layer;
         const int voiceBudget=layerVoiceBudgets[li];
         if(voiceBudget<=0)continue;
+        if(layerGains[li]<=0.0f&&silentSamples[li]>=kSilentGraceSamples)continue;
         if(layerMidiChannel[li]>=0&&layerMidiChannel[li]!=midiChannel)continue;
         if(note<layerLowNote[li]||note>layerHighNote[li])continue;
         const int routedNote=std::clamp(note+layerOctave[li]*12,0,127);
@@ -1426,6 +1431,25 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
         const auto li=(size_t)layer;
         auto* font = fonts[(size_t) layer];
         if (engineTypes[(size_t)layer]==EngineType::empty) continue;
+        {
+            const bool silentLayer=layerGains[li]<=0.0f&&smoothedLayerGains[li]<=0.00001f;
+            if(!silentLayer)silentSamples[li]=0;
+            else{
+                if(silentSamples[li]==0){
+                    // Start of the silence: release what is sounding so the tails end inside the grace window.
+                    if(font!=nullptr)tsf_note_off_all(font);
+                    for(auto& old:nordLayers[li].voices)old={};
+                    for(auto& old:analogLayers[li].voices)old={};
+                    for(auto& old:hammondLayers[li].voices)old={};
+                    for(auto& old:dxLayers[li].voices){
+                        if(old.active&&old.synth){old.synth->keyup();old.released=true;}
+                        old.active=false;old.note=-1;old.read=N;
+                    }
+                }
+                if(silentSamples[li]>=kSilentGraceSamples)continue;
+                silentSamples[li]+=std::max(frames,1);
+            }
+        }
         const bool originalSf2=engineTypes[li]==EngineType::sf2&&sf2OriginalSound[li];
         std::memset(scratch.data(), 0, (size_t) samples * sizeof(float));
         if(engineTypes[(size_t)layer]==EngineType::sf2 && font!=nullptr) tsf_render_float(font, scratch.data(), frames, TSF_FALSE);
@@ -1600,7 +1624,7 @@ bool renderClassicPlayerPcm(int16_t* output,int frames,bool realtime)
                     if(control[5]>0.01f){voice.noiseState^=voice.noiseState<<13;voice.noiseState^=voice.noiseState>>17;voice.noiseState^=voice.noiseState<<5;const float white=(float)(voice.noiseState&0xffff)/32767.5f-1.0f;float noise=white;if(analog.pinkNoise){voice.pinkState+=(white-voice.pinkState)*.045f;noise=voice.pinkState*2.5f;}mixed+=noise*control[5]*.0018f;}
                     if(total>1.0f)mixed/=total;
                     mixed=std::tanh(mixed*(1.0f+drive));
-                    float cutoff=baseCutoff*std::pow(2.0f,(control[8]*.04f*filterEnvelope+(voice.note-60)*control[17]*.012f+control[15]*.06f*lfo+control[18]*.04f*analog.modWheel)/12.0f);
+                    float cutoff=baseCutoff*std::exp2((control[8]*.04f*filterEnvelope+(voice.note-60)*control[17]*.012f+control[15]*.06f*lfo+control[18]*.04f*analog.modWheel)/12.0f);
                     cutoff=std::clamp(cutoff,30.0f,18000.0f);const float alpha=std::clamp(6.2831853f*cutoff/kSampleRate,.0001f,.95f);
                     voice.filterState+=alpha*(mixed-voice.filterState*(1.0f+resonance));
                     scratch[(size_t)sample*2]+=voice.filterState*voice.envelope*.24f;

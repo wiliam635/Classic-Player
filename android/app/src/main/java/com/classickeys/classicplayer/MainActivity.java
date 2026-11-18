@@ -201,7 +201,7 @@ public final class MainActivity extends Activity {
                     boolean pressed=second>=64;
                     boolean wasPressed=learnedMuteCcDown[layer][channel][first];
                     learnedMuteCcDown[layer][channel][first]=pressed;
-                    if(pressed&&!wasPressed)setLayerMuted(layer,!screen.muted[layer]);
+                    if(pressed&&!wasPressed)setLayerSilenced(layer,!screen.silenced[layer]);
                     learnedLayerControl=true;
                     continue;
                 }
@@ -1258,6 +1258,7 @@ public final class MainActivity extends Activity {
     private void deleteLayerCompletely(int layer){
         if(layer<0||layer>=6)return;
         clearLayer(layer);
+        setLayerSilenced(layer,false);
         screen.setLearnedVolume(layer,.8f);screen.setLayerPan(layer,0f);
         screen.setLayerTone(layer,100f,0f,0f,0f);screen.setLayerPreGain(layer,0f);
         screen.setLayerEq(layer,0f,0f,0f,220f,1200f,4200f,.707f,1f,.707f,20f,20000f);
@@ -1301,6 +1302,15 @@ public final class MainActivity extends Activity {
     }
 
     /** Mute is a resource state: unload the motor, then restore it off the UI/audio threads. */
+    /** MUTE (M button, MIDI Learn, editors): silence only; the motor keeps running and nothing is unloaded. */
+    private void setLayerSilenced(int layer,boolean silenced){
+        if(layer<0||layer>=6||screen==null)return;
+        if(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()){mainHandler.post(()->setLayerSilenced(layer,silenced));return;}
+        screen.silenced[layer]=silenced;
+        getSharedPreferences("layers",MODE_PRIVATE).edit().putBoolean("silenced_"+layer,silenced).apply();
+        screen.applyLayerGains();screen.invalidate();
+    }
+    /** ON/OFF: OFF stops the motor and frees its voices so the layer costs no CPU. */
     private void setLayerMuted(int layer,boolean muted) {
         if(layer<0||layer>=6||screen==null)return;
         if(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()){
@@ -1314,7 +1324,7 @@ public final class MainActivity extends Activity {
             if(audioEngine!=null){audioEngine.setLayerGain(layer,0f);audioEngine.clearLayer(layer);}
             if(isPadEngine(layer)&&padEngine!=null)padEngine.setEnabled(false,screen.engineName(layer).startsWith("CONT"));
             screen.applyLayerGains();
-            screen.setAudioStatus("LAYER "+(layer+1)+" mutada · motor parado e vozes liberadas");
+            screen.setAudioStatus("LAYER "+(layer+1)+" desligada · motor parado e vozes liberadas");
             screen.invalidate();
             return;
         }
@@ -2246,7 +2256,7 @@ public final class MainActivity extends Activity {
                     EditorUi.knob(row,"PAN",screen.layerPan[layer]*100,-100,100,"",v->screen.setLayerPan(layer,v/100));
                 }
                 if(!panel.docked){
-                    EditorUi.selector(rightBox,"MUTE",new String[]{"SOM ATIVO","MUTE"},screen.muted[layer]?1:0,i->setLayerMuted(layer,i==1));
+                    EditorUi.selector(rightBox,"MUTE",new String[]{"SOM ATIVO","MUTE"},screen.silenced[layer]?1:0,i->setLayerSilenced(layer,i==1));
                     EditorUi.selector(rightBox,"SOLO",new String[]{"NORMAL","SOLO"},screen.solo[layer]?1:0,i->{screen.solo[layer]=i==1;prefs.edit().putBoolean("solo_"+layer,screen.solo[layer]).apply();screen.applyLayerGains();screen.invalidate();});
                 }
             }
@@ -2269,7 +2279,7 @@ public final class MainActivity extends Activity {
             row=EditorUi.knobRow(body);EditorUi.knob(row,"EQ LOW dB",screen.eqLow[layer],-18,18," dB",v->screen.setLayerEq(layer,v,screen.eqMid[layer],screen.eqHigh[layer],screen.eqLowFreq[layer],screen.eqMidFreq[layer],screen.eqHighFreq[layer],screen.eqLowQ[layer],screen.eqMidQ[layer],screen.eqHighQ[layer],screen.eqHighPass[layer],screen.eqLowPass[layer]));
             EditorUi.knob(row,"EQ MID dB",screen.eqMid[layer],-18,18," dB",v->screen.setLayerEq(layer,screen.eqLow[layer],v,screen.eqHigh[layer],screen.eqLowFreq[layer],screen.eqMidFreq[layer],screen.eqHighFreq[layer],screen.eqLowQ[layer],screen.eqMidQ[layer],screen.eqHighQ[layer],screen.eqHighPass[layer],screen.eqLowPass[layer]));
             EditorUi.knob(row,"EQ HIGH dB",screen.eqHigh[layer],-18,18," dB",v->screen.setLayerEq(layer,screen.eqLow[layer],screen.eqMid[layer],v,screen.eqLowFreq[layer],screen.eqMidFreq[layer],screen.eqHighFreq[layer],screen.eqLowQ[layer],screen.eqMidQ[layer],screen.eqHighQ[layer],screen.eqHighPass[layer],screen.eqLowPass[layer]));
-            EditorUi.selector(body,"MUTE",new String[]{"SOM ATIVO","MUTE"},screen.muted[layer]?1:0,i->setLayerMuted(layer,i==1));
+            EditorUi.selector(body,"MUTE",new String[]{"SOM ATIVO","MUTE"},screen.silenced[layer]?1:0,i->setLayerSilenced(layer,i==1));
             EditorUi.selector(body,"SOLO",new String[]{"NORMAL","SOLO"},screen.solo[layer]?1:0,i->{screen.solo[layer]=i==1;prefs.edit().putBoolean("solo_"+layer,screen.solo[layer]).apply();screen.applyLayerGains();screen.invalidate();});
         }else if(page==effectsPage){
             TextView note=EditorUi.label(this,"Ajuste os efeitos desta layer. Toque para abrir os parâmetros.",11);note.setTextColor(EditorUi.MUTED);body.addView(note,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,26)));
@@ -2478,7 +2488,7 @@ public final class MainActivity extends Activity {
         EditorUi.knob(row,"CHORUS",screen.layerChorus[layer]*100,0,100," %",v->screen.setLayerTone(layer,screen.layerCutoff[layer],screen.layerReverb[layer],screen.layerCompMix[layer],v/100));
         EditorUi.knob(row,"PAN",screen.layerPan[layer]*100,-100,100,"",v->screen.setLayerPan(layer,v/100));
         LinearLayout ms=EditorUi.gridRow(box);
-        EditorUi.selectorCell(ms,"MUTE",new String[]{"SOM ATIVO","MUTE"},screen.muted[layer]?1:0,i->setLayerMuted(layer,i==1));
+        EditorUi.selectorCell(ms,"MUTE",new String[]{"SOM ATIVO","MUTE"},screen.silenced[layer]?1:0,i->setLayerSilenced(layer,i==1));
         EditorUi.selectorCell(ms,"SOLO",new String[]{"NORMAL","SOLO"},screen.solo[layer]?1:0,i->{screen.solo[layer]=i==1;getSharedPreferences("layers",MODE_PRIVATE).edit().putBoolean("solo_"+layer,screen.solo[layer]).apply();screen.applyLayerGains();screen.invalidate();});
     }
     private LinearLayout desktopBox(String title,LinearLayout parent){
@@ -2968,6 +2978,8 @@ public final class MainActivity extends Activity {
         private final boolean[] analogPinkNoise=new boolean[6],analogMonophonic=new boolean[6];
         private float masterReverb, masterChorus;
         private final boolean[] muted = new boolean[6];
+        /** MUTE: only silences the layer. OFF (muted[]) also stops the motor and frees its voices. */
+        private final boolean[] silenced = new boolean[6];
         private final boolean[] solo = new boolean[6];
         private float masterVolume = 0.8f;
         private final String[] layerNames = {"SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT", "SEM SOUNDFONT"};
@@ -3019,7 +3031,7 @@ public final class MainActivity extends Activity {
             sf2OriginalSound[i]=false;
             eqLow[i]=p.contains("eq_low_db_"+i)?p.getFloat("eq_low_db_"+i,0):(float)(20*Math.log10(Math.max(.125f,p.getFloat("eq_low_"+i,1))));eqMid[i]=p.contains("eq_mid_db_"+i)?p.getFloat("eq_mid_db_"+i,0):(float)(20*Math.log10(Math.max(.125f,p.getFloat("eq_mid_"+i,1))));eqHigh[i]=p.contains("eq_high_db_"+i)?p.getFloat("eq_high_db_"+i,0):(float)(20*Math.log10(Math.max(.125f,p.getFloat("eq_high_"+i,1))));
             eqLowFreq[i]=p.getFloat("eq_low_freq_"+i,220);eqMidFreq[i]=p.getFloat("eq_mid_freq_"+i,1200);eqHighFreq[i]=p.getFloat("eq_high_freq_"+i,4200);eqLowQ[i]=p.getFloat("eq_low_q_"+i,.707f);eqMidQ[i]=p.getFloat("eq_mid_q_"+i,1);eqHighQ[i]=p.getFloat("eq_high_q_"+i,.707f);eqHighPass[i]=p.getFloat("eq_highpass_"+i,20);eqLowPass[i]=p.getFloat("eq_lowpass_"+i,20000);
-            compressorThreshold[i]=p.getFloat("comp_threshold_"+i,compressorThreshold[i]);compressorRatio[i]=p.getFloat("comp_ratio_"+i,compressorRatio[i]);layerVolumes[i]=p.getFloat("control_volume_"+i,layerVolumes[i]);layerPan[i]=p.getFloat("control_pan_"+i,0);layerPreGainDb[i]=p.getFloat("pregain_db_"+i,0);muted[i]=p.getBoolean("muted_"+i,false);solo[i]=p.getBoolean("solo_"+i,false);
+            compressorThreshold[i]=p.getFloat("comp_threshold_"+i,compressorThreshold[i]);compressorRatio[i]=p.getFloat("comp_ratio_"+i,compressorRatio[i]);layerVolumes[i]=p.getFloat("control_volume_"+i,layerVolumes[i]);layerPan[i]=p.getFloat("control_pan_"+i,0);layerPreGainDb[i]=p.getFloat("pregain_db_"+i,0);muted[i]=p.getBoolean("muted_"+i,false);silenced[i]=p.getBoolean("silenced_"+i,false);solo[i]=p.getBoolean("solo_"+i,false);
             layerCutoff[i]=p.getFloat("control_cutoff_"+i,100);layerReverb[i]=p.getFloat("control_reverb_"+i,0);layerCompMix[i]=p.getFloat("control_comp_"+i,0);layerChorus[i]=p.getFloat("control_chorus_"+i,0);reverbSize[i]=p.getFloat("reverb_size_"+i,55);reverbDamping[i]=p.getFloat("reverb_damping_"+i,45);reverbWidth[i]=p.getFloat("reverb_width_"+i,100);compressorAttackMs[i]=p.getFloat("comp_attack_"+i,10);compressorReleaseMs[i]=p.getFloat("comp_release_"+i,120);compressorMakeupDb[i]=p.getFloat("comp_makeup_"+i,0);
             int preset=p.getInt("hammond_preset_"+i,0);for(int b=0;b<9;b++)hammondBars[i][b]=p.getInt("hammond_bar_"+i+"_"+b,-1);hammondLeslie[i]=p.getInt("hammond_leslie_"+i,preset==28?2:1);hammondPercussion[i]=p.getInt("hammond_percussion_"+i,preset==3||preset==29?2:0);hammondExtras[i][0]=p.getFloat("hammond_click_"+i,.15f);hammondExtras[i][1]=p.getFloat("hammond_leakage_"+i,.12f);hammondExtras[i][2]=p.getFloat("hammond_drive_"+i,.12f);hammondExtras[i][3]=p.getFloat("hammond_level_"+i,.8f);hammondVibrato[i]=p.getInt("hammond_vibrato_"+i,0);hammondVibratoType[i]=Math.max(0,Math.min(5,p.getInt("hammond_vibrato_type_"+i,Math.max(0,hammondVibrato[i]-1))));hammondPercSoft[i]=p.getBoolean("hammond_perc_soft_"+i,false);hammondPercSlow[i]=p.getBoolean("hammond_perc_slow_"+i,false);hammondBalance[i]=p.getFloat("hammond_balance_"+i,.5f);hammondPercHarmonic[i]=hammondPercussion[i]==1?1:2;
         }}
@@ -3078,7 +3090,7 @@ public final class MainActivity extends Activity {
         private void persistHammond(int layer){SharedPreferences.Editor p=getSharedPreferences("layers",MODE_PRIVATE).edit();for(int b=0;b<9;b++)p.putInt("hammond_bar_"+layer+"_"+b,hammondBars[layer][b]);p.putInt("hammond_leslie_"+layer,hammondLeslie[layer]).putInt("hammond_percussion_"+layer,hammondPercussion[layer]).putFloat("hammond_click_"+layer,hammondExtras[layer][0]).putFloat("hammond_leakage_"+layer,hammondExtras[layer][1]).putFloat("hammond_drive_"+layer,hammondExtras[layer][2]).putFloat("hammond_level_"+layer,hammondExtras[layer][3]).putInt("hammond_vibrato_"+layer,hammondVibrato[layer]).putInt("hammond_vibrato_type_"+layer,hammondVibratoType[layer]).putBoolean("hammond_perc_soft_"+layer,hammondPercSoft[layer]).putBoolean("hammond_perc_slow_"+layer,hammondPercSlow[layer]).putFloat("hammond_balance_"+layer,hammondBalance[layer]).apply();}
         private void applyHammond(int layer){applyHammond(layer,false);}
         private void applyHammond(int layer,boolean updateLeslie){if(audioEngine!=null){int[] bars=hammondBars[layer].clone();for(int b=0;b<9;b++)if(bars[b]<0)bars[b]=6;audioEngine.setHammondControls(layer,bars,hammondLeslie[layer],updateLeslie,hammondPercussion[layer]==0?0:hammondPercussion[layer]+1,hammondExtras[layer][0],hammondExtras[layer][1],hammondExtras[layer][2],hammondExtras[layer][3],hammondVibrato[layer],hammondPercSoft[layer],hammondPercSlow[layer],hammondBalance[layer]);}}
-        void applyLoadedEditorState(int layer){SharedPreferences p=getSharedPreferences("layers",MODE_PRIVATE);layerVolumes[layer]=p.getFloat("control_volume_"+layer,layerVolumes[layer]);layerPan[layer]=p.getFloat("control_pan_"+layer,0);layerPreGainDb[layer]=p.getFloat("pregain_db_"+layer,0);int storedEngine=p.getInt("engine_"+layer,0);modulationEnabled[layer]=p.getBoolean("modulation_enabled_"+layer,storedEngine==4);muted[layer]=p.getBoolean("muted_"+layer,false);solo[layer]=p.getBoolean("solo_"+layer,false);applyLayerGains();if(audioEngine!=null){audioEngine.setLayerGain(layer,faderGain(layerVolumes[layer])*preGainLin(layer));audioEngine.setLayerPan(layer,layerPan[layer]);audioEngine.setLayerModulationEnabled(layer,modulationEnabled[layer]);audioEngine.setLayerEnvelope(layer,layerAttack[layer],layerRelease[layer]);audioEngine.setLayerEq(layer,eqLow[layer],eqMid[layer],eqHigh[layer],eqLowFreq[layer],eqMidFreq[layer],eqHighFreq[layer],eqLowQ[layer],eqMidQ[layer],eqHighQ[layer],eqHighPass[layer],eqLowPass[layer]);audioEngine.setLayerCompressor(layer,compressorThreshold[layer],compressorRatio[layer],compressorAttackMs[layer],compressorReleaseMs[layer],compressorMakeupDb[layer]);audioEngine.setLayerTone(layer,layerCutoff[layer],layerReverb[layer],layerCompMix[layer],layerChorus[layer]);audioEngine.setLayerReverb(layer,reverbSize[layer],reverbDamping[layer],reverbWidth[layer]);applyLayerRouting(layer);if("ANALOG".equals(engineName(layer)))applyAnalog(layer);if("HAMMOND".equals(engineName(layer)))applyHammond(layer,true);}if(isPadEngine(layer)&&padEngine!=null){boolean continuous=engineName(layer).startsWith("CONT");padEngine.setGain(faderGain(layerVolumes[layer]),continuous);padEngine.setPan(layerPan[layer],continuous);padEngine.setEq(eqLow[layer],eqMid[layer],eqHigh[layer],eqLowFreq[layer],eqMidFreq[layer],eqHighFreq[layer],eqLowQ[layer],eqMidQ[layer],eqHighQ[layer],eqHighPass[layer],eqLowPass[layer],continuous);}}
+        void applyLoadedEditorState(int layer){SharedPreferences p=getSharedPreferences("layers",MODE_PRIVATE);layerVolumes[layer]=p.getFloat("control_volume_"+layer,layerVolumes[layer]);layerPan[layer]=p.getFloat("control_pan_"+layer,0);layerPreGainDb[layer]=p.getFloat("pregain_db_"+layer,0);int storedEngine=p.getInt("engine_"+layer,0);modulationEnabled[layer]=p.getBoolean("modulation_enabled_"+layer,storedEngine==4);muted[layer]=p.getBoolean("muted_"+layer,false);silenced[layer]=p.getBoolean("silenced_"+layer,false);solo[layer]=p.getBoolean("solo_"+layer,false);applyLayerGains();if(audioEngine!=null){audioEngine.setLayerGain(layer,faderGain(layerVolumes[layer])*preGainLin(layer));audioEngine.setLayerPan(layer,layerPan[layer]);audioEngine.setLayerModulationEnabled(layer,modulationEnabled[layer]);audioEngine.setLayerEnvelope(layer,layerAttack[layer],layerRelease[layer]);audioEngine.setLayerEq(layer,eqLow[layer],eqMid[layer],eqHigh[layer],eqLowFreq[layer],eqMidFreq[layer],eqHighFreq[layer],eqLowQ[layer],eqMidQ[layer],eqHighQ[layer],eqHighPass[layer],eqLowPass[layer]);audioEngine.setLayerCompressor(layer,compressorThreshold[layer],compressorRatio[layer],compressorAttackMs[layer],compressorReleaseMs[layer],compressorMakeupDb[layer]);audioEngine.setLayerTone(layer,layerCutoff[layer],layerReverb[layer],layerCompMix[layer],layerChorus[layer]);audioEngine.setLayerReverb(layer,reverbSize[layer],reverbDamping[layer],reverbWidth[layer]);applyLayerRouting(layer);if("ANALOG".equals(engineName(layer)))applyAnalog(layer);if("HAMMOND".equals(engineName(layer)))applyHammond(layer,true);}if(isPadEngine(layer)&&padEngine!=null){boolean continuous=engineName(layer).startsWith("CONT");padEngine.setGain(faderGain(layerVolumes[layer]),continuous);padEngine.setPan(layerPan[layer],continuous);padEngine.setEq(eqLow[layer],eqMid[layer],eqHigh[layer],eqLowFreq[layer],eqMidFreq[layer],eqHighFreq[layer],eqLowQ[layer],eqMidQ[layer],eqHighQ[layer],eqHighPass[layer],eqLowPass[layer],continuous);}}
 
         private void text(Canvas canvas, String value, float x, float y, float size, int colour) {
             paint.setStyle(Paint.Style.FILL); paint.setColor(colour); paint.setTextSize(size);
@@ -3188,7 +3200,7 @@ public final class MainActivity extends Activity {
         private void applyLayerGains() {
             boolean anySolo = hasSolo();
             for (int i = 0; i < 6; i++) {
-                float gain=(!muted[i] && (!anySolo || solo[i])) ? faderGain(layerVolumes[i])*preGainLin(i) : 0f;
+                float gain=(!muted[i] && !silenced[i] && (!anySolo || solo[i])) ? faderGain(layerVolumes[i])*preGainLin(i) : 0f;
                 if(audioEngine!=null)audioEngine.setLayerGain(i,gain);
                 if(isPadLayer(i)&&padEngine!=null){boolean continuous=engineNames[i].startsWith("CONT");padEngine.setEnabled(gain>0f,continuous);padEngine.setGain(gain,continuous);}
             }
@@ -3370,7 +3382,7 @@ public final class MainActivity extends Activity {
                 paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(EditorUi.dp(getContext(),focusedLayer==i?3:1));paint.setColor(accent);canvas.drawRoundRect(x,top,x+cardW,top+cardH,EditorUi.dp(getContext(),7),EditorUi.dp(getContext(),7),paint);paint.setStyle(Paint.Style.FILL);
                 text(canvas, "LAYER " + (i + 1), x + EditorUi.dp(getContext(),10), top + h * .045f, h * .022f, textColour);
                 text(canvas, engineNames[i], x+EditorUi.dp(getContext(),10), top+h*.065f, h*.012f, accent);
-                button(canvas, "M", x + cardW*.54f, top+h*.016f, x+cardW*.70f, top+h*.063f, muted[i]);
+                button(canvas, "M", x + cardW*.54f, top+h*.016f, x+cardW*.70f, top+h*.063f, silenced[i]);
                 button(canvas, "S", x + cardW*.74f, top+h*.016f, x+cardW*.90f, top+h*.063f, solo[i],EditorUi.HIGHLIGHT);
                 String source = presetNames[i].isEmpty() ? layerNames[i] : presetNames[i];
                 fittedText(canvas, source, x + EditorUi.dp(getContext(),10), x + cardW - EditorUi.dp(getContext(),10), top + h * .086f, h * .015f, EditorUi.MUTED);
@@ -3601,7 +3613,7 @@ public final class MainActivity extends Activity {
                     focusedLayer=layer;
                     float cardX=mixerCardX(position,mw),cardW=mixerCardWidth(layer,mw);
                     if (tap && event.getY() >= h*.17f+h*.016f && event.getY() <= h*.17f+h*.063f) {
-                        if (layerTouchX >= cardX+cardW*.54f && layerTouchX <= cardX+cardW*.70f) { setLayerMuted(layer,!muted[layer]); return true; }
+                        if (layerTouchX >= cardX+cardW*.54f && layerTouchX <= cardX+cardW*.70f) { setLayerSilenced(layer,!silenced[layer]); return true; }
                         else if (layerTouchX >= cardX+cardW*.74f && layerTouchX <= cardX+cardW*.90f) solo[layer] = !solo[layer];
                         applyLayerGains(); invalidate(); return true;
                     }
