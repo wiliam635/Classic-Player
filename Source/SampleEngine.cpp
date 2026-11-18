@@ -575,9 +575,13 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     const auto dynamicLift = 0.10f * juce::jlimit(0, 3, routing.pianoDynamicCompression);
     // Piano dynamics: a real piano's soft notes are far quieter than the old linear law gave. The exponent
     // only shapes the volume; layer selection already happened with the shaped velocity.
-    const auto levelVelocity = (!routing.velocitySensitivityOff && routing.pianoDynamicsExponent > 1.001f)
+    const auto pianoModel = !routing.velocitySensitivityOff && routing.pianoDynamicsExponent > 1.001f;
+    const auto levelVelocity = pianoModel
         ? std::pow(velocity, juce::jlimit(1.0f, 3.0f, routing.pianoDynamicsExponent)) : velocity;
-    candidate->level = (levelVelocity + (1.0f - levelVelocity) * dynamicLift) * strokeGain
+    // The wider volume range lowers soft and medium notes. +4 dB brings the whole range to the absolute level
+    // measured on the reference player (its forte and mezzo-forte are 4-5 dB above the old level).
+    const auto modelMakeup = pianoModel ? 1.5849f : 1.0f;
+    candidate->level = (levelVelocity + (1.0f - levelVelocity) * dynamicLift) * strokeGain * modelMakeup
         * routing.nordSplit.gain(inputNote < 0 ? note - routing.octave*12 : inputNote);
     candidate->velocity = velocity;
     const auto attackSamples = juce::jmax(1.0, layerAttackSeconds(routing.attack) * currentSampleRate);

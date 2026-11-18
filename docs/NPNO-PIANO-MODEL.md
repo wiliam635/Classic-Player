@@ -23,6 +23,8 @@ O motor antigo segurava o nível do loop e só aplicava uma queda quadrática ig
   performances antigas sem valor salvo; a estrutura interna tem padrão 1,0 = lei antiga):
   o volume da voz segue `velocity^expoente`. A camada de amostra (timbre) continua escolhida pela
   velocity já moldada. Com 2,2 a saída fica em −33 dB (v20) e −11,5 dB (v64), próximo da referência.
+  Com o modelo ligado o nível sobe +4 dB (volume absoluto da referência: o forte e o mezzo-forte dela
+  ficavam 4-5 dB acima do nosso).
 - `pianoNaturalDecay` (ligado nos mesmos casos acima): quando a voz entra
   no loop de sustentação, passa a decair a uma taxa por tecla, ≈ 3,3 dB/s em C3 + 0,09 dB/s por semitom
   (limites 1,5 e 9 dB/s). O CAUDA NPNO passa a só encerrar a nota, com um fade final de até 2 s.
