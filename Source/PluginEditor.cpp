@@ -8671,8 +8671,13 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int eff
         switch (effect)
         {
             case 1: settings.tremoloRate = knobs->value(0); settings.tremoloMix = knobs->value(1); break;
-            case 2: settings.delayBpm = knobs->value(0); settings.delayFeedback = knobs->value(1);
-                    settings.delayMix = knobs->value(2); break;
+            case 2:
+                // The editor works in BPM, but the engine only reads BPM when the delay is tempo-synced
+                // (otherwise the time comes from the 20 ms..2 s rate curve and BPM/TAP did nothing).
+                // A delay that was never given a time becomes a quarter note at the BPM shown.
+                if (!settings.delaySync && settings.delayRate <= 0.0f) { settings.delaySync = true; settings.delayRate = 2.0f / 12.0f; }
+                settings.delayBpm = knobs->value(0); settings.delayFeedback = knobs->value(1);
+                settings.delayMix = knobs->value(2); break;
             case 3: settings.flangerRate = knobs->value(0); settings.flangerMix = knobs->value(1); break;
             case 4: settings.chorusRate = knobs->value(0); settings.chorusMix = knobs->value(1); break;
         }
@@ -8695,6 +8700,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showNordEffectEditor(int eff
             const auto bpm = (float) juce::jlimit(40, 240, juce::roundToInt(60000.0 / interval));
             knobs->setValue(0, bpm);
             auto config = safe->processor.layerConfig(safe->index);
+            if (!config.nordFx.delaySync && config.nordFx.delayRate <= 0.0f)
+            { config.nordFx.delaySync = true; config.nordFx.delayRate = 2.0f / 12.0f; } // quarter note at the tapped BPM
             config.nordFx.delayBpm = bpm;
             safe->processor.setLayerConfig(safe->index, config);
             tap->setButtonText(juce::String::fromUTF8("TAP TEMPO · ") + juce::String((int) bpm) + " BPM");
