@@ -234,6 +234,7 @@ struct SampleEngineRegressionTests
             routing.enabled = true;
             routing.pianoDynamicsExponent = exponent;
             juce::AudioBuffer<float> audio(2, 4096);
+            audio.clear(); // renderLayer adds into the buffer
             juce::MidiBuffer midi;
             midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(velocity)), 0);
             engine->renderLayer(layer, audio, midi, routing);
