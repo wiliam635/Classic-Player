@@ -19,14 +19,16 @@ O motor antigo segurava o nível do loop e só aplicava uma queda quadrática ig
 
 ## O que mudou
 
-- `pianoDynamicsExponent` (padrão 1,0 = comportamento antigo; 2,2 em pianos carregados pelo usuário):
+- `pianoDynamicsExponent` (2,2 em pianos carregados pelo usuário, em programas Nord importados e em
+  performances antigas sem valor salvo; a estrutura interna tem padrão 1,0 = lei antiga):
   o volume da voz segue `velocity^expoente`. A camada de amostra (timbre) continua escolhida pela
   velocity já moldada. Com 2,2 a saída fica em −33 dB (v20) e −11,5 dB (v64), próximo da referência.
-- `pianoNaturalDecay` (padrão desligado; ligado em pianos carregados pelo usuário): quando a voz entra
+- `pianoNaturalDecay` (ligado nos mesmos casos acima): quando a voz entra
   no loop de sustentação, passa a decair a uma taxa por tecla, ≈ 3,3 dB/s em C3 + 0,09 dB/s por semitom
   (limites 1,5 e 9 dB/s). O CAUDA NPNO passa a só encerrar a nota, com um fade final de até 2 s.
   Reproduz a referência dentro de ±3 dB nos pontos medidos.
-- Performances salvas guardam os próprios valores (ausentes = comportamento antigo).
+- Performances antigas passam a usar o modelo novo (valor ausente = modelo novo). Valores já salvos por esta
+  versão ou posterior são mantidos como estão.
 
 Limites: a taxa de decaimento foi ajustada em um piano (White Grand XL); outros pianos têm amostras
 com outros pontos de loop. A reflexão/ressonância e a amostra de soltura não foram alteradas.

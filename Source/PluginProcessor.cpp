@@ -3886,7 +3886,13 @@ void ClassicPlayerAudioProcessor::loadNordBundleProgram(const juce::File& folder
                         : part.source == Source::hammond ? LayerType::hammond : LayerType::nordOrgan;
                     const int index = activeLayerCount();
                     addLayer(type); // A Stage 4 program has at most seven parts; 16 slots are available.
-                    engine.setConfig(index, part.routing);
+                    auto partRouting = part.routing;
+                    if (part.source == Source::piano)
+                    {
+                        partRouting.pianoDynamicsExponent = 2.2f; // Nord bundle pianos use the piano model too
+                        partRouting.pianoNaturalDecay = true;
+                    }
+                    engine.setConfig(index, partRouting);
                     if (part.source == Source::piano)
                     {
                         sampleEngine.loadSample(index, part.file, part.piano);
@@ -5933,10 +5939,12 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     "pianoTimbreFloor" + juce::String(i + 1), 1)));
                 config.pianoPedalResonance = static_cast<bool>(state.getProperty(
                     "pianoPedalResonance" + juce::String(i + 1), false));
+                // Performances saved before the piano model existed have no value stored: they get the new
+                // model too (volume range and per-key decay). A value that was saved is kept as saved.
                 config.pianoDynamicsExponent = juce::jlimit(1.0f, 3.0f, static_cast<float>(state.getProperty(
-                    "pianoDynamicsExponent" + juce::String(i + 1), 1.0f)));
+                    "pianoDynamicsExponent" + juce::String(i + 1), 2.2f)));
                 config.pianoNaturalDecay = static_cast<bool>(state.getProperty(
-                    "pianoNaturalDecay" + juce::String(i + 1), false));
+                    "pianoNaturalDecay" + juce::String(i + 1), true));
                 const auto savedPianoPath = state.getProperty("sf2Layer" + juce::String(i + 1)).toString();
                 const auto uprightReleaseDefault = savedPianoPath.containsIgnoreCase("upright");
                 config.pianoReleaseSamplesEnabled = static_cast<bool>(state.getProperty(
