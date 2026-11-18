@@ -57,6 +57,7 @@ void SampleEngine::prepare(double sampleRate, int maximumBlockSize)
     currentSampleRate = juce::jmax(1.0, sampleRate);
     currentBlockSize = juce::jmax(1, maximumBlockSize);
     scratch.setSize(2, currentBlockSize, false, false, true);
+    prefetcher.start();
     for (auto& events : combinedMidi)
         events.ensureSize(64 * 1024);
     for (auto& layer : layers)
@@ -98,6 +99,7 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file,
         auto& destination = layers[(size_t) layer];
         destination.audio.setSize(0, 0);
         destination.piano = std::move(decodedPiano);
+        prefetcher.setInstrument(layer, destination.piano);
         destination.pianoLoaded = true;
         destination.finitePiano = file.getParentDirectory().getFileName() != "Organ";
         destination.sourcePath = file.getFullPathName();
@@ -139,6 +141,7 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file,
     auto& destination = layers[(size_t) layer];
     destination.audio = std::move(decoded);
     destination.piano = {};
+    prefetcher.setInstrument(layer, nullptr);
     destination.pianoLoaded = false;
     destination.sourcePath = file.getFullPathName();
     const auto category = file.getParentDirectory().getFileName();
@@ -260,6 +263,7 @@ void SampleEngine::unload(int layer)
     auto& destination = layers[(size_t) layer];
     destination.audio.setSize(0, 0);
     destination.piano = {};
+    prefetcher.setInstrument(layer, nullptr);
     destination.pianoLoaded = false;
     destination.sourcePath.clear();
     destination.modulationKind = Layer::ModulationKind::none;
@@ -698,6 +702,31 @@ void SampleEngine::readPianoStereoInterpolated(const NordPianoDecoder::Stroke& s
     right = channels > 1 ? interpolate(1) : left;
 }
 
+void SampleEngine::publishPrefetch(Layer& layer)
+{
+    const auto index = static_cast<int>(&layer - layers.data());
+    if (!juce::isPositiveAndBelow(index, layerCount)) return; // layers not owned by this engine (tests)
+    std::array<PianoPrefetcher::Voice, (size_t) PianoPrefetcher::maxVoices> info;
+    int count = 0;
+    if (layer.pianoLoaded && layer.piano != nullptr)
+        for (const auto& voice : layer.voices)
+        {
+            if (!voice.active || voice.sampleIndex < 0 || count >= PianoPrefetcher::maxVoices) continue;
+            if (!juce::isPositiveAndBelow(voice.sampleIndex, static_cast<int>(layer.piano->strokes.size()))) continue;
+            const auto& stroke = layer.piano->strokes[(size_t) voice.sampleIndex];
+            if (!stroke.interleavedPcm.isMapped()) continue;
+            auto& entry = info[(size_t) count++];
+            entry.stroke = voice.sampleIndex;
+            entry.firstFrame = voice.position;
+            entry.framesAhead = voice.increment * currentSampleRate * 1.2;
+            entry.looped = !voice.pianoRelease && stroke.loopEndFrame > stroke.loopStartFrame;
+            entry.loopStart = static_cast<double>(stroke.loopStartFrame);
+            entry.loopEnd = static_cast<double>(stroke.loopEndFrame);
+        }
+    if (count == 0 && !layer.prefetchPublished) return;
+    if (prefetcher.publish(index, info.data(), count)) layer.prefetchPublished = count > 0;
+}
+
 void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                                const juce::MidiBuffer& midi,
                                const Sf2Engine::LayerConfig& routing)
@@ -993,6 +1022,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
         renderedThrough = eventSample;
     }
     renderVoices(renderedThrough, output.getNumSamples());
+    publishPrefetch(layer);
     layer.peak.store(juce::jmax(peak, layer.peak.load(std::memory_order_relaxed) * 0.8f),
                      std::memory_order_relaxed);
 }

@@ -7,6 +7,7 @@
 #include <array>
 #include <atomic>
 #include <algorithm>
+#include "PianoPrefetch.h"
 #include <cstdint>
 #include <memory>
 #include <limits>
@@ -110,6 +111,7 @@ private:
         uint64_t effectQuietSamples = 0;
         std::array<float, 4> lastReverbParameters { -1.0f, -1.0f, -1.0f, -1.0f };
         std::atomic<float> peak { 0.0f };
+        bool prefetchPublished = false; // audio thread: the prefetcher currently holds voice positions for this layer
         // Last note-on seen by this layer, for the velocity diagnostic in the UI.
         std::atomic<int> lastVelocityIn { 0 }, lastVelocityShaped { 0 };
         std::atomic<int> lastStrokeLayer { -1 }, lastStrokeLayerMax { 0 };
@@ -129,6 +131,7 @@ private:
     void releaseVoice(Layer&, int note, int channel, float releaseControl);
     void renderLayer(Layer&, juce::AudioBuffer<float>&,
                      const juce::MidiBuffer&, const Sf2Engine::LayerConfig&);
+    void publishPrefetch(Layer&);
     void processEffectsAndMix(Layer&, juce::AudioBuffer<float>&,
                               const Sf2Engine::LayerConfig&);
     static float readInterpolated(const juce::AudioBuffer<float>&, int channel, double position);
@@ -139,6 +142,7 @@ private:
                                             float& left, float& right);
 
     std::array<Layer, layerCount> layers;
+    PianoPrefetcher prefetcher; // keeps mapped NPNO pages resident ahead of playback
     std::array<juce::MidiBuffer, layerCount> combinedMidi;
     juce::AudioBuffer<float> scratch;
     juce::AudioFormatManager formats;

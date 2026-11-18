@@ -279,6 +279,52 @@ struct SampleEngineRegressionTests
         std::cout << "Piano dynamics law and per-key natural decay passed\n";
     }
 
+    // Mapped NPNO pages are kept resident ahead of playing voices by a background thread. This checks the
+    // publish/touch path on a real mapping (position, loop wrap, instrument swap) without crashing.
+    static void prefetcherHandlesMappedSamples()
+    {
+        auto file = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("classic-prefetch-test.bin");
+        file.deleteFile();
+        {
+            juce::FileOutputStream out(file);
+            require(out.openedOk(), "Prefetch test file could not be created");
+            std::vector<std::int16_t> pcm(300000, 1000);
+            out.write(pcm.data(), pcm.size() * sizeof(std::int16_t));
+        }
+        auto map = std::make_shared<juce::MemoryMappedFile>(file, juce::MemoryMappedFile::readOnly);
+        require(map->getData() != nullptr, "Prefetch test mapping failed");
+        auto engine = std::make_unique<SampleEngine>();
+        engine->prepare(48000.0, 512);
+        auto instrument = std::make_shared<NordPianoDecoder::Instrument>();
+        instrument->channels = 1;
+        NordPianoDecoder::Stroke stroke;
+        stroke.loopStartFrame = 1000;
+        stroke.loopEndFrame = 299000;
+        stroke.interleavedPcm.mapFrom(map, 0, 300000);
+        instrument->strokes.push_back(std::move(stroke));
+        engine->prefetcher.setInstrument(0, instrument);
+        PianoPrefetcher::Voice voice;
+        voice.stroke = 0;
+        voice.firstFrame = 295000.0;   // close to the loop end: the range must wrap
+        voice.framesAhead = 60000.0;
+        voice.looped = true;
+        voice.loopStart = 1000.0;
+        voice.loopEnd = 299000.0;
+        for (int i = 0; i < 20; ++i)
+        {
+            voice.firstFrame += 700.0;
+            engine->prefetcher.publish(0, &voice, 1);
+            juce::Thread::sleep(5);
+        }
+        engine->prefetcher.setInstrument(0, nullptr);   // swap while the thread may be touching pages
+        engine->prefetcher.publish(0, &voice, 0);
+        instrument.reset();
+        engine.reset();                                  // stops the thread
+        map.reset();
+        file.deleteFile();
+        std::cout << "NPNO prefetch of mapped pages passed\n";
+    }
+
     static void pedalResonanceIsOptional()
     {
         auto engine = instrument(48000.0);
@@ -770,6 +816,7 @@ struct SampleEngineRegressionTests
         positiveOnlyTenthsDbTrim();
         pedalResonanceIsOptional();
         pianoDynamicsAndNaturalDecay();
+        prefetcherHandlesMappedSamples();
         uprightReleaseReflections();
         stageFourPianoControls();
         crossfades();
