@@ -2245,6 +2245,7 @@ void ClassicPlayerAudioProcessor::setLayerType(int layer, LayerType type)
     {
         auto config = engine.getConfig(layer);
         config.polyphony = 64;
+        config.velocitySensitivityOff = true; // organ: fixed level, like the Logic Vintage B3
         engine.setConfig(layer, config);
         setLayerReleaseControl(layer, 0.0f);
         externalInstruments[(size_t)layer].unload(); engine.unloadSoundFont(layer);
