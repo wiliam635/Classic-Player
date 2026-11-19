@@ -306,6 +306,7 @@ static void legacyPerformanceRestoreMatrix()
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
         });
+        processor->fillSpareSf2SettingsNow(); // the app's timer does this within a second of starting
         const auto onDemandBefore = processor->sf2OnDemandSettingsCount();
         auto restore = std::async(std::launch::async, [&]
         {

@@ -23,7 +23,7 @@ Sf2Engine::Sf2Engine()
         // Settings enumerate Core Audio devices: construct them before the
         // device callback starts, but allocate synths only for loaded layers.
         layer.settings.reset(new_fluid_settings());
-    topUpSpareSettings(static_cast<int>(spareSettingsTarget)); // fill the whole pool before any audio starts
+    topUpSpareSettings(spareSettingsAtStartup); // before any audio starts; the timer fills the rest
 }
 
 Sf2Engine::~Sf2Engine() = default;

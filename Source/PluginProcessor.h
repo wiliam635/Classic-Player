@@ -160,6 +160,8 @@ public:
     }
     int activeLayerCount() const { return activeLayers.load(std::memory_order_relaxed); }
     int sf2OnDemandSettingsCount() const noexcept { return engine.onDemandSettingsCount(); }
+    // What the timer does over its first ticks; tests call it to reach the same steady state.
+    void fillSpareSf2SettingsNow() { engine.topUpSpareSettings(64); }
     bool addLayer(LayerType type = LayerType::sf2);
     bool removeLayer(int layer);
     int visualLayerAt(int position) const;

@@ -173,7 +173,8 @@ private:
     SettingsPtr takeSpareSettings();
     std::mutex spareSettingsMutex;
     std::vector<SettingsPtr> spareSettings;
-    static constexpr size_t spareSettingsTarget = 32;
+    static constexpr size_t spareSettingsTarget = 64;
+    static constexpr int spareSettingsAtStartup = 32; // the rest is filled in the background by the timer
     std::atomic<int> onDemandSettings { 0 };
     struct SynthDeleter { void operator()(fluid_synth_t* p) const { if (p) delete_fluid_synth(p); } };
 
