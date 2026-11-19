@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <vector>
 #include "LayerEffects.h"
 #include "VelocityCurve.h"
@@ -159,9 +160,18 @@ public:
     void selectPreset(int layer, int bank, int program);
     void sendController(int layer, int controller, int value);
     float getLayerPeak(int layer) const;
+    // FluidSynth settings enumerate Core Audio devices, which blocks while the audio thread runs a
+    // callback. Loading an SF2 under the processor lock (removeLayer, migrations) therefore takes a
+    // spare, already-built settings object; this refills the pool from a context that holds no lock.
+    void topUpSpareSettings();
 
 private:
     struct SettingsDeleter { void operator()(fluid_settings_t* p) const { if (p) delete_fluid_settings(p); } };
+    using SettingsPtr = std::unique_ptr<fluid_settings_t, SettingsDeleter>;
+    SettingsPtr takeSpareSettings();
+    std::mutex spareSettingsMutex;
+    std::vector<SettingsPtr> spareSettings;
+    static constexpr size_t spareSettingsTarget = 16;
     struct SynthDeleter { void operator()(fluid_synth_t* p) const { if (p) delete_fluid_synth(p); } };
 
     struct Layer

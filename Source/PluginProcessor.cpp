@@ -295,6 +295,7 @@ void ClassicPlayerAudioProcessor::timerCallback()
     consumeMidiControlUpdates();
     flushParameterMidiUpdates();
     drainHeadlessUiMidi();
+    engine.topUpSpareSettings(); // keeps spare FluidSynth settings ready for loads made under the audio lock
     if (pendingPanic.exchange(false)) panic();
     // The editor drives the Live Set switch. If it was closed between the fade-out and
     // the program load, nothing would ever fade back in and the output would stay muted.

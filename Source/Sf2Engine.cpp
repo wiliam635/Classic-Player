@@ -23,15 +23,42 @@ Sf2Engine::Sf2Engine()
         // Settings enumerate Core Audio devices: construct them before the
         // device callback starts, but allocate synths only for loaded layers.
         layer.settings.reset(new_fluid_settings());
+    topUpSpareSettings();
 }
 
 Sf2Engine::~Sf2Engine() = default;
+
+void Sf2Engine::topUpSpareSettings()
+{
+    // Build outside the mutex: new_fluid_settings() may block on Core Audio.
+    for (int created = 0; created < 4; ++created)
+    {
+        {
+            const std::lock_guard<std::mutex> guard(spareSettingsMutex);
+            if (spareSettings.size() >= spareSettingsTarget) return;
+        }
+        SettingsPtr fresh(new_fluid_settings());
+        const std::lock_guard<std::mutex> guard(spareSettingsMutex);
+        if (spareSettings.size() < spareSettingsTarget) spareSettings.push_back(std::move(fresh));
+    }
+}
+
+Sf2Engine::SettingsPtr Sf2Engine::takeSpareSettings()
+{
+    const std::lock_guard<std::mutex> guard(spareSettingsMutex);
+    if (spareSettings.empty()) return {};
+    auto settings = std::move(spareSettings.back());
+    spareSettings.pop_back();
+    return settings;
+}
 
 void Sf2Engine::createSynth(Layer& layer, double sampleRate)
 {
     layer.synth.reset();
     if (!layer.settings)
-        layer.settings.reset(new_fluid_settings());
+        layer.settings = takeSpareSettings();
+    if (!layer.settings)
+        layer.settings.reset(new_fluid_settings()); // pool empty: last resort
     fluid_settings_setnum(layer.settings.get(), "synth.sample-rate", sampleRate);
     fluid_settings_setint(layer.settings.get(), "synth.threadsafe-api", 1);
     // A finite ceiling protects the real-time thread from runaway voice counts.
