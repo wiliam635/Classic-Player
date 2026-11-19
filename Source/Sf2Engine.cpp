@@ -23,15 +23,15 @@ Sf2Engine::Sf2Engine()
         // Settings enumerate Core Audio devices: construct them before the
         // device callback starts, but allocate synths only for loaded layers.
         layer.settings.reset(new_fluid_settings());
-    topUpSpareSettings();
+    topUpSpareSettings(static_cast<int>(spareSettingsTarget)); // fill the whole pool before any audio starts
 }
 
 Sf2Engine::~Sf2Engine() = default;
 
-void Sf2Engine::topUpSpareSettings()
+void Sf2Engine::topUpSpareSettings(int maxToCreate)
 {
     // Build outside the mutex: new_fluid_settings() may block on Core Audio.
-    for (int created = 0; created < 4; ++created)
+    for (int created = 0; created < maxToCreate; ++created)
     {
         {
             const std::lock_guard<std::mutex> guard(spareSettingsMutex);

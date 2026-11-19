@@ -163,7 +163,7 @@ public:
     // FluidSynth settings enumerate Core Audio devices, which blocks while the audio thread runs a
     // callback. Loading an SF2 under the processor lock (removeLayer, migrations) therefore takes a
     // spare, already-built settings object; this refills the pool from a context that holds no lock.
-    void topUpSpareSettings();
+    void topUpSpareSettings(int maxToCreate = 4);
     // Times a load had to build settings itself (pool empty). Must stay 0 for loads made under the audio lock.
     int onDemandSettingsCount() const noexcept { return onDemandSettings.load(std::memory_order_relaxed); }
 
