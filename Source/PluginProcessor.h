@@ -159,6 +159,7 @@ public:
         return analyserSampleRate.load(std::memory_order_relaxed);
     }
     int activeLayerCount() const { return activeLayers.load(std::memory_order_relaxed); }
+    int sf2OnDemandSettingsCount() const noexcept { return engine.onDemandSettingsCount(); }
     bool addLayer(LayerType type = LayerType::sf2);
     bool removeLayer(int layer);
     int visualLayerAt(int position) const;

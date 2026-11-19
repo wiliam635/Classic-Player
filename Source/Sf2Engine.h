@@ -164,6 +164,8 @@ public:
     // callback. Loading an SF2 under the processor lock (removeLayer, migrations) therefore takes a
     // spare, already-built settings object; this refills the pool from a context that holds no lock.
     void topUpSpareSettings();
+    // Times a load had to build settings itself (pool empty). Must stay 0 for loads made under the audio lock.
+    int onDemandSettingsCount() const noexcept { return onDemandSettings.load(std::memory_order_relaxed); }
 
 private:
     struct SettingsDeleter { void operator()(fluid_settings_t* p) const { if (p) delete_fluid_settings(p); } };
@@ -171,7 +173,8 @@ private:
     SettingsPtr takeSpareSettings();
     std::mutex spareSettingsMutex;
     std::vector<SettingsPtr> spareSettings;
-    static constexpr size_t spareSettingsTarget = 16;
+    static constexpr size_t spareSettingsTarget = 32;
+    std::atomic<int> onDemandSettings { 0 };
     struct SynthDeleter { void operator()(fluid_synth_t* p) const { if (p) delete_fluid_synth(p); } };
 
     struct Layer

@@ -8,6 +8,11 @@
 #include <chrono>
 #include <array>
 #include <utility>
+#include <future>
+#include <thread>
+#include <cstring>
+#include <cstdlib>
+#include <cmath>
 static void check(bool b,const char* message){if(!b)throw std::runtime_error(message);}
 struct ContinuousPadRegressionAccess
 {
@@ -147,6 +152,187 @@ static void performanceEffectsRegression()
     processor->releaseResources();
     check(first.deleteFile() && second.deleteFile(), "remove startup fixtures");
     std::cout << "Performance EQ, compressor, reverb and chorus restore passed\n";
+}
+
+
+// A minimal valid SoundFont (one looped sine sample) so legacy performances can be restored with real SF2 layers.
+static void writeMinimalSf2(const juce::File& file)
+{
+    auto u16 = [](juce::MemoryOutputStream& s, int v) { s.writeShort((short) v); };
+    auto u32 = [](juce::MemoryOutputStream& s, int v) { s.writeInt(v); };
+    auto fixedName = [](juce::MemoryOutputStream& s, const char* name)
+    { char buffer[20] = {}; std::strncpy(buffer, name, 19); s.write(buffer, 20); };
+    auto chunk = [&](juce::MemoryOutputStream& out, const char* id, const juce::MemoryBlock& body)
+    {
+        out.write(id, 4);
+        out.writeInt((int) body.getSize());
+        out.write(body.getData(), body.getSize());
+        if (body.getSize() % 2 != 0) out.writeByte(0);
+    };
+    auto list = [&](juce::MemoryOutputStream& out, const char* type, const juce::MemoryBlock& body)
+    {
+        out.write("LIST", 4);
+        out.writeInt((int) body.getSize() + 4);
+        out.write(type, 4);
+        out.write(body.getData(), body.getSize());
+    };
+    constexpr int sampleFrames = 64, padding = 46;
+    juce::MemoryOutputStream info, sdta, pdta;
+    { juce::MemoryOutputStream v; u16(v, 2); u16(v, 1); chunk(info, "ifil", v.getMemoryBlock()); }
+    { juce::MemoryOutputStream v; v.write("EMU8000\0", 8); chunk(info, "isng", v.getMemoryBlock()); }
+    { juce::MemoryOutputStream v; v.write("Test\0\0", 6); chunk(info, "INAM", v.getMemoryBlock()); }
+    { juce::MemoryOutputStream v;
+      for (int i = 0; i < sampleFrames + padding; ++i)
+          v.writeShort(i < sampleFrames ? (short) (12000.0 * std::sin(i * 2.0 * 3.14159265358979 / 16.0)) : (short) 0);
+      chunk(sdta, "smpl", v.getMemoryBlock()); }
+    { juce::MemoryOutputStream v;
+      for (int i = 0; i < 2; ++i)
+      { fixedName(v, i == 0 ? "Test" : "EOP"); u16(v, 0); u16(v, 0); u16(v, i); u32(v, 0); u32(v, 0); u32(v, 0); }
+      chunk(pdta, "phdr", v.getMemoryBlock()); }
+    { juce::MemoryOutputStream v; u16(v, 0); u16(v, 0); u16(v, 1); u16(v, 0); chunk(pdta, "pbag", v.getMemoryBlock()); }
+    { juce::MemoryOutputStream v; for (int i = 0; i < 5; ++i) u16(v, 0); chunk(pdta, "pmod", v.getMemoryBlock()); }
+    { juce::MemoryOutputStream v; u16(v, 41); u16(v, 0); u16(v, 0); u16(v, 0); chunk(pdta, "pgen", v.getMemoryBlock()); }
+    { juce::MemoryOutputStream v;
+      fixedName(v, "Test"); u16(v, 0); fixedName(v, "EOI"); u16(v, 1); chunk(pdta, "inst", v.getMemoryBlock()); }
+    { juce::MemoryOutputStream v; u16(v, 0); u16(v, 0); u16(v, 2); u16(v, 0); chunk(pdta, "ibag", v.getMemoryBlock()); }
+    { juce::MemoryOutputStream v; for (int i = 0; i < 5; ++i) u16(v, 0); chunk(pdta, "imod", v.getMemoryBlock()); }
+    { juce::MemoryOutputStream v;
+      u16(v, 54); u16(v, 1); u16(v, 53); u16(v, 0); u16(v, 0); u16(v, 0);
+      chunk(pdta, "igen", v.getMemoryBlock()); }
+    { juce::MemoryOutputStream v;
+      fixedName(v, "Sine"); u32(v, 0); u32(v, sampleFrames); u32(v, 8); u32(v, 56); u32(v, 44100);
+      v.writeByte(60); v.writeByte(0); u16(v, 0); u16(v, 1);
+      fixedName(v, "EOS"); for (int i = 0; i < 5; ++i) u32(v, 0); v.writeByte(0); v.writeByte(0); u16(v, 0); u16(v, 0);
+      chunk(pdta, "shdr", v.getMemoryBlock()); }
+    juce::MemoryOutputStream body;
+    body.write("sfbk", 4);
+    list(body, "INFO", info.getMemoryBlock());
+    list(body, "sdta", sdta.getMemoryBlock());
+    list(body, "pdta", pdta.getMemoryBlock());
+    juce::MemoryOutputStream whole;
+    whole.write("RIFF", 4);
+    whole.writeInt((int) body.getDataSize());
+    whole.write(body.getData(), body.getDataSize());
+    check(file.replaceWithData(whole.getData(), whole.getDataSize()), "write minimal SF2");
+}
+
+// Performances saved by 3.0.3 hold continuous-pad layers (3.1.0 moved them into the pad strip). Restoring
+// them removes those layers and shifts the others, reloading SF2s under the audio lock; this once
+// deadlocked with Core Audio. Every combination must restore promptly with the audio thread running.
+static void legacyPerformanceRestoreMatrix()
+{
+    using LT = ClassicPlayerAudioProcessor::LayerType;
+    juce::TemporaryFile storage;
+    const auto root = storage.getFile();
+    check(root.createDirectory().wasOk(), "legacy matrix storage");
+    struct Cleanup { juce::File directory; ~Cleanup() { directory.deleteRecursively(); } } cleanup { root };
+    std::array<juce::File, 16> sf2Files;
+    for (size_t i = 0; i < sf2Files.size(); ++i)
+    {
+        sf2Files[i] = root.getChildFile("fixture-" + juce::String((int) i) + ".sf2");
+        writeMinimalSf2(sf2Files[i]);
+    }
+
+    struct Case { const char* name; std::vector<LT> layers; };
+    const std::vector<Case> cases {
+        { "pad only", { LT::continuousPads } },
+        { "pad then sf2", { LT::continuousPads, LT::sf2 } },
+        { "sf2 then pad", { LT::sf2, LT::continuousPads } },
+        { "sf2 pad sf2", { LT::sf2, LT::continuousPads, LT::sf2 } },
+        { "analog pad hammond sf2", { LT::analog, LT::continuousPads, LT::hammond, LT::sf2 } },
+        { "pad sf2 pad sf2", { LT::continuousPads, LT::sf2, LT::continuousPads, LT::sf2 } },
+        { "sf2 sf2 pad pad", { LT::sf2, LT::sf2, LT::continuousPads, LT::continuousPads } },
+        { "organ pad sf2 sf2", { LT::nordOrgan, LT::continuousPads, LT::sf2, LT::sf2 } },
+        { "no pad (control)", { LT::sf2, LT::analog, LT::sf2 } },
+        { "pad then 15 sf2", [] { std::vector<LT> v { LT::continuousPads };
+                                  for (int i = 0; i < 15; ++i) v.push_back(LT::sf2); return v; }() },
+        { "two pads then 14 sf2", [] { std::vector<LT> v { LT::continuousPads, LT::continuousPads };
+                                       for (int i = 0; i < 14; ++i) v.push_back(LT::sf2); return v; }() },
+    };
+
+    for (const auto& testCase : cases)
+    {
+        const auto fail = [&](const juce::String& message)
+        { throw std::runtime_error((juce::String(testCase.name) + ": " + message).toStdString()); };
+        juce::MemoryBlock legacyState;
+        std::vector<LT> expectedTypes;
+        std::vector<juce::String> expectedPaths;
+        {
+            auto source = std::make_unique<ClassicPlayerAudioProcessor>(root);
+            while (source->activeLayerCount() > 0 && source->removeLayer(0)) {}
+            int sf2Index = 0;
+            for (const auto type : testCase.layers)
+            {
+                if (!source->addLayer(type)) fail("addLayer");
+                const auto layer = source->activeLayerCount() - 1;
+                source->setLayerType(layer, type);
+                if (type == LT::sf2)
+                {
+                    const auto& file = sf2Files[(size_t) sf2Index++];
+                    if (source->loadSoundFont(layer, file).failed()) fail("fixture SF2 did not load");
+                }
+                if (type != LT::continuousPads)
+                {
+                    expectedTypes.push_back(type);
+                    expectedPaths.push_back(type == LT::sf2 ? source->soundFontPath(layer) : juce::String{});
+                }
+            }
+            juce::MemoryBlock current;
+            source->getStateInformation(current);
+            // Reproduce a 3.0.3 file: it has no PadStrip node.
+            auto xml = juce::AudioProcessor::getXmlFromBinary(current.getData(), (int) current.getSize());
+            if (xml == nullptr) fail("state xml");
+            auto tree = juce::ValueTree::fromXml(*xml);
+            for (int i = tree.getNumChildren() - 1; i >= 0; --i)
+                if (tree.getChild(i).hasType("PadStrip")) tree.removeChild(i, nullptr);
+            if (auto legacyXml = tree.createXml()) juce::AudioProcessor::copyXmlToBinary(*legacyXml, legacyState);
+        }
+
+        auto processor = std::make_unique<ClassicPlayerAudioProcessor>(root);
+        ContinuousPadRegressionAccess::activateForTest(*processor);
+        processor->prepareToPlay(48000.0, 256);
+        std::atomic<bool> stopAudio { false };
+        std::atomic<int> blocks { 0 };
+        std::thread audioThread([&]
+        {
+            juce::AudioBuffer<float> audio(2, 256);
+            juce::MidiBuffer midi;
+            while (!stopAudio.load())
+            {
+                audio.clear();
+                midi.clear();
+                processor->processBlock(audio, midi);
+                blocks.fetch_add(1);
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        });
+        const auto onDemandBefore = processor->sf2OnDemandSettingsCount();
+        auto restore = std::async(std::launch::async, [&]
+        {
+            processor->setStateInformation(legacyState.getData(), (int) legacyState.getSize());
+        });
+        const auto status = restore.wait_for(std::chrono::seconds(60));
+        if (status != std::future_status::ready)
+        {
+            // A deadlock would hang the process; report and abort without joining the stuck threads.
+            std::cerr << "FAIL: " << testCase.name << ": restoring a legacy performance did not finish in 60 s\n";
+            std::_Exit(1);
+        }
+        stopAudio.store(true);
+        audioThread.join();
+        if (blocks.load() < 1) fail("audio thread processed nothing");
+        if (processor->sf2OnDemandSettingsCount() != onDemandBefore)
+            fail("a load built FluidSynth settings under the audio lock");
+        if ((size_t) processor->activeLayerCount() != expectedTypes.size()) fail("wrong layer count after migration");
+        for (size_t i = 0; i < expectedTypes.size(); ++i)
+        {
+            if (processor->layerType((int) i) != expectedTypes[i]) fail("layer order changed by the migration");
+            if (expectedTypes[i] == LT::sf2 && processor->soundFontPath((int) i) != expectedPaths[i])
+                fail("an SF2 ended up in the wrong layer after the shift");
+        }
+        processor->releaseResources();
+    }
+    std::cout << "Legacy (3.0.3) performance restore matrix passed (" << cases.size() << " combinations)\n";
 }
 
 static void continuousPadCutoffRegression()
@@ -1372,6 +1558,7 @@ int main(int argc, char** argv)
             continuousPadRegression();
             return 0;
         }
+        if (argc > 1 && juce::String(argv[1]) == "--legacy-restore") { legacyPerformanceRestoreMatrix(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--performance-effects")
         {
             performanceEffectsRegression();
@@ -1382,6 +1569,7 @@ int main(int argc, char** argv)
             nordOrganRegression();
             return 0;
         }
+        legacyPerformanceRestoreMatrix();
         performanceEffectsRegression();
         nordOrganRegression();
         DrumPadRegressionAccess::run();

@@ -58,7 +58,10 @@ void Sf2Engine::createSynth(Layer& layer, double sampleRate)
     if (!layer.settings)
         layer.settings = takeSpareSettings();
     if (!layer.settings)
+    {
+        onDemandSettings.fetch_add(1, std::memory_order_relaxed);
         layer.settings.reset(new_fluid_settings()); // pool empty: last resort
+    }
     fluid_settings_setnum(layer.settings.get(), "synth.sample-rate", sampleRate);
     fluid_settings_setint(layer.settings.get(), "synth.threadsafe-api", 1);
     // A finite ceiling protects the real-time thread from runaway voice counts.
