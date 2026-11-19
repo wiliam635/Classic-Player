@@ -544,7 +544,8 @@ void SampleEngine::preparePianoLoops(NordPianoDecoder::Instrument& piano)
 }
 
 void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int channel,
-                                  float velocity, const Sf2Engine::LayerConfig& routing, int inputNote)
+                                  float velocity, const Sf2Engine::LayerConfig& routing, int inputNote,
+                                  float levelScale)
 {
     if (!juce::isPositiveAndBelow(sampleIndex, static_cast<int>(layer.piano->strokes.size())))
         return;
@@ -578,8 +579,8 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     // Piano dynamics: a real piano's soft notes are far quieter than the old linear law gave. The exponent
     // only shapes the volume; layer selection already happened with the shaped velocity.
     const auto pianoModel = !routing.velocitySensitivityOff && routing.pianoDynamicsExponent > 1.001f;
-    const auto levelVelocity = pianoModel
-        ? std::pow(velocity, juce::jlimit(1.0f, 3.0f, routing.pianoDynamicsExponent)) : velocity;
+    const auto levelVelocity = (pianoModel
+        ? std::pow(velocity, juce::jlimit(1.0f, 3.0f, routing.pianoDynamicsExponent)) : velocity) * levelScale;
     // The wider volume range lowers soft and medium notes. +4 dB brings the whole range to the absolute level
     // measured on the reference player (its forte and mezzo-forte are 4-5 dB above the old level).
     const auto modelMakeup = pianoModel ? 1.5849f : 1.0f;
@@ -759,7 +760,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             || !routing.pianoReleaseSamplesEnabled || velocity <= 0.0f) return;
         const auto stroke = findPianoStroke(layer, note, velocity, 2);
         if (stroke >= 0)
-            startPianoVoice(layer, stroke, note, channel, velocity * 0.5f, routing);
+            startPianoVoice(layer, stroke, note, channel, velocity, routing, -1, 0.5f);
     };
 
     const auto processEvent = [&] (const juce::MidiMessage& message)
@@ -1062,11 +1063,20 @@ void SampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<float>& 
         for (size_t band = 0; band < 3; ++band)
             layer.pianoTimbreGains[band].setTargetValue(timbre < 0 ? 1.0f
                 : juce::Decibels::decibelsToGain(voicingDb[(size_t) timbre][band]));
+        // Neutral voicing (all three gains at 1) leaves the signal unchanged: low + mid + high equals the input,
+        // so the split filters are skipped. Their state is cleared; with unity gains the output ignores it.
+        const auto neutral = timbre < 0 && std::none_of(layer.pianoTimbreGains.begin(), layer.pianoTimbreGains.end(),
+            [] (const auto& gain) { return gain.isSmoothing() || gain.getCurrentValue() != 1.0f; });
+        if (neutral)
+        {
+            layer.pianoLowEqState.fill(0.0f);
+            layer.pianoHighEqState.fill(0.0f);
+        }
         const auto lowPole = static_cast<float>(std::exp(
             -juce::MathConstants<double>::twoPi * lowCorner / currentSampleRate));
         const auto highPole = static_cast<float>(std::exp(
             -juce::MathConstants<double>::twoPi * highCorner / currentSampleRate));
-        for (int sample = 0; sample < samples; ++sample)
+        for (int sample = 0; sample < samples && !neutral; ++sample)
         {
             const auto lowGain = layer.pianoTimbreGains[0].getNextValue();
             const auto midGain = layer.pianoTimbreGains[1].getNextValue();

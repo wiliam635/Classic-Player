@@ -124,8 +124,10 @@ private:
 
     void startVoice(Layer&, int note, int channel, float velocity,
                     const Sf2Engine::LayerConfig& routing, int inputNote = -1);
+    // levelScale scales the voice level after the velocity law (key-off reflections play at half the level of the
+    // main note, whatever law the main note follows).
     void startPianoVoice(Layer&, int sampleIndex, int note, int channel, float velocity,
-                         const Sf2Engine::LayerConfig& routing, int inputNote = -1);
+                         const Sf2Engine::LayerConfig& routing, int inputNote = -1, float levelScale = 1.0f);
     Voice& allocateVoice(Layer&, int polyphony);
     static void preparePianoLoops(NordPianoDecoder::Instrument&);
     std::shared_ptr<NordPianoDecoder::Instrument> findCachedPiano(const juce::File&);

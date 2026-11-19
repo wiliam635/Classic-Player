@@ -417,6 +417,41 @@ struct SampleEngineRegressionTests
             "Disabled reflections unexpectedly triggered the release sample");
     }
 
+    // Key-off reflections play at half the level of the main note under either velocity law. The piano model's
+    // velocity^2.2 once applied to the already-halved velocity and made them about 7 dB quieter than intended.
+    static void reflectionLevelFollowsMainNote()
+    {
+        for (const auto exponent : { 1.0f, 2.2f })
+        {
+            auto engine = instrument(48000.0);
+            auto& layer = engine->layers[0];
+            auto releaseStroke = layer.piano->strokes[0];
+            releaseStroke.bank = 2;
+            layer.piano->strokes.push_back(std::move(releaseStroke));
+            auto routing = config();
+            routing.enabled = true;
+            routing.pianoPedalResonance = true;
+            routing.pianoReleaseSamplesEnabled = true;
+            routing.pianoDynamicsExponent = exponent;
+            juce::AudioBuffer<float> audio(2, 64);
+            juce::MidiBuffer midi;
+            midi.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 80), 0);
+            midi.addEvent(juce::MidiMessage::noteOff(1, 60), 32);
+            audio.clear();
+            engine->renderLayer(layer, audio, midi, routing);
+            float mainLevel = 0.0f, reflectionLevel = 0.0f;
+            for (const auto& voice : layer.voices)
+            {
+                if (voice.sampleIndex < 0) continue;
+                if (voice.pianoRelease) reflectionLevel = voice.level; else mainLevel = voice.level;
+            }
+            require(mainLevel > 0.0f && reflectionLevel > 0.0f, "Reflection test did not start both voices");
+            require(std::abs(reflectionLevel / mainLevel - 0.5f) < 0.02f,
+                    "Key-off reflection is not at half the level of the main note");
+        }
+        std::cout << "Key-off reflection level follows the main note passed\n";
+    }
+
     static void stageFourPianoControls()
     {
         auto routing = config();
@@ -819,6 +854,7 @@ struct SampleEngineRegressionTests
         pianoDynamicsAndNaturalDecay();
         prefetcherHandlesMappedSamples();
         uprightReleaseReflections();
+        reflectionLevelFollowsMainNote();
         stageFourPianoControls();
         crossfades();
         adaptiveVelocity();
