@@ -38,7 +38,7 @@ jobs:
       - name: Compile actual engines and processor
         run: cmake --build build/${{ matrix.preset }} --config Release --target ClassicPlayerMasterMidiTest ClassicPlayerAudioRegressionTest ClassicPlayerHammondTest --parallel 2
       - name: Run audio and state regressions
-        run: ctest --test-dir build/${{ matrix.preset }} -C Release -R "^(audio-regression|master-midi)$" --output-on-failure
+        run: ctest --test-dir build/${{ matrix.preset }} -C Release -R "^(audio-regression|master-midi|legacy-restore)$" --output-on-failure
       - name: Validate responsive interface and capture previews
         shell: bash
         run: |
