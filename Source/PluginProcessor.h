@@ -302,9 +302,13 @@ public:
     // short fade, and the held notes are then played in the new performance.
     // The callbacks run on the message thread; beforeSwap closes native editors, afterSwap
     // reports the result of loading.
+    // The heavy part (decoding SF2/NPNO/NSMP) runs on a background thread so the interface never freezes;
+    // onReady runs on the message thread once the slot is ready to take over on the next note.
     juce::Result stageLiveSetSlot(int bank, int slot, std::function<void()> beforeSwap,
-                                  std::function<void(juce::Result)> afterSwap);
+                                  std::function<void(juce::Result)> afterSwap,
+                                  std::function<void()> onReady = {});
     void cancelStagedLiveSetSwitch();
+    bool isLiveSetPreparing() const noexcept { return liveSetPreparing.load(std::memory_order_acquire); }
     bool hasStagedLiveSetSwitch() const noexcept { return liveSetSwapState.load(std::memory_order_acquire) != 0; }
     // True once the audio thread has faded the old program to silence (set by processBlock).
     bool isLiveSetFadeOutComplete() const noexcept { return liveSetFadeOutDone.load(std::memory_order_acquire); }
@@ -347,6 +351,10 @@ juce::File backupDataDirectory() const { return programStorageDirectory(); }
 private:
     mutable juce::CriticalSection nordBundleImportLock;
     juce::ThreadPool nordBundlePool { 1 };
+    juce::ThreadPool liveSetStagePool { 1 };
+    std::shared_ptr<std::atomic<bool>> liveSetStageAlive = std::make_shared<std::atomic<bool>>(true);
+    std::atomic<uint64_t> liveSetStageGeneration { 0 };
+    std::atomic<bool> liveSetPreparing { false };
     std::shared_ptr<std::atomic<bool>> nordBundleAlive = std::make_shared<std::atomic<bool>>(true);
     std::atomic<bool> nordBundleLoading { false };
     std::atomic<unsigned> nordBundleRevision { 0 };

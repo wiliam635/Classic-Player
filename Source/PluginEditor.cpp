@@ -12725,7 +12725,9 @@ void ClassicPlayerAudioProcessorEditor::refreshLiveSet()
         const auto active = slot == activeLiveSetSlot && activeLiveSetBank == loadedLiveSetBank;
         button.getProperties().set("liveNumber", juce::String(slot+1).paddedLeft('0',2));
         button.getProperties().set("liveTitle", displayName);
-        button.getProperties().set("liveSummary", name.isEmpty() ? juce::String{} : layers);
+        const auto preparing = active && classicProcessor.isLiveSetPreparing();
+        button.getProperties().set("liveSummary", name.isEmpty() ? juce::String{}
+                                                  : (preparing ? juce::String("CARREGANDO...") : layers));
         button.getProperties().set("liveVolumes", name.isEmpty() ? juce::String{} : volumes);
         button.getProperties().set("liveMovingLayers", 0);
         button.getProperties().set("liveActive", active);
@@ -12893,6 +12895,10 @@ void ClassicPlayerAudioProcessorEditor::loadLiveSetSlot(int slot)
             safe->programBox.setText(safe->classicProcessor.currentSavedProgramName(), juce::dontSendNotification);
             safe->refreshProgramLibrary();
             safe->refreshAfterProgramLoad();
+        },
+        [safe]
+        {
+            if (safe != nullptr) safe->refreshLiveSet();
         });
     if (staged.failed())
     {

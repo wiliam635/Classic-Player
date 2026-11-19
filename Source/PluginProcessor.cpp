@@ -451,6 +451,8 @@ ClassicPlayerAudioProcessor::ClassicPlayerAudioProcessor(juce::File programStora
 ClassicPlayerAudioProcessor::~ClassicPlayerAudioProcessor()
 {
     liveSetSwapTrigger.cancelPendingUpdate();
+    liveSetStageAlive->store(false);
+    liveSetStagePool.removeAllJobs(true, -1);
     nordBundleAlive->store(false);
     nordBundlePool.removeAllJobs(true, -1);
     stopTimer();
@@ -4370,7 +4372,8 @@ juce::Result ClassicPlayerAudioProcessor::loadLiveSetSlot(int bank, int slot)
 }
 
 juce::Result ClassicPlayerAudioProcessor::stageLiveSetSlot(int bank, int slot, std::function<void()> beforeSwap,
-                                                            std::function<void(juce::Result)> afterSwap)
+                                                            std::function<void(juce::Result)> afterSwap,
+                                                            std::function<void()> onReady)
 {
     const auto stageStartMs = juce::Time::getMillisecondCounterHiRes();
     const auto program = liveSetSlotProgram(bank, slot);
@@ -4386,64 +4389,93 @@ juce::Result ClassicPlayerAudioProcessor::stageLiveSetSlot(int bank, int slot, s
         return juce::Result::fail("A programacao esta corrompida ou e incompativel.");
     const auto state = juce::ValueTree::fromXml(*xml);
 
-    // Prepare the SF2 files now, while the old performance keeps sounding, so the swap on the
-    // first note only has to apply them.
-    for (int i = 0; i < Sf2Engine::layerCount; ++i)
-    {
-        stagedSoundFonts[(size_t) i].reset();
-        stagedSoundFontPaths[(size_t) i] = {};
-    }
-    const auto layerCountToRestore = juce::jlimit(
-        0, Sf2Engine::layerCount, static_cast<int>(state.getProperty("activeLayers", Sf2Engine::defaultLayerCount)));
-    for (int i = 0; i < layerCountToRestore; ++i)
-    {
-        const auto savedType = static_cast<int>(state.getProperty(
-            "layerType" + juce::String(i + 1), static_cast<int>(LayerType::sf2)));
-        const auto sourcePath = state.getProperty("sf2Layer" + juce::String(i + 1)).toString();
-        if (!(savedType == static_cast<int>(LayerType::sf2) || savedType == static_cast<int>(LayerType::vst)))
-            continue;
-        if (sourcePath.isEmpty() || juce::File(sourcePath).hasFileExtension(".npno")
-            || juce::File(sourcePath).hasFileExtension(".nsmp;.nsmp3;.nsmp4")
-            || engine.getSoundFontPath(i) == sourcePath)
-            continue;
-        if (engine.prepareSoundFont(i, juce::File(sourcePath), stagedSoundFonts[(size_t) i]).wasOk())
-            stagedSoundFontPaths[(size_t) i] = sourcePath;
-        else
-            stagedSoundFonts[(size_t) i].reset();
-    }
-    // NPNO / NSMP files too, so the swap on the first note only has to attach them.
-    for (int i = 0; i < Sf2Engine::layerCount; ++i)
-    {
-        stagedPianos[(size_t) i].reset();
-        stagedNordSamples[(size_t) i].reset();
-        stagedNordPaths[(size_t) i] = {};
-    }
-    prepareNordInstruments(state, layerCountToRestore, stagedPianos, stagedNordSamples, stagedNordPaths);
-    {
-        juce::String line;
-        line << juce::Time::getCurrentTime().toString(true, true) << " | selecao do slot: preparo de SF2/NPNO/NSMP em "
-             << juce::String(juce::Time::getMillisecondCounterHiRes() - stageStartMs, 1) << " ms\n";
-        programStorageDirectory().getChildFile("liveset-diagnostico.txt").appendText(line);
-    }
+    // Drop any previous staging (and invalidate a preparation still running for another slot).
+    cancelStagedLiveSetSwitch();
+    liveSetStagePool.removeAllJobs(false, 0);
+    const auto generation = liveSetStageGeneration.load(std::memory_order_acquire);
     stagedLiveSetProgram = program;
     stagedBeforeSwap = std::move(beforeSwap);
     stagedAfterSwap = std::move(afterSwap);
-    liveSetSwapState.store(1, std::memory_order_release);
+    liveSetPreparing.store(true, std::memory_order_release);
+
+    const auto layerCountToRestore = juce::jlimit(
+        0, Sf2Engine::layerCount, static_cast<int>(state.getProperty("activeLayers", Sf2Engine::defaultLayerCount)));
+
+    struct Prepared
+    {
+        std::array<std::shared_ptr<Sf2Engine::PreparedSoundFont>, Sf2Engine::layerCount> soundFonts {};
+        std::array<juce::String, Sf2Engine::layerCount> soundFontPaths;
+        PreparedPianos pianos {};
+        PreparedNordSamples samples {};
+        std::array<juce::String, Sf2Engine::layerCount> nordPaths;
+    };
+    auto prepared = std::make_shared<Prepared>();
+    const auto alive = liveSetStageAlive;
+    liveSetStagePool.addJob([this, alive, generation, state, layerCountToRestore, prepared, stageStartMs,
+                             onReady = std::move(onReady)]() mutable
+    {
+        if (!alive->load()) return;
+        // Everything below reads and decodes files; none of it touches the audio thread or the UI.
+        for (int i = 0; i < layerCountToRestore && alive->load(); ++i)
+        {
+            if (liveSetStageGeneration.load(std::memory_order_acquire) != generation) return; // superseded
+            const auto savedType = static_cast<int>(state.getProperty(
+                "layerType" + juce::String(i + 1), static_cast<int>(LayerType::sf2)));
+            const auto sourcePath = state.getProperty("sf2Layer" + juce::String(i + 1)).toString();
+            if (!(savedType == static_cast<int>(LayerType::sf2) || savedType == static_cast<int>(LayerType::vst)))
+                continue;
+            if (sourcePath.isEmpty() || juce::File(sourcePath).hasFileExtension(".npno")
+                || juce::File(sourcePath).hasFileExtension(".nsmp;.nsmp3;.nsmp4")
+                || engine.getSoundFontPath(i) == sourcePath)
+                continue;
+            if (engine.prepareSoundFont(i, juce::File(sourcePath), prepared->soundFonts[(size_t) i]).wasOk())
+                prepared->soundFontPaths[(size_t) i] = sourcePath;
+            else
+                prepared->soundFonts[(size_t) i].reset();
+        }
+        if (!alive->load() || liveSetStageGeneration.load(std::memory_order_acquire) != generation) return;
+        prepareNordInstruments(state, layerCountToRestore, prepared->pianos, prepared->samples, prepared->nordPaths);
+        const auto elapsedMs = juce::Time::getMillisecondCounterHiRes() - stageStartMs;
+        if (!alive->load()) return;
+
+        juce::MessageManager::callAsync(
+            [this, alive, generation, prepared, elapsedMs, onReady = std::move(onReady)]() mutable
+            {
+                if (!alive->load()) return;
+                if (liveSetStageGeneration.load(std::memory_order_acquire) != generation) return; // cancelled meanwhile
+                if (liveSetSwapState.load(std::memory_order_acquire) != 0) return;
+                stagedSoundFonts = std::move(prepared->soundFonts);
+                stagedSoundFontPaths = std::move(prepared->soundFontPaths);
+                stagedPianos = std::move(prepared->pianos);
+                stagedNordSamples = std::move(prepared->samples);
+                stagedNordPaths = std::move(prepared->nordPaths);
+                {
+                    juce::String line;
+                    line << juce::Time::getCurrentTime().toString(true, true)
+                         << " | selecao do slot: preparo de SF2/NPNO/NSMP em segundo plano em "
+                         << juce::String(elapsedMs, 1) << " ms\n";
+                    programStorageDirectory().getChildFile("liveset-diagnostico.txt").appendText(line);
+                }
+                liveSetPreparing.store(false, std::memory_order_release);
+                liveSetSwapState.store(1, std::memory_order_release);
+                if (onReady) onReady();
+            });
+    });
     return juce::Result::ok();
 }
 
 void ClassicPlayerAudioProcessor::cancelStagedLiveSetSwitch()
 {
+    liveSetStageGeneration.fetch_add(1, std::memory_order_acq_rel); // a preparation in flight is discarded
+    liveSetPreparing.store(false, std::memory_order_release);
     int expected = 1;
-    if (liveSetSwapState.compare_exchange_strong(expected, 0, std::memory_order_acq_rel))
+    const auto wasStaged = liveSetSwapState.compare_exchange_strong(expected, 0, std::memory_order_acq_rel);
+    if (wasStaged || liveSetSwapState.load(std::memory_order_acquire) == 0)
     {
         for (int i = 0; i < Sf2Engine::layerCount; ++i)
         {
             stagedSoundFonts[(size_t) i].reset();
             stagedSoundFontPaths[(size_t) i] = {};
-        }
-        for (int i = 0; i < Sf2Engine::layerCount; ++i)
-        {
             stagedPianos[(size_t) i].reset();
             stagedNordSamples[(size_t) i].reset();
             stagedNordPaths[(size_t) i] = {};
