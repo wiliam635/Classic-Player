@@ -239,6 +239,9 @@ struct DxVoice
     bool released = false;
     float decayGain = 1.0f;
     uint64_t age = 0;
+    // Re-struck key under the pedal: the voice the pedal was holding fades out in 0.2 s.
+    bool fading = false;
+    float fadeGain = 1.0f;
 };
 struct DxLayer
 {
@@ -280,6 +283,7 @@ struct AnalogVoice {
     int ampStage=analogAttack; double ampElapsed=0.0; float ampValue=0.0001f; int releaseElapsed=0;
     double biquadX1=0,biquadX2=0,biquadY1=0,biquadY2=0,lfoPhase=0.0;
     bool legato=false; // mono retune without restarting the envelope (desktop Mono/Legato)
+    bool quickRelease=false; // re-struck key under the pedal: fade out in 0.2 s instead of the layer release
     AnalogTransition transition;
 };
 struct AnalogLayer {
@@ -1255,10 +1259,15 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
         }
         else if(engineTypes[(size_t)layer]==EngineType::dx7) {
             auto& dx=dxLayers[(size_t)layer]; DxVoice* target=nullptr;
+            if(layerSustainEnabled[li]&&sustainDown[(size_t)midiChannel])
+                for(int i=0;i<voiceBudget;++i){auto& old=dx.voices[(size_t)i];
+                    if(old.active&&!old.fading&&old.note==routedNote&&old.channel==midiChannel&&old.synth){
+                        old.fading=true;old.fadeGain=1.0f;if(!old.released){old.synth->keyup();old.released=true;}
+                    }}
             for(int i=0;i<voiceBudget;++i)if(!dx.voices[(size_t)i].active){target=&dx.voices[(size_t)i];break;}
             if(target==nullptr){target=&dx.voices[0];for(int i=1;i<voiceBudget;++i){auto& voice=dx.voices[(size_t)i];if(voice.serial<target->serial)target=&voice;}}
             target->serial=++dx.serial;
-            target->active=true; target->note=routedNote; target->channel=midiChannel; target->read=N; target->samples.fill(0); target->released=false; target->decayGain=1.0f; target->age=0;
+            target->active=true; target->note=routedNote; target->channel=midiChannel; target->read=N; target->samples.fill(0); target->released=false; target->decayGain=1.0f; target->age=0; target->fading=false; target->fadeGain=1.0f;
             if(!target->synth){target->active=false;continue;}
             target->synth->init(dx.patches[(size_t)dx.selected].data(),routedNote,routedVelocity,1,&controllers);
         }
@@ -1292,6 +1301,9 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
                     continue;
                 }
             }
+            if(layerSustainEnabled[li]&&sustainDown[(size_t)midiChannel])
+                for(int i=0;i<voiceBudget;++i){auto& old=analog.voices[(size_t)i];
+                    if(old.active&&!old.releasing&&old.note==routedNote&&old.channel==midiChannel){old.releasing=true;old.quickRelease=true;}}
             for(int i=0;i<voiceBudget;++i)if(!analog.voices[(size_t)i].active){target=&analog.voices[(size_t)i];break;}
             if(target==nullptr){target=&analog.voices[0];for(int i=1;i<voiceBudget;++i){auto& voice=analog.voices[(size_t)i];if((voice.releasing&&!target->releasing)||(voice.releasing==target->releasing&&voice.age>target->age))target=&voice;}}
             *target={}; target->active=true; target->note=routedNote; target->channel=midiChannel;
@@ -1605,6 +1617,7 @@ static bool renderClassicPlayerPcmImpl(int16_t* output,int frames,bool realtime)
             const float dxDecayTarget=std::clamp(layerSustainPercent[li]*.01f,0.0f,1.0f);
             const float dxDecayStep=layerDecayMs[li]>0.0f?(1.0f-dxDecayTarget)/std::max(1.0f,layerDecayMs[li]*.001f*kSampleRate):0.0f;
             const uint64_t dxAttackSamples=(uint64_t)std::max(0.0f,layerAttack[li]*kSampleRate);
+            const float dxFadeCoefficient=std::exp(std::log(0.0001f)/(0.2f*kSampleRate)); // -80 dB in 0.2 s
             for(int voiceIndex=0;voiceIndex<layerVoiceBudgets[li];++voiceIndex) {
                 auto& voice=dx.voices[(size_t)voiceIndex];
                 if(!voice.active||!voice.synth)continue;
@@ -1615,7 +1628,11 @@ static bool renderClassicPlayerPcmImpl(int16_t* output,int frames,bool realtime)
                     }
                     if(dxDecayStep>0.0f&&!voice.released&&voice.age>=dxAttackSamples)voice.decayGain=std::max(dxDecayTarget,voice.decayGain-dxDecayStep);
                     ++voice.age;
-                    const float value=(float)voice.samples[(size_t)voice.read++]/(float)(1<<24)*0.024f*voice.decayGain;
+                    if(voice.fading){
+                        voice.fadeGain*=dxFadeCoefficient;
+                        if(voice.fadeGain<0.0001f){voice.active=false;voice.read=N;voice.fading=false;break;}
+                    }
+                    const float value=(float)voice.samples[(size_t)voice.read++]/(float)(1<<24)*0.024f*voice.decayGain*voice.fadeGain;
                     scratch[(size_t)sample*2]+=value;
                 }
             }
@@ -1736,6 +1753,8 @@ static bool renderClassicPlayerPcmImpl(int16_t* output,int frames,bool realtime)
             const double releaseSeconds=std::max(0.015,(double)control[12]*0.001);
             const float releaseCoefficient=(float)std::exp(-1.0/(sr*std::max(0.003,releaseSeconds/5.0)));
             const int releaseLimit=(int)((releaseSeconds+0.03)*sr);
+            const float quickReleaseCoefficient=(float)std::exp(-1.0/(sr*0.2/5.0));
+            const int quickReleaseLimit=(int)((0.2+0.03)*sr);
             const float legatoCoefficient=(float)std::exp(-1.0/(sr*0.008));
             const float baseCutoff=25.0f*std::pow(700.0f,std::clamp(control[6],0.0f,100.0f)/100.0f);
             const float lfoToFilterHz=control[15]*4.2f;      // percent of the original 420 Hz depth
@@ -1778,10 +1797,10 @@ static bool renderClassicPlayerPcmImpl(int16_t* output,int frames,bool realtime)
                         case analogSustain:voice.ampValue=sustain;break;
                         case analogLegato:voice.ampValue=sustain+(voice.ampValue-sustain)*legatoCoefficient;break;
                         default:
-                            voice.ampValue=0.0001f+(voice.ampValue-0.0001f)*releaseCoefficient;
+                            voice.ampValue=0.0001f+(voice.ampValue-0.0001f)*(voice.quickRelease?std::min(releaseCoefficient,quickReleaseCoefficient):releaseCoefficient);
                             break;
                     }
-                    if(voice.ampStage==analogRelease&&++voice.releaseElapsed>releaseLimit){voice=AnalogVoice{};break;}
+                    if(voice.ampStage==analogRelease&&++voice.releaseElapsed>(voice.quickRelease?std::min(releaseLimit,quickReleaseLimit):releaseLimit)){voice=AnalogVoice{};break;}
                     const float semitones=lfoToPitch!=0.0f?layerLfo[(size_t)sample]*lfoToPitch:0.0f;
                     const float pitchRatio=std::abs(semitones)<1.0e-7f?1.0f:std::exp2(semitones/12.0f);
                     const float base=voice.frequency*pitchRatio;
