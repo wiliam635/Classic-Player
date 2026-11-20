@@ -4860,8 +4860,13 @@ juce::Result ClassicPlayerAudioProcessor::loadProgram(const juce::File& programF
     // SF2 or external instrument must never remain audible in the next one.
     stopAllSoundsBeforeProgramChange();
     {
+        const auto stateStartMs = juce::Time::getMillisecondCounterHiRes();
         const juce::ScopedValueSetter<bool> applying(applyingProgramState, true);
         setStateInformation(data.getData(), static_cast<int>(data.getSize()));
+        juce::String line;
+        line << "    setStateInformation de '" << programFile.getFileName() << "': "
+             << juce::String(juce::Time::getMillisecondCounterHiRes() - stateStartMs, 1) << " ms\n";
+        programStorageDirectory().getChildFile("liveset-diagnostico.txt").appendText(line);
     }
     currentSavedProgram = programFile.getFileNameWithoutExtension();
     if (wrapperType == wrapperType_Standalone && !restoringStartupSettings)
@@ -6289,6 +6294,22 @@ void ClassicPlayerAudioProcessor::restoreLayerPaths(
                     engine.selectPreset(i, savedSf2Banks[(size_t) i], savedSf2Programs[(size_t) i]);
                 continue;
             }
+            const auto restoreStartMs = juce::Time::getMillisecondCounterHiRes();
+            const bool hadPrepared = preparedPianos[(size_t) i] != nullptr || preparedNordSamples[(size_t) i] != nullptr
+                                     || preparedSoundFonts[(size_t) i] != nullptr;
+            struct RestoreLog
+            {
+                ClassicPlayerAudioProcessor& owner; int layer; juce::String path; double start; bool prepared;
+                ~RestoreLog()
+                {
+                    juce::String line;
+                    line << "    camada " << (layer + 1) << ": " << juce::File(path).getFileName() << " ("
+                         << juce::String((double) juce::File(path).getSize() / 1048576.0, 0) << " MB) | "
+                         << (prepared ? "ja preparada em segundo plano" : "NAO estava preparada (leitura na troca)")
+                         << " | instalacao: " << juce::String(juce::Time::getMillisecondCounterHiRes() - start, 1) << " ms\n";
+                    owner.programStorageDirectory().getChildFile("liveset-diagnostico.txt").appendText(line);
+                }
+            } restoreLog { *this, i, savedPaths[(size_t) i], restoreStartMs, hadPrepared };
             if (layerType(i) == LayerType::nordSample
                 || juce::File(savedPaths[(size_t) i]).hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
             {
