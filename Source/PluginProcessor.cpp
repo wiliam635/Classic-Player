@@ -2418,12 +2418,34 @@ int ClassicPlayerAudioProcessor::dx7SelectedPatch(int layer) const { return dx7E
 bool ClassicPlayerAudioProcessor::selectDx7Patch(int layer, int patch) { return dx7Engine.selectPatch(layer, patch); }
 void ClassicPlayerAudioProcessor::ensurePadStripLoaded()
 {
-    padStripPool.addJob([this]
+    // The bank objects live as long as the processor (layer compaction only swaps the pointers), so
+    // raw pointers taken here stay valid for the job.
+    std::vector<ContinuousPadBank*> banks { &padStripBank };
+    for (auto& bank : continuousBanks) banks.push_back(bank.get());
+    padStripPool.addJob([this, banks]
     {
-        for (int i = 0; i < ContinuousPadBank::count; ++i)
-            if (padStripBank.path(i).isEmpty()
-                || (padStripBank.path(i).startsWith("@factory-pad:") && !padStripBank.hasAudio(i)))
-                padStripBank.loadFactoryPad(i);
+        const auto startMs = juce::Time::getMillisecondCounterHiRes();
+        int pending = 0;
+        // Several decodes at once: a bank can hold 12 pads of up to minutes each.
+        juce::ThreadPool decoders(juce::jlimit(1, 4, juce::SystemStats::getNumCpus() - 1));
+        for (auto* bank : banks)
+            for (int i = 0; i < ContinuousPadBank::count; ++i)
+            {
+                const auto path = bank->path(i);
+                if (bank == banks.front() && path.isEmpty())
+                    decoders.addJob([bank, i] { bank->loadFactoryPad(i); }); // the strip always offers its factory pads
+                else if (path.startsWith("@factory-pad:") && !bank->hasAudio(i))
+                    decoders.addJob([bank, i] { bank->loadFactoryPad(i); });
+                else if (path.isNotEmpty() && !bank->hasAudio(i))
+                    decoders.addJob([bank, i] { bank->loadPendingUserPad(i); });
+                else continue;
+                ++pending;
+            }
+        while (decoders.getNumJobs() > 0) juce::Thread::sleep(20); // wait for every queued and running decode
+        if (pending > 0)
+            programStorageDirectory().getChildFile("liveset-diagnostico.txt").appendText(
+                "    pads em segundo plano: " + juce::String(pending) + " arquivo(s) prontos em "
+                + juce::String(juce::Time::getMillisecondCounterHiRes() - startMs, 0) + " ms\n");
     });
 }
 bool ClassicPlayerAudioProcessor::dx7PatchRaw(int layer, std::array<uint8_t, 156>& out) const { return dx7Engine.patchRaw(layer, out); }
@@ -4485,11 +4507,6 @@ juce::Result ClassicPlayerAudioProcessor::stageLiveSetSlot(int bank, int slot, s
         }
         if (!alive->load() || liveSetStageGeneration.load(std::memory_order_acquire) != generation) return;
         prepareNordInstruments(state, layerCountToRestore, prepared->pianos, prepared->samples, prepared->nordPaths);
-        // Pad banks restored by this program: decode their user files now, off the audio lock.
-        for (const auto& child : state)
-            if ((child.hasType("PadStrip") || child.hasType("ContinuousPads")) && alive->load()
-                && liveSetStageGeneration.load(std::memory_order_acquire) == generation)
-                ContinuousPadBank::prefetch(child);
         const auto elapsedMs = juce::Time::getMillisecondCounterHiRes() - stageStartMs;
         if (!alive->load()) return;
 
@@ -4515,6 +4532,12 @@ juce::Result ClassicPlayerAudioProcessor::stageLiveSetSlot(int bank, int slot, s
                 liveSetSwapState.store(1, std::memory_order_release);
                 if (onReady) onReady();
             });
+        // Pad banks of this program: decode their user files while the slot waits for the first note. This
+        // runs after the instruments are staged, so the pads never delay the switch itself.
+        for (const auto& child : state)
+            if ((child.hasType("PadStrip") || child.hasType("ContinuousPads")) && alive->load()
+                && liveSetStageGeneration.load(std::memory_order_acquire) == generation)
+                ContinuousPadBank::prefetch(child);
     });
     return juce::Result::ok();
 }
@@ -5825,12 +5848,12 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             {
                 juce::ValueTree saved;
                 for(const auto& child:state)if(child.hasType("ContinuousPads") && (int)child.getProperty("layer",-1)==layer){saved=child;break;}
-                continuousPads(layer).restore(saved, layerType(layer) == LayerType::continuousPads);
+                continuousPads(layer).restore(saved, layerType(layer) == LayerType::continuousPads, true, true);
             }
             {
                 juce::ValueTree strip;
                 for (const auto& child : state) if (child.hasType("PadStrip")) { strip = child; break; }
-                padStripBank.restore(strip, false, true);
+                padStripBank.restore(strip, false, true, true);
                 padStripVolume.store(juce::jlimit(0.0f, 100.0f, (float) strip.getProperty("volume", 80.0f)));
                 padStripCutoff.store(juce::jlimit(0.0f, 100.0f, (float) strip.getProperty("cutoff", 100.0f)));
                 ensurePadStripLoaded();
@@ -6274,6 +6297,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             phases.mark("restoreLayerPaths");
             migrateLegacyContinuousPadLayers(state);
             phases.mark("migracaoPads");
+            ensurePadStripLoaded(); // factory pads of the strip and of any pad layer decode in the background
         }
     }
 }
@@ -6297,7 +6321,7 @@ void ClassicPlayerAudioProcessor::migrateLegacyContinuousPadLayers(const juce::V
         if (child.hasType("ContinuousPads") && static_cast<int>(child.getProperty("layer", -1)) == first)
         { saved = child; break; }
     if (saved.isValid())
-        padStripBank.restore(saved, false, true);
+        padStripBank.restore(saved, false, true, true);
     padStripVolume.store(juce::jlimit(0.0f, 100.0f,
         realtimeLayerParameters[(size_t) first].Gain->load(std::memory_order_relaxed)));
     padStripCutoff.store(juce::jlimit(0.0f, 100.0f,

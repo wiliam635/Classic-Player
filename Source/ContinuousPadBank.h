@@ -8,6 +8,8 @@
 #include <cstdint>
 #include <memory>
 #include <vector>
+#include <map>
+#include <mutex>
 
 #if JUCE_MAC || JUCE_LINUX
  #include <dlfcn.h>
@@ -66,19 +68,50 @@ public:
         if(active.load()==index){active=-1;command=-2;}
         return juce::Result::ok();
     }
+    // Returns the decoded file when it is already in the cache (never decodes).
+    static std::shared_ptr<SampleData> cachedOnly(const juce::File& file)
+    {
+        std::shared_ptr<SampleData> audio;
+        return lookupCache(file, audio) ? audio : nullptr;
+    }
     // Decodes, ahead of time and off the audio lock, the user pad files of a saved bank (PadStrip /
     // ContinuousPads node) so the program change that restores it finds them in the cache.
     static void prefetch(const juce::ValueTree& tree)
     {
+        juce::Array<juce::File> files;
         for (int i = 0; i < tree.getNumChildren() && i < count; ++i)
         {
             const auto filename = tree.getChild(i).getProperty("path").toString();
             if (filename.isEmpty() || filename.startsWith(factoryPathPrefix()) || filename == "Built-in Warm Pad")
                 continue;
             const juce::File file(filename);
-            std::shared_ptr<SampleData> ignored;
-            if (file.existsAsFile()) decodeFileCached(file, 10.0 * 60.0, ignored);
+            if (file.existsAsFile()) files.addIfNotAlreadyThere(file);
         }
+        if (files.isEmpty()) return;
+        juce::ThreadPool decoders(juce::jlimit(1, 4, juce::SystemStats::getNumCpus() - 1));
+        for (const auto& file : files)
+            decoders.addJob([file] { std::shared_ptr<SampleData> ignored; decodeFileCached(file, 10.0 * 60.0, ignored); });
+        while (decoders.getNumJobs() > 0) juce::Thread::sleep(20);
+    }
+    bool loadPendingUserPad(int i)
+    {
+        juce::String path;
+        {
+            const juce::ScopedLock g(lock);
+            if (!juce::isPositiveAndBelow(i, count) || pads[(size_t)i].audio != nullptr
+                || pads[(size_t)i].path.isEmpty() || pads[(size_t)i].path.startsWith(factoryPathPrefix()))
+                return false;
+            path = pads[(size_t)i].path;
+        }
+        const juce::File file(path);
+        std::shared_ptr<SampleData> audio;
+        if (!file.existsAsFile() || decodeFileCached(file, 10.0 * 60.0, audio).failed()) return false;
+        const juce::ScopedLock g(lock);
+        if (pads[(size_t)i].path != path || pads[(size_t)i].audio != nullptr) return false; // replaced meanwhile
+        pads[(size_t)i].audio = std::move(audio);
+        pads[(size_t)i].position = 0.0;
+        pads[(size_t)i].level = 0.0f;
+        return true;
     }
     bool hasAudio(int i) const {const juce::ScopedLock g(lock);return juce::isPositiveAndBelow(i,count)&&pads[(size_t)i].audio!=nullptr;}
     juce::String path(int i) const {const juce::ScopedLock g(lock);return pads[(size_t)i].path;}
@@ -282,7 +315,8 @@ public:
     }
     // deferFactoryPads: factory pads are only registered here (path, no audio); the caller loads them in the
     // background (loadFactoryPad), so a program change never waits for ~12 FLAC decodes.
-    void restore(const juce::ValueTree& tree, bool provideFactoryPad = false, bool deferFactoryPads = false)
+    void restore(const juce::ValueTree& tree, bool provideFactoryPad = false, bool deferFactoryPads = false,
+                 bool deferUserPads = false)
     {
         stopImmediately();
         setFadeSeconds((double)tree.getProperty("fade",1.0));setMidiChannel((int)tree.getProperty("midiChannel",0));
@@ -318,10 +352,33 @@ public:
             }
             else if (isFactory)
                 loaded = loadFactoryPad(i);
+            else if (filename.isNotEmpty() && deferUserPads)
+            {
+                // Cached decodes install at once; the rest is only registered and decoded in the background.
+                if (auto cached = cachedOnly(juce::File(filename)))
+                {
+                    const juce::ScopedLock g(lock);
+                    pads[(size_t)i].audio = std::move(cached);
+                    pads[(size_t)i].position = 0.0;
+                    pads[(size_t)i].level = 0.0f;
+                }
+                const juce::ScopedLock g(lock);
+                pads[(size_t)i].path = filename;
+                loaded = true;
+            }
             else if(filename.isNotEmpty())
                 loaded = load(i,juce::File(filename)).wasOk();
             if (!loaded && provideFactoryPad && filename.isEmpty())
-                loaded = loadFactoryPad(i);
+            {
+                if (deferFactoryPads)
+                {
+                    const juce::ScopedLock g(lock);
+                    pads[(size_t)i].path = factoryPath(i);
+                    loaded = true;
+                }
+                else
+                    loaded = loadFactoryPad(i);
+            }
             const juce::ScopedLock g(lock);
             if (!isFactory && filename.isNotEmpty()) pads[(size_t)i].path=filename;
             pads[(size_t)i].cc=validCC((int)child.getProperty("cc",-1));
@@ -346,15 +403,47 @@ private:
     // Decoded user pads are kept in a small least-recently-used cache (by path, size and date) shared by
     // every bank: switching between programs whose pad banks differ no longer decodes the files again
     // (~1.4 s per switch on a laptop CPU, inside the audio lock). The bank still shares the same read-only data.
+    struct CacheEntry { juce::String key; std::shared_ptr<SampleData> audio; juce::int64 stamp; };
+    static juce::CriticalSection& cacheMutex() { static juce::CriticalSection m; return m; }
+    static std::vector<CacheEntry>& cacheStore() { static std::vector<CacheEntry> v; return v; }
+    static juce::int64& cacheCounter() { static juce::int64 n = 0; return n; }
+    static juce::String cacheKey(const juce::File& file)
+    {
+        return file.getFullPathName() + "|" + juce::String(file.getSize()) + "|"
+             + juce::String(file.getLastModificationTime().toMilliseconds());
+    }
+    static bool lookupCache(const juce::File& file, std::shared_ptr<SampleData>& result)
+    {
+        const auto key = cacheKey(file);
+        const juce::ScopedLock guard(cacheMutex());
+        for (auto& entry : cacheStore())
+            if (entry.key == key) { entry.stamp = ++cacheCounter(); result = entry.audio; return true; }
+        return false;
+    }
     static juce::Result decodeFileCached(const juce::File& file, double maxSeconds,
                                          std::shared_ptr<SampleData>& result)
     {
-        struct Entry { juce::String key; std::shared_ptr<SampleData> audio; juce::int64 stamp; };
-        static juce::CriticalSection cacheLock;
-        static std::vector<Entry> cache;
-        static juce::int64 counter = 0;
-        const auto key = file.getFullPathName() + "|" + juce::String(file.getSize()) + "|"
-                       + juce::String(file.getLastModificationTime().toMilliseconds());
+        using Entry = CacheEntry;
+        auto& cacheLock = cacheMutex();
+        auto& cache = cacheStore();
+        auto& counter = cacheCounter();
+        const auto key = cacheKey(file);
+        {
+            const juce::ScopedLock guard(cacheLock);
+            for (auto& entry : cache)
+                if (entry.key == key) { entry.stamp = ++counter; result = entry.audio; return juce::Result::ok(); }
+        }
+        // One decode per file at a time: a second caller (staging prefetch vs. restore) waits and reuses it.
+        static juce::CriticalSection inFlightLock;
+        static std::map<juce::String, std::shared_ptr<std::mutex>> inFlight;
+        std::shared_ptr<std::mutex> keyMutex;
+        {
+            const juce::ScopedLock guard(inFlightLock);
+            auto& slot = inFlight[key];
+            if (slot == nullptr) slot = std::make_shared<std::mutex>();
+            keyMutex = slot;
+        }
+        std::lock_guard<std::mutex> decodeGuard(*keyMutex);
         {
             const juce::ScopedLock guard(cacheLock);
             for (auto& entry : cache)
@@ -395,16 +484,38 @@ private:
             return juce::Result::fail(juce::String::fromUTF8("Áudio muito grande. Cada pad contínuo aceita até 10 minutos."));
 
         const auto frames = static_cast<int>(reader->lengthInSamples);
+        auto packed = std::make_shared<SampleData>();
+        packed->frames = frames;
+        packed->rate = reader->sampleRate;
+        packed->stereo.resize((size_t)frames * 2);
+        constexpr int chunkFrames = 1 << 16;
+        if (!reader->usesFloatingPointData)
+        {
+            // Integer formats (WAV/AIFF/FLAC/MP3 decoders): read left-justified 32-bit samples in chunks and
+            // round straight to 16 bit. This avoids a float copy of the whole file and a per-sample getSample().
+            std::vector<int32_t> left((size_t) chunkFrames), right((size_t) chunkFrames);
+            int* channels[2] { left.data(), right.data() };
+            for (int start = 0; start < frames; start += chunkFrames)
+            {
+                const int n = juce::jmin(chunkFrames, frames - start);
+                if (!reader->read(channels, 2, start, n, true))
+                    return juce::Result::fail(juce::String::fromUTF8("Falha ao ler o áudio"));
+                auto* out = packed->stereo.data() + (size_t) start * 2;
+                for (int i = 0; i < n; ++i)
+                {
+                    const auto l = (juce::int64) left[(size_t) i] + 0x8000, r = (juce::int64) right[(size_t) i] + 0x8000;
+                    out[2 * i] = (int16_t) juce::jlimit<juce::int64>(-32768, 32767, l >> 16);
+                    out[2 * i + 1] = (int16_t) juce::jlimit<juce::int64>(-32768, 32767, r >> 16);
+                }
+            }
+            result = std::move(packed);
+            return juce::Result::ok();
+        }
         juce::AudioBuffer<float> decoded(2, frames);
         if (!reader->read(&decoded, 0, frames, 0, true, true))
             return juce::Result::fail(juce::String::fromUTF8("Falha ao ler o áudio"));
         if (reader->numChannels == 1)
             decoded.copyFrom(1, 0, decoded, 0, 0, frames);
-
-        auto packed = std::make_shared<SampleData>();
-        packed->frames = frames;
-        packed->rate = reader->sampleRate;
-        packed->stereo.resize((size_t)frames * 2);
         for (int frame = 0; frame < frames; ++frame)
         {
             for (int channel = 0; channel < 2; ++channel)
