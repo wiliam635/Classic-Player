@@ -440,6 +440,21 @@ public final class MainActivity extends Activity {
                 });}catch(java.util.concurrent.RejectedExecutionException ignored){}
                 continue;
             }
+            if(engine==8){
+                final int layer=i;
+                String name=prefs.getString("name_"+i,"Nord Sample");
+                screen.setLayerName(i,name);screen.setEngineName(i,"NSMP");
+                screen.setPresetName(i,muted?"MUTE · NSMP":"Carregando NSMP…");
+                if(!muted)try{fontImporter.execute(()->{
+                    String restored=restoreLayerMotor(layer,8);
+                    runOnUiThread(()->{
+                        if(closing||isFinishing()||isDestroyed())return;
+                        if(restored==null){screen.setPresetName(layer,"NSMP indisponível");screen.setAudioStatus("Falha ao reabrir NSMP da layer "+(layer+1));}
+                        else{screen.applyLoadedEditorState(layer);screen.setPresetName(layer,restored);}
+                    });
+                });}catch(java.util.concurrent.RejectedExecutionException ignored){}
+                continue;
+            }
             if (engine == 2) {
                 String dx7Path=prefs.getString("dx7_"+i,null);
                 String dx7Name=prefs.getString("name_"+i,"Banco DX7");
@@ -1140,6 +1155,88 @@ public final class MainActivity extends Activity {
             });
         });}catch(java.util.concurrent.RejectedExecutionException ex){screen.setAudioStatus("NPNO: importação indisponível");}
     }
+    // ---- Nord Sample (.nsmp / .nsmp3 / .nsmp4) ----
+    private static final String[] NSMP_EXTENSIONS={".nsmp4",".nsmp3",".nsmp"};
+    private static boolean isNsmpName(String name){
+        String lower=name.toLowerCase(java.util.Locale.ROOT);
+        for(String extension:NSMP_EXTENSIONS)if(lower.endsWith(extension))return true;
+        return false;
+    }
+    private static String stripNsmpExtension(String name){
+        String lower=name.toLowerCase(java.util.Locale.ROOT);
+        for(String extension:NSMP_EXTENSIONS)if(lower.endsWith(extension))return name.substring(0,name.length()-extension.length());
+        return name;
+    }
+    private File nsmpDirectory(){return new File(getFilesDir(),"nsmp");}
+    private String cacheNsmp(Uri uri){
+        if(uri==null)return null;File dir=nsmpDirectory();if(!dir.exists()&&!dir.mkdirs())return null;
+        String raw=new File(soundFontDisplayName(uri)).getName();
+        String lower=raw.toLowerCase(java.util.Locale.ROOT);
+        String extension=".nsmp4";
+        for(String candidate:NSMP_EXTENSIONS)if(lower.endsWith(candidate)){extension=candidate;break;}
+        String base=stripNsmpExtension(raw).replaceAll("[^\\p{L}\\p{N} _.-]","_").trim();
+        if(base.isEmpty())base="Nord Sample";
+        if(base.length()>80)base=base.substring(0,80);
+        File target=new File(dir,base+extension);int suffix=2;
+        while(target.exists())target=new File(dir,base+" ("+(suffix++)+")"+extension);
+        try(InputStream in=getContentResolver().openInputStream(uri);FileOutputStream out=new FileOutputStream(target)){
+            if(in==null)return null;byte[] block=new byte[65536];int n;
+            while((n=in.read(block))>=0)out.write(block,0,n);
+            return target.getAbsolutePath();
+        }catch(Exception ex){target.delete();return null;}
+    }
+    private void openNsmpPicker(int layer){
+        pendingLayer=layer;
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*");
+        startActivityForResult(intent,703);
+    }
+    private void loadNsmpLibraryFile(int layer,File file,boolean resetControls){
+        if(audioEngine==null||file==null||!file.isFile())return;
+        if(!isNsmpName(file.getName())){screen.setAudioStatus("NSMP: escolha um arquivo .nsmp, .nsmp3 ou .nsmp4");return;}
+        screen.setAudioStatus("NSMP: decodificando "+file.getName()+"…");
+        try{fontImporter.execute(()->{
+            if(closing)return;
+            final String error;
+            synchronized(importLifecycleLock){
+                error=closing?"Importação cancelada":audioEngine.loadNsmp(layer,file.getAbsolutePath(),nordDecodedBudget());
+            }
+            runOnUiThread(()->{
+                if(closing||isFinishing()||isDestroyed())return;
+                if(error!=null){libraryReplacePanel=null;screen.setAudioStatus("NSMP: "+error);new EditorUi.Alert(this).setTitle("FALHA AO IMPORTAR NSMP").setMessage(error).setPositiveButton("OK",null).show();return;}
+                prepareLayerMotorReplacement(layer);deactivatePadLayer(layer);
+                String name=stripNsmpExtension(file.getName());
+                screen.setLayerName(layer,name);screen.setEngineName(layer,"NSMP");screen.setPresetName(layer,name);
+                SharedPreferences.Editor save=getSharedPreferences("layers",MODE_PRIVATE).edit()
+                        .putInt("engine_"+layer,8).putString("nsmp_"+layer,file.getAbsolutePath()).putString("name_"+layer,name);
+                screen.setLayerEnvelope(layer,resetControls?.005f:screen.layerAttack[layer],resetControls?0.30f:screen.layerRelease[layer]);
+                if(resetControls){
+                    screen.setLayerRouting(layer,-1,0,0,true);
+                    screen.setLearnedVolume(layer,.8f);screen.setLayerPan(layer,0f);
+                    screen.setLayerTone(layer,100f,0f,0f,0f);
+                    screen.setLayerEq(layer,0f,0f,0f,220f,1200f,4200f,.707f,1f,.707f,20f,20000f);
+                }
+                save.apply();screen.applyLoadedEditorState(layer);
+                applyLayerPolyphony(layer);
+                screen.setAudioStatus("NSMP: "+name+" carregado ("+audioEngine.nsmpLoadInfo()+")");screen.invalidate();
+                if(libraryReplacePanel!=null){finishLibraryReplace();openNsmpEditor(layer);}
+            });
+        });}catch(java.util.concurrent.RejectedExecutionException ex){screen.setAudioStatus("NSMP: importação indisponível");}
+    }
+    private void openNsmpEditor(int layer){
+        SharedPreferences p=getSharedPreferences("layers",MODE_PRIVATE);
+        EditorUi.Panel panel=new EditorUi.Panel(this,"LAYER "+(layer+1)+" · NSMP","Biblioteca Nord Sample e controles da layer.");
+        File[] files=nsmpDirectory().listFiles((dir,name)->isNsmpName(name));
+        if(files==null)files=new File[0];java.util.Arrays.sort(files,(a,b)->a.getName().compareToIgnoreCase(b.getName()));
+        String[] names=new String[files.length];int selected=0;String current=p.getString("nsmp_"+layer,"");
+        for(int i=0;i<files.length;++i){names[i]=stripNsmpExtension(files[i].getName());if(files[i].getAbsolutePath().equals(current))selected=i;}
+        if(files.length>0){final File[] library=files;EditorUi.selector(panel.body,"BIBLIOTECA NSMP",names,selected,which->{libraryReplacePanel=panel;loadNsmpLibraryFile(layer,library[which],!"NSMP".equals(screen.engineName(layer)));});}
+        else panel.body.addView(EditorUi.label(this,"Nenhum NSMP importado ainda.",11));
+        LinearLayout actions=EditorUi.gridRow(panel.body);
+        EditorUi.addButton(actions,"IMPORTAR NSMP",()->{panel.dialog.dismiss();openNsmpPicker(layer);});
+        if("NSMP".equals(screen.engineName(layer)))EditorUi.addButton(actions,"CONTROLES",()->{panel.dialog.dismiss();showPresetEditor(layer,"LAYER "+(layer+1)+" · NSMP","Ajuste a layer Nord Sample.",new String[]{screen.layerNames[layer]},0,i->{},"IMPORTAR NSMP",()->openNsmpPicker(layer));});
+        EditorUi.addButton(panel.footer,"FECHAR",panel.dialog::dismiss);panel.show();
+    }
+
     private void openNordEditor(int layer){
         SharedPreferences p=getSharedPreferences("layers",MODE_PRIVATE);
         String category=p.getString("nord_browser_category_"+layer,p.getString("nord_category_"+layer,NORD_CATEGORIES[0]));
@@ -1184,11 +1281,12 @@ public final class MainActivity extends Activity {
 
     private void chooseLayerSource(int layer) {
         EditorUi.Panel panel=new EditorUi.Panel(this,"ADICIONAR MOTOR · LAYER "+(layer+1),"Escolha o motor sonoro desta camada.");
-        String[] names={"SOUNDFONT 2 (.sf2)","NORD PIANO (.npno)","DX7 SYSEX (.syx)","CLASSIC KEYS ANALOG","HAMMOND / LESLIE","DRUM PADS","PADS CONTÍNUOS"};
+        String[] names={"SOUNDFONT 2 (.sf2)","NORD PIANO (.npno)","DX7 SYSEX (.syx)","CLASSIC KEYS ANALOG","HAMMOND / LESLIE","DRUM PADS","PADS CONTÍNUOS","NORD SAMPLE (.nsmp)"};
         for(int i=0;i<names.length;i+=2){LinearLayout row=EditorUi.gridRow(panel.body);for(int j=i;j<Math.min(i+2,names.length);j++){final int which=j;Button b=EditorUi.button(this,names[which],()->{
             panel.dialog.dismiss();if(which==0)openSf2Picker(layer);else if(which==1)openNordEditor(layer);else if(which==2)openDx7Picker(layer);
             else if(which==3){activateAnalog(layer);openAnalogEditor(layer);}
             else if(which==4){activateHammond(layer);openHammondEditor(layer);}
+            else if(which==7)openNsmpEditor(layer);
             else openPadEditor(layer,which==6);
             });row.addView(b,new LinearLayout.LayoutParams(0,EditorUi.dp(this,44),1));}}
         EditorUi.addButton(panel.footer,"CANCELAR",panel.dialog::dismiss);panel.show();
@@ -1244,6 +1342,7 @@ public final class MainActivity extends Activity {
             final String ncat=np.getString("nord_browser_category_"+layer,np.getString("nord_category_"+layer,NORD_CATEGORIES[0]));
             showPresetEditor(layer,"LAYER "+(layer+1)+" · NPNO","Ajuste a layer Nord.",new String[]{screen.layerNames[layer]==null?"":screen.layerNames[layer]},0,i->{},"IMPORTAR NPNO",()->openNordPicker(layer,ncat));
         }
+        else if(engine.equals("NSMP"))showPresetEditor(layer,"LAYER "+(layer+1)+" · NSMP","Ajuste a layer Nord Sample.",new String[]{screen.layerNames[layer]==null?"":screen.layerNames[layer]},0,i->{},"IMPORTAR NSMP",()->openNsmpPicker(layer));
         else if(engine.equals("ANALOG"))openAnalogEditor(layer);
         else if(engine.equals("HAMMOND"))openHammondEditor(layer);
         else if(engine.contains("PADS"))openPadEditor(layer,engine.startsWith("CONT"));
@@ -1434,6 +1533,13 @@ public final class MainActivity extends Activity {
             audioEngine.setNordEqMode(layer,prefs.getInt("nord_eq_mode_"+layer,-1));
             return prefs.getString("name_"+layer,new File(path).getName());
         }
+        if(engine==8){
+            String path=prefs.getString("nsmp_"+layer,null);
+            if(path==null)return null;
+            String error=audioEngine.loadNsmp(layer,path,nordDecodedBudget());
+            if(error!=null)return null;
+            return prefs.getString("name_"+layer,new File(path).getName());
+        }
         if(engine==3){
             int preset=prefs.getInt("analog_preset_"+layer,0);
             audioEngine.activateAnalog(layer);
@@ -1477,7 +1583,7 @@ public final class MainActivity extends Activity {
         if (audioEngine != null) { audioEngine.allNotesOff(); audioEngine.clearLayer(layer); }
         screen.muted[layer]=false;
         getSharedPreferences("layers", MODE_PRIVATE).edit()
-                .remove("engine_"+layer).remove("sf2_"+layer).remove("dx7_"+layer).remove("npno_"+layer)
+                .remove("engine_"+layer).remove("sf2_"+layer).remove("dx7_"+layer).remove("npno_"+layer).remove("nsmp_"+layer)
                 .remove("nord_category_"+layer).remove("nord_browser_category_"+layer).remove("nord_eq_mode_"+layer)
                 .remove("name_"+layer).remove("preset_"+layer).remove("dx7_patch_"+layer)
                 .remove("analog_preset_"+layer).remove("hammond_preset_"+layer)
@@ -1652,7 +1758,7 @@ public final class MainActivity extends Activity {
         new EditorUi.Alert(this).setTitle("SALVAR NO LIVE SET "+(slot+1)).setView(input)
                 .setPositiveButton("SALVAR",(d,w)->{
                     SharedPreferences layers=getSharedPreferences("layers",MODE_PRIVATE),live=getSharedPreferences("live_set",MODE_PRIVATE);SharedPreferences.Editor e=live.edit();
-                    String root="bank_"+bank+"_slot_"+slot;e.putInt(root+"_version",14).putFloat(root+"_master",screen.masterVolume);for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";e.putInt(p+"engine",layers.getInt("engine_"+layer,0));e.putString(p+"sf2",layers.getString("sf2_"+layer,null));e.putString(p+"dx7",layers.getString("dx7_"+layer,null));e.putString(p+"npno",layers.getString("npno_"+layer,null));e.putString(p+"nordCategory",layers.getString("nord_category_"+layer,NORD_CATEGORIES[0]));e.putInt(p+"nordEq",layers.getInt("nord_eq_mode_"+layer,-1));e.putString(p+"name",layers.getString("name_"+layer,null));e.putInt(p+"preset",layers.getInt("preset_"+layer,0));e.putInt(p+"dx7_patch",layers.getInt("dx7_patch_"+layer,0));e.putInt(p+"analog",layers.getInt("analog_preset_"+layer,0));e.putInt(p+"hammond",layers.getInt("hammond_preset_"+layer,0));e.putFloat(p+"volume",screen.layerVolumes[layer]).putFloat(p+"pan",screen.layerPan[layer]).putBoolean(p+"muted",screen.muted[layer]).putBoolean(p+"solo",screen.solo[layer]).putBoolean(p+"modulation",screen.modulationEnabled[layer]);}
+                    String root="bank_"+bank+"_slot_"+slot;e.putInt(root+"_version",14).putFloat(root+"_master",screen.masterVolume);for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";e.putInt(p+"engine",layers.getInt("engine_"+layer,0));e.putString(p+"sf2",layers.getString("sf2_"+layer,null));e.putString(p+"dx7",layers.getString("dx7_"+layer,null));e.putString(p+"npno",layers.getString("npno_"+layer,null));e.putString(p+"nsmp",layers.getString("nsmp_"+layer,null));e.putString(p+"nordCategory",layers.getString("nord_category_"+layer,NORD_CATEGORIES[0]));e.putInt(p+"nordEq",layers.getInt("nord_eq_mode_"+layer,-1));e.putString(p+"name",layers.getString("name_"+layer,null));e.putInt(p+"preset",layers.getInt("preset_"+layer,0));e.putInt(p+"dx7_patch",layers.getInt("dx7_patch_"+layer,0));e.putInt(p+"analog",layers.getInt("analog_preset_"+layer,0));e.putInt(p+"hammond",layers.getInt("hammond_preset_"+layer,0));e.putFloat(p+"volume",screen.layerVolumes[layer]).putFloat(p+"pan",screen.layerPan[layer]).putBoolean(p+"muted",screen.muted[layer]).putBoolean(p+"solo",screen.solo[layer]).putBoolean(p+"modulation",screen.modulationEnabled[layer]);}
                     SharedPreferences pads=getSharedPreferences("pads",MODE_PRIVATE);e.putFloat(root+"_pad_fade",pads.getFloat("crossfade_seconds",1f)).putInt(root+"_pad_stop_cc",pads.getInt("pad_stop_cc",-1));for(int pad=0;pad<12;pad++){e.putString(root+"_drum_pad_"+pad,pads.getString(padSampleKey(false,pad),null)).putString(root+"_continuous_pad_"+pad,pads.getString(padSampleKey(true,pad),null)).putString(root+"_drum_pad_name_"+pad,pads.getString(padNameKey(false,pad),null)).putString(root+"_continuous_pad_name_"+pad,pads.getString(padNameKey(true,pad),null)).putInt(root+"_pad_note_"+pad,pads.getInt("pad_note_"+pad,36+pad)).putInt(root+"_pad_cc_"+pad,pads.getInt("pad_cc_"+pad,-1));}
                     e.putInt(root+"_version",14).putFloat(root+"_reverb",screen.masterReverb).putFloat(root+"_chorus",screen.masterChorus);
                     SharedPreferences midiLearn=getSharedPreferences("midi_learn",MODE_PRIVATE);
@@ -1703,7 +1809,7 @@ public final class MainActivity extends Activity {
                 if(cc<0)learned.remove(key).remove("cc_channel_"+target);else learned.putInt(key,cc).putInt("cc_channel_"+target,channel);
             }
             learned.apply();}
-        for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";int savedEngine=live.getInt(p+"engine",0);e.putInt("engine_"+layer,savedEngine).putString("sf2_"+layer,live.getString(p+"sf2",null)).putString("dx7_"+layer,live.getString(p+"dx7",null)).putString("npno_"+layer,live.getString(p+"npno",null)).putString("nord_category_"+layer,live.getString(p+"nordCategory",NORD_CATEGORIES[0])).putInt("nord_eq_mode_"+layer,live.getInt(p+"nordEq",-1)).putString("name_"+layer,live.getString(p+"name",null)).putInt("preset_"+layer,live.getInt(p+"preset",0)).putInt("dx7_patch_"+layer,live.getInt(p+"dx7_patch",0)).putInt("analog_preset_"+layer,live.getInt(p+"analog",0)).putInt("hammond_preset_"+layer,live.getInt(p+"hammond",0)).putBoolean("modulation_enabled_"+layer,version>=14?live.getBoolean(p+"modulation",savedEngine==4):savedEngine==4)
+        for(int layer=0;layer<6;layer++){String p=root+"_"+layer+"_";int savedEngine=live.getInt(p+"engine",0);e.putInt("engine_"+layer,savedEngine).putString("sf2_"+layer,live.getString(p+"sf2",null)).putString("dx7_"+layer,live.getString(p+"dx7",null)).putString("npno_"+layer,live.getString(p+"npno",null)).putString("nsmp_"+layer,live.getString(p+"nsmp",null)).putString("nord_category_"+layer,live.getString(p+"nordCategory",NORD_CATEGORIES[0])).putInt("nord_eq_mode_"+layer,live.getInt(p+"nordEq",-1)).putString("name_"+layer,live.getString(p+"name",null)).putInt("preset_"+layer,live.getInt(p+"preset",0)).putInt("dx7_patch_"+layer,live.getInt(p+"dx7_patch",0)).putInt("analog_preset_"+layer,live.getInt(p+"analog",0)).putInt("hammond_preset_"+layer,live.getInt(p+"hammond",0)).putBoolean("modulation_enabled_"+layer,version>=14?live.getBoolean(p+"modulation",savedEngine==4):savedEngine==4)
             .putFloat("control_volume_"+layer,live.getFloat(p+"volume",screen.layerVolumes[layer])).putFloat("control_pan_"+layer,live.getFloat(p+"pan",0)).putBoolean("muted_"+layer,live.getBoolean(p+"muted",false)).putBoolean("solo_"+layer,live.getBoolean(p+"solo",false))
             .putFloat("control_attack_"+layer,live.getFloat(p+"attack",screen.layerAttack[layer])).putFloat("control_release_"+layer,live.getFloat(p+"release",screen.layerRelease[layer]))
             .putFloat("eq_low_db_"+layer,version>=4?live.getFloat(p+"eqLow",screen.eqLow[layer]):(float)(20*Math.log10(Math.max(.125f,live.getFloat(p+"eqLow",1f)))))
@@ -1847,6 +1953,20 @@ public final class MainActivity extends Activity {
                 });
             });}catch(java.util.concurrent.RejectedExecutionException ex){screen.setAudioStatus("NPNO: importação indisponível");}
             });
+            return;
+        }
+        if(requestCode==703&&resultCode==RESULT_OK&&data!=null&&data.getData()!=null&&pendingLayer>=0){
+            final Uri uri=data.getData();final int layer=pendingLayer;
+            pendingLayer=-1;
+            screen.setAudioStatus("NSMP: copiando para a biblioteca…");
+            try{fontImporter.execute(()->{
+                String path=cacheNsmp(uri);
+                runOnUiThread(()->{
+                    if(closing||isFinishing()||isDestroyed())return;
+                    if(path==null){screen.setAudioStatus("NSMP: falha ao copiar arquivo");return;}
+                    loadNsmpLibraryFile(layer,new File(path),!"NSMP".equals(screen.engineName(layer)));
+                });
+            });}catch(java.util.concurrent.RejectedExecutionException ex){screen.setAudioStatus("NSMP: importação indisponível");}
             return;
         }
         if (requestCode == 701 && resultCode == RESULT_OK && data != null && data.getData() != null && pendingLayer >= 0) {
@@ -2211,7 +2331,7 @@ public final class MainActivity extends Activity {
                 });
                 EditorUi.addButton(EditorUi.gridRow(body),"BIBLIOTECA NPNO",()->{panel.dialog.dismiss();openNordEditor(layer);});
             }
-            if (!analog && ("SF2".equals(engine) || "DX7".equals(engine) || "NPNO".equals(engine))) {
+            if (!analog && ("SF2".equals(engine) || "DX7".equals(engine) || "NPNO".equals(engine) || "NSMP".equals(engine))) {
                 // Desktop layout: PARAMETROS GERAIS and CONTROLES DA CAMADA as two boxes side by side.
                 LinearLayout rightBox=body;
                 final boolean stacked=panel.docked&&("SF2".equals(engine)||"NPNO".equals(engine));

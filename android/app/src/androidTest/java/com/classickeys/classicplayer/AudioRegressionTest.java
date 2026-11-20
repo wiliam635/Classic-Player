@@ -114,6 +114,28 @@ public class AudioRegressionTest {
         engine.setSustain(0, false); pcm(RATE * 2);
     }
 
+    /** NSMP engine: audible note, clean release, and a re-struck key under the pedal does not stack voices. */
+    @Test public void nsmpEngineNoteReleaseAndRestrike() throws Exception {
+        engine.loadNsmpTestTone(0);
+        engine.setLayerGain(0, .5f);
+        engine.setLayerRouting(0, -1, 0, 0, 127, 0, true, 0);
+        engine.noteOn(60, 100, 0);
+        assertTrue("NSMP note was silent", rms(pcm(RATE / 4)) > .001);
+        assertEquals(1, engine.activeVoices(0));
+        engine.noteOff(60, 0); pcm(RATE * 2);
+        assertEquals("NSMP voice survived its release", 0, engine.activeVoices(0));
+        engine.setSustain(0, true);
+        int maxActive = 0;
+        for (int i = 0; i < 40; i++) {
+            engine.noteOn(64, 100, 0); pcm(RATE / 20);
+            engine.noteOff(64, 0); pcm(RATE / 20);
+            maxActive = Math.max(maxActive, engine.activeVoices(0));
+        }
+        assertTrue("NSMP re-struck key piled up " + maxActive + " voices", maxActive <= 6);
+        engine.setSustain(0, false); pcm(RATE * 2);
+        assertEquals("NSMP voices leaked after pedal up", 0, engine.activeVoices(0));
+    }
+
     @Test public void fullSustainedPoolAcceptsNewKey() throws Exception {
         activate(1,0);engine.setSustain(0,true);
         assertEquals("A single active layer is capped at 128 voices",128,engine.voiceBudget(0));

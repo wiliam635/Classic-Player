@@ -17,6 +17,9 @@ set(MSFA_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../../../third_party/msfa")
 add_library(classic_player_native SHARED
     ClassicPlayerNative.cpp
     NordPianoEngine.cpp
+    NsmpEngine.cpp
+    nsmp/NordSampleDecoder.cpp
+    nsmp/NordLegacySampleDecoder.cpp
     NativeAudioOutput.cpp
     ${MSFA_DIR}/dx7note.cc
     ${MSFA_DIR}/env.cc
@@ -28,7 +31,8 @@ add_library(classic_player_native SHARED
     ${MSFA_DIR}/porta.cpp
     ${MSFA_DIR}/sin.cc
     ${MSFA_DIR}/tuning.cc)
-target_include_directories(classic_player_native PRIVATE ${MSFA_DIR})
+target_include_directories(classic_player_native PRIVATE ${MSFA_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}/shim ${CMAKE_CURRENT_LIST_DIR}/nsmp)
 target_compile_features(classic_player_native PRIVATE cxx_std_17)
 # The distributed test APK is debug, but its real-time DSP must not run at
 # -O0. Preserve debug symbols and floating-point semantics (no fast-math).
