@@ -10646,12 +10646,15 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     {
         uiMidiMapLoad();
         classicProcessor.setUiEditorDraining(true);
+        // "ui:" ids are auto-generated slider paths; "pk:" ids are explicit processor-side targets
+        // (pad strip volume/cutoff, filters, analog, FX). Both use the editor's own CC map.
+        const auto isUiMidiId = [](const juce::String& id) { return id.startsWith("ui:") || id.startsWith("pk:"); };
         ParameterMidiMenu::Hooks hooks;
         hooks.resolve = [this](juce::Component* source, juce::String& id) { return resolveMidiSlider(source, id); };
         hooks.mapping = [this](const juce::String& id)
         {
             int cc = -1, channel = -1;
-            if (id.startsWith("ui:"))
+            if (isUiMidiId(id))
             {
                 const auto found = uiMidiMap.find(id);
                 if (found != uiMidiMap.end()) { cc = found->second.first; channel = found->second.second; }
@@ -10666,11 +10669,11 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
         };
         hooks.isLearning = [this](const juce::String& id)
         {
-            return id.startsWith("ui:") ? uiMidiLearnKey == id : classicProcessor.isParameterMidiLearning(id);
+            return isUiMidiId(id) ? uiMidiLearnKey == id : classicProcessor.isParameterMidiLearning(id);
         };
         hooks.begin = [this](const juce::String& id)
         {
-            if (id.startsWith("ui:"))
+            if (isUiMidiId(id))
             {
                 uiMidiLearnKey = id;
                 classicProcessor.setUiMidiLearnActive(true);
@@ -10686,7 +10689,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
         };
         hooks.clear = [this](const juce::String& id)
         {
-            if (id.startsWith("ui:"))
+            if (isUiMidiId(id))
             {
                 uiMidiMap.erase(id);
                 if (uiMidiLearnKey == id) { uiMidiLearnKey = {}; classicProcessor.setUiMidiLearnActive(false); }
