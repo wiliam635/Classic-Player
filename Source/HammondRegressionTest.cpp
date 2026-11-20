@@ -468,6 +468,15 @@ static void continuousPadRegression()
     p->continuousPads(1).clearMapping(ContinuousPadBank::count);
     check(p->continuousPads(1).mapping(ContinuousPadBank::count)==-1,
           "STOP mapping could not be removed");
+    // Standalone: the host MIDI buffer is empty, so the pad strip must be driven by the incoming callback.
+    p->padStrip().learn(0);
+    ContinuousPadRegressionAccess::handleIncomingMidiMessage(*p,juce::MidiMessage::controllerEvent(5,22,127));
+    check(p->padStrip().mapping(0)==22,"pad strip Learn missed the CC");
+    ContinuousPadRegressionAccess::handleIncomingMidiMessage(*p,juce::MidiMessage::controllerEvent(5,22,0));
+    p->padStrip().stop();playBlock();
+    ContinuousPadRegressionAccess::handleIncomingMidiMessage(*p,juce::MidiMessage::controllerEvent(5,22,127));
+    playBlock();
+    check(p->padStrip().selected()==0,"pad strip CC from the standalone callback did not trigger the pad");
     p->beginMidiLearn(1,ClassicPlayerAudioProcessor::LearnTarget::volume);
     p->beginMidiLearn(1,ClassicPlayerAudioProcessor::LearnTarget::volume);
     check(!p->isMidiLearning(1,ClassicPlayerAudioProcessor::LearnTarget::volume),

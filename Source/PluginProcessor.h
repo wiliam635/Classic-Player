@@ -650,6 +650,10 @@ private:
     std::array<juce::MidiBuffer, Sf2Engine::layerCount> routedMidiBuffers;
     std::array<NordMorphState, Sf2Engine::layerCount> nordMorphStates;
     juce::MidiMessageCollector visualMidiCollector;
+    // Standalone only: the host MIDI buffer is empty (inputs arrive through our own callback), so the
+    // pad strip gets every controller here, unfiltered by the per-layer device/channel routing.
+    juce::MidiMessageCollector padStripMidiCollector;
+    juce::MidiBuffer padStripMidiBuffer;
     juce::MidiBuffer visualMidiBuffer;
     std::array<juce::String, Sf2Engine::layerCount> layerMidiDeviceIds;
     std::atomic<int> activeLayers { Sf2Engine::defaultLayerCount };

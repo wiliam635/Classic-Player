@@ -675,6 +675,7 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     for (auto& midiBuffer : externalMidi) midiBuffer.ensureSize(4096);
     for (auto& collector : routedMidiCollectors) collector.reset(sampleRate);
     visualMidiCollector.reset(sampleRate);
+    padStripMidiCollector.reset(sampleRate);
     outputLimiter.prepare({ sampleRate, (juce::uint32) samplesPerBlock, 2 });
     outputLimiter.setThreshold(-0.3f);
     outputLimiter.setRelease(80.0f);
@@ -1164,6 +1165,9 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     {
         // Standalone pad strip: its own CC map, volume and cutoff.
         for (const auto event : midi) padStripBank.midi(event.getMessage());
+        padStripMidiBuffer.clear();
+        padStripMidiCollector.removeNextBlockOfMessages(padStripMidiBuffer, buffer.getNumSamples());
+        for (const auto event : padStripMidiBuffer) padStripBank.midi(event.getMessage());
         const auto cutoffFrequency = 80.0f * std::pow(250.0f,
             juce::jlimit(0.0f, 100.0f, padStripCutoff.load(std::memory_order_relaxed)) / 100.0f);
         padStripBank.render(buffer, padStripVolume.load(std::memory_order_relaxed) / 100.0f,
@@ -4163,6 +4167,7 @@ void ClassicPlayerAudioProcessor::routeIncomingMidiMessage(const juce::String& s
             // not selected as this layer's note input. Do not discard STOP.
             bank.stopFromMidi(message);
         }
+    if (message.isController()) padStripMidiCollector.addMessageToQueue(message);
     const juce::ScopedLock guard(midiRoutingLock);
     auto routed = false;
     for (int layer = 0; layer < activeLayerCount(); ++layer)
@@ -4801,6 +4806,7 @@ void ClassicPlayerAudioProcessor::stopAllSoundsBeforeProgramChange()
     for (auto& collector : routedMidiCollectors) collector.reset(currentSampleRate);
     for (auto& buffer : routedMidiBuffers) buffer.clear();
     visualMidiCollector.reset(currentSampleRate);
+    padStripMidiCollector.reset(currentSampleRate);
     visualMidiBuffer.clear();
 }
 
