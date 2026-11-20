@@ -114,6 +114,32 @@ public class AudioRegressionTest {
         engine.setSustain(0, false); pcm(RATE * 2);
     }
 
+    /** Same key struck 40 times under the pedal: the held voices must not stack (any engine). */
+    private int maxVoicesRestruckUnderPedal(int type) throws Exception {
+        activate(type, 0);
+        engine.setSustain(0, true);
+        int maxActive = 0;
+        for (int i = 0; i < 40; i++) {
+            engine.noteOn(60, 100, 0); pcm(RATE / 20);
+            engine.noteOff(60, 0); pcm(RATE / 20);
+            maxActive = Math.max(maxActive, engine.activeVoices(0));
+        }
+        engine.setSustain(0, false); pcm(RATE * 4);
+        return maxActive;
+    }
+    @Test public void dx7RestrikeUnderPedalDoesNotPileUpVoices() throws Exception {
+        int max = maxVoicesRestruckUnderPedal(2);
+        assertTrue("DX7 re-struck key piled up " + max + " voices", max <= 8);
+    }
+    @Test public void analogRestrikeUnderPedalDoesNotPileUpVoices() throws Exception {
+        int max = maxVoicesRestruckUnderPedal(3);
+        assertTrue("Analog re-struck key piled up " + max + " voices", max <= 8);
+    }
+    @Test public void hammondRestrikeUnderPedalDoesNotPileUpVoices() throws Exception {
+        int max = maxVoicesRestruckUnderPedal(4);
+        assertTrue("Hammond re-struck key piled up " + max + " voices", max <= 8);
+    }
+
     /** SF2: the same key struck again under the pedal fades the voice the pedal was holding instead of stacking. */
     @Test public void sf2RestrikeUnderPedalDoesNotPileUpVoices() throws Exception {
         activate(1, 0);
