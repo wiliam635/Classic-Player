@@ -144,6 +144,9 @@ public:
     juce::Result installSoundFont(int layer, const std::shared_ptr<PreparedSoundFont>& prepared);
     juce::Result loadSoundFont(int layer, const juce::File& file);
     void unloadSoundFont(int layer);
+    // Moves the loaded SoundFont (synth, settings, path) of one layer into another without re-reading it;
+    // the destination's previous synth ends up in the source layer, which the caller unloads or overwrites.
+    bool moveSoundFont(int from, int to);
     // Sends an explicit panic to every synth before a performance is replaced.
     void stopAllSounds();
     void stopLayerSounds(int layer);

@@ -2630,6 +2630,10 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         const auto sourceNordOrganConfig = nordOrganLayerConfigs[(size_t)source];
         const auto sourceSavedPath = savedPaths[(size_t) source];
         const auto sourceMidiDevice = layerMidiDeviceIds[(size_t) source];
+        const auto movedPiano = sourceType == LayerType::nord ? sampleEngine.loadedInstrument(source)
+                                                                : std::shared_ptr<NordPianoDecoder::Instrument>{};
+        const auto movedNordSample = sourceType == LayerType::nordSample ? nordSampleEngine.loadedInstrument(source)
+                                                                          : std::shared_ptr<NordSampleDecoder::Instrument>{};
 
         externalInstruments[(size_t) destination].unload();
         engine.unloadSoundFont(destination);
@@ -2641,18 +2645,20 @@ bool ClassicPlayerAudioProcessor::removeLayer(int layer)
         hammondEngine.unload(destination);
         nordOrganEngine.unload(destination);
 
+        // Compacting layers must not read the instruments again: hand the already decoded / loaded ones over.
         if (sourceType == LayerType::sf2 && sourcePath.isNotEmpty())
         {
-            if (engine.loadSoundFont(destination, juce::File(sourcePath)).wasOk())
+            if (engine.moveSoundFont(source, destination)
+                || engine.loadSoundFont(destination, juce::File(sourcePath)).wasOk())
                 engine.selectPreset(destination, sourceBank, sourceProgram);
         }
         else if (sourceType == LayerType::nord && sourceNordPath.isNotEmpty())
         {
-            if (sampleEngine.loadSample(destination, juce::File(sourceNordPath)).wasOk())
+            if (sampleEngine.loadSample(destination, juce::File(sourceNordPath), movedPiano).wasOk())
                 nordLoaded[(size_t) destination].store(true, std::memory_order_release);
         }
         else if (sourceType == LayerType::nordSample && sourceNordSamplePath.isNotEmpty())
-            nordSampleEngine.loadSample(destination, juce::File(sourceNordSamplePath));
+            nordSampleEngine.loadSample(destination, juce::File(sourceNordSamplePath), movedNordSample);
         else if (sourceType == LayerType::dx7 && sourceDx7Path.isNotEmpty())
         {
             if (dx7Engine.loadSysEx(destination, juce::File(sourceDx7Path)).wasOk())
@@ -6291,7 +6297,7 @@ void ClassicPlayerAudioProcessor::migrateLegacyContinuousPadLayers(const juce::V
         if (child.hasType("ContinuousPads") && static_cast<int>(child.getProperty("layer", -1)) == first)
         { saved = child; break; }
     if (saved.isValid())
-        padStripBank.restore(saved, false);
+        padStripBank.restore(saved, false, true);
     padStripVolume.store(juce::jlimit(0.0f, 100.0f,
         realtimeLayerParameters[(size_t) first].Gain->load(std::memory_order_relaxed)));
     padStripCutoff.store(juce::jlimit(0.0f, 100.0f,

@@ -47,6 +47,8 @@ public:
     void stopLayerSounds(int layer);
     bool isLoaded(int layer) const;
     juce::String path(int layer) const;
+    // The decoded instrument currently loaded in a layer (shared, read-only), or null.
+    std::shared_ptr<NordPianoDecoder::Instrument> loadedInstrument(int layer) const;
     float getLayerPeak(int layer) const;
     struct VelocityInfo { int received = 0, shaped = 0, strokeLayer = -1, strokeLayerMax = 0; };
     VelocityInfo getLastVelocity(int layer) const;

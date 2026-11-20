@@ -328,6 +328,13 @@ bool SampleEngine::isLoaded(int layer) const
                                     || layers[(size_t) layer].audio.getNumSamples() > 0);
 }
 
+std::shared_ptr<NordPianoDecoder::Instrument> SampleEngine::loadedInstrument(int layer) const
+{
+    if (!juce::isPositiveAndBelow(layer, layerCount)) return {};
+    const juce::ScopedLock stateLock(lock);
+    return layers[(size_t) layer].piano;
+}
+
 juce::String SampleEngine::path(int layer) const
 {
     if (!juce::isPositiveAndBelow(layer, layerCount)) return {};

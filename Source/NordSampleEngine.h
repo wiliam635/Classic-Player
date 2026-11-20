@@ -34,6 +34,8 @@ public:
     void stopLayerSounds(int layer);
     bool isLoaded(int layer) const;
     juce::String path(int layer) const;
+    // The decoded instrument currently loaded in a layer (shared, read-only), or null.
+    std::shared_ptr<NordSampleDecoder::Instrument> loadedInstrument(int layer) const;
     juce::String name(int layer) const;
     float getLayerPeak(int layer) const;
     void process(juce::AudioBuffer<float>& output, const juce::MidiBuffer& midi,

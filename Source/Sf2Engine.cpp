@@ -373,6 +373,40 @@ void Sf2Engine::stopAllSounds()
     }
 }
 
+bool Sf2Engine::moveSoundFont(int from, int to)
+{
+    if (from == to || !juce::isPositiveAndBelow(from, layerCount) || !juce::isPositiveAndBelow(to, layerCount))
+        return false;
+    const juce::ScopedLock guard(lock);
+    auto& source = layers[(size_t) from];
+    auto& destination = layers[(size_t) to];
+    if (!source.synth || source.soundFontId < 0) return false;
+    ++loadGenerations[(size_t) from];
+    ++loadGenerations[(size_t) to];
+    destination.synth.swap(source.synth);
+    destination.settings.swap(source.settings);
+    destination.soundFontPath.swapWith(source.soundFontPath);
+    std::swap(destination.soundFontId, source.soundFontId);
+    destination.selectedBank = source.selectedBank;
+    destination.selectedProgram = source.selectedProgram;
+    for (auto* layer : { &destination, &source })
+    {
+        layer->monoNote = -1;
+        layer->monoChannel = 1;
+        layer->sustainDown.fill(false);
+        layer->heldNotes.fill(false);
+        layer->heldVelocities.fill(0.0f);
+        layer->heldNoteOrder.fill(0);
+        layer->heldNoteSequence = 0;
+        layer->lastCutoff = layer->lastReverb = layer->lastPortamento = layer->lastMono = -1;
+        layer->lastAppliedAttackTimecents = layer->lastAppliedDecayTimecents = -100000.0f;
+        layer->lastAppliedSustainCentibels = layer->lastAppliedReleaseTimecents = -100000.0f;
+        layer->effectTailPending = false;
+        layer->effectQuietSamples = 0;
+    }
+    return true;
+}
+
 void Sf2Engine::unloadSoundFont(int index)
 {
     if (!juce::isPositiveAndBelow(index, layerCount)) return;

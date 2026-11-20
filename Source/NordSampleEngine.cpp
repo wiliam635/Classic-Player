@@ -282,6 +282,13 @@ bool NordSampleEngine::isLoaded(int layerIndex) const
     return stateLock.isLocked() && layers[(size_t) layerIndex].loaded;
 }
 
+std::shared_ptr<NordSampleDecoder::Instrument> NordSampleEngine::loadedInstrument(int layerIndex) const
+{
+    if (!juce::isPositiveAndBelow(layerIndex, layerCount)) return {};
+    const juce::ScopedLock stateLock(lock);
+    return layers[(size_t) layerIndex].instrument;
+}
+
 juce::String NordSampleEngine::path(int layerIndex) const
 {
     if (!juce::isPositiveAndBelow(layerIndex, layerCount)) return {};
