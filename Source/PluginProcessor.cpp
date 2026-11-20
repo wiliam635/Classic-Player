@@ -5468,12 +5468,32 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             return;
     }
 
+    // Diagnostic: where the time of a program change goes (written to liveset-diagnostico.txt).
+    struct PhaseLog
+    {
+        ClassicPlayerAudioProcessor& owner;
+        double last = juce::Time::getMillisecondCounterHiRes();
+        juce::String text;
+        void mark(const char* name)
+        {
+            const auto now = juce::Time::getMillisecondCounterHiRes();
+            text << " " << name << "=" << juce::String(now - last, 0) << "ms";
+            last = now;
+        }
+        ~PhaseLog()
+        {
+            if (text.isEmpty()) return;
+            owner.programStorageDirectory().getChildFile("liveset-diagnostico.txt")
+                .appendText("    fases:" + text + "\n");
+        }
+    } phases { *this };
     auto xml = getXmlFromBinary(data, size);
     if (xml != nullptr)
     {
         auto state = juce::ValueTree::fromXml(*xml);
         if (state.isValid())
         {
+            phases.mark("xml");
             // SF2 decoding performs disk I/O, allocation and synth creation.
             // Do that before acquiring the processor callback lock so audio
             // keeps running while a saved performance is being restored.
@@ -5522,9 +5542,12 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     preparedNordPaths[(size_t) i] = stagedNordPaths[(size_t) i];
                     stagedNordPaths[(size_t) i] = {};
                 }
+            phases.mark("sf2");
             prepareNordInstruments(state, layerCountToRestore, preparedPianos, preparedNordSamples, preparedNordPaths);
+            phases.mark("npno-nsmp-lidos-agora");
 
             const juce::ScopedLock callbackLock(getCallbackLock());
+            phases.mark("esperaLockAudio");
             // Keep an instrument already present in the same layer. Reloading
             // an unchanged SF2 (or decoding a Nord sample) can stall a Live Set
             // change for seconds, even when only its controls have changed.
@@ -5769,7 +5792,9 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     && parameters.getParameter(child.getProperty("id").toString()) == nullptr)
                     state.removeChild(childIndex, nullptr);
             }
+            phases.mark("preparoEstado");
             parameters.replaceState(state);
+            phases.mark("replaceState");
             for(int layer=0;layer<Sf2Engine::layerCount;++layer)
             {
                 juce::ValueTree saved;
@@ -6218,8 +6243,11 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 }
                 engine.setConfig(i, config);
             }
+            phases.mark("camadasEEfeitos");
             restoreLayerPaths(preparedSoundFonts, preparedPianos, preparedNordSamples);
+            phases.mark("restoreLayerPaths");
             migrateLegacyContinuousPadLayers(state);
+            phases.mark("migracaoPads");
         }
     }
 }
