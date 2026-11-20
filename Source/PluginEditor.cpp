@@ -8273,7 +8273,15 @@ public:
         fadeSlider.setValue(bank.fadeSeconds(), juce::dontSendNotification);
         fadeSlider.onValueChange = [this] { processor.padStrip().setFadeSeconds(fadeSlider.getValue()); };
         addAndMakeVisible(fadeSlider);
-        setSize(560, 12 * 32 + 84);
+        channelLabel.setText(juce::String::fromUTF8("CANAL MIDI DOS PADS"), juce::dontSendNotification);
+        channelLabel.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+        addAndMakeVisible(channelLabel);
+        channelBox.addItem("TODOS", 1);
+        for (int ch = 1; ch <= 16; ++ch) channelBox.addItem("CANAL " + juce::String(ch), ch + 1);
+        channelBox.setSelectedId(bank.midiChannel() + 1, juce::dontSendNotification);
+        channelBox.onChange = [this] { processor.padStrip().setMidiChannel(channelBox.getSelectedId() - 1); };
+        addAndMakeVisible(channelBox);
+        setSize(560, 12 * 32 + 84 + 34);
         refresh();
         startTimerHz(8);
     }
@@ -8292,6 +8300,10 @@ public:
         area.removeFromTop(6);
         stopLearn.setBounds(area.removeFromTop(30).reduced(2));
         fadeSlider.setBounds(area.removeFromTop(32));
+        area.removeFromTop(4);
+        auto channelRow = area.removeFromTop(28);
+        channelLabel.setBounds(channelRow.removeFromLeft(channelRow.getWidth() * 55 / 100));
+        channelBox.setBounds(channelRow.reduced(1, 0));
     }
 
 private:
@@ -8340,6 +8352,8 @@ private:
     std::array<MidiLearnButton, 12> learnButtons;
     MidiLearnButton stopLearn { "LEARN STOP" };
     juce::Slider fadeSlider;
+    juce::Label channelLabel;
+    juce::ComboBox channelBox;
     std::unique_ptr<juce::FileChooser> fileChooser;
 };
 

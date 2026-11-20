@@ -446,6 +446,13 @@ static void continuousPadRegression()
     check(bank.selected()==1,"note release stopped continuous pad");
     const auto noteSaved=bank.save();bank.restore(noteSaved);block();
     check(bank.mapping(1)==188,"note mapping lost on restore");
+    bank.setMidiChannel(5);
+    bank.stop();block();
+    bank.midi(juce::MidiMessage::noteOn(2,60,(juce::uint8)100));block();
+    check(bank.selected()==-1,"pad bank ignored its MIDI channel filter");
+    const auto channelSaved=bank.save();bank.setMidiChannel(0);bank.restore(channelSaved);
+    check(bank.midiChannel()==5,"pad bank MIDI channel lost on restore");
+    bank.setMidiChannel(0);
     auto p=std::make_unique<ClassicPlayerAudioProcessor>();
     p->setLayerType(1,ClassicPlayerAudioProcessor::LayerType::continuousPads);
     for (int pad = 0; pad < ContinuousPadBank::count; ++pad)

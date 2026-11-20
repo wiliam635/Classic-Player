@@ -92,9 +92,14 @@ public:
     // Standalone MIDI callbacks run outside the audio thread. Capture here
     // before device/channel routing so Learn behaves like the other layer
     // controls, including for controllers whose current value is below 64.
+    // 0 = every MIDI channel; 1..16 = only that channel (Learn, pads and STOP alike).
+    int midiChannel() const {return channelFilter.load();}
+    void setMidiChannel(int channel){channelFilter=juce::jlimit(0,16,channel);}
+    bool acceptsChannel(const juce::MidiMessage& message) const
+    {const int f=channelFilter.load();return f==0||message.getChannel()==f;}
     bool captureLearnedCC(const juce::MidiMessage& message)
     {
-        if (!message.isController()) return false;
+        if (!message.isController() || !acceptsChannel(message)) return false;
         const int cc = message.getControllerNumber();
         if (cc == 64 || cc >= 120 || learning.load() < 0) return false;
         const juce::ScopedLock guard(lock);
@@ -106,7 +111,7 @@ public:
     void stop(){command=-1;}
     bool stopFromMidi(const juce::MidiMessage& message)
     {
-        if (!message.isController() || message.getControllerValue() < 64
+        if (!message.isController() || !acceptsChannel(message) || message.getControllerValue() < 64
             || message.getControllerNumber() != stopCC.load(std::memory_order_acquire))
             return false;
         stop();
@@ -125,6 +130,7 @@ public:
     }
     void midi(const juce::MidiMessage& message)
     {
+        if (!acceptsChannel(message)) return;
         // Hardware pads commonly send Note On rather than CC. Store notes as
         // 128 + note number so existing CC mappings and saved banks stay valid.
         if (message.isNoteOn())
@@ -251,7 +257,7 @@ public:
     juce::ValueTree save() const
     {
         const juce::ScopedLock g(lock);juce::ValueTree tree("ContinuousPads");
-        tree.setProperty("fade",fade.load(),nullptr);tree.setProperty("stopCC",stopCC.load(),nullptr);
+        tree.setProperty("fade",fade.load(),nullptr);tree.setProperty("midiChannel",channelFilter.load(),nullptr);tree.setProperty("stopCC",stopCC.load(),nullptr);
         for(int i=0;i<count;++i)
         {juce::ValueTree child("Pad");child.setProperty("path",pads[(size_t)i].path,nullptr);
          child.setProperty("cc",pads[(size_t)i].cc,nullptr);
@@ -262,7 +268,7 @@ public:
     void restore(const juce::ValueTree& tree, bool provideFactoryPad = false)
     {
         stopImmediately();
-        setFadeSeconds((double)tree.getProperty("fade",1.0));
+        setFadeSeconds((double)tree.getProperty("fade",1.0));setMidiChannel((int)tree.getProperty("midiChannel",0));
         {const juce::ScopedLock g(lock);stopCC=validCC((int)tree.getProperty("stopCC",-1));
          for(auto& p:pads){p.audio.reset();p.path.clear();p.cc=-1;p.ccChannel=0;}}
         for(int i=0;i<count;++i)
@@ -429,7 +435,7 @@ private:
     mutable juce::CriticalSection lock;
     std::array<Pad,count> pads;
     std::array<std::array<bool,128>,16> ccDown{};
-    std::atomic<int> command{-2},active{-1},learning{-1};
+    std::atomic<int> command{-2},active{-1},learning{-1},channelFilter{0};
     std::atomic<float> meter{0};std::atomic<double> fade{1.0};
     std::atomic<int> stopCC{-1};double sampleRate=48000;
     std::array<float,2> highPassInput{},highPassOutput{},lowPassState{};
