@@ -105,9 +105,60 @@ void ClassicPlayerAudioProcessor::saveStartupSettings()
         juce::Logger::writeToLog("Não foi possível salvar as preferências de inicialização.");
 }
 
+juce::File ClassicPlayerAudioProcessor::padStripSettingsFile() const
+{
+    return programStorageDirectory().getChildFile("PadStrip.xml");
+}
+
+bool ClassicPlayerAudioProcessor::padStripConfigured() const
+{
+    // "Configured" = the user chose something: own pad files, a learned CC/note, or a STOP mapping.
+    if (padStripBank.mapping(ContinuousPadBank::count) >= 0) return true;
+    for (int i = 0; i < ContinuousPadBank::count; ++i)
+    {
+        const auto path = padStripBank.path(i);
+        if (padStripBank.mapping(i) >= 0
+            || (path.isNotEmpty() && !path.startsWith("@factory-pad:"))) return true;
+    }
+    return false;
+}
+
+void ClassicPlayerAudioProcessor::savePadStripSettings()
+{
+    const auto bank = padStripBank.save();
+    juce::ValueTree strip("PadStrip");
+    strip.copyPropertiesFrom(bank, nullptr);
+    for (const auto child : bank) strip.addChild(child.createCopy(), -1, nullptr);
+    strip.setProperty("volume", padStripVolume.load(), nullptr);
+    strip.setProperty("cutoff", padStripCutoff.load(), nullptr);
+    const auto text = strip.toXmlString();
+    if (text == lastPadStripSettings) return;
+    const auto file = padStripSettingsFile();
+    if (file.getParentDirectory().createDirectory().failed()) return;
+    if (file.replaceWithText(text)) lastPadStripSettings = text;
+}
+
+void ClassicPlayerAudioProcessor::loadPadStripSettings()
+{
+    padStripSettingsLoaded = true;
+    const auto file = padStripSettingsFile();
+    if (!file.existsAsFile()) return;
+    auto strip = juce::ValueTree::fromXml(file.loadFileAsString());
+    if (!strip.isValid() || !strip.hasType("PadStrip")) return;
+    padStripBank.restore(strip, false, true, true); // registers the pads; decoding happens in the background
+    padStripVolume.store(juce::jlimit(0.0f, 100.0f, (float) strip.getProperty("volume", 80.0f)));
+    padStripCutoff.store(juce::jlimit(0.0f, 100.0f, (float) strip.getProperty("cutoff", 100.0f)));
+    lastPadStripSettings = strip.toXmlString();
+}
+
 void ClassicPlayerAudioProcessor::restoreStartupSettings()
 {
     restoringStartupSettings = true;
+    if (wrapperType == wrapperType_Standalone)
+    {
+        loadPadStripSettings();
+        ensurePadStripLoaded();
+    }
     if (auto settings = juce::XmlDocument::parse(startupSettingsFile());
         settings != nullptr && settings->hasTagName("ClassicPlayerStartup"))
     {
@@ -299,6 +350,11 @@ void ClassicPlayerAudioProcessor::timerCallback()
     flushParameterMidiUpdates();
     drainHeadlessUiMidi();
     engine.topUpSpareSettings(); // keeps spare FluidSynth settings ready for loads made under the audio lock
+    if (wrapperType == wrapperType_Standalone && padStripSettingsLoaded && ++padStripSaveTicks >= 20)
+    {
+        padStripSaveTicks = 0;
+        savePadStripSettings();
+    }
     if (pendingPanic.exchange(false)) panic();
     // The editor drives the Live Set switch. If it was closed between the fade-out and
     // the program load, nothing would ever fade back in and the output would stay muted.
@@ -5491,7 +5547,12 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
     for(int i=state.getNumChildren()-1;i>=0;--i)
         if(state.getChild(i).hasType("ContinuousPads"))state.removeChild(i,nullptr);
     for(int i=0;i<Sf2Engine::layerCount;++i)
-    {auto bank=continuousPads(i).save();bank.setProperty("layer",i,nullptr);state.addChild(bank,-1,nullptr);}
+    {
+        // Only a real pad layer carries pad data; the others would drag stale files into every program.
+        auto bank = layerType(i) == LayerType::continuousPads ? continuousPads(i).save() : juce::ValueTree("ContinuousPads");
+        bank.setProperty("layer", i, nullptr);
+        state.addChild(bank, -1, nullptr);
+    }
     for (int i = state.getNumChildren() - 1; i >= 0; --i)
         if (state.getChild(i).hasType("PadStrip")) state.removeChild(i, nullptr);
     {
@@ -5844,12 +5905,19 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             phases.mark("preparoEstado");
             parameters.replaceState(state);
             phases.mark("replaceState");
+            // The pad strip is global in the standalone and across program changes: only a DAW project (plug-in
+            // host state) restores its own copy.
+            const bool globalPads = wrapperType == wrapperType_Standalone || applyingProgramState;
             for(int layer=0;layer<Sf2Engine::layerCount;++layer)
             {
                 juce::ValueTree saved;
                 for(const auto& child:state)if(child.hasType("ContinuousPads") && (int)child.getProperty("layer",-1)==layer){saved=child;break;}
-                continuousPads(layer).restore(saved, layerType(layer) == LayerType::continuousPads, true, true);
+                const bool savedAsPadLayer = static_cast<int>(state.getProperty(
+                    "layerType" + juce::String(layer + 1), 0)) == static_cast<int>(LayerType::continuousPads);
+                // Other layers never get pad files from the performance (older files carry stale ones).
+                continuousPads(layer).restore(savedAsPadLayer ? saved : juce::ValueTree{}, savedAsPadLayer, true, true);
             }
+            if (!globalPads)
             {
                 juce::ValueTree strip;
                 for (const auto& child : state) if (child.hasType("PadStrip")) { strip = child; break; }
@@ -6320,12 +6388,17 @@ void ClassicPlayerAudioProcessor::migrateLegacyContinuousPadLayers(const juce::V
     for (const auto& child : state)
         if (child.hasType("ContinuousPads") && static_cast<int>(child.getProperty("layer", -1)) == first)
         { saved = child; break; }
-    if (saved.isValid())
-        padStripBank.restore(saved, false, true, true);
-    padStripVolume.store(juce::jlimit(0.0f, 100.0f,
-        realtimeLayerParameters[(size_t) first].Gain->load(std::memory_order_relaxed)));
-    padStripCutoff.store(juce::jlimit(0.0f, 100.0f,
-        realtimeLayerParameters[(size_t) first].Cutoff->load(std::memory_order_relaxed)));
+    // The strip is global: a performance's old pad layer only seeds it while the user has not set anything up.
+    const bool keepGlobal = wrapperType == wrapperType_Standalone || applyingProgramState;
+    if (!keepGlobal || !padStripConfigured())
+    {
+        if (saved.isValid())
+            padStripBank.restore(saved, false, true, true);
+        padStripVolume.store(juce::jlimit(0.0f, 100.0f,
+            realtimeLayerParameters[(size_t) first].Gain->load(std::memory_order_relaxed)));
+        padStripCutoff.store(juce::jlimit(0.0f, 100.0f,
+            realtimeLayerParameters[(size_t) first].Cutoff->load(std::memory_order_relaxed)));
+    }
     ensurePadStripLoaded();
     // Highest index first so the lower indices stay valid while the layers are compacted.
     for (int layer = count - 1; layer >= 0; --layer)

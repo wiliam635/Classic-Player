@@ -441,6 +441,15 @@ private:
     void timerCallback() override;
     void processMasterMidiMessage(const juce::MidiMessage&);
     void saveStartupSettings();
+    // The standalone pad strip belongs to the app, not to a performance: it is kept in PadStrip.xml and a
+    // program change never reloads or clears it.
+    juce::File padStripSettingsFile() const;
+    void loadPadStripSettings();
+    void savePadStripSettings();
+    bool padStripConfigured() const;
+    juce::String lastPadStripSettings;
+    int padStripSaveTicks = 0;
+    bool padStripSettingsLoaded = false;
     void restoreStartupSettings();
     juce::Result writeProgramFile(const juce::File& destination, juce::File& savedFile);
     juce::File startupSettingsFile() const;

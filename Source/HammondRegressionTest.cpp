@@ -421,6 +421,31 @@ static void continuousPadCutoffRegression()
              <<" MIDI open="<<ccOpen<<" MIDI closed="<<ccClosed<<"\n";
 }
 
+static void globalPadStripRegression()
+{
+    juce::TemporaryFile storage;
+    const auto root = storage.getFile();
+    check(root.createDirectory().wasOk(), "global pad strip storage");
+    struct Cleanup { juce::File directory; ~Cleanup() { directory.deleteRecursively(); } } cleanup { root };
+    juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
+    auto p = std::make_unique<ClassicPlayerAudioProcessor>(root);
+    juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
+    // The strip belongs to the app: a program change must neither restore nor clear it.
+    p->padStrip().loadFactoryPad(0);
+    p->padStrip().learn(0);
+    ContinuousPadRegressionAccess::handleIncomingMidiMessage(*p, juce::MidiMessage::controllerEvent(1, 33, 127));
+    check(p->padStrip().mapping(0) == 33, "global pad strip Learn failed");
+    juce::File program;
+    check(p->saveProgram("Global pads A", program).wasOk(), "global pad strip save program");
+    p->padStrip().clearMapping(0); // changed after the program was saved
+    check(p->loadProgram(program).wasOk(), "global pad strip load program");
+    check(p->padStrip().mapping(0) == -1, "a program change restored the pad strip from the file");
+    p->padStrip().learn(2);
+    ContinuousPadRegressionAccess::handleIncomingMidiMessage(*p, juce::MidiMessage::controllerEvent(1, 44, 127));
+    check(p->loadProgram(program).wasOk(), "global pad strip load program again");
+    check(p->padStrip().mapping(2) == 44, "a program change cleared the global pad strip");
+}
+
 static void continuousPadRegression()
 {
     continuousPadCutoffRegression();
@@ -1636,7 +1661,7 @@ int main(int argc, char** argv)
             continuousPadRegression();
             return 0;
         }
-        if (argc > 1 && juce::String(argv[1]) == "--legacy-restore") { legacyPerformanceRestoreMatrix(); return 0; }
+        if (argc > 1 && juce::String(argv[1]) == "--legacy-restore") { legacyPerformanceRestoreMatrix(); globalPadStripRegression(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--liveset-swap") { liveSetSwapTimingRegression(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--performance-effects")
         {
@@ -1650,6 +1675,7 @@ int main(int argc, char** argv)
         }
         liveSetSwapTimingRegression();
         legacyPerformanceRestoreMatrix();
+        globalPadStripRegression();
         performanceEffectsRegression();
         nordOrganRegression();
         DrumPadRegressionAccess::run();
