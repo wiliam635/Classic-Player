@@ -10662,7 +10662,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
         classicProcessor.setUiEditorDraining(true);
         // "ui:" ids are auto-generated slider paths; "pk:" ids are explicit processor-side targets
         // (pad strip volume/cutoff, filters, analog, FX). Both use the editor's own CC map.
-        const auto isUiMidiId = [](const juce::String& id) { return id.startsWith("ui:") || id.startsWith("pk:"); };
+        static const auto isUiMidiId = [](const juce::String& id) { return id.startsWith("ui:") || id.startsWith("pk:"); };
         ParameterMidiMenu::Hooks hooks;
         hooks.resolve = [this](juce::Component* source, juce::String& id) { return resolveMidiSlider(source, id); };
         hooks.mapping = [this](const juce::String& id)
