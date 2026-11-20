@@ -73,6 +73,8 @@ public:
                                                      "F#", "G", "G#", "A", "A#", "B" };
         return juce::isPositiveAndBelow(i, count) ? juce::String(names[i]) : juce::String{};
     }
+    // Mappings 0..119 are CCs; 128..255 are MIDI notes (128 + note number).
+    static juce::String mappingText(int value) {return value>=128?"NOTA "+juce::String(value-128):"CC "+juce::String(value);}
     int mapping(int i) const {const juce::ScopedLock g(lock);return i==count?stopCC.load():pads[(size_t)i].cc;}
     int learningTarget() const {return learning.load();}
     void learn(int i){learning = learning.load() == i ? -1 : i;}
@@ -80,7 +82,11 @@ public:
     {
         const juce::ScopedLock guard(lock);
         if (i == count) stopCC = -1;
-        else if (juce::isPositiveAndBelow(i, count)) pads[(size_t) i].cc = -1;
+        else if (juce::isPositiveAndBelow(i, count))
+        {
+            pads[(size_t) i].cc = -1;
+            pads[(size_t) i].ccChannel = 0;
+        }
         if (learning.load() == i) learning = -1;
     }
     // Standalone MIDI callbacks run outside the audio thread. Capture here
@@ -94,7 +100,7 @@ public:
         const juce::ScopedLock guard(lock);
         const auto channel = (size_t) (message.getChannel() - 1);
         ccDown[channel][(size_t) cc] = message.getControllerValue() >= 64;
-        return assignLearnedCC(cc);
+        return assignLearnedCC(cc, message.getChannel());
     }
     void trigger(int i){if(juce::isPositiveAndBelow(i,count))command=i;}
     void stop(){command=-1;}
@@ -119,6 +125,22 @@ public:
     }
     void midi(const juce::MidiMessage& message)
     {
+        // Hardware pads commonly send Note On rather than CC. Store notes as
+        // 128 + note number so existing CC mappings and saved banks stay valid.
+        if (message.isNoteOn())
+        {
+            const juce::ScopedTryLock guard(lock);
+            if (!guard.isLocked()) return;
+            const int key = 128 + message.getNoteNumber();
+            if (assignLearnedCC(key, message.getChannel())) return;
+            if (stopCC.load() == key) { stop(); return; }
+            for (int i = 0; i < count; ++i)
+                if (pads[(size_t)i].cc == key
+                    && (pads[(size_t)i].ccChannel == 0
+                        || pads[(size_t)i].ccChannel == message.getChannel()))
+                { trigger(i); break; }
+            return;
+        }
         if(!message.isController())return;
         const int cc=message.getControllerNumber(),channel=message.getChannel()-1;
         if(cc==64 || cc>=120)return;
@@ -126,12 +148,16 @@ public:
         const bool down=message.getControllerValue()>=64;
         const bool edge=down&&!ccDown[(size_t)channel][(size_t)cc];
         ccDown[(size_t)channel][(size_t)cc]=down;
-        if(assignLearnedCC(cc))return;
+        if(assignLearnedCC(cc, message.getChannel()))return;
         // STOP is idempotent. Some controller buttons send only 127 and no
         // release, so an edge latch would leave a learned STOP inert.
         if(stopCC.load()==cc){if(down)stop();return;}
         if(!edge)return;
-        for(int i=0;i<count;++i)if(pads[(size_t)i].cc==cc){trigger(i);break;}
+        for(int i=0;i<count;++i)
+            if(pads[(size_t)i].cc==cc
+                && (pads[(size_t)i].ccChannel == 0
+                    || pads[(size_t)i].ccChannel == message.getChannel()))
+            {trigger(i);break;}
     }
     void render(juce::AudioBuffer<float>& output,float gain,float highPassHz,float lowPassHz,
                 const EqSettings& eqSettings)
@@ -228,7 +254,9 @@ public:
         tree.setProperty("fade",fade.load(),nullptr);tree.setProperty("stopCC",stopCC.load(),nullptr);
         for(int i=0;i<count;++i)
         {juce::ValueTree child("Pad");child.setProperty("path",pads[(size_t)i].path,nullptr);
-         child.setProperty("cc",pads[(size_t)i].cc,nullptr);tree.addChild(child,-1,nullptr);}
+         child.setProperty("cc",pads[(size_t)i].cc,nullptr);
+         child.setProperty("ccChannel",pads[(size_t)i].ccChannel,nullptr);
+         tree.addChild(child,-1,nullptr);}
         return tree;
     }
     void restore(const juce::ValueTree& tree, bool provideFactoryPad = false)
@@ -236,7 +264,7 @@ public:
         stopImmediately();
         setFadeSeconds((double)tree.getProperty("fade",1.0));
         {const juce::ScopedLock g(lock);stopCC=validCC((int)tree.getProperty("stopCC",-1));
-         for(auto& p:pads){p.audio.reset();p.path.clear();p.cc=-1;}}
+         for(auto& p:pads){p.audio.reset();p.path.clear();p.cc=-1;p.ccChannel=0;}}
         for(int i=0;i<count;++i)
         {
             const auto child=tree.getChild(i);const auto filename=child.getProperty("path").toString();
@@ -252,6 +280,7 @@ public:
             const juce::ScopedLock g(lock);
             if (!isFactory && filename.isNotEmpty()) pads[(size_t)i].path=filename;
             pads[(size_t)i].cc=validCC((int)child.getProperty("cc",-1));
+            pads[(size_t)i].ccChannel=juce::jlimit(0,16,(int)child.getProperty("ccChannel",0));
         }
         stopImmediately();
     }
@@ -373,20 +402,24 @@ private:
         return sample;
     }
 
-    bool assignLearnedCC(int cc)
+    bool assignLearnedCC(int cc, int channel)
     {
         const int target = learning.exchange(-1);
         if (target < 0) return false;
         for (auto& pad : pads)
-            if (pad.cc == cc) pad.cc = -1;
+            if (pad.cc == cc && (pad.ccChannel == 0 || pad.ccChannel == channel)) pad.cc = -1;
         if (stopCC.load() == cc) stopCC = -1;
         if (target == count) stopCC = cc;
-        else if (target < count) pads[(size_t) target].cc = cc;
+        else if (target < count)
+        {
+            pads[(size_t) target].cc = cc;
+            pads[(size_t) target].ccChannel = channel;
+        }
         return true; // Learning must not start/stop audio unexpectedly.
     }
 
-    struct Pad {std::shared_ptr<SampleData> audio;juce::String path;double position=0;float level=0;int cc=-1;};
-    static int validCC(int cc){return cc>=0&&cc<120&&cc!=64?cc:-1;}
+    struct Pad {std::shared_ptr<SampleData> audio;juce::String path;double position=0;float level=0;int cc=-1;int ccChannel=0;};
+    static int validCC(int cc){return ((cc>=0&&cc<120&&cc!=64)||(cc>=128&&cc<=255))?cc:-1;}
     static float read(const Pad& p,int ch,double pos)
     {const int i=juce::jlimit(0,p.audio->frames-1,(int)pos);
      const int j=juce::jmin(i+1,p.audio->frames-1);

@@ -435,6 +435,17 @@ static void continuousPadRegression()
     const auto saved=bank.save();bank.restore(saved);block();check(bank.selected()==-1&&audio.getMagnitude(0,128)==0,"restore autoplays");
     check(bank.mapping(0)==21&&bank.mapping(ContinuousPadBank::count)==48
           &&bank.path(0)==fixture.getFile().getFullPathName(),"pad settings lost");
+    bank.learn(1);
+    bank.midi(juce::MidiMessage::noteOn(2,60,(juce::uint8)100));block();
+    check(bank.mapping(1)==188 && bank.selected()==-1,"Note Learn failed or autoplayed");
+    bank.midi(juce::MidiMessage::noteOn(3,60,(juce::uint8)100));block();
+    check(bank.selected()==-1,"learned note ignored its MIDI channel");
+    bank.midi(juce::MidiMessage::noteOn(2,60,(juce::uint8)100));block();
+    check(bank.selected()==1,"learned note did not trigger pad");
+    bank.midi(juce::MidiMessage::noteOff(2,60));block();
+    check(bank.selected()==1,"note release stopped continuous pad");
+    const auto noteSaved=bank.save();bank.restore(noteSaved);block();
+    check(bank.mapping(1)==188,"note mapping lost on restore");
     auto p=std::make_unique<ClassicPlayerAudioProcessor>();
     p->setLayerType(1,ClassicPlayerAudioProcessor::LayerType::continuousPads);
     for (int pad = 0; pad < ContinuousPadBank::count; ++pad)
@@ -477,6 +488,13 @@ static void continuousPadRegression()
     ContinuousPadRegressionAccess::handleIncomingMidiMessage(*p,juce::MidiMessage::controllerEvent(5,22,127));
     playBlock();
     check(p->padStrip().selected()==0,"pad strip CC from the standalone callback did not trigger the pad");
+    p->padStrip().learn(1);
+    ContinuousPadRegressionAccess::handleIncomingMidiMessage(*p,juce::MidiMessage::noteOn(2,40,(juce::uint8)100));
+    playBlock();
+    check(p->padStrip().mapping(1)==168,"pad strip Learn missed the note");
+    ContinuousPadRegressionAccess::handleIncomingMidiMessage(*p,juce::MidiMessage::noteOn(2,40,(juce::uint8)100));
+    playBlock();
+    check(p->padStrip().selected()==1,"pad strip note from the standalone callback did not trigger the pad");
     p->beginMidiLearn(1,ClassicPlayerAudioProcessor::LearnTarget::volume);
     p->beginMidiLearn(1,ClassicPlayerAudioProcessor::LearnTarget::volume);
     check(!p->isMidiLearning(1,ClassicPlayerAudioProcessor::LearnTarget::volume),

@@ -6901,7 +6901,7 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
                 if (continuous())
                 {
                     const int cc = processor.continuousPads(layerIndex).mapping(pad);
-                    return cc >= 0 ? "CC " + juce::String(cc) : juce::String();
+                    return cc >= 0 ? ContinuousPadBank::mappingText(cc) : juce::String();
                 }
                 return processor.drumPadMidiMapping(pad);
             },
@@ -6909,7 +6909,7 @@ ClassicPlayerAudioProcessorEditor::DrumPadPanel::DrumPadPanel(ClassicPlayerAudio
                                               : processor.isDrumPadMidiLearning(pad); }));
     rightClickLearn.push_back(std::make_unique<RightClickMidiLearn>(stopButton, stopLearn,
         [this] { const int cc = continuous() ? processor.continuousPads(layerIndex).mapping(12) : -1;
-                 return cc >= 0 ? "CC " + juce::String(cc) : juce::String(); },
+                 return cc >= 0 ? ContinuousPadBank::mappingText(cc) : juce::String(); },
         [this] { return continuous() && processor.continuousPads(layerIndex).learningTarget() == 12; }));
     {
         using Target = ClassicPlayerAudioProcessor::LearnTarget;
@@ -7018,7 +7018,7 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
         const int cc=processor.continuousPads(layerIndex).mapping(12);
         setButtonTextIfChanged(stopLearn, localizedUiText(
             processor.continuousPads(layerIndex).learningTarget()==12 ? "STOP: MOVA O CC"
-                : cc>=0 ? "STOP: CC "+juce::String(cc) : "LEARN STOP",
+                : cc>=0 ? "STOP: "+ContinuousPadBank::mappingText(cc) : "LEARN STOP",
             activeUiLanguage.load()));
     }
     for (int pad = 0; pad < padCount(); ++pad)
@@ -7040,7 +7040,7 @@ void ClassicPlayerAudioProcessorEditor::DrumPadPanel::refresh()
         setButtonColourIfChanged(trigger, juce::TextButton::textColourOffId,
                                  dimOthers && !active ? juce::Colour(0xffe8edf2) : juce::Colour(0xff101820));
         const int cc=continuous()?processor.continuousPads(layerIndex).mapping(pad):-1;
-        const auto mapping = continuous() ? (cc>=0?"CC "+juce::String(cc):juce::String{}) : processor.drumPadMidiMapping(pad);
+        const auto mapping = continuous() ? (cc>=0?ContinuousPadBank::mappingText(cc):juce::String{}) : processor.drumPadMidiMapping(pad);
         setButtonTextIfChanged(learnButtons[(size_t) pad], localizedUiText(
             (continuous()?processor.continuousPads(layerIndex).learningTarget()==pad:processor.isDrumPadMidiLearning(pad)) ? "MOVA PAD"
             : mapping.isNotEmpty() ? mapping : "LEARN", activeUiLanguage.load()));
@@ -8327,12 +8327,12 @@ private:
             const int cc = bank.mapping(pad);
             setButtonTextIfChanged(learnButtons[(size_t) pad],
                 bank.learningTarget() == pad ? juce::String("MOVA O CC")
-                : cc >= 0 ? "CC " + juce::String(cc) : juce::String("LEARN"));
+                : cc >= 0 ? ContinuousPadBank::mappingText(cc) : juce::String("LEARN"));
         }
         const int stopCC = bank.mapping(12);
         setButtonTextIfChanged(stopLearn,
             bank.learningTarget() == 12 ? juce::String("STOP: MOVA O CC")
-            : stopCC >= 0 ? "STOP: CC " + juce::String(stopCC) : juce::String("LEARN STOP"));
+            : stopCC >= 0 ? "STOP: " + ContinuousPadBank::mappingText(stopCC) : juce::String("LEARN STOP"));
     }
     ClassicPlayerAudioProcessor& processor;
     std::array<juce::Label, 12> names;
