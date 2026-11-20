@@ -311,6 +311,26 @@ public:
                                   std::function<void(juce::Result)> afterSwap,
                                   std::function<void()> onReady = {});
     void cancelStagedLiveSetSwitch();
+    // "TEMPO DA TROCA": how long the old performance fades out and the new one fades in when a staged
+    // Live Set switch takes over. Mode 0 is the original behaviour (35 ms out, 8 ms in) and the default.
+    struct LiveSetSwapTiming { int fadeOutMs; int fadeInMs; };
+    static constexpr int liveSetSwapModeCount = 4;
+    static LiveSetSwapTiming liveSetSwapTimingFor(int mode) noexcept
+    {
+        switch (mode)
+        {
+            case 1: return { 15, 4 };    // rapida
+            case 2: return { 120, 40 };  // suave
+            case 3: return { 300, 100 }; // longa
+            default: return { 35, 8 };   // padrao
+        }
+    }
+    int liveSetSwapMode() const noexcept { return liveSetSwapModeValue.load(std::memory_order_relaxed); }
+    void setLiveSetSwapMode(int mode)
+    {
+        liveSetSwapModeValue.store(juce::jlimit(0, liveSetSwapModeCount - 1, mode), std::memory_order_relaxed);
+        startupSettingsDirty.store(true);
+    }
     bool isLiveSetPreparing() const noexcept { return liveSetPreparing.load(std::memory_order_acquire); }
     bool hasStagedLiveSetSwitch() const noexcept { return liveSetSwapState.load(std::memory_order_acquire) != 0; }
     // True once the audio thread has faded the old program to silence (set by processBlock).
@@ -543,6 +563,7 @@ private:
     std::atomic<bool> liveSetFadeOutDone { false };
     // 0 idle, 1 staged (waiting for the first note), 2 swapping (MIDI is held), 3 replay held MIDI.
     std::atomic<int> liveSetSwapState { 0 };
+    std::atomic<int> liveSetSwapModeValue { 0 }; // see liveSetSwapTimingFor
     // Diagnostic: audio behaviour during the 2 s after a staged switch (written to liveset-diagnostico.txt).
     std::atomic<juce::uint32> swapWatchUntilMs { 0 };
     std::atomic<double> swapWatchMaxBlockMs { 0.0 };

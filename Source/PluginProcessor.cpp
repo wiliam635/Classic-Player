@@ -99,6 +99,7 @@ void ClassicPlayerAudioProcessor::saveStartupSettings()
     }
     settings.setAttribute("panicCC", panicCC.load());
     settings.setAttribute("panicChannel", panicCCChannel.load());
+    settings.setAttribute("liveSetSwapMode", liveSetSwapMode());
     const auto file = startupSettingsFile();
     if (file.getParentDirectory().createDirectory().failed() || !settings.writeTo(file))
         juce::Logger::writeToLog("Não foi possível salvar as preferências de inicialização.");
@@ -121,6 +122,8 @@ void ClassicPlayerAudioProcessor::restoreStartupSettings()
         }
         panicCC.store(juce::jlimit(-1, 119, settings->getIntAttribute("panicCC", -1)));
         panicCCChannel.store(juce::jlimit(-1, 16, settings->getIntAttribute("panicChannel", -1)));
+        liveSetSwapModeValue.store(juce::jlimit(0, liveSetSwapModeCount - 1,
+                                                settings->getIntAttribute("liveSetSwapMode", 0)));
     }
     // Start every standalone launch with zero layers and no loaded performance.
     // Saved programs remain in the library and can be selected from the UI.
@@ -4532,13 +4535,15 @@ void ClassicPlayerAudioProcessor::performStagedLiveSetSwap()
     stagedAfterSwap = nullptr;
     if (before) before();
 
-    // The old sound ends here: 35 ms fade so the cut itself cannot click. All MIDI is held
+    // The old sound ends here: short fade (35 ms by default, see liveSetSwapTimingFor) so the cut itself cannot click. All MIDI is held
     // by the audio thread meanwhile (state 2), including the note that triggered the switch.
     const auto swapStartMs = juce::Time::getMillisecondCounterHiRes();
     const auto gapsBefore = blockGapCount.load(std::memory_order_relaxed);
-    beginLiveSetFadeOut(0.035);
+    const auto timing = liveSetSwapTimingFor(liveSetSwapMode());
+    beginLiveSetFadeOut(timing.fadeOutMs / 1000.0);
     int fadeWaits = 0;
-    for (; fadeWaits < 50 && !isLiveSetFadeOutComplete(); ++fadeWaits)
+    const auto maxFadeWaits = timing.fadeOutMs / 2 + 25; // 2 ms per wait; the default keeps today's 50
+    for (; fadeWaits < maxFadeWaits && !isLiveSetFadeOutComplete(); ++fadeWaits)
         juce::Thread::sleep(2);
     const auto fadeDoneMs = juce::Time::getMillisecondCounterHiRes() - swapStartMs;
     const auto peakAtFadeEnd = liveSetPostFadePeak.load(std::memory_order_relaxed);
@@ -4571,7 +4576,7 @@ void ClassicPlayerAudioProcessor::performStagedLiveSetSwap()
         liveSetFadingOut = false;
         liveSetFadingIn = true; // very short ramp so the new program's first samples never start with an edge
         liveSetFadePosition = 0;
-        liveSetFadeFrames = juce::jmax(1, juce::roundToInt(currentSampleRate * 0.008));
+        liveSetFadeFrames = juce::jmax(1, juce::roundToInt(currentSampleRate * timing.fadeInMs / 1000.0));
         liveSetFadeOutStartMs.store(0, std::memory_order_relaxed);
     }
     for (int i = 0; i < Sf2Engine::layerCount; ++i)

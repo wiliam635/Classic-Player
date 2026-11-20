@@ -216,6 +216,38 @@ static void writeMinimalSf2(const juce::File& file)
     check(file.replaceWithData(whole.getData(), whole.getDataSize()), "write minimal SF2");
 }
 
+// "TEMPO DA TROCA": the default must stay the original 35 ms / 8 ms behaviour, every preset must be a
+// sane fade (out never shorter than in, strictly longer presets in order) and the setting must clamp.
+static void liveSetSwapTimingRegression()
+{
+    using P = ClassicPlayerAudioProcessor;
+    const auto standard = P::liveSetSwapTimingFor(0);
+    check(standard.fadeOutMs == 35 && standard.fadeInMs == 8, "default swap timing must stay 35 ms out / 8 ms in");
+    const auto outOfRange = P::liveSetSwapTimingFor(99);
+    check(outOfRange.fadeOutMs == 35 && outOfRange.fadeInMs == 8, "unknown swap mode falls back to the default");
+    int previousOut = 0;
+    for (int mode : { 1, 0, 2, 3 })
+    {
+        const auto t = P::liveSetSwapTimingFor(mode);
+        check(t.fadeInMs >= 1 && t.fadeOutMs >= t.fadeInMs, "swap fade-out must not be shorter than fade-in");
+        check(t.fadeOutMs > previousOut, "swap presets must grow from rapida to longa");
+        check(t.fadeOutMs / 2 + 25 >= 27, "swap wait budget must cover the fade");
+        previousOut = t.fadeOutMs;
+    }
+    juce::TemporaryFile storage;
+    const auto root = storage.getFile();
+    check(root.createDirectory().wasOk(), "swap timing storage");
+    struct Cleanup { juce::File directory; ~Cleanup() { directory.deleteRecursively(); } } cleanup { root };
+    ClassicPlayerAudioProcessor processor(root);
+    check(processor.liveSetSwapMode() == 0, "a new processor keeps today's swap behaviour");
+    processor.setLiveSetSwapMode(3);
+    check(processor.liveSetSwapMode() == 3, "swap mode is stored");
+    processor.setLiveSetSwapMode(42);
+    check(processor.liveSetSwapMode() == P::liveSetSwapModeCount - 1, "swap mode clamps high");
+    processor.setLiveSetSwapMode(-5);
+    check(processor.liveSetSwapMode() == 0, "swap mode clamps low");
+}
+
 // Performances saved by 3.0.3 hold continuous-pad layers (3.1.0 moved them into the pad strip). Restoring
 // them removes those layers and shifts the others, reloading SF2s under the audio lock; this once
 // deadlocked with Core Audio. Every combination must restore promptly with the audio thread running.
@@ -1603,6 +1635,7 @@ int main(int argc, char** argv)
             return 0;
         }
         if (argc > 1 && juce::String(argv[1]) == "--legacy-restore") { legacyPerformanceRestoreMatrix(); return 0; }
+        if (argc > 1 && juce::String(argv[1]) == "--liveset-swap") { liveSetSwapTimingRegression(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--performance-effects")
         {
             performanceEffectsRegression();
@@ -1613,6 +1646,7 @@ int main(int argc, char** argv)
             nordOrganRegression();
             return 0;
         }
+        liveSetSwapTimingRegression();
         legacyPerformanceRestoreMatrix();
         performanceEffectsRegression();
         nordOrganRegression();

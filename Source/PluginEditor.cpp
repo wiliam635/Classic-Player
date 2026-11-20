@@ -10563,6 +10563,16 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
             menu.addItem(3, localizedUiText("Audio / MIDI", uiLanguage));
             menu.addSeparator();
         }
+        {
+            juce::PopupMenu swapMenu;
+            const char* const labels[] { "Padrao (35 ms / 8 ms)", "Rapida (15 ms / 4 ms)",
+                                         "Suave (120 ms / 40 ms)", "Longa (300 ms / 100 ms)" };
+            for (int mode = 0; mode < ClassicPlayerAudioProcessor::liveSetSwapModeCount; ++mode)
+                swapMenu.addItem(20 + mode, juce::String::fromUTF8(labels[mode]), true,
+                                 classicProcessor.liveSetSwapMode() == mode);
+            menu.addSubMenu("TEMPO DA TROCA", swapMenu);
+            menu.addSeparator();
+        }
         menu.addItem(1, localizedUiText("Equalizador master", uiLanguage));
         menu.addItem(2, localizedUiText(classicProcessor.isMasterMidiLearning()
                                              ? "CANCELAR MIDI LEARN DO VOLUME MASTER"
@@ -10574,6 +10584,8 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
                 if (id == 2) safe->masterLearnButton.triggerClick();
                 if (id == 3) safe->showAudioMidiSettings();
                 if (id >= 10 && id <= 12) safe->setUiLanguage(id - 10);
+                if (id >= 20 && id < 20 + ClassicPlayerAudioProcessor::liveSetSwapModeCount)
+                    safe->classicProcessor.setLiveSetSwapMode(id - 20);
             });
     };
 
