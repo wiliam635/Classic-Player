@@ -2410,7 +2410,9 @@ void ClassicPlayerAudioProcessor::ensurePadStripLoaded()
     padStripPool.addJob([this]
     {
         for (int i = 0; i < ContinuousPadBank::count; ++i)
-            if (padStripBank.path(i).isEmpty()) padStripBank.loadFactoryPad(i);
+            if (padStripBank.path(i).isEmpty()
+                || (padStripBank.path(i).startsWith("@factory-pad:") && !padStripBank.hasAudio(i)))
+                padStripBank.loadFactoryPad(i);
     });
 }
 bool ClassicPlayerAudioProcessor::dx7PatchRaw(int layer, std::array<uint8_t, 156>& out) const { return dx7Engine.patchRaw(layer, out); }
@@ -5804,7 +5806,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             {
                 juce::ValueTree strip;
                 for (const auto& child : state) if (child.hasType("PadStrip")) { strip = child; break; }
-                padStripBank.restore(strip, false);
+                padStripBank.restore(strip, false, true);
                 padStripVolume.store(juce::jlimit(0.0f, 100.0f, (float) strip.getProperty("volume", 80.0f)));
                 padStripCutoff.store(juce::jlimit(0.0f, 100.0f, (float) strip.getProperty("cutoff", 100.0f)));
                 ensurePadStripLoaded();

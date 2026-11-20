@@ -66,6 +66,7 @@ public:
         if(active.load()==index){active=-1;command=-2;}
         return juce::Result::ok();
     }
+    bool hasAudio(int i) const {const juce::ScopedLock g(lock);return juce::isPositiveAndBelow(i,count)&&pads[(size_t)i].audio!=nullptr;}
     juce::String path(int i) const {const juce::ScopedLock g(lock);return pads[(size_t)i].path;}
     static juce::String noteName(int i)
     {
@@ -265,7 +266,9 @@ public:
          tree.addChild(child,-1,nullptr);}
         return tree;
     }
-    void restore(const juce::ValueTree& tree, bool provideFactoryPad = false)
+    // deferFactoryPads: factory pads are only registered here (path, no audio); the caller loads them in the
+    // background (loadFactoryPad), so a program change never waits for ~12 FLAC decodes.
+    void restore(const juce::ValueTree& tree, bool provideFactoryPad = false, bool deferFactoryPads = false)
     {
         stopImmediately();
         setFadeSeconds((double)tree.getProperty("fade",1.0));setMidiChannel((int)tree.getProperty("midiChannel",0));
@@ -291,6 +294,12 @@ public:
                 pads[(size_t)i].path = wantedPath;
                 pads[(size_t)i].position = 0.0;
                 pads[(size_t)i].level = 0.0f;
+                loaded = true;
+            }
+            else if (isFactory && deferFactoryPads)
+            {
+                const juce::ScopedLock g(lock);
+                pads[(size_t)i].path = wantedPath;
                 loaded = true;
             }
             else if (isFactory)
