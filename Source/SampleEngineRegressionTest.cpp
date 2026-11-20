@@ -452,6 +452,45 @@ struct SampleEngineRegressionTests
         std::cout << "Key-off reflection level follows the main note passed\n";
     }
 
+    // A key struck again under the sustain pedal fades the previous (pedal-held) voice of the same note, but only
+    // when the piano model is on; the new note keeps playing and other notes are untouched.
+    static void restrikeUnderSustain()
+    {
+        for (const auto natural : { true, false })
+        {
+            auto engine = instrument(48000.0);
+            auto& layer = engine->layers[0];
+            auto routing = config();
+            routing.enabled = true;
+            routing.pianoNaturalDecay = natural;
+            juce::AudioBuffer<float> audio(2, 256);
+            juce::MidiBuffer midi;
+            midi.addEvent(juce::MidiMessage::controllerEvent(1, 64, 127), 0);
+            midi.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 90), 1);
+            midi.addEvent(juce::MidiMessage::noteOn(1, 67, (juce::uint8) 90), 2);
+            midi.addEvent(juce::MidiMessage::noteOff(1, 60), 100);
+            audio.clear();
+            engine->renderLayer(layer, audio, midi, routing);
+            midi.clear();
+            midi.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 90), 0);
+            audio.clear();
+            engine->renderLayer(layer, audio, midi, routing);
+            int held = 0, fading = 0, waiting = 0;
+            for (const auto& voice : layer.voices)
+            {
+                if (!voice.active || voice.pianoRelease) continue;
+                if (voice.released) ++fading; else if (voice.waitingForSustain) ++waiting; else ++held;
+            }
+            if (natural)
+                require(held == 2 && fading == 1 && waiting == 0,
+                        "Re-striking under sustain did not fade the previous voice of the same note only");
+            else
+                require(held == 2 && fading == 0 && waiting == 1,
+                        "Without the piano model a re-struck note must keep stacking (saved performances)");
+        }
+        std::cout << "Re-strike under sustain passed\n";
+    }
+
     static void stageFourPianoControls()
     {
         auto routing = config();
@@ -855,6 +894,7 @@ struct SampleEngineRegressionTests
         prefetcherHandlesMappedSamples();
         uprightReleaseReflections();
         reflectionLevelFollowsMainNote();
+        restrikeUnderSustain();
         stageFourPianoControls();
         crossfades();
         adaptiveVelocity();

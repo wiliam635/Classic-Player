@@ -465,6 +465,23 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
                     prior.releaseCoefficient = releaseCoefficientFor(0.5f, currentSampleRate);
                 }
 
+        // Re-striking a key under the sustain pedal: the previous voice of that note (key up, held only by the
+        // pedal) fades out quickly instead of stacking with the new one.
+        if (!monoMode && routing.sustainEnabled && layer.sustainDown[(size_t) juce::jlimit(1, 16, midiChannel) - 1])
+        {
+            const auto fast = (float) std::exp(std::log(envelopeFloor)
+                / juce::jmax(1.0, 0.2 * currentSampleRate));
+            const auto normal = releaseCoefficientFor(routing.release, currentSampleRate);
+            for (auto& prior : layer.voices)
+                if (prior.active && prior.waitingForSustain && !prior.keyDown && prior.note == note
+                    && prior.channel == juce::jlimit(1, 16, midiChannel))
+                {
+                    prior.waitingForSustain = false;
+                    prior.released = true;
+                    prior.releaseCoefficient = juce::jmin(normal, fast);
+                }
+        }
+
         auto& voice = allocateVoice(layer, routing.polyphony);
         const auto cents = layer.instrument->detune[(size_t) note];
         voice = {};

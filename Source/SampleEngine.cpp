@@ -8,6 +8,8 @@
 namespace
 {
 constexpr double pianoCrossfadeSeconds = 0.55;
+// A key struck again under the sustain pedal fades the previous voice of the same note over this time.
+constexpr double restrikeFadeSeconds = 0.2;
 
 float releaseCoefficientFor(float releaseControl, double sampleRate, bool softRelease = false)
 {
@@ -842,6 +844,23 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                     ? findPianoStroke(layer, note, layerVelocity, 1) : -1;
                 if (stroke < 0)
                     stroke = findPianoStroke(layer, note, layerVelocity, 0);
+                if (stroke >= 0 && pedalDown && routing.pianoNaturalDecay)
+                {
+                    // Re-striking a key under the sustain pedal re-excites the same string: the previous voice of
+                    // that note (key already up, held only by the pedal) fades out quickly instead of stacking
+                    // with the new one. Only the piano model enables this; saved performances keep stacking.
+                    const auto fast = static_cast<float>(std::exp(std::log(0.0001)
+                        / juce::jmax(1.0, restrikeFadeSeconds * currentSampleRate)));
+                    const auto normal = releaseCoefficientFor(routing.release, currentSampleRate, routing.pianoSoftRelease);
+                    for (auto& voice : layer.voices)
+                        if (voice.active && voice.sampleIndex >= 0 && !voice.pianoRelease && voice.waitingForSustain
+                            && voice.note == note && voice.channel == channel)
+                        {
+                            voice.waitingForSustain = false;
+                            voice.released = true;
+                            voice.releaseCoefficient = juce::jmin(normal, fast);
+                        }
+                }
                 if (stroke >= 0)
                 {
                     layer.lastStrokeLayer.store(layer.piano->strokes[(size_t) stroke].velocityLayer,

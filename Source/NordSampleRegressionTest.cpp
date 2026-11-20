@@ -327,6 +327,31 @@ struct NordSampleRegressionTests
                 "Pedal-up changed a note whose key is still held");
     }
 
+    static void restrikeUnderSustain()
+    {
+        auto engine = fixture();
+        auto config = routing();
+        float rms = 0.0f;
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::controllerEvent(1, 64, 127), 0);
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.8f), 1);
+        midi.addEvent(juce::MidiMessage::noteOn(1, 67, 0.8f), 2);
+        midi.addEvent(juce::MidiMessage::noteOff(1, 60), 40);
+        render(*engine, midi, config, rms);
+        midi.clear();
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.8f), 0);
+        render(*engine, midi, config, rms);
+        int held = 0, fading = 0, waiting = 0;
+        for (const auto& voice : engine->layers[0].voices)
+        {
+            if (!voice.active) continue;
+            if (voice.released) ++fading; else if (voice.waitingForSustain) ++waiting; else ++held;
+        }
+        require(held == 2 && fading == 1 && waiting == 0,
+                "NSMP re-strike under sustain did not fade the previous voice of the same note only");
+        std::cout << "NSMP re-strike under sustain passed\n";
+    }
+
     static void adsrSustain()
     {
         auto engine = fixture();
@@ -643,6 +668,7 @@ struct NordSampleRegressionTests
         padLoopCrossfade();
         audioAndSustain();
         adsrSustain();
+        restrikeUnderSustain();
         customVelocity();
         monoLegatoAndNoteReturn();
         monoModeChangeReleasesPriorVoices();
