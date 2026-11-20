@@ -230,10 +230,13 @@ std::shared_ptr<NordPianoDecoder::Instrument> SampleEngine::cachePiano(
     if (decoded == nullptr) return {};
     const auto key = file.getFullPathName() + "|" + juce::String(file.getSize()) + "|"
                    + juce::String(file.getLastModificationTime().toMilliseconds());
+    // Count heap memory only. A piano restored from the fast-load cache is memory-mapped: the operating system
+    // pages it in and out, so it must not use up the RAM budget (three XL pianos of ~800 MB mapped size used to
+    // evict each other on an 8 GB machine and every Live Set switch prepared the piano again).
     size_t bytes = sizeof(NordPianoDecoder::Instrument);
     for (const auto& stroke : decoded->strokes)
         bytes += sizeof(NordPianoDecoder::Stroke)
-               + stroke.interleavedPcm.size() * sizeof(std::int16_t);
+               + stroke.interleavedPcm.capacity() * sizeof(std::int16_t);
     const std::lock_guard<std::mutex> guard(pianoCacheMutex);
     const auto keyString = key.toStdString();
     if (const auto existing = pianoCacheLive.find(keyString); existing != pianoCacheLive.end())
