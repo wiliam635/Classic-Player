@@ -487,6 +487,7 @@ static void continuousPadRegression()
     check(p->continuousPads(1).mapping(ContinuousPadBank::count)==-1,
           "STOP mapping could not be removed");
     // Standalone: the host MIDI buffer is empty, so the pad strip must be driven by the incoming callback.
+    p->padStrip().loadFactoryPad(0);p->padStrip().loadFactoryPad(1);
     p->padStrip().learn(0);
     ContinuousPadRegressionAccess::handleIncomingMidiMessage(*p,juce::MidiMessage::controllerEvent(5,22,127));
     check(p->padStrip().mapping(0)==22,"pad strip Learn missed the CC");
