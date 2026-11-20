@@ -507,6 +507,14 @@ static void continuousPadRegression()
     p->beginMidiLearn(1,ClassicPlayerAudioProcessor::LearnTarget::volume);
     check(!p->isMidiLearning(1,ClassicPlayerAudioProcessor::LearnTarget::volume),
           "second click did not cancel layer Learn");
+    // UI Learn/mapped knobs must see a controller even when every layer listens to another device.
+    p->setLayerMidiDevice(0,"another-controller");p->setLayerMidiDevice(1,"another-controller");
+    p->setUiMidiLearnActive(true);
+    { int a,b,c; while (p->popRawCC(a,b,c)) {} }
+    ContinuousPadRegressionAccess::handleIncomingMidiMessage(*p,juce::MidiMessage::controllerEvent(1,30,90));
+    { int cc=-1,ch=-1,v=-1; check(p->popRawCC(cc,ch,v)&&cc==30&&v==90,"UI Learn missed a controller from an unrouted device");
+      check(!p->popRawCC(cc,ch,v),"UI controller queued twice"); }
+    p->setUiMidiLearnActive(false);
     p->beginDrumPadMidiLearn(0);
     p->beginDrumPadMidiLearn(0);
     check(!p->isDrumPadMidiLearning(0), "second click did not cancel drum pad Learn");

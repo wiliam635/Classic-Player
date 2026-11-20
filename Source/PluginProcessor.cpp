@@ -3204,6 +3204,10 @@ void ClassicPlayerAudioProcessor::applyRealtimeMidiControlUpdates()
     }
 }
 
+// Set while the standalone callback has already queued this controller for the UI (see
+// routeIncomingMidiMessage), so the per-layer calls do not queue it again.
+static thread_local bool rawCCAlreadyQueued = false;
+
 void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMessage& message,
                                                              int layerFilter)
 {
@@ -3257,6 +3261,7 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
 
     if (uiMidiWanted.load(std::memory_order_relaxed) || uiMidiLearnActive.load(std::memory_order_relaxed))
     {
+        if (!rawCCAlreadyQueued)
         {
             const juce::SpinLock::ScopedLockType lock(rawCCLock);
             const auto next = (rawCCWrite + 1) % (int) rawCCRing.size();
@@ -4171,6 +4176,23 @@ void ClassicPlayerAudioProcessor::routeIncomingMidiMessage(const juce::String& s
             bank.stopFromMidi(message);
         }
     if (message.isController() || message.isNoteOn()) padStripMidiCollector.addMessageToQueue(message);
+    // UI knobs/faders mapped by right-click (and their Learn) must see every physical controller,
+    // not only those from a device that some layer happens to listen to.
+    const bool rawQueued = message.isController() && message.getControllerNumber() != 64
+        && (uiMidiWanted.load(std::memory_order_relaxed) || uiMidiLearnActive.load(std::memory_order_relaxed));
+    if (rawQueued)
+    {
+        const juce::SpinLock::ScopedLockType lock(rawCCLock);
+        const auto next = (rawCCWrite + 1) % (int) rawCCRing.size();
+        if (next != rawCCRead)
+        {
+            rawCCRing[(size_t) rawCCWrite] = ((uint32_t) message.getControllerNumber() << 16)
+                | ((uint32_t) message.getChannel() << 8) | (uint32_t) message.getControllerValue();
+            rawCCWrite = next;
+        }
+    }
+    struct RawFlag { bool previous; RawFlag(bool v) : previous(rawCCAlreadyQueued) { rawCCAlreadyQueued = v; }
+                     ~RawFlag() { rawCCAlreadyQueued = previous; } } rawFlag(rawQueued);
     const juce::ScopedLock guard(midiRoutingLock);
     auto routed = false;
     for (int layer = 0; layer < activeLayerCount(); ++layer)
