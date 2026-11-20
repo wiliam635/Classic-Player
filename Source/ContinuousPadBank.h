@@ -50,7 +50,7 @@ public:
     {
         if(!juce::isPositiveAndBelow(index,count))return juce::Result::fail(juce::String::fromUTF8("Pad inválido"));
         std::shared_ptr<SampleData> audio;
-        const auto decoded = decodeFile(file, 10.0 * 60.0, audio);
+        const auto decoded = decodeFileCached(file, 10.0 * 60.0, audio);
         if (decoded.failed()) return decoded;
         const juce::ScopedLock guard(lock);
         juce::int64 totalFrames=audio->frames;
@@ -65,6 +65,20 @@ public:
         p.path=file.getFullPathName();p.position=0;p.level=0;
         if(active.load()==index){active=-1;command=-2;}
         return juce::Result::ok();
+    }
+    // Decodes, ahead of time and off the audio lock, the user pad files of a saved bank (PadStrip /
+    // ContinuousPads node) so the program change that restores it finds them in the cache.
+    static void prefetch(const juce::ValueTree& tree)
+    {
+        for (int i = 0; i < tree.getNumChildren() && i < count; ++i)
+        {
+            const auto filename = tree.getChild(i).getProperty("path").toString();
+            if (filename.isEmpty() || filename.startsWith(factoryPathPrefix()) || filename == "Built-in Warm Pad")
+                continue;
+            const juce::File file(filename);
+            std::shared_ptr<SampleData> ignored;
+            if (file.existsAsFile()) decodeFileCached(file, 10.0 * 60.0, ignored);
+        }
     }
     bool hasAudio(int i) const {const juce::ScopedLock g(lock);return juce::isPositiveAndBelow(i,count)&&pads[(size_t)i].audio!=nullptr;}
     juce::String path(int i) const {const juce::ScopedLock g(lock);return pads[(size_t)i].path;}
@@ -329,6 +343,44 @@ public:
         return true;
     }
 private:
+    // Decoded user pads are kept in a small least-recently-used cache (by path, size and date) shared by
+    // every bank: switching between programs whose pad banks differ no longer decodes the files again
+    // (~1.4 s per switch on a laptop CPU, inside the audio lock). The bank still shares the same read-only data.
+    static juce::Result decodeFileCached(const juce::File& file, double maxSeconds,
+                                         std::shared_ptr<SampleData>& result)
+    {
+        struct Entry { juce::String key; std::shared_ptr<SampleData> audio; juce::int64 stamp; };
+        static juce::CriticalSection cacheLock;
+        static std::vector<Entry> cache;
+        static juce::int64 counter = 0;
+        const auto key = file.getFullPathName() + "|" + juce::String(file.getSize()) + "|"
+                       + juce::String(file.getLastModificationTime().toMilliseconds());
+        {
+            const juce::ScopedLock guard(cacheLock);
+            for (auto& entry : cache)
+                if (entry.key == key) { entry.stamp = ++counter; result = entry.audio; return juce::Result::ok(); }
+        }
+        const auto decoded = decodeFile(file, maxSeconds, result);
+        if (decoded.failed()) return decoded;
+        const juce::ScopedLock guard(cacheLock);
+        cache.push_back({ key, result, ++counter });
+        constexpr juce::int64 budgetBytes = 192ll * 1024ll * 1024ll;
+        const auto totalBytes = [&]
+        {
+            juce::int64 total = 0;
+            for (const auto& entry : cache) total += (juce::int64) entry.audio->frames * 4;
+            return total;
+        };
+        while (cache.size() > 1 && totalBytes() > budgetBytes)
+        {
+            auto oldest = cache.begin();
+            for (auto it = cache.begin(); it != cache.end() - 1; ++it)
+                if (it->stamp < oldest->stamp) oldest = it;
+            cache.erase(oldest);
+        }
+        return juce::Result::ok();
+    }
+
     static juce::Result decodeFile(const juce::File& file, double maxSeconds,
                                    std::shared_ptr<SampleData>& result)
     {

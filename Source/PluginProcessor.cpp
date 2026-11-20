@@ -679,6 +679,14 @@ void ClassicPlayerAudioProcessor::prepareToPlay(double sampleRate, int samplesPe
     for (auto& collector : routedMidiCollectors) collector.reset(sampleRate);
     visualMidiCollector.reset(sampleRate);
     padStripMidiCollector.reset(sampleRate);
+    {
+        // Identify the exact build in the Live Set diagnostics (once per process).
+        static std::atomic<bool> buildLogged { false };
+        if (!buildLogged.exchange(true))
+            programStorageDirectory().getChildFile("liveset-diagnostico.txt").appendText(
+                "---- sessao iniciada | build compilado em " __DATE__ " " __TIME__ " | versao "
+                + juce::String(JucePlugin_VersionString) + "\n");
+    }
     outputLimiter.prepare({ sampleRate, (juce::uint32) samplesPerBlock, 2 });
     outputLimiter.setThreshold(-0.3f);
     outputLimiter.setRelease(80.0f);
@@ -4471,6 +4479,11 @@ juce::Result ClassicPlayerAudioProcessor::stageLiveSetSlot(int bank, int slot, s
         }
         if (!alive->load() || liveSetStageGeneration.load(std::memory_order_acquire) != generation) return;
         prepareNordInstruments(state, layerCountToRestore, prepared->pianos, prepared->samples, prepared->nordPaths);
+        // Pad banks restored by this program: decode their user files now, off the audio lock.
+        for (const auto& child : state)
+            if ((child.hasType("PadStrip") || child.hasType("ContinuousPads")) && alive->load()
+                && liveSetStageGeneration.load(std::memory_order_acquire) == generation)
+                ContinuousPadBank::prefetch(child);
         const auto elapsedMs = juce::Time::getMillisecondCounterHiRes() - stageStartMs;
         if (!alive->load()) return;
 
