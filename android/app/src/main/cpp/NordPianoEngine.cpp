@@ -292,6 +292,14 @@ void noteOn(Layer& layer,int note,int velocity,int channel,bool sustain,int voic
     for(size_t i=0;i<piano.strokes.size();++i){const auto& s=piano.strokes[i];if(s.root==root&&s.bank==bank&&s.velocityLayer<=limit&&s.velocityLayer>best){chosen=(int)i;best=s.velocityLayer;}}
     if(chosen<0&&bank==1)for(size_t i=0;i<piano.strokes.size();++i){const auto& s=piano.strokes[i];if(s.root==root&&s.bank==0&&s.velocityLayer<=limit&&s.velocityLayer>best){chosen=(int)i;best=s.velocityLayer;}}
     if(chosen<0)return;
+    // Re-strike under the sustain pedal: the same key struck again hides the voice the pedal was still
+    // holding, so a repeated chord no longer piles up copies of every note (same as the desktop piano
+    // model). Only for the finite piano tail; with an endless tail the old behaviour is kept.
+    if(sustain&&layer.finitePiano)
+        for(auto& old:layer.voices)
+            if(old.active&&old.waitingForSustain&&!old.keyDown&&!old.released&&old.note==note&&old.channel==channel){
+                old.released=true;old.waitingForSustain=false;old.releaseSeconds=restrikeFadeSeconds;
+            }
     Voice* target=nullptr;int budget=std::clamp(voiceBudget,1,maxVoices);
     for(int i=0;i<budget;++i)if(!layer.voices[(size_t)i].active){target=&layer.voices[(size_t)i];break;}
     if(!target){target=&layer.voices[0];for(int i=1;i<budget;++i){auto& v=layer.voices[(size_t)i];

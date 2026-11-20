@@ -92,6 +92,28 @@ public class AudioRegressionTest {
     @Test public void sf2DecaySustainStage() throws Exception { assertAdsrStage(1, "sf2"); }
     @Test public void dx7DecaySustainStage() throws Exception { assertAdsrStage(2, "dx7"); }
 
+    /** The same key struck again under the pedal must not stack a new voice on top of every held copy. */
+    @Test public void nordPianoRestrikeUnderPedalDoesNotPileUpVoices() throws Exception {
+        File npno = new File(context.getCacheDir(), "regression-royal.npno");
+        try (InputStream in = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().getContext().getAssets().open("fixture-royal-grand.npno");
+             OutputStream out = new FileOutputStream(npno)) {
+            byte[] buf = new byte[1 << 16]; int n; while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        }
+        String result = engine.loadNord(0, npno.getAbsolutePath(), 512L << 20, true);
+        engine.setLayerGain(0, .5f);
+        engine.setLayerRouting(0, -1, 0, 0, 127, 0, true, 0);
+        engine.setSustain(0, true);
+        int maxActive = 0;
+        for (int i = 0; i < 40; i++) {
+            engine.noteOn(60, 100, 0); pcm(RATE / 20);
+            engine.noteOff(60, 0); pcm(RATE / 20);
+            maxActive = Math.max(maxActive, engine.activeVoices(0));
+        }
+        assertTrue("NPNO fixture did not load: " + result, maxActive > 0);
+        assertTrue("Re-struck key piled up " + maxActive + " voices", maxActive <= 6);
+        engine.setSustain(0, false); pcm(RATE * 2);
+    }
+
     @Test public void fullSustainedPoolAcceptsNewKey() throws Exception {
         activate(1,0);engine.setSustain(0,true);
         assertEquals("A single active layer is capped at 128 voices",128,engine.voiceBudget(0));

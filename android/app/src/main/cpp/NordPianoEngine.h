@@ -10,6 +10,7 @@
 namespace nord_android {
 constexpr int sampleRate = 35002;
 constexpr int maxVoices = 256;
+constexpr float restrikeFadeSeconds = 0.2f;   // pedal-held voice of a re-struck key fades over this time
 
 struct Stroke {
     uint8_t root = 60, bank = 0, velocityLayer = 0;
