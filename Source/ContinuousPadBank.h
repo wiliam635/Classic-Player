@@ -269,15 +269,31 @@ public:
     {
         stopImmediately();
         setFadeSeconds((double)tree.getProperty("fade",1.0));setMidiChannel((int)tree.getProperty("midiChannel",0));
+        // Pads already holding the very same file are kept as they are: decoding them again on every
+        // program change (inside the audio lock) cost many seconds, e.g. on a laptop with a slow CPU.
+        std::array<std::shared_ptr<SampleData>,count> keptAudio;
+        std::array<juce::String,count> keptPath;
         {const juce::ScopedLock g(lock);stopCC=validCC((int)tree.getProperty("stopCC",-1));
-         for(auto& p:pads){p.audio.reset();p.path.clear();p.cc=-1;p.ccChannel=0;}}
+         for(int i=0;i<count;++i)
+         {auto& p=pads[(size_t)i];keptAudio[(size_t)i]=std::move(p.audio);keptPath[(size_t)i]=p.path;
+          p.audio.reset();p.path.clear();p.cc=-1;p.ccChannel=0;}}
         for(int i=0;i<count;++i)
         {
             const auto child=tree.getChild(i);const auto filename=child.getProperty("path").toString();
             const bool isFactory = filename.startsWith(factoryPathPrefix())
                                 || filename == "Built-in Warm Pad";
             bool loaded = false;
-            if (isFactory)
+            const auto wantedPath = isFactory ? factoryPath(i) : filename;
+            if (wantedPath.isNotEmpty() && keptAudio[(size_t)i] != nullptr && keptPath[(size_t)i] == wantedPath)
+            {
+                const juce::ScopedLock g(lock);
+                pads[(size_t)i].audio = std::move(keptAudio[(size_t)i]);
+                pads[(size_t)i].path = wantedPath;
+                pads[(size_t)i].position = 0.0;
+                pads[(size_t)i].level = 0.0f;
+                loaded = true;
+            }
+            else if (isFactory)
                 loaded = loadFactoryPad(i);
             else if(filename.isNotEmpty())
                 loaded = load(i,juce::File(filename)).wasOk();
