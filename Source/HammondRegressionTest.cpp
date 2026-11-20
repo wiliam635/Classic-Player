@@ -238,7 +238,9 @@ static void liveSetSwapTimingRegression()
     const auto root = storage.getFile();
     check(root.createDirectory().wasOk(), "swap timing storage");
     struct Cleanup { juce::File directory; ~Cleanup() { directory.deleteRecursively(); } } cleanup { root };
-    ClassicPlayerAudioProcessor processor(root);
+    // Heap-allocated like every other test here: the processor is too large for the stack.
+    auto processorOwner = std::make_unique<ClassicPlayerAudioProcessor>(root);
+    auto& processor = *processorOwner;
     check(processor.liveSetSwapMode() == 0, "a new processor keeps today's swap behaviour");
     processor.setLiveSetSwapMode(3);
     check(processor.liveSetSwapMode() == 3, "swap mode is stored");
