@@ -114,6 +114,21 @@ public class AudioRegressionTest {
         engine.setSustain(0, false); pcm(RATE * 2);
     }
 
+    /** SF2: the same key struck again under the pedal fades the voice the pedal was holding instead of stacking. */
+    @Test public void sf2RestrikeUnderPedalDoesNotPileUpVoices() throws Exception {
+        activate(1, 0);
+        engine.setSustain(0, true);
+        int maxActive = 0;
+        for (int i = 0; i < 40; i++) {
+            engine.noteOn(60, 100, 0); pcm(RATE / 20);
+            engine.noteOff(60, 0); pcm(RATE / 20);
+            maxActive = Math.max(maxActive, engine.activeVoices(0));
+        }
+        assertTrue("SF2 re-struck key piled up " + maxActive + " voices", maxActive <= 12);
+        engine.setSustain(0, false); pcm(RATE * 3);
+        assertEquals("SF2 voices leaked after pedal up", 0, engine.activeVoices(0));
+    }
+
     /** NSMP engine: audible note, clean release, and a re-struck key under the pedal does not stack voices. */
     @Test public void nsmpEngineNoteReleaseAndRestrike() throws Exception {
         engine.loadNsmpTestTone(0);

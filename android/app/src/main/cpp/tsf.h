@@ -2055,6 +2055,22 @@ TSFDEF int tsf_channel_note_on(tsf* f, int channel, int key, float vel)
 		tsf_channel_note_off(f, channel, key);
 		return 1;
 	}
+	// Re-strike under the sustain pedal: the voices the pedal still holds for this key fade out over
+	// 0.2 s instead of stacking with the new ones (same as the NPNO / NSMP engines). Without this a
+	// repeated chord with the pedal down keeps adding voices until the CPU runs out.
+	if (f->channels->channels[channel].sustain)
+	{
+		struct tsf_voice *rv = f->voices, *rvEnd = rv + f->voiceNum;
+		for (; rv != rvEnd; rv++)
+		{
+			if (rv->playingPreset == -1 || rv->playingChannel != channel || rv->playingKey != key || !rv->heldSustain
+				|| rv->ampenv.segment >= TSF_SEGMENT_RELEASE) continue;
+			if (rv->ampenv.parameters.release > 0.2f) rv->ampenv.parameters.release = 0.2f;
+			if (rv->modenv.parameters.release > 0.2f) rv->modenv.parameters.release = 0.2f;
+			rv->heldSustain = 0;
+			tsf_voice_end(f, rv);
+		}
+	}
 	return tsf_note_on(f, f->channels->channels[channel].presetIndex, key, vel);
 }
 
