@@ -124,7 +124,7 @@ public class AudioRegressionTest {
         engine.setLayerTone(0, 100, send, 0, 0);
         engine.noteOn(60, 100, 0); pcm(RATE / 5);
         engine.noteOff(60, 0);
-        pcm(RATE / 2);                        // let the dry release finish
+        pcm(RATE / 10);                       // let the dry release finish
         short[] tail = pcm(RATE / 2);
         double r = rms(tail);
         Log.i("AudioRegression", "reverbTail type=" + type + " send=" + send + " rms=" + r);

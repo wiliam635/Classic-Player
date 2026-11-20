@@ -94,6 +94,34 @@ constexpr int kChorusFrames=2048;
 std::array<std::array<std::array<float,kChorusFrames>,2>,kLayerCount> layerChorusBuffer{};
 std::array<std::array<int,2>,kLayerCount> layerChorusCursor{};
 int effectCursor = 0;
+// Freeverb-style stereo room reverb (8 damped combs + 4 all-passes per side)
+// replaces the old single feedback echo, whose tail was gone in ~0.3 s.
+constexpr int kCombLengths[8]={1116,1188,1277,1356,1422,1491,1557,1617};
+constexpr int kAllpassLengths[4]={556,441,341,225};
+constexpr int kStereoSpread=23;
+struct FreeverbSide{
+    std::array<std::array<float,1617+kStereoSpread>,8> comb{};std::array<float,8> damped{};std::array<int,8> combPos{};
+    std::array<std::array<float,556+kStereoSpread>,4> allpass{};std::array<int,4> allpassPos{};
+    void clear(){for(auto& c:comb)c.fill(0.0f);damped.fill(0.0f);combPos.fill(0);for(auto& a:allpass)a.fill(0.0f);allpassPos.fill(0);}
+    float process(float input,int spread,float feedback,float damp){
+        float out=0.0f;
+        for(int c=0;c<8;++c){
+            const int length=kCombLengths[c]+spread;auto& line=comb[(size_t)c];int& pos=combPos[(size_t)c];
+            const float delayed=line[(size_t)pos];
+            damped[(size_t)c]=delayed*(1.0f-damp)+damped[(size_t)c]*damp;
+            line[(size_t)pos]=input+damped[(size_t)c]*feedback;
+            if(++pos>=length)pos=0;out+=delayed;
+        }
+        for(int a=0;a<4;++a){
+            const int length=kAllpassLengths[a]+spread;auto& line=allpass[(size_t)a];int& pos=allpassPos[(size_t)a];
+            const float buffered=line[(size_t)pos];
+            line[(size_t)pos]=out+buffered*0.5f;out=buffered-out;
+            if(++pos>=length)pos=0;
+        }
+        return out;
+    }
+};
+FreeverbSide reverbLeft,reverbRight;float pendingWetLeft=0.0f,pendingWetRight=0.0f;int reverbHoldSamples=0;bool reverbWasRunning=false;
 std::array<float, kLayerCount> layerPeaks {};
 // A layer whose gain is 0 (MUTE, or another layer soloed) renders nothing once
 // its release tails had this long to finish, and ignores new notes meanwhile.
@@ -1933,23 +1961,41 @@ static bool renderClassicPlayerPcmImpl(int16_t* output,int frames,bool realtime)
     // the ring-buffer wraps use compare/subtract instead of integer division;
     // the delay taps and every output sample are numerically unchanged.
     const int reverbSize=(int)reverbBuffer.size();
-    const int reverbBaseDelay=(int)(reverbDelayMs*kSampleRate/1000.0f);
-    const int reverbWidthExtra=(int)(reverbStereoWidth*kSampleRate*.018f);
+    const float room=std::clamp((reverbDelayMs-20.0f)/105.0f,0.0f,1.0f);
+    const float roomFeedback=0.70f+room*0.28f;                       // longer tail with TEMPO
+    const float roomDamp=std::clamp((reverbFeedback-0.24f)/0.34f,0.0f,1.0f)*0.4f;
+    const float wetOwn=reverbStereoWidth*0.5f+0.5f,wetCross=(1.0f-reverbStereoWidth)*0.5f;
+    // Idle layers cost nothing: stop the 24 filters once nothing feeds the
+    // reverb and its tail has had five seconds to die away.
+    bool reverbFed=reverbMix>0.0f;
+    for(int n=0;n<kLayerCount&&!reverbFed;++n)reverbFed=layerReverbSend[(size_t)n]>0.0f&&engineTypes[(size_t)n]!=EngineType::empty;
+    if(reverbFed)reverbHoldSamples=kSampleRate*5;
+    else if(reverbHoldSamples>0)reverbHoldSamples=std::max(0,reverbHoldSamples-(int)frames);
+    const bool reverbRunning=reverbHoldSamples>0;
+    if(!reverbRunning&&reverbWasRunning){reverbLeft.clear();reverbRight.clear();}
+    reverbWasRunning=reverbRunning;
     for (int sample = 0; sample < samples; ++sample) {
         // Preserve the summed signal's natural dynamics. Do not apply a soft
         // limiter here; only saturate at final PCM conversion if the mix truly
         // exceeds the representable output range.
-        const int delay=reverbBaseDelay+((sample&1)!=0?reverbWidthExtra:0);
-        int read = effectCursor + reverbSize - delay + reverbSize;
-        while(read>=reverbSize)read-=reverbSize;
-        const float delayed = reverbBuffer[(size_t)read];
         int chorusRead = effectCursor + reverbSize - 960 + (sample & 3) * 24;
         while(chorusRead>=reverbSize)chorusRead-=reverbSize;
         const float chorus = reverbBuffer[(size_t)chorusRead];
         const float dry = mix[(size_t)sample];
-        const float send=reverbSend[(size_t)sample]+dry*reverbMix;
-        const float effected = dry + delayed * 0.55f + (chorus - dry) * chorusMix * 0.22f;
-        reverbBuffer[(size_t)effectCursor] = send + delayed * reverbFeedback;
+        float wet=0.0f;
+        if(!reverbRunning){wet=0.0f;}
+        else if((sample&1)==0){
+            const int frameIndex=sample;
+            const float inL=reverbSend[(size_t)frameIndex]+mix[(size_t)frameIndex]*reverbMix;
+            const float inR=reverbSend[(size_t)frameIndex+1]+mix[(size_t)frameIndex+1]*reverbMix;
+            const float input=(inL+inR)*0.015f;
+            const float l=reverbLeft.process(input,0,roomFeedback,roomDamp)*2.0f;
+            const float r=reverbRight.process(input,kStereoSpread,roomFeedback,roomDamp)*2.0f;
+            pendingWetLeft=l*wetOwn+r*wetCross;pendingWetRight=r*wetOwn+l*wetCross;
+            wet=pendingWetLeft;
+        } else wet=pendingWetRight;
+        const float effected = dry + wet + (chorus - dry) * chorusMix * 0.22f;
+        reverbBuffer[(size_t)effectCursor] = dry;
         if(++effectCursor>=reverbSize)effectCursor=0;
         clippedThisBlock=clippedThisBlock||effected>1.f||effected< -1.f;
         const float pcm=std::clamp(effected*32767.0f,-32768.0f,32767.0f);
