@@ -114,6 +114,31 @@ public class AudioRegressionTest {
         engine.setSustain(0, false); pcm(RATE * 2);
     }
 
+    /** Reverb send at 100% must leave an audible tail after the key is released, on every engine. */
+    private double reverbTailRms(int type, float send) throws Exception {
+        for (int i = 0; i < 6; i++) engine.clearLayer(i);
+        engine.allNotesOff(); pcm(RATE / 2);
+        activate(type, 0);
+        if (type == 1) engine.setSf2OriginalSound(0, false);
+        engine.setLayerReverb(0, 80, 30, 100);
+        engine.setLayerTone(0, 100, send, 0, 0);
+        engine.noteOn(60, 100, 0); pcm(RATE / 5);
+        engine.noteOff(60, 0);
+        pcm(RATE / 2);                        // let the dry release finish
+        short[] tail = pcm(RATE / 2);
+        double r = rms(tail);
+        Log.i("AudioRegression", "reverbTail type=" + type + " send=" + send + " rms=" + r);
+        return r;
+    }
+    private void assertReverbAudible(int type, String name) throws Exception {
+        double dry = reverbTailRms(type, 0f), wet = reverbTailRms(type, 1f);
+        assertTrue(name + " reverb gave no tail (dry " + dry + ", wet " + wet + ")", wet > dry * 3 + 0.0002);
+    }
+    @Test public void sf2ReverbHasTail() throws Exception { assertReverbAudible(1, "sf2"); }
+    @Test public void dx7ReverbHasTail() throws Exception { assertReverbAudible(2, "dx7"); }
+    @Test public void analogReverbHasTail() throws Exception { assertReverbAudible(3, "analog"); }
+    @Test public void hammondReverbHasTail() throws Exception { assertReverbAudible(4, "hammond"); }
+
     /** Same key struck 40 times under the pedal: the held voices must not stack (any engine). */
     private int maxVoicesRestruckUnderPedal(int type) throws Exception {
         activate(type, 0);
