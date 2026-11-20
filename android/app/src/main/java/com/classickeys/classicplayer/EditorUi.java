@@ -265,6 +265,27 @@ final class EditorUi {
         Runnable onLongPress;boolean longPressed;
         final Runnable longPressTask=()->{if(pointer>=0&&dragAxis==0&&onLongPress!=null){longPressed=true;performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);onLongPress.run();}};
         Knob(Context c,String label,float value,float min,float max,String unit,Change action){super(c);this.label=label;this.min=min;this.max=max;this.unit=unit;this.value=Math.max(min,Math.min(max,value));this.action=action;touchSlop=ViewConfiguration.get(c).getScaledTouchSlop();setFocusable(true);describe();}
+        long lastTapTime;float lastTapX,lastTapY;
+        /** Double tap: type the exact value instead of dragging (hard to be precise on a phone). */
+        void promptValue(){
+            Context c=getContext();
+            final EditText input=new EditText(c);
+            input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER|android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL|(min<0?android.text.InputType.TYPE_NUMBER_FLAG_SIGNED:0));
+            input.setText(String.format(Locale.ROOT,"%.1f",value).replaceAll("\\.0$",""));
+            input.setSelectAllOnFocus(true);input.setSingleLine(true);
+            String range=String.format(Locale.ROOT,"%.0f a %.0f%s",min,max,unit);
+            final android.app.AlertDialog dialog=new android.app.AlertDialog.Builder(c)
+                .setTitle(label).setMessage("Digite o valor ("+range+")").setView(input)
+                .setPositiveButton("OK",(d,w)->applyTyped(input.getText().toString()))
+                .setNegativeButton("Cancelar",null).create();
+            dialog.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+            input.setOnEditorActionListener((v,a,ev)->{applyTyped(input.getText().toString());dialog.dismiss();return true;});
+            dialog.show();
+        }
+        void applyTyped(String text){
+            try{float typed=Float.parseFloat(text.trim().replace(',','.'));value=Math.max(min,Math.min(max,typed));action.set(value);describe();invalidate();}
+            catch(NumberFormatException ignored){}
+        }
         void describe(){setContentDescription(label+" "+format()+". Arraste na horizontal para ajustar; na vertical para rolar a tela.");}
         void setValue(float next){value=Math.max(min,Math.min(max,next));describe();invalidate();}
         String format(){return String.format(Locale.ROOT,"%.1f%s",value,unit);}
@@ -286,7 +307,7 @@ final class EditorUi {
         @Override public boolean onTouchEvent(MotionEvent e){switch(e.getActionMasked()){
             case MotionEvent.ACTION_DOWN:pointer=e.getPointerId(0);downX=e.getX();downY=e.getY();start=value;dragAxis=0;longPressed=false;removeCallbacks(longPressTask);if(onLongPress!=null)postDelayed(longPressTask,ViewConfiguration.getLongPressTimeout());return true;
             case MotionEvent.ACTION_MOVE:int i=e.findPointerIndex(pointer);if(i<0)return true;if(longPressed)return true;float dx=e.getX(i)-downX,dy=downY-e.getY(i);if(Math.abs(dx)>touchSlop||Math.abs(dy)>touchSlop)removeCallbacks(longPressTask);if(dragAxis==0){if(Math.abs(dx)>touchSlop&&Math.abs(dx)>Math.abs(dy)){dragAxis=1;getParent().requestDisallowInterceptTouchEvent(true);}else if(Math.abs(dy)>touchSlop){if(canScrollParent(dy)){return true;}dragAxis=2;getParent().requestDisallowInterceptTouchEvent(true);}}if(dragAxis!=0){float delta=dragAxis==1?dx:dy;value=Math.max(min,Math.min(max,start+delta/dp(getContext(),180)*(max-min)));action.set(value);describe();invalidate();}return true;
-            case MotionEvent.ACTION_UP:removeCallbacks(longPressTask);if(dragAxis==0&&!longPressed)performClick();pointer=-1;dragAxis=0;getParent().requestDisallowInterceptTouchEvent(false);return true;
+            case MotionEvent.ACTION_UP:removeCallbacks(longPressTask);if(dragAxis==0&&!longPressed){performClick();long now=e.getEventTime();if(now-lastTapTime<=ViewConfiguration.getDoubleTapTimeout()&&Math.abs(e.getX()-lastTapX)<=touchSlop*3&&Math.abs(e.getY()-lastTapY)<=touchSlop*3){lastTapTime=0;promptValue();}else{lastTapTime=now;lastTapX=e.getX();lastTapY=e.getY();}}pointer=-1;dragAxis=0;getParent().requestDisallowInterceptTouchEvent(false);return true;
             case MotionEvent.ACTION_CANCEL:removeCallbacks(longPressTask);pointer=-1;dragAxis=0;getParent().requestDisallowInterceptTouchEvent(false);return true;
             default:return true;}}
         @Override public boolean performClick(){super.performClick();return true;}
