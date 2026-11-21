@@ -8,7 +8,7 @@
 // synchronous endpoints (no explicit feedback endpoint). Everything is behind a Backend so the
 // scheduling and refill logic is exercised by an emulator test with a fake device.
 #include <jni.h>
-#include <linux/usbdevice_fd.h>
+#include <linux/usbdevice_fs.h>
 #include <sys/ioctl.h>
 #include <sys/resource.h>
 #include <sched.h>
