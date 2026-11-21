@@ -45,6 +45,22 @@ public:
     // Owned for the full stream lifetime. Oboe recommends tuning from the
     // data callback; this avoids a Java/JNI hop or a control-thread race.
     std::unique_ptr<oboe::LatencyTuner> latencyTuner;
+    // Conservative replacement for oboe::LatencyTuner, which adds a whole burst
+    // for every single underrun (one startup click on a USB route with 882-frame
+    // bursts cost +20 ms for the rest of the session). Ignore the first two
+    // seconds and grow only after three underruns since the last decision.
+    bool conservativeTuning=false;int32_t tuneBurst=0,tuneCapacity=0;int32_t tuneBaseline=0;int64_t tuneFrames=0;
+    void tuneBuffer(oboe::AudioStream* stream,int32_t frames){
+        if(!conservativeTuning||stream==nullptr)return;
+        tuneFrames+=frames;
+        const auto xruns=stream->getXRunCount();
+        if(!xruns)return;
+        if(tuneFrames<2LL*44100){tuneBaseline=xruns.value();return;}
+        if(xruns.value()-tuneBaseline<3)return;
+        tuneBaseline=xruns.value();
+        const int32_t next=std::min(tuneCapacity,stream->getBufferSizeInFrames()+tuneBurst);
+        stream->setBufferSizeInFrames(next);
+    }
     int16_t lastLeft=0,lastRight=0;
     bool faded=false;
     void renderResampled(int16_t* output,int32_t frames){
@@ -79,7 +95,7 @@ public:
         }
         lastLeft=output[(size_t)(frames-1)*2];lastRight=output[(size_t)(frames-1)*2+1];
     }
-    oboe::DataCallbackResult onAudioReady(oboe::AudioStream*, void* data, int32_t frames) override {
+    oboe::DataCallbackResult onAudioReady(oboe::AudioStream* audioStream, void* data, int32_t frames) override {
         timespec started{};
         clock_gettime(CLOCK_MONOTONIC, &started);
         auto* output=static_cast<int16_t*>(data);
@@ -108,7 +124,7 @@ public:
             lastLeft=block[(count-1)*2];lastRight=block[(count-1)*2+1];
         }
         }
-        if(latencyTuner)latencyTuner->tune();
+        tuneBuffer(audioStream,frames);
         timespec finished{};
         clock_gettime(CLOCK_MONOTONIC, &finished);
         const int64_t elapsedNanos=(finished.tv_sec-started.tv_sec)*1000000000LL+
@@ -215,10 +231,8 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeStartOutput(JNIEnv*,jcl
     }
     if(capacity>0)target=std::min<int64_t>(target,capacity);
     if(burst>0&&capacity>0&&stream->getAudioApi()==oboe::AudioApi::AAudio){
-        nextCallback->latencyTuner=std::make_unique<oboe::LatencyTuner>(*stream,capacity);
-        nextCallback->latencyTuner->setMinimumBufferSize(static_cast<int32_t>(target));
-        nextCallback->latencyTuner->setBufferSizeIncrement(burst);
-        nextCallback->latencyTuner->requestReset();
+        nextCallback->conservativeTuning=true;
+        nextCallback->tuneBurst=burst;nextCallback->tuneCapacity=capacity;
     }
     stream->setBufferSizeInFrames(static_cast<int32_t>(target));
     result=stream->requestStart();
