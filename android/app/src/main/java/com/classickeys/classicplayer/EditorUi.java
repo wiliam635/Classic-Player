@@ -253,6 +253,8 @@ final class EditorUi {
     static LinearLayout knobRow(LinearLayout parent){LinearLayout row=new LinearLayout(parent.getContext());row.setGravity(Gravity.CENTER);row.setPadding(0,dp(parent.getContext(),2),0,dp(parent.getContext(),2));parent.addView(row,new LinearLayout.LayoutParams(-1,-2));return row;}
     /** Knob row height in dp: taller while the desktop-style inspector is open. */
     static final int CYAN_OUTLINE=0xff2bb8e6;
+    /** Null-safe: a release handler may rebuild the panel and detach this view before the call. */
+    static void disallowIntercept(View view,boolean disallow){ViewParent parent=view.getParent();if(parent!=null)parent.requestDisallowInterceptTouchEvent(disallow);}
     static int knobDp=68;
     /** Tighter controls while the desktop-style inspector is open. */
     static boolean compact=false;
@@ -306,9 +308,9 @@ final class EditorUi {
         }
         @Override public boolean onTouchEvent(MotionEvent e){switch(e.getActionMasked()){
             case MotionEvent.ACTION_DOWN:pointer=e.getPointerId(0);downX=e.getX();downY=e.getY();start=value;dragAxis=0;longPressed=false;removeCallbacks(longPressTask);if(onLongPress!=null)postDelayed(longPressTask,ViewConfiguration.getLongPressTimeout());return true;
-            case MotionEvent.ACTION_MOVE:int i=e.findPointerIndex(pointer);if(i<0)return true;if(longPressed)return true;float dx=e.getX(i)-downX,dy=downY-e.getY(i);if(Math.abs(dx)>touchSlop||Math.abs(dy)>touchSlop)removeCallbacks(longPressTask);if(dragAxis==0){if(Math.abs(dx)>touchSlop&&Math.abs(dx)>Math.abs(dy)){dragAxis=1;getParent().requestDisallowInterceptTouchEvent(true);}else if(Math.abs(dy)>touchSlop){if(canScrollParent(dy)){return true;}dragAxis=2;getParent().requestDisallowInterceptTouchEvent(true);}}if(dragAxis!=0){float delta=dragAxis==1?dx:dy;value=Math.max(min,Math.min(max,start+delta/dp(getContext(),180)*(max-min)));action.set(value);describe();invalidate();}return true;
-            case MotionEvent.ACTION_UP:removeCallbacks(longPressTask);if(dragAxis==0&&!longPressed){performClick();long now=e.getEventTime();if(now-lastTapTime<=ViewConfiguration.getDoubleTapTimeout()&&Math.abs(e.getX()-lastTapX)<=touchSlop*3&&Math.abs(e.getY()-lastTapY)<=touchSlop*3){lastTapTime=0;promptValue();}else{lastTapTime=now;lastTapX=e.getX();lastTapY=e.getY();}}pointer=-1;dragAxis=0;getParent().requestDisallowInterceptTouchEvent(false);return true;
-            case MotionEvent.ACTION_CANCEL:removeCallbacks(longPressTask);pointer=-1;dragAxis=0;getParent().requestDisallowInterceptTouchEvent(false);return true;
+            case MotionEvent.ACTION_MOVE:int i=e.findPointerIndex(pointer);if(i<0)return true;if(longPressed)return true;float dx=e.getX(i)-downX,dy=downY-e.getY(i);if(Math.abs(dx)>touchSlop||Math.abs(dy)>touchSlop)removeCallbacks(longPressTask);if(dragAxis==0){if(Math.abs(dx)>touchSlop&&Math.abs(dx)>Math.abs(dy)){dragAxis=1;EditorUi.disallowIntercept(this,true);}else if(Math.abs(dy)>touchSlop){if(canScrollParent(dy)){return true;}dragAxis=2;EditorUi.disallowIntercept(this,true);}}if(dragAxis!=0){float delta=dragAxis==1?dx:dy;value=Math.max(min,Math.min(max,start+delta/dp(getContext(),180)*(max-min)));action.set(value);describe();invalidate();}return true;
+            case MotionEvent.ACTION_UP:removeCallbacks(longPressTask);if(dragAxis==0&&!longPressed){performClick();long now=e.getEventTime();if(now-lastTapTime<=ViewConfiguration.getDoubleTapTimeout()&&Math.abs(e.getX()-lastTapX)<=touchSlop*3&&Math.abs(e.getY()-lastTapY)<=touchSlop*3){lastTapTime=0;promptValue();}else{lastTapTime=now;lastTapX=e.getX();lastTapY=e.getY();}}pointer=-1;dragAxis=0;EditorUi.disallowIntercept(this,false);return true;
+            case MotionEvent.ACTION_CANCEL:removeCallbacks(longPressTask);pointer=-1;dragAxis=0;EditorUi.disallowIntercept(this,false);return true;
             default:return true;}}
         @Override public boolean performClick(){super.performClick();return true;}
         private boolean canScrollParent(float fingerDelta){ViewParent parent=getParent();while(parent!=null){if(parent instanceof ScrollView)return ((ScrollView)parent).canScrollVertically(fingerDelta>0?1:-1);if(parent instanceof View)parent=parent.getParent();else break;}return false;}

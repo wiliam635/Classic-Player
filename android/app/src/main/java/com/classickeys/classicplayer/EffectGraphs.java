@@ -96,7 +96,7 @@ final class EffectGraphs {
                     float d1 = (float) Math.hypot(e.getX() - x(r, thresholdDb), e.getY() - y(r, transfer(thresholdDb, thresholdDb, ratio, makeupDb, mix)));
                     float d2 = (float) Math.hypot(e.getX() - x(r, 6), e.getY() - y(r, transfer(6f, thresholdDb, ratio, makeupDb, mix)));
                     drag = Math.min(d1, d2) > reach ? -1 : (d1 <= d2 ? 0 : 1);
-                    if (drag >= 0) getParent().requestDisallowInterceptTouchEvent(true);
+                    if (drag >= 0) EditorUi.disallowIntercept(this,true);
                     return drag >= 0; }
                 case MotionEvent.ACTION_MOVE: {
                     if (drag < 0) return false;
@@ -106,7 +106,7 @@ final class EffectGraphs {
                     invalidate(); return true; }
                 case MotionEvent.ACTION_UP: case MotionEvent.ACTION_CANCEL:
                     if (drag >= 0 && listener != null) listener.released();
-                    drag = -1; getParent().requestDisallowInterceptTouchEvent(false); return true;
+                    drag = -1; EditorUi.disallowIntercept(this,false); return true;
             }
             return true;
         }
@@ -176,7 +176,7 @@ final class EffectGraphs {
                 case MotionEvent.ACTION_DOWN: {
                     float best = reach; drag = -1;
                     for (int b = 0; b < 3; b++) { float d = (float) Math.hypot(e.getX() - x(r, freq[b]), e.getY() - y(r, gain[b])); if (d < best) { best = d; drag = b; } }
-                    if (drag >= 0) getParent().requestDisallowInterceptTouchEvent(true);
+                    if (drag >= 0) EditorUi.disallowIntercept(this,true);
                     return drag >= 0; }
                 case MotionEvent.ACTION_MOVE: {
                     if (drag < 0) return false;
@@ -187,7 +187,7 @@ final class EffectGraphs {
                     invalidate(); return true; }
                 case MotionEvent.ACTION_UP: case MotionEvent.ACTION_CANCEL:
                     if (drag >= 0 && listener != null) listener.released();
-                    drag = -1; getParent().requestDisallowInterceptTouchEvent(false); return true;
+                    drag = -1; EditorUi.disallowIntercept(this,false); return true;
             }
             return true;
         }
@@ -225,9 +225,9 @@ final class EffectGraphs {
         }
         @Override public boolean onTouchEvent(MotionEvent e) {
             float colW = getWidth() / 9f;
-            if (e.getActionMasked() == MotionEvent.ACTION_DOWN) { drag = Math.max(0, Math.min(8, (int) (e.getX() / colW))); getParent().requestDisallowInterceptTouchEvent(true); }
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN) { drag = Math.max(0, Math.min(8, (int) (e.getX() / colW))); EditorUi.disallowIntercept(this,true); }
             if (drag < 0) return false;
-            if (e.getActionMasked() == MotionEvent.ACTION_UP || e.getActionMasked() == MotionEvent.ACTION_CANCEL) { drag = -1; getParent().requestDisallowInterceptTouchEvent(false); return true; }
+            if (e.getActionMasked() == MotionEvent.ACTION_UP || e.getActionMasked() == MotionEvent.ACTION_CANCEL) { drag = -1; EditorUi.disallowIntercept(this,false); return true; }
             float fraction = (trackBottom() - e.getY()) / Math.max(1f, trackBottom() - trackTop());
             int v = Math.max(0, Math.min(8, Math.round(fraction * 8f)));
             if (v != values[drag]) { values[drag] = v; if (listener != null) listener.changed(drag, v); invalidate(); }
