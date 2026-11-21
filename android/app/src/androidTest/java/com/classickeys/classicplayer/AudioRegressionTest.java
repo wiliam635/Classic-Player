@@ -118,7 +118,20 @@ public class AudioRegressionTest {
     private double reverbTailRms(int type, float send) throws Exception {
         for (int i = 0; i < 6; i++) engine.clearLayer(i);
         engine.allNotesOff(); pcm(RATE / 2);
-        activate(type, 0);
+        if (type == 5) {
+            engine.loadNsmpTestTone(0);
+            engine.setLayerGain(0, .5f);
+            engine.setLayerRouting(0, -1, 0, 0, 127, 0, true, 0);
+        } else if (type == 6) {
+            File npno = new File(context.getCacheDir(), "regression-royal.npno");
+            try (InputStream in = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().getContext().getAssets().open("fixture-royal-grand.npno");
+                 OutputStream out = new FileOutputStream(npno)) {
+                byte[] buf = new byte[1 << 16]; int n; while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            }
+            engine.loadNord(0, npno.getAbsolutePath(), 512L << 20, true);
+            engine.setLayerGain(0, .5f);
+            engine.setLayerRouting(0, -1, 0, 0, 127, 0, true, 0);
+        } else activate(type, 0);
         if (type == 1) engine.setSf2OriginalSound(0, false);
         engine.setLayerReverb(0, 80, 30, 100);
         engine.setLayerTone(0, 100, send, 0, 0);
@@ -138,6 +151,8 @@ public class AudioRegressionTest {
     @Test public void dx7ReverbHasTail() throws Exception { assertReverbAudible(2, "dx7"); }
     @Test public void analogReverbHasTail() throws Exception { assertReverbAudible(3, "analog"); }
     @Test public void hammondReverbHasTail() throws Exception { assertReverbAudible(4, "hammond"); }
+    @Test public void nsmpReverbHasTail() throws Exception { assertReverbAudible(5, "nsmp"); }
+    @Test public void nordPianoReverbHasTail() throws Exception { assertReverbAudible(6, "npno"); }
 
     /** Same key struck 40 times under the pedal: the held voices must not stack (any engine). */
     private int maxVoicesRestruckUnderPedal(int type) throws Exception {
