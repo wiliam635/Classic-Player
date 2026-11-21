@@ -21,6 +21,7 @@ add_library(classic_player_native SHARED
     nsmp/NordSampleDecoder.cpp
     nsmp/NordLegacySampleDecoder.cpp
     NativeAudioOutput.cpp
+    UsbIsoOutput.cpp
     ${MSFA_DIR}/dx7note.cc
     ${MSFA_DIR}/env.cc
     ${MSFA_DIR}/exp2.cc
