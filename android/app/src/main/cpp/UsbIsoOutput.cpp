@@ -259,7 +259,7 @@ Java_com_classickeys_classicplayer_UsbDirectAudio_nativeInfo(JNIEnv* env, jclass
     return result;
 }
 
-// {frames the fake device received, longest packet in bytes, URBs with audio, errors, URBs completed}
+// {frames the fake device received, longest packet in bytes, URBs with audio, errors, URBs completed, packets submitted}
 extern "C" JNIEXPORT jlongArray JNICALL
 Java_com_classickeys_classicplayer_UsbDirectAudio_nativeSelfTest(JNIEnv* env, jclass, jint milliseconds) {
     auto backendOwner = std::make_unique<FakeBackend>();
@@ -268,8 +268,9 @@ Java_com_classickeys_classicplayer_UsbDirectAudio_nativeSelfTest(JNIEnv* env, jc
     stream.start();
     usleep(static_cast<useconds_t>(std::max(100, static_cast<int>(milliseconds))) * 1000);
     stream.stop();
-    jlong values[5] = {fake->framesSeen, fake->longestPacket, fake->nonSilentUrbs, stream.errors.load(), stream.completed.load()};
-    jlongArray result = env->NewLongArray(5);
-    env->SetLongArrayRegion(result, 0, 5, values);
+    jlong values[6] = {fake->framesSeen, fake->longestPacket, fake->nonSilentUrbs, stream.errors.load(), stream.completed.load(),
+                       stream.submitted.load() * stream.packetsPerUrb};
+    jlongArray result = env->NewLongArray(6);
+    env->SetLongArrayRegion(result, 0, 6, values);
     return result;
 }
