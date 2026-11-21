@@ -1301,7 +1301,7 @@ public final class MainActivity extends Activity {
     private void closeDockedInspector(){
         EditorUi.Panel old=dockedInspector;dockedInspector=null;
         if(old!=null){old.onClose=null;try{old.dialog.dismiss();}catch(RuntimeException ignored){}}
-        EditorUi.knobDp=68;EditorUi.compact=false;setMixerRightInset(0);
+        EditorUi.knobDp=EditorUi.KNOB_BASE_DP;EditorUi.compact=false;setMixerRightInset(0);
         screen.setOnlyLayer(-1);
     }
     /** The header stays full width, like the desktop; only the area below it is shared with the inspector. */
