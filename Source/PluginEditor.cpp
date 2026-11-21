@@ -10963,6 +10963,18 @@ void ClassicPlayerAudioProcessorEditor::drainUiMidi()
             while (classicProcessor.popRawCC(a, b, c)) {}
             return;
         }
+        {
+            static int unmatched = 0;
+            bool any = false;
+            for (const auto& item : uiMidiMap)
+                any = any || (item.second.first == cc && (item.second.second <= 0 || item.second.second == channel));
+            if (!any && !uiMidiMap.empty() && unmatched < 10)
+            {
+                ++unmatched;
+                classicProcessor.midiDiagnostic("CC " + juce::String(cc) + " canal " + juce::String(channel)
+                    + " nao corresponde a nenhum controle mapeado da interface");
+            }
+        }
         for (const auto& item : uiMidiMap)
         {
             if (item.second.first != cc || (item.second.second > 0 && item.second.second != channel)) continue;

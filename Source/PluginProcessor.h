@@ -229,6 +229,7 @@ public:
     bool popRawCC(int& cc, int& channel, int& value);
     juce::String uiMidiMapString() const;
     void setUiMidiMapString(const juce::String& text);
+    void midiDiagnostic(const juce::String& text);
     int uiMidiMapRevision() const noexcept { return uiMidiRevision.load(); }
     void setUiEditorDraining(bool draining) { uiEditorDraining.store(draining); }
     // Applies a 0..1 CC value to a control that has a processor-side setter ("pk:" keys).

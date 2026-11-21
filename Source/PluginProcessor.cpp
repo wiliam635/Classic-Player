@@ -146,6 +146,13 @@ void ClassicPlayerAudioProcessor::loadPadStripSettings()
     auto strip = juce::ValueTree::fromXml(file.loadFileAsString());
     if (!strip.isValid() || !strip.hasType("PadStrip")) return;
     padStripBank.restore(strip, false, true, true); // registers the pads; decoding happens in the background
+    {
+        juce::String maps;
+        for (int i = 0; i <= ContinuousPadBank::count; ++i)
+            if (padStripBank.mapping(i) >= 0) maps << i << "=" << padStripBank.mapping(i) << " ";
+        midiDiagnostic("faixa de pads restaurada | mapeamentos: " + (maps.isEmpty() ? juce::String("(nenhum)") : maps)
+                       + "| canal " + juce::String(padStripBank.midiChannel()));
+    }
     padStripVolume.store(juce::jlimit(0.0f, 100.0f, (float) strip.getProperty("volume", 80.0f)));
     padStripCutoff.store(juce::jlimit(0.0f, 100.0f, (float) strip.getProperty("cutoff", 100.0f)));
     lastPadStripSettings = strip.toXmlString();
@@ -3091,8 +3098,17 @@ juce::String ClassicPlayerAudioProcessor::uiMidiMapString() const
     return uiMidiMapText;
 }
 
+void ClassicPlayerAudioProcessor::midiDiagnostic(const juce::String& text)
+{
+    static std::atomic<int> lines { 0 };
+    if (lines.fetch_add(1) > 200) return;
+    programStorageDirectory().getChildFile("liveset-diagnostico.txt").appendText(
+        "    midi | " + text + "\n");
+}
+
 void ClassicPlayerAudioProcessor::setUiMidiMapString(const juce::String& text)
 {
+    midiDiagnostic("mapa dos controles da interface: " + (text.isEmpty() ? juce::String("(vazio)") : text));
     {
         const juce::ScopedLock lock(uiMidiMapLock);
         uiMidiMapText = text;
