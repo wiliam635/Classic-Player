@@ -403,6 +403,7 @@ public final class MainActivity extends Activity {
         audioEngine.setSampleRateMode(audioPrefs.getInt("sample_rate_mode",audioPrefs.getBoolean("native_rate",true)?0:1));
         audioEngine.setOboePreferred(getSharedPreferences("audio",MODE_PRIVATE).getBoolean("oboe_preferred",false));
         audioEngine.setBufferFrames(getSharedPreferences("audio",MODE_PRIVATE).getInt("buffer_frames",512));
+        audioEngine.setUsbDirectWanted(getSharedPreferences("audio",MODE_PRIVATE).getBoolean("usb_direct",false));
         audioEngine.setMaster(screen.faderGain(screen.masterVolume));
         audioEngine.setMasterEffects(screen.masterReverb,screen.masterChorus);
         licenseManager = new LicenseManager(this);
@@ -608,6 +609,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        if(usbPermissionReceiver!=null){try{unregisterReceiver(usbPermissionReceiver);}catch(IllegalArgumentException ignored){}usbPermissionReceiver=null;}
         if (padEngine != null) padEngine.stopImmediately();
         closing = true;
         if (audioEngine != null) {
@@ -713,6 +715,59 @@ public final class MainActivity extends Activity {
         AudioDeviceInfo routed = audioEngine == null ? null : audioEngine.routedDevice();
         audioCapabilityStatus = audioOutputManager == null ? "FORMATOS: consulta indisponível"
                 : audioOutputManager.formatCapabilities(routed);
+    }
+
+    private static final String ACTION_USB_AUDIO_PERMISSION="com.classickeys.classicplayer.USB_AUDIO_PERMISSION";
+    private android.content.BroadcastReceiver usbPermissionReceiver;
+
+    /** MOTOR button: choose between the normal Android output and the experimental direct USB driver. */
+    private void showAudioEngineChooser() {
+        String[] choices={"Oboe / AAudio · saída normal do Android (padrão)","USB direto · driver próprio (experimental)"};
+        new EditorUi.Alert(this).setTitle("MOTOR DE SAÍDA")
+            .setSingleChoiceItems(choices,audioEngine.usbDirectWanted()?1:0,(dialog,which)->{
+                dialog.dismiss();
+                if(which==0){
+                    getSharedPreferences("audio",MODE_PRIVATE).edit().putBoolean("usb_direct",false).apply();
+                    audioEngine.setUsbDirectWanted(false);screen.invalidate();
+                }else requestUsbDirect();
+            }).setNegativeButton("CANCELAR",null).show();
+    }
+
+    private void requestUsbDirect() {
+        android.hardware.usb.UsbManager manager=(android.hardware.usb.UsbManager)getSystemService(USB_SERVICE);
+        android.hardware.usb.UsbDevice device=UsbDirectAudio.findCandidate(manager);
+        if(device==null){
+            new EditorUi.Alert(this).setTitle("USB DIRETO")
+                .setMessage("Nenhuma interface de áudio USB foi encontrada. Conecte a interface e tente de novo.")
+                .setPositiveButton("OK",null).show();
+            return;
+        }
+        if(manager.hasPermission(device)){enableUsbDirect();return;}
+        if(usbPermissionReceiver==null){
+            usbPermissionReceiver=new android.content.BroadcastReceiver(){
+                @Override public void onReceive(Context context,Intent intent){
+                    if(!ACTION_USB_AUDIO_PERMISSION.equals(intent.getAction()))return;
+                    if(intent.getBooleanExtra(android.hardware.usb.UsbManager.EXTRA_PERMISSION_GRANTED,false))enableUsbDirect();
+                    else screen.setMidiStatus("USB direto: permissão USB negada");
+                }
+            };
+            android.content.IntentFilter filter=new android.content.IntentFilter(ACTION_USB_AUDIO_PERMISSION);
+            if(android.os.Build.VERSION.SDK_INT>=33)registerReceiver(usbPermissionReceiver,filter,Context.RECEIVER_NOT_EXPORTED);
+            else registerReceiver(usbPermissionReceiver,filter);
+        }
+        int flags=android.os.Build.VERSION.SDK_INT>=31?android.app.PendingIntent.FLAG_MUTABLE:0;
+        Intent intent=new Intent(ACTION_USB_AUDIO_PERMISSION).setPackage(getPackageName());
+        manager.requestPermission(device,android.app.PendingIntent.getBroadcast(this,0,intent,flags));
+    }
+
+    private void enableUsbDirect() {
+        getSharedPreferences("audio",MODE_PRIVATE).edit().putBoolean("usb_direct",true).apply();
+        audioEngine.setUsbDirectWanted(true);
+        screen.invalidate();
+        String message=audioEngine.usbDirectActive()?null:audioEngine.usbDirectMessage();
+        if(message!=null&&!message.isEmpty())
+            new EditorUi.Alert(this).setTitle("USB DIRETO").setMessage(message+"\n\nO app continua na saída normal.")
+                .setPositiveButton("OK",null).show();
     }
 
     private void showAudioBufferChooser() {
@@ -3690,7 +3745,8 @@ public final class MainActivity extends Activity {
             }
             if (settings && tap) {
                 if(event.getX()>w*.48f&&event.getY()>h*.50f){
-                    if(event.getY()>=h*.56f&&event.getY()<h*.615f)showAudioSampleRateChooser();
+                    if(event.getY()>=h*.50f&&event.getY()<h*.555f)showAudioEngineChooser();
+                    else if(event.getY()>=h*.56f&&event.getY()<h*.615f)showAudioSampleRateChooser();
                     else if(event.getY()>=h*.62f&&event.getY()<h*.67f)showAudioBufferChooser();
                     else if(event.getY()>h*.81f&&event.getY()<h*.87f){audioEngine.stop();audioEngine.start();invalidate();}
                     return true;

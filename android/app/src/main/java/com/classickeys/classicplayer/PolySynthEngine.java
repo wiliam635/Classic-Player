@@ -27,6 +27,11 @@ final class PolySynthEngine {
     // The synth itself remains at 44.1 kHz in all modes.
     private volatile int sampleRateMode = 0;
     private Thread outputMonitor;
+    // Experimental direct USB driver (see UsbDirectAudio). Wanted = the user's choice; Active = running now.
+    private Context appContext;
+    private final UsbDirectAudio usbDirect=new UsbDirectAudio();
+    private volatile boolean usbDirectWanted,usbDirectActive,usbDirectFallingBack;
+    private volatile String usbDirectMessage="";
     private AudioManager audioManager;
     private volatile int renderPeakMicros;
     private volatile int renderSlowBlocks;
@@ -34,6 +39,7 @@ final class PolySynthEngine {
 
     PolySynthEngine() { }
     PolySynthEngine(Context context) {
+        appContext=context.getApplicationContext();
         audioManager=(AudioManager)context.getSystemService(Context.AUDIO_SERVICE);
         if(audioManager!=null)try {
             int burst=Integer.parseInt(audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER));
@@ -95,7 +101,34 @@ final class PolySynthEngine {
         stop();
         if(restart)start();
     }
+    boolean usbDirectWanted() { return usbDirectWanted; }
+    boolean usbDirectActive() { return usbDirectActive; }
+    String usbDirectMessage() { return usbDirectMessage; }
+    synchronized void setUsbDirectWanted(boolean wanted) {
+        if(usbDirectWanted==wanted)return;
+        boolean restart=running;
+        stop();
+        usbDirectWanted=wanted;usbDirectMessage="";
+        if(restart)start();
+    }
+    /** The USB driver stopped by itself (cable pulled): go back to the normal output. */
+    private void usbDirectLost() {
+        if(usbDirectFallingBack)return;
+        usbDirectFallingBack=true;
+        new Thread(()->{
+            synchronized(PolySynthEngine.this){
+                usbDirectWanted=false;
+                stop();usbDirectMessage="USB direto parou (cabo removido?) · voltou para a saída normal";
+                start();
+            }
+            usbDirectFallingBack=false;
+        },"classic-usb-fallback").start();
+    }
     String outputStatus() {
+        if(usbDirectActive){
+            if(!usbDirect.isRunning())usbDirectLost();
+            return usbDirect.status();
+        }
         if(nativeOutputActive){
             int[] info=nativeOutputInfo();
             return String.format(java.util.Locale.US,
@@ -121,6 +154,7 @@ final class PolySynthEngine {
     }
     String outputDspStatus() {
         int[] midi=nativeMidiQueueDiagnostics();
+        if(usbDirectActive)return String.format(java.util.Locale.US,"DSP: driver USB próprio · MIDI→app %.1f/máx %.1f ms · fila %d/pico %d · estouros %d",midiAppLagLastMs,midiAppLagMaxMs,midi[0],midi[1],midi[2]);
         String queue=String.format(java.util.Locale.US,
             "MIDI→app %.1f/máx %.1f ms · fila %d/pico %d · estouros %d · locks fila/synth %d/%d · espera máx %.1f ms · clipping PCM em %d blocos ",
             midiAppLagLastMs,midiAppLagMaxMs,midi[0],midi[1],midi[2],midi[3],midi[4],midi[5]/1000.0,midi[6]);
@@ -134,6 +168,7 @@ final class PolySynthEngine {
     }
     boolean isRunning() { return running; }
     String outputMode() {
+        if(usbDirectActive)return "USB DIRETO · driver próprio (experimental)";
         if(!nativeOutputActive)return "AudioTrack · Android Media · PCM 16-bit"+
             (oboePreferred?" · Oboe indisponível nesta rota":"");
         int[] info=nativeOutputInfo();
@@ -141,6 +176,8 @@ final class PolySynthEngine {
             " · "+(info[6]==0?"exclusivo":"compartilhado");
     }
     String outputLatency() {
+        if(usbDirectActive)return String.format(java.util.Locale.US,"Fila USB: cerca de %.0f ms + o buffer da própria interface",usbDirect.queuedMillis());
+        if(!usbDirectMessage.isEmpty())return usbDirectMessage;
         double millis=outputLatencyMillis();
         return nativeOutputActive
             ?millis<0?"Latência Oboe indisponível · medir com loopback"
@@ -228,6 +265,12 @@ final class PolySynthEngine {
         if (running) return;
         stop();
         outputError="";
+        if(usbDirectWanted&&appContext!=null){
+            android.hardware.usb.UsbDevice device=UsbDirectAudio.findCandidate((android.hardware.usb.UsbManager)appContext.getSystemService(Context.USB_SERVICE));
+            String error=usbDirect.open(appContext,device,Math.max(4,bufferFrames*1000/RATE));
+            if(error==null){usbDirectActive=true;usbDirectMessage="";running=true;return;}
+            usbDirectMessage=error;   // keep going: Oboe / AudioTrack below
+        }
         if(oboePreferred&&nativeStartOutput(preferredDevice==null?0:preferredDevice.getId(),bufferFrames,sampleRateMode)){
             nativeOutputActive=true;running=true;
             outputMonitor=new Thread(this::monitorOutput,"classic-output-monitor");
@@ -299,6 +342,7 @@ final class PolySynthEngine {
             while(outputMonitor.isAlive())try{outputMonitor.join();}catch(InterruptedException e){interrupted=true;}
             outputMonitor=null;
         }
+        if(usbDirectActive){usbDirect.close();usbDirectActive=false;}
         if(nativeOutputActive){nativeStopOutput();nativeOutputActive=false;}
         // Unblock WRITE_BLOCKING before joining. Never release a track while
         // its writer is still alive, nor let an old writer join a new session.

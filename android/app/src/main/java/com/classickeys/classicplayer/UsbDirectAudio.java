@@ -72,7 +72,7 @@ final class UsbDirectAudio {
             c.releaseInterface(target); c.close();
             return "USB direto: falha ao iniciar a transferência";
         }
-        connection = c; claimed = target;
+        connection = c; claimed = target; this.packetsPerSecond = packetsPerSecond;
         description = "USB direto · " + device.getProductName() + " · " + alt + " · " + packetsPerSecond + " pacotes/s";
         return null;
     }
@@ -87,6 +87,13 @@ final class UsbDirectAudio {
     }
 
     synchronized boolean isOpen() { return connection != null; }
+
+    /** False once the native thread has stopped (device unplugged or a transfer failed). */
+    boolean isRunning() { long[] i = nativeInfo(); return i[0] != 0; }
+
+    /** Audio kept queued in the USB transfers, in milliseconds. */
+    double queuedMillis() { long[] i = nativeInfo(); return i[5] * i[6] * 1000.0 / Math.max(1, packetsPerSecond); }
+    private int packetsPerSecond = 1000;
 
     /** Status line: transfers sent/completed/errors. */
     synchronized String status() {
