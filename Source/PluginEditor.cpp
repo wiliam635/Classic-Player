@@ -10335,6 +10335,8 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
             case 3: accidentalStyle = ClassicChordDetector::AccidentalStyle::flat; break;
             default: accidentalStyle = ClassicChordDetector::AccidentalStyle::mixed; break;
         }
+        // Saved with the performance, so it opens the way it was left.
+        classicProcessor.parameters.state.setProperty("uiAccidentalStyle", accidentalStyleBox.getSelectedId(), nullptr);
         triggerAsyncUpdate();
     };
     addAndMakeVisible(accidentalStyleBox);
@@ -11886,6 +11888,7 @@ void ClassicPlayerAudioProcessorEditor::showUpdateDetails()
 void ClassicPlayerAudioProcessorEditor::setPadStripVisible(bool shouldShow)
 {
     padStripVisible = shouldShow;
+    classicProcessor.parameters.state.setProperty("uiPadStripVisible", shouldShow, nullptr);
     keyboard.setVisible(virtualKeyboardVisible && !padStripVisible && !showingLiveSet);
     resized();
     refreshDisplayToggle();
@@ -11907,6 +11910,18 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
     if (savedKeyColour.isNotEmpty()
         && savedKeyColour != keyboard.findColour(juce::MidiKeyboardComponent::keyDownOverlayColourId).toString())
         keyboard.setActiveColour(juce::Colour::fromString(savedKeyColour));
+    // The chord accidental style and the PADS view are part of the performance too.
+    if (uiState.hasProperty("uiAccidentalStyle"))
+    {
+        const int id = juce::jlimit(1, 3, (int) uiState.getProperty("uiAccidentalStyle"));
+        if (accidentalStyleBox.getSelectedId() != id)
+            accidentalStyleBox.setSelectedId(id, juce::sendNotificationSync);
+    }
+    if (!showingLiveSet && uiState.hasProperty("uiPadStripVisible"))
+    {
+        const bool wantPads = (bool) uiState.getProperty("uiPadStripVisible");
+        if (wantPads != padStripVisible) setPadStripVisible(wantPads);
+    }
     if (!liveSetPreloadStarted)
     {
         liveSetPreloadStarted = true;

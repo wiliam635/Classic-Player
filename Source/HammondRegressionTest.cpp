@@ -27,6 +27,7 @@ struct ContinuousPadRegressionAccess
     {
         processor.handleIncomingMidiMessage(nullptr, message);
     }
+    static void savePadStrip(ClassicPlayerAudioProcessor& processor) { processor.savePadStripSettings(); }
 };
 
 static void performanceEffectsRegression()
@@ -444,6 +445,36 @@ static void globalPadStripRegression()
     ContinuousPadRegressionAccess::handleIncomingMidiMessage(*p, juce::MidiMessage::controllerEvent(1, 44, 127));
     check(p->loadProgram(program).wasOk(), "global pad strip load program again");
     check(p->padStrip().mapping(2) == 44, "a program change cleared the global pad strip");
+}
+
+static void padStripRestartRegression()
+{
+    juce::TemporaryFile storage;
+    const auto root = storage.getFile();
+    check(root.createDirectory().wasOk(), "pad strip restart storage");
+    struct Cleanup { juce::File directory; ~Cleanup() { directory.deleteRecursively(); } } cleanup { root };
+    juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
+    {
+        auto a = std::make_unique<ClassicPlayerAudioProcessor>(root);
+        a->padStrip().loadFactoryPad(0);
+        a->padStrip().learn(0);
+        ContinuousPadRegressionAccess::handleIncomingMidiMessage(*a, juce::MidiMessage::controllerEvent(1, 33, 127));
+        check(a->padStrip().mapping(0) == 33, "restart test: Learn failed");
+        a->setUiMidiMapString("pk:strip:vol=26:1;");
+        ContinuousPadRegressionAccess::savePadStrip(*a);
+    }
+    // The app was closed and reopened: the saved mapping must trigger the pad with no re-assignment.
+    juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
+    auto b = std::make_unique<ClassicPlayerAudioProcessor>(root);
+    juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
+    check(b->padStrip().mapping(0) == 33, "pad strip mapping lost after restart");
+    b->prepareToPlay(48000, 128);
+    ContinuousPadRegressionAccess::activateForTest(*b);
+    juce::AudioBuffer<float> audio(2, 128);
+    juce::MidiBuffer midi;
+    ContinuousPadRegressionAccess::handleIncomingMidiMessage(*b, juce::MidiMessage::controllerEvent(1, 33, 127));
+    for (int i = 0; i < 4; ++i) { audio.clear(); b->processBlock(audio, midi); midi.clear(); }
+    check(b->padStrip().selected() == 0, "restored pad strip CC mapping did not trigger the pad after restart");
 }
 
 static void continuousPadRegression()
@@ -1661,7 +1692,8 @@ int main(int argc, char** argv)
             continuousPadRegression();
             return 0;
         }
-        if (argc > 1 && juce::String(argv[1]) == "--legacy-restore") { legacyPerformanceRestoreMatrix(); globalPadStripRegression(); return 0; }
+        if (argc > 1 && juce::String(argv[1]) == "--legacy-restore") { legacyPerformanceRestoreMatrix(); globalPadStripRegression();
+    padStripRestartRegression(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--liveset-swap") { liveSetSwapTimingRegression(); return 0; }
         if (argc > 1 && juce::String(argv[1]) == "--performance-effects")
         {
@@ -1676,6 +1708,7 @@ int main(int argc, char** argv)
         liveSetSwapTimingRegression();
         legacyPerformanceRestoreMatrix();
         globalPadStripRegression();
+    padStripRestartRegression();
         performanceEffectsRegression();
         nordOrganRegression();
         DrumPadRegressionAccess::run();
