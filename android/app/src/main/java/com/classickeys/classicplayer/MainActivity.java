@@ -142,14 +142,14 @@ public final class MainActivity extends Activity {
     private final boolean[] midiSustain = new boolean[16];
     private final boolean[][] padCcDown=new boolean[16][128];
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private boolean midiThreadBoosted;
+    private int midiBoostedTid=-1;
     private final MidiReceiver midiReceiver = new MidiReceiver() {
         @Override public synchronized void onSend(byte[] data, int offset, int count, long timestamp) {
-            if(!midiThreadBoosted){
+            if(midiBoostedTid!=android.os.Process.myTid()){
                 // The framework delivers MIDI on its own thread; raise it to audio priority once
                 // so note events are not queued behind UI and decoding work (157 ms seen on a tablet).
                 try{android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO);}catch(RuntimeException ignored){}
-                midiThreadBoosted=true;
+                midiBoostedTid=android.os.Process.myTid();
             }
             if(timestamp>0){double lag=(System.nanoTime()-timestamp)/1e6;if(lag>=0&&lag<600000){PolySynthEngine.midiAppLagLastMs=lag;if(lag>PolySynthEngine.midiAppLagMaxMs)PolySynthEngine.midiAppLagMaxMs=lag;}}
             midiByteParser.accept(data,offset,count,timestamp,(status,data1,data2,time)->{
