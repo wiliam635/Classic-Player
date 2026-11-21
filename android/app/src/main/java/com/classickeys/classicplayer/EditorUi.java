@@ -146,7 +146,7 @@ final class EditorUi {
             docked=dockNext||(dockClosedAt!=0&&android.os.SystemClock.uptimeMillis()-dockClosedAt<400);dockNext=false;
             if(docked){knobDp=92;compact=true;}
             final boolean wasDocked=docked;
-            dialog=new Dialog(a);dialog.setOnDismissListener(d->{if(wasDocked){dockClosedAt=android.os.SystemClock.uptimeMillis();knobDp=68;compact=false;}if(onClose!=null)onClose.run();});dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+            dialog=new Dialog(a);dialog.setOnDismissListener(d->{if(wasDocked){dockClosedAt=android.os.SystemClock.uptimeMillis();knobDp=KNOB_BASE_DP;compact=false;}if(onClose!=null)onClose.run();});dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
             LinearLayout root=column(a);root.setPadding(dp(a,7),dp(a,4),dp(a,7),dp(a,4));root.setBackground(background(PANEL));
             if(docked){java.util.regex.Matcher lm=java.util.regex.Pattern.compile("LAYER\\s*\\d+").matcher(title);if(lm.find())title=lm.group();}
             TextView heading=label(a,title,16);heading.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);heading.setSingleLine(true);heading.setEllipsize(android.text.TextUtils.TruncateAt.END);if(docked){
@@ -255,10 +255,11 @@ final class EditorUi {
     static final int CYAN_OUTLINE=0xff2bb8e6;
     /** Null-safe: a release handler may rebuild the panel and detach this view before the call. */
     static void disallowIntercept(View view,boolean disallow){ViewParent parent=view.getParent();if(parent!=null)parent.requestDisallowInterceptTouchEvent(disallow);}
-    static int knobDp=68;
+    static final int KNOB_BASE_DP=76; // was 68: bigger touch target on tablets
+    static int knobDp=KNOB_BASE_DP;
     /** Tighter controls while the desktop-style inspector is open. */
     static boolean compact=false;
-    static boolean knobDocked(){return knobDp>68;}
+    static boolean knobDocked(){return knobDp>KNOB_BASE_DP;}
     static Knob knob(LinearLayout row,String label,float value,float min,float max,String unit,Change action){Knob knob=new Knob(row.getContext(),label,value,min,max,unit,action);row.addView(knob,new LinearLayout.LayoutParams(0,dp(row.getContext(),knobDp),1));return knob;}
     static final class Knob extends View {
         final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);final String label,unit;final float min,max;final Change action;

@@ -385,7 +385,7 @@ public final class MainActivity extends Activity {
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         screen = new ClassicPlayerView(this);
         setContentView(screen);
-        EditorUi.Panel.dockHook=p->{EditorUi.knobDp=92;EditorUi.compact=true;dockedInspector=p;final int resetLayer=dockedLayer;p.onReset=()->resetDockedLayer(resetLayer);updateDockReserve();setMixerRightInset(EditorUi.Panel.dockWidth(this));screen.setOnlyLayer(dockedLayer);p.onClose=()->{if(dockedInspector==p){dockedInspector=null;EditorUi.knobDp=68;EditorUi.compact=false;setMixerRightInset(0);screen.setOnlyLayer(-1);}};};
+        EditorUi.Panel.dockHook=p->{EditorUi.knobDp=92;EditorUi.compact=true;dockedInspector=p;final int resetLayer=dockedLayer;p.onReset=()->resetDockedLayer(resetLayer);updateDockReserve();setMixerRightInset(EditorUi.Panel.dockWidth(this));screen.setOnlyLayer(dockedLayer);p.onClose=()->{if(dockedInspector==p){dockedInspector=null;EditorUi.knobDp=EditorUi.KNOB_BASE_DP;EditorUi.compact=false;setMixerRightInset(0);screen.setOnlyLayer(-1);}};};
         midiManager = (MidiManager) getSystemService(MIDI_SERVICE);
         audioEngine = new PolySynthEngine(this);
         SharedPreferences audioPrefs=getSharedPreferences("audio",MODE_PRIVATE);
