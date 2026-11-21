@@ -338,6 +338,23 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
     else
     {
         const auto voiceLimit = voicesPerLayer;
+        // Re-striking a note that is still sounding (sustain pedal, long release) must not stack a
+        // second copy on top of it: let the earlier one of the same note and channel fade out.
+        if (!config.nordRetriggerSameNote)
+            for (int i = 0; i < voiceLimit; ++i)
+            {
+                auto& earlier = layer.voices[(size_t) i];
+                if (earlier.active && earlier.note == note && earlier.midiChannel == midiChannel
+                    && earlier.amp.stage != EnvelopeStage::release && earlier.amp.stage != EnvelopeStage::idle)
+                {
+                    earlier.keyDown = false;
+                    earlier.amp.releaseStart = earlier.amp.value;
+                    earlier.filter.releaseStart = earlier.filter.value;
+                    earlier.amp.stage = EnvelopeStage::release;
+                    earlier.amp.elapsed = 0;
+                    earlier.filter.stage = EnvelopeStage::release;
+                }
+            }
         if (config.nordRetriggerSameNote)
             for (int i = 0; i < voiceLimit; ++i)
             {
@@ -359,7 +376,23 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
         }
 
         if (voice == nullptr)
-            voice = &layer.voices.front();
+        {
+            // All voices busy: steal one that is already releasing, otherwise the oldest.
+            Voice* best = nullptr;
+            bool bestReleasing = false;
+            for (int i = 0; i < voiceLimit; ++i)
+            {
+                auto& candidate = layer.voices[(size_t) i];
+                const bool releasing = candidate.amp.stage == EnvelopeStage::release;
+                if (best == nullptr || (releasing && !bestReleasing)
+                    || (releasing == bestReleasing && candidate.age > best->age))
+                {
+                    best = &candidate;
+                    bestReleasing = releasing;
+                }
+            }
+            voice = best;
+        }
     }
 
     const auto frequency = midiNoteToFrequency(note + config.routing.octave * 12);

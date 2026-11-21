@@ -426,6 +426,54 @@ static void fixedAnalogPolyphonyRegression()
     std::cout<<"Analog fixed 32 voices, legacy 256 request, sustain and voice stealing passed\n";
 }
 
+static void sameNoteStackingRegression(const juce::File& dx7Fixture)
+{
+    // Re-striking a note while the pedal holds the previous strike must not stack voices.
+    {
+        auto engine = std::make_unique<AnalogSynthEngine>();
+        engine->prepare(48000, 256);
+        std::array<AnalogSynthEngine::Config, AnalogSynthEngine::layerCount> configs;
+        for (auto& c : configs) c.routing.enabled = false;
+        configs[0].routing.enabled = true;
+        configs[0].routing.sustainEnabled = true;
+        configs[0].monophonic = false;
+        juce::AudioBuffer<float> audio(2, 256);
+        auto block = [&](const juce::MidiBuffer& midi) { audio.clear(); engine->process(audio, midi, configs); };
+        { juce::MidiBuffer m; m.addEvent(juce::MidiMessage::controllerEvent(1, 64, 127), 0); block(m); }
+        for (int strike = 0; strike < 4; ++strike)
+        {
+            juce::MidiBuffer m;
+            m.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 100), 0);
+            m.addEvent(juce::MidiMessage::noteOff(1, 60), 100);
+            block(m);
+            block({});
+        }
+        require(engine->soundingVoicesForNote(0, 60) <= 1, "Analog stacked voices of a re-struck sustained note");
+    }
+    {
+        auto engine = std::make_unique<Dx7Engine>();
+        engine->prepare(48000, 256);
+        require(engine->loadSysEx(0, dx7Fixture).wasOk(), "DX7 fixture load (stacking)");
+        std::array<Sf2Engine::LayerConfig, Dx7Engine::layerCount> configs;
+        for (auto& config : configs) config.enabled = false;
+        configs[0].enabled = true;
+        configs[0].mono = false;
+        juce::AudioBuffer<float> audio(2, 256);
+        auto block = [&](const juce::MidiBuffer& midi) { audio.clear(); engine->process(audio, midi, nullptr, configs); };
+        { juce::MidiBuffer m; m.addEvent(juce::MidiMessage::controllerEvent(1, 64, 127), 0); block(m); }
+        for (int strike = 0; strike < 4; ++strike)
+        {
+            juce::MidiBuffer m;
+            m.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 100), 0);
+            m.addEvent(juce::MidiMessage::noteOff(1, 60), 100);
+            block(m);
+            block({});
+        }
+        require(engine->soundingVoicesForNote(0, 60) <= 1, "DX7 stacked voices of a re-struck sustained note");
+    }
+    std::cout << "Analog and DX7 same-note re-strike does not stack voices\n";
+}
+
 static void bundleModulationRegression()
 {
     for (const double rate : {44100.0, 48000.0})
@@ -499,6 +547,7 @@ int main()
         independentAnalogTuning();
         browserRegression();
         fixedAnalogPolyphonyRegression();
+        sameNoteStackingRegression(fixture.getFile());
         for (bool mono : {false, true})
             for (bool transitions : {false, true})
             {

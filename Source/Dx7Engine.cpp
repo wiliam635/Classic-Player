@@ -618,18 +618,30 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
 
     Voice* target = nullptr;
     const auto limit = juce::jlimit(64, (int) layer.voices.size(), config.polyphony);
+    // A note that is still sounding (sustain pedal, long release) must not be stacked with its new
+    // strike: release the earlier copy of the same note.
+    for (int i = 0; i < limit; ++i)
+    {
+        auto& earlier = layer.voices[(size_t) i];
+        if (earlier.active && !earlier.releasing && earlier.note == note) releaseVoice(earlier);
+    }
     for (int i = 0; i < limit; ++i)
     {
         auto& voice = layer.voices[(size_t) i];
         if (!voice.active) { target = &voice; break; }
     }
     if (target == nullptr)
-        for (int i = 0; i < limit; ++i)
-        {
-            auto& voice = layer.voices[(size_t) i];
-            if (voice.releasing) { target = &voice; break; }
-        }
-    if (target == nullptr) target = &layer.voices.front();
+    {
+        // Steal a releasing voice first, otherwise the oldest one (not always voice 0).
+        for (int pass = 0; pass < 2 && target == nullptr; ++pass)
+            for (int i = 0; i < limit; ++i)
+            {
+                auto& voice = layer.voices[(size_t) i];
+                if (pass == 0 && !voice.releasing) continue;
+                if (target == nullptr || voice.order < target->order) target = &voice;
+            }
+    }
+    target->order = ++layer.voiceSequence;
 
     target->active = true;
     target->releasing = false;

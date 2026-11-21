@@ -93,6 +93,16 @@ public:
 
     float getLayerPeak(int layer) const noexcept;
 
+    // Voices of this note still sounding with the key held or sustained (not releasing); used by tests.
+    int soundingVoicesForNote(int layer, int note) const
+    {
+        int count = 0;
+        for (const auto& voice : layers[static_cast<size_t>(layer)].voices)
+            if (voice.active && voice.note == note && voice.amp.stage != EnvelopeStage::release
+                && voice.amp.stage != EnvelopeStage::idle) ++count;
+        return count;
+    }
+
 private:
     enum class EnvelopeStage { idle, attack, decay, sustain, release, legato };
 

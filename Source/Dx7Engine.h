@@ -52,6 +52,16 @@ public:
                  const std::array<juce::MidiBuffer, layerCount>* routedMidi,
                  const std::array<Sf2Engine::LayerConfig, layerCount>& configs);
 
+    // Voices of this note that are sounding and not releasing; used by tests.
+    int soundingVoicesForNote(int layerIndex, int note) const
+    {
+        const juce::ScopedLock guard(lock);
+        int count = 0;
+        for (const auto& voice : layers[(size_t) layerIndex].voices)
+            if (voice.active && !voice.releasing && voice.note == note) ++count;
+        return count;
+    }
+
 private:
     struct Patch
     {
@@ -76,6 +86,7 @@ private:
         bool active = false;
         bool releasing = false;
         int note = -1;
+        std::uint64_t order = 0; // note-on sequence, used to steal the oldest voice
         float velocity = 0.0f;
         float envelope = 0.0f;
         float decayGain = 1.0f;
@@ -104,6 +115,7 @@ private:
         std::array<float, 128> heldVelocities {};
         std::array<uint64_t, 128> noteOrder {};
         uint64_t noteSequence = 0;
+        uint64_t voiceSequence = 0;
         bool sustainDown = false;
         int modulationValue = 0;
         // LFO/chorus buffers are prepared when the engine is prepared or a
