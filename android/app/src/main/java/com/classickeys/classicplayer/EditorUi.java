@@ -268,6 +268,8 @@ final class EditorUi {
         final Runnable longPressTask=()->{if(pointer>=0&&dragAxis==0&&onLongPress!=null){longPressed=true;performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);onLongPress.run();}};
         Knob(Context c,String label,float value,float min,float max,String unit,Change action){super(c);this.label=label;this.min=min;this.max=max;this.unit=unit;this.value=Math.max(min,Math.min(max,value));this.action=action;touchSlop=ViewConfiguration.get(c).getScaledTouchSlop();setFocusable(true);describe();}
         long lastTapTime;float lastTapX,lastTapY;
+        /** Knob face from the last draw: a vertical drag that starts on it turns the knob instead of scrolling the page. */
+        float bodyX,bodyY,bodyR;boolean downOnBody;
         /** Double tap: type the exact value instead of dragging (hard to be precise on a phone). */
         void promptValue(){
             Context c=getContext();
@@ -295,7 +297,7 @@ final class EditorUi {
             float w=getWidth(),h=getHeight(),cx=w/2,top=dp(getContext(),13),foot=dp(getContext(),18),cy=top+(h-top-foot)/2f,r=Math.max(dp(getContext(),10),Math.min(w*.32f,(h-top-foot)/2f-dp(getContext(),7)));p.setShader(null);p.setStyle(Paint.Style.FILL);p.setColor(TEXT);p.setTextAlign(Paint.Align.CENTER);p.setTextSize(dp(getContext(),8));c.drawText(label,cx,dp(getContext(),10),p);
             // Same metal knob as the desktop ClassicLookAndFeel: dark bezel, grey-to-black
             // gradient body, accent arc outside the rim and a pointer ending in a dot.
-            p.setColor(0xff080d11);c.drawCircle(cx,cy,r+dp(getContext(),3),p);
+            bodyX=cx;bodyY=cy;bodyR=r;p.setColor(0xff080d11);c.drawCircle(cx,cy,r+dp(getContext(),3),p);
             p.setShader(new LinearGradient(cx-r*.7f,cy-r*.7f,cx+r*.7f,cy+r*.7f,0xff69747c,0xff171e23,Shader.TileMode.CLAMP));c.drawCircle(cx,cy,r,p);p.setShader(null);
             p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(dp(getContext(),1));p.setColor(0xff88939a);c.drawCircle(cx,cy,r,p);
             float fraction=(value-min)/(max-min);float arcR=r+dp(getContext(),4);
@@ -307,8 +309,8 @@ final class EditorUi {
             p.setStyle(Paint.Style.FILL);p.setColor(FIELD);float bottom=cy+r+dp(getContext(),2);c.drawRect(Math.max(3,cx-dp(getContext(),34)),bottom,Math.min(w-3,cx+dp(getContext(),34)),bottom+dp(getContext(),14),p);p.setColor(TEXT);p.setTextSize(dp(getContext(),9));c.drawText(format(),cx,bottom+dp(getContext(),11),p);
         }
         @Override public boolean onTouchEvent(MotionEvent e){switch(e.getActionMasked()){
-            case MotionEvent.ACTION_DOWN:pointer=e.getPointerId(0);downX=e.getX();downY=e.getY();start=value;dragAxis=0;longPressed=false;removeCallbacks(longPressTask);if(onLongPress!=null)postDelayed(longPressTask,ViewConfiguration.getLongPressTimeout());return true;
-            case MotionEvent.ACTION_MOVE:int i=e.findPointerIndex(pointer);if(i<0)return true;if(longPressed)return true;float dx=e.getX(i)-downX,dy=downY-e.getY(i);if(Math.abs(dx)>touchSlop||Math.abs(dy)>touchSlop)removeCallbacks(longPressTask);if(dragAxis==0){if(Math.abs(dx)>touchSlop&&Math.abs(dx)>Math.abs(dy)){dragAxis=1;EditorUi.disallowIntercept(this,true);}else if(Math.abs(dy)>touchSlop){if(canScrollParent(dy)){return true;}dragAxis=2;EditorUi.disallowIntercept(this,true);}}if(dragAxis!=0){float delta=dragAxis==1?dx:dy;value=Math.max(min,Math.min(max,start+delta/dp(getContext(),180)*(max-min)));action.set(value);describe();invalidate();}return true;
+            case MotionEvent.ACTION_DOWN:pointer=e.getPointerId(0);downX=e.getX();downY=e.getY();start=value;dragAxis=0;longPressed=false;downOnBody=bodyR>0&&Math.hypot(downX-bodyX,downY-bodyY)<=bodyR*1.45f+dp(getContext(),8);removeCallbacks(longPressTask);if(onLongPress!=null)postDelayed(longPressTask,ViewConfiguration.getLongPressTimeout());return true;
+            case MotionEvent.ACTION_MOVE:int i=e.findPointerIndex(pointer);if(i<0)return true;if(longPressed)return true;float dx=e.getX(i)-downX,dy=downY-e.getY(i);if(Math.abs(dx)>touchSlop||Math.abs(dy)>touchSlop)removeCallbacks(longPressTask);if(dragAxis==0){if(Math.abs(dx)>touchSlop&&Math.abs(dx)>Math.abs(dy)){dragAxis=1;EditorUi.disallowIntercept(this,true);}else if(Math.abs(dy)>touchSlop){if(!downOnBody&&canScrollParent(dy)){return true;}dragAxis=2;EditorUi.disallowIntercept(this,true);}}if(dragAxis!=0){float delta=dragAxis==1?dx:dy;value=Math.max(min,Math.min(max,start+delta/dp(getContext(),180)*(max-min)));action.set(value);describe();invalidate();}return true;
             case MotionEvent.ACTION_UP:removeCallbacks(longPressTask);if(dragAxis==0&&!longPressed){performClick();long now=e.getEventTime();if(now-lastTapTime<=ViewConfiguration.getDoubleTapTimeout()&&Math.abs(e.getX()-lastTapX)<=touchSlop*3&&Math.abs(e.getY()-lastTapY)<=touchSlop*3){lastTapTime=0;promptValue();}else{lastTapTime=now;lastTapX=e.getX();lastTapY=e.getY();}}pointer=-1;dragAxis=0;EditorUi.disallowIntercept(this,false);return true;
             case MotionEvent.ACTION_CANCEL:removeCallbacks(longPressTask);pointer=-1;dragAxis=0;EditorUi.disallowIntercept(this,false);return true;
             default:return true;}}
