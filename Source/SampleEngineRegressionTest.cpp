@@ -832,9 +832,47 @@ struct SampleEngineRegressionTests
                   << juce::Decibels::gainToDecibels(brightHigh / softHigh) << " dB\n";
     }
 
+    // Half pedal: a CC64 value below the switch point lengthens the release of a released key in proportion to the
+    // depth; the usual on/off pedal (0 or 127) must behave exactly as before.
+    static float coefficientAfterKeyUp(int pedalBefore, int pedalAfter = -1)
+    {
+        auto engine = instrument(44100.0);
+        auto& layer = engine->layers[0];
+        const auto routing = config();
+        juce::AudioBuffer<float> audio(2, 64);
+        juce::MidiBuffer midi;
+        if (pedalBefore >= 0) midi.addEvent(juce::MidiMessage::controllerEvent(1, 64, pedalBefore), 0);
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.8f), 1);
+        midi.addEvent(juce::MidiMessage::noteOff(1, 60), 2);
+        if (pedalAfter >= 0) midi.addEvent(juce::MidiMessage::controllerEvent(1, 64, pedalAfter), 3);
+        audio.clear();
+        engine->renderLayer(layer, audio, midi, routing);
+        for (const auto& voice : layer.voices)
+            if (voice.active && voice.released) return voice.releaseCoefficient;
+        require(false, "Half pedal test: no released voice");
+        return 0.0f;
+    }
+
+    static void halfPedalRelease()
+    {
+        const auto up = coefficientAfterKeyUp(-1);
+        const auto zero = coefficientAfterKeyUp(0);
+        const auto light = coefficientAfterKeyUp(20);
+        const auto deep = coefficientAfterKeyUp(63);
+        require(up == zero, "A pedal at 0 must release exactly like no pedal");
+        require(light > zero && deep > light && deep < 1.0f,
+                "A half pedal must lengthen the release in proportion to its depth");
+        const auto latchedThenUp = coefficientAfterKeyUp(127, 0);
+        require(latchedThenUp == zero, "The on/off pedal changed the release it gives on pedal-up");
+        const auto latchedThenHalf = coefficientAfterKeyUp(127, 40);
+        require(latchedThenHalf > zero && latchedThenHalf < 1.0f,
+                "Lifting a latched pedal to a half position must release with the half-pedal tail");
+    }
+
     static void run()
     {
         decodedPianoCacheSharesPcm();
+        halfPedalRelease();
         require(Sf2Engine::LayerConfig{}.pianoTimbre == -1,
                 "A new NPNO layer must start with neutral OFF voicing");
         {

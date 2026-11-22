@@ -103,6 +103,7 @@ private:
         LayerConfig config;
         std::array<Voice, Sf2Engine::maxPolyphonyPerLayer> voices;
         std::array<bool, 16> sustainDown {};
+        std::array<float, 16> pedalDepth {}; // half-pedal: 0 = up, up to ~1 just below the CC64 switch point
         std::array<float, 2> cutoffState {};
         std::array<float, 2> compressorEnvelope {};
         std::array<float, 2> pianoLowEqState {};
@@ -136,7 +137,7 @@ private:
     std::shared_ptr<NordPianoDecoder::Instrument> cachePiano(
         const juce::File&, std::shared_ptr<NordPianoDecoder::Instrument>);
     int findPianoStroke(const Layer&, int note, float velocity, int bank) const;
-    void releasePianoVoice(Voice&, float releaseControl, bool softRelease);
+    void releasePianoVoice(Voice&, float releaseControl, bool softRelease, float stretch = 1.0f);
     void releaseVoice(Layer&, int note, int channel, float releaseControl);
     void renderLayer(Layer&, juce::AudioBuffer<float>&,
                      const juce::MidiBuffer&, const Sf2Engine::LayerConfig&);

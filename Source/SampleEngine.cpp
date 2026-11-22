@@ -11,11 +11,20 @@ constexpr double pianoCrossfadeSeconds = 0.55;
 // A key struck again under the sustain pedal fades the previous voice of the same note over this time.
 constexpr double restrikeFadeSeconds = 0.2;
 
-float releaseCoefficientFor(float releaseControl, double sampleRate, bool softRelease = false)
+// Half pedal: a CC64 value below the switch point (64) leaves the dampers partly lifted, so a released key rings
+// longer than with the pedal up. Binary (on/off) pedals send only 0 or 127 and are unaffected: depth is 0.
+float halfPedalStretch(float depth)
+{
+    return 1.0f + 3.0f * depth * depth;
+}
+
+float releaseCoefficientFor(float releaseControl, double sampleRate, bool softRelease = false, float stretch = 1.0f)
 {
     auto releaseSeconds = layerReleaseSeconds(releaseControl);
     if (softRelease)
         releaseSeconds = juce::jmin(15.0, juce::jmax(0.18, releaseSeconds * 1.5));
+    if (stretch > 1.0f)
+        releaseSeconds = juce::jmin(juce::jmax(releaseSeconds, 20.0), releaseSeconds * static_cast<double>(stretch));
     constexpr auto silenceThreshold = 0.0001f;
     const auto releaseSamples = juce::jmax(1.0, static_cast<double>(releaseSeconds) * sampleRate);
     return static_cast<float>(std::exp(std::log(silenceThreshold) / releaseSamples));
@@ -115,6 +124,7 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file,
         destination.config.loop = false;
         destination.peak.store(0.0f, std::memory_order_release);
         destination.sustainDown.fill(false);
+        destination.pedalDepth.fill(0.0f);
         destination.cutoffState.fill(0.0f);
         destination.compressorEnvelope.fill(0.0f);
         destination.pianoLowEqState.fill(0.0f);
@@ -152,6 +162,7 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file,
         : category == "Organ" ? Layer::ModulationKind::rotary : Layer::ModulationKind::none;
     destination.sourceSampleRate = juce::jmax(1.0, reader->sampleRate);
     destination.sustainDown.fill(false);
+    destination.pedalDepth.fill(0.0f);
     destination.config.startSeconds = 0.0;
     destination.config.endSeconds = 0.0;
     destination.config.loop = false;
@@ -275,6 +286,7 @@ void SampleEngine::unload(int layer)
     destination.sourcePath.clear();
     destination.modulationKind = Layer::ModulationKind::none;
     destination.sustainDown.fill(false);
+    destination.pedalDepth.fill(0.0f);
     destination.cutoffState.fill(0.0f);
     destination.compressorEnvelope.fill(0.0f);
     destination.pianoLowEqState.fill(0.0f);
@@ -297,6 +309,7 @@ void SampleEngine::stopLayerSounds(int index)
     const juce::ScopedLock stateLock(lock);
     auto& layer = layers[(size_t) index];
     layer.sustainDown.fill(false);
+    layer.pedalDepth.fill(0.0f);
     layer.nordFx.reset();
     layer.reverb.reset();
     layer.eq.reset();
@@ -312,6 +325,7 @@ void SampleEngine::stopAllSounds()
     for (auto& layer : layers)
     {
         layer.sustainDown.fill(false);
+        layer.pedalDepth.fill(0.0f);
         layer.nordFx.reset();
         // Idle audio thread during a program change: clear frozen effect tails (see Sf2Engine).
         layer.reverb.reset();
@@ -626,12 +640,12 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     candidate->waitingForSustain = false;
 }
 
-void SampleEngine::releasePianoVoice(Voice& voice, float releaseControl, bool softRelease)
+void SampleEngine::releasePianoVoice(Voice& voice, float releaseControl, bool softRelease, float stretch)
 {
     if (!voice.active || voice.pianoRelease || voice.released) return;
     voice.waitingForSustain = false;
     voice.released = true;
-    voice.releaseCoefficient = releaseCoefficientFor(releaseControl, currentSampleRate, softRelease);
+    voice.releaseCoefficient = releaseCoefficientFor(releaseControl, currentSampleRate, softRelease, stretch);
 }
 
 void SampleEngine::releaseVoice(Layer& layer, int note, int channel, float releaseControl)
@@ -761,6 +775,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
     if (!routing.sustainEnabled)
     {
         layer.sustainDown.fill(false);
+        layer.pedalDepth.fill(0.0f);
         for (auto& voice : layer.voices)
             if (voice.active && voice.waitingForSustain)
                 releasePianoVoice(voice, routing.release, routing.pianoSoftRelease);
@@ -808,6 +823,9 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             const auto wasDown = layer.sustainDown[(size_t) channel - 1];
             const auto isDown = routing.sustainEnabled && message.getControllerValue() >= 64;
             layer.sustainDown[(size_t) channel - 1] = isDown;
+            const auto value = message.getControllerValue();
+            const auto depth = routing.sustainEnabled && value < 64 ? static_cast<float>(value) / 64.0f : 0.0f;
+            layer.pedalDepth[(size_t) channel - 1] = depth;
             if (wasDown && !isDown)
             {
                 // Pedal-up should release notes whose key-up was deferred by sustain.
@@ -815,7 +833,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 // pitched attacks and can steal voices that are already fading.
                 for (auto& voice : layer.voices)
                     if (voice.active && voice.waitingForSustain && voice.channel == channel)
-                        releasePianoVoice(voice, routing.release, routing.pianoSoftRelease);
+                        releasePianoVoice(voice, routing.release, routing.pianoSoftRelease, halfPedalStretch(depth));
             }
             return;
         }
@@ -905,7 +923,8 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                             && voice.note == note && voice.channel == channel)
                         {
                             releasedVelocity = voice.velocity;
-                            releasePianoVoice(voice, routing.release, routing.pianoSoftRelease);
+                            releasePianoVoice(voice, routing.release, routing.pianoSoftRelease,
+                                              halfPedalStretch(layer.pedalDepth[(size_t) channel - 1]));
                         }
                     startReleaseReflection(note, channel, releasedVelocity);
                 }
