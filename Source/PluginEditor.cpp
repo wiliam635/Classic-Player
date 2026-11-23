@@ -11078,10 +11078,44 @@ static juce::String uiMidiDisplayName(const juce::String& key, juce::Slider* sli
     }
     if (slider != nullptr)
     {
-        if (slider->getName().isNotEmpty()) return slider->getName();
-        if (slider->getTooltip().isNotEmpty()) return slider->getTooltip().upToFirstOccurrenceOf(".", false, false);
+        // Auto-generated keys carry no name: use the caption printed next to the knob (the closest label above or
+        // to the left of it, as the screen shows them) and the layer number from the key ("ui:S/L2/...").
+        juce::String caption = slider->getName();
+        if (caption.isEmpty())
+        {
+            const auto box = slider->getScreenBounds();
+            int best = 100000;
+            for (auto* scope = slider->getParentComponent(); scope != nullptr && scope != slider->getTopLevelComponent();
+                 scope = scope->getParentComponent())
+            {
+                for (auto* child : scope->getChildren())
+                {
+                    auto* label = dynamic_cast<juce::Label*>(child);
+                    if (label == nullptr || !label->isShowing() || label->getText().trim().isEmpty()) continue;
+                    const auto lb = label->getScreenBounds();
+                    const auto overlapX = juce::jmin(lb.getRight(), box.getRight()) - juce::jmax(lb.getX(), box.getX());
+                    const auto overlapY = juce::jmin(lb.getBottom(), box.getBottom()) - juce::jmax(lb.getY(), box.getY());
+                    int distance = 100000;
+                    if (overlapX > juce::jmin(lb.getWidth(), box.getWidth()) / 3 && lb.getBottom() <= box.getY() + 4)
+                        distance = box.getY() - lb.getBottom();                 // caption above the knob
+                    else if (overlapY > juce::jmin(lb.getHeight(), box.getHeight()) / 2 && lb.getRight() <= box.getX() + 4)
+                        distance = box.getX() - lb.getRight() + 200;            // caption to the left, less likely
+                    if (distance < best && distance < 90 + 200) { best = distance; caption = label->getText(); }
+                }
+                if (best < 100000) break;
+            }
+        }
+        if (caption.isEmpty() && slider->getTooltip().isNotEmpty())
+            caption = slider->getTooltip().upToFirstOccurrenceOf(".", false, false);
+        if (caption.isNotEmpty())
+        {
+            const auto layerToken = key.fromFirstOccurrenceOf("/L", false, false).upToFirstOccurrenceOf("/", false, false);
+            if (key.startsWith("ui:") && layerToken.containsOnly("0123456789") && layerToken.isNotEmpty())
+                return hudTr("Camada ", "Layer ", "Capa ") + layerToken + kMidHudDot + caption;
+            return caption;
+        }
     }
-    return "Controle " + key.fromLastOccurrenceOf("/", false, false);
+    return hudTr("Controle ", "Control ", "Control ") + key.fromLastOccurrenceOf("/", false, false);
 }
 
 void ClassicPlayerAudioProcessorEditor::drainUiMidi()
