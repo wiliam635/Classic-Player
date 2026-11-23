@@ -556,12 +556,11 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
     }
     if (message.isController() && message.getControllerNumber() == 64)
     {
-        const auto pedalValue = routing.sustainInverted ? 127 - message.getControllerValue() : message.getControllerValue();
         if (!generated && routing.nordArp.enabled)
             layer.arpeggiator.controller(channel, 64,
-                routing.sustainEnabled ? pedalValue : 0, emitArp);
+                routing.sustainEnabled ? message.getControllerValue() : 0, emitArp);
         const auto wasDown = layer.sustainDown[(size_t) channel - 1];
-        const auto isDown = routing.sustainEnabled && pedalValue >= 64;
+        const auto isDown = routing.sustainEnabled && message.getControllerValue() >= 64;
         layer.sustainDown[(size_t) channel - 1] = isDown;
         if (wasDown && !isDown && monoMode && layer.monoNote >= 0
             && layer.monoChannel == channel)

@@ -946,9 +946,9 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
         {
             const auto channel = juce::jlimit(1, 16, message.getChannel());
             const auto wasDown = layer.sustainDown[(size_t) channel - 1];
-            const auto value = routing.sustainInverted ? 127 - message.getControllerValue() : message.getControllerValue();
-            const auto isDown = routing.sustainEnabled && value >= 64;
+            const auto isDown = routing.sustainEnabled && message.getControllerValue() >= 64;
             layer.sustainDown[(size_t) channel - 1] = isDown;
+            const auto value = message.getControllerValue();
             // The reference player ignores CC64 below the switch point: half pedalling only exists outside the reference model.
             const auto depth = routing.sustainEnabled && !routing.pianoReferenceModel && value < 64
                 ? static_cast<float>(value) / 64.0f : 0.0f;

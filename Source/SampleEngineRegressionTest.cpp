@@ -174,29 +174,6 @@ struct SampleEngineRegressionTests
                 "Positive-only 0x464 trim was interpreted as whole decibels");
     }
 
-    static void invertedSustainPedal(double rate)
-    {
-        auto engine = instrument(rate);
-        auto& layer = engine->layers[0];
-        auto routing = config();
-        routing.sustainInverted = true;
-        juce::AudioBuffer<float> audio(2, 64);
-        juce::MidiBuffer midi;
-        // Inverted pedal: a low CC64 value means "pressed", so the note-off must be held.
-        midi.addEvent(juce::MidiMessage::controllerEvent(1, 64, 0), 0);
-        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.8f), 0);
-        midi.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
-        audio.clear();
-        engine->renderLayer(layer, audio, midi, routing);
-        require(layer.sustainDown[0], "Inverted pedal: CC64=0 should hold the sustain");
-        require(layer.voices[0].waitingForSustain, "Inverted pedal: the released note was not held");
-        midi.clear();
-        midi.addEvent(juce::MidiMessage::controllerEvent(1, 64, 127), 0);
-        audio.clear();
-        engine->renderLayer(layer, audio, midi, routing);
-        require(!layer.sustainDown[0], "Inverted pedal: CC64=127 should release the sustain");
-    }
-
     static void sustainAndPolyphony(double rate)
     {
         auto engine = instrument(rate);
@@ -1109,7 +1086,6 @@ struct SampleEngineRegressionTests
         {
             midiTiming(rate);
             sustainAndPolyphony(rate);
-            invertedSustainPedal(rate);
             lifetime(rate);
             shortenedDecay(rate);
             adsrSustain(rate);
