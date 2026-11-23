@@ -2963,9 +2963,10 @@ bool ClassicPlayerAudioProcessor::applyUiMidiTarget(const juce::String& key, flo
     const auto lerp = [n](float lo, float hi) { return lo + n * (hi - lo); };
     if (kind == "strip")
     {
-        if (parts.size() < 4) return false;
-        if (parts[3] == "vol") setPadStripVolume(n * 100.0f);
-        else if (parts[3] == "cut") setPadStripCutoff(n * 100.0f);
+        // Keys are "pk:strip:vol" / "pk:strip:cut" (three parts); accept a trailing index too.
+        const auto field = parts[2];
+        if (field == "vol") setPadStripVolume(n * 100.0f);
+        else if (field == "cut") setPadStripCutoff(n * 100.0f);
         else return false;
         return true;
     }
