@@ -89,6 +89,9 @@ private:
         float loopDecayMul = 1.0f; // per output sample
         float earlyDecayGain = 1.0f; // fast initial decay of the first seconds (see startPianoVoice)
         float earlyDecayMul = 1.0f;  // per output sample while the voice is younger than 4 s
+        // Reference model: velocity-dependent one-pole low-pass (soft notes are darker). 1 = bypass.
+        float toneCoefficient = 1.0f;
+        float toneStateLeft = 0.0f, toneStateRight = 0.0f;
     };
 
     struct Layer

@@ -707,6 +707,22 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     if (layer.softPedalDown[(size_t) juce::jlimit(1, 16, channel) - 1])
         candidate->level *= softPedalGain;
     candidate->velocity = velocity;
+    candidate->toneStateLeft = candidate->toneStateRight = 0.0f;
+    candidate->toneCoefficient = 1.0f;
+    if (routing.pianoReferenceModel && !routing.velocitySensitivityOff && stroke.bank != 2)
+    {
+        // Soft notes lose their top end like a real piano; forte keeps it. Cutoff follows velocity on a log scale.
+        static const float toneVel[] { 0.0f, 30.0f, 64.0f, 100.0f, 120.0f };
+        static const float toneHz[] { 2600.0f, 2600.0f, 5000.0f, 9500.0f, 20000.0f };
+        const auto v = juce::jlimit(0.0f, 127.0f, velocity * 127.0f);
+        size_t k = 1;
+        while (k < 4 && v > toneVel[k]) ++k;
+        const auto t = (v - toneVel[k - 1]) / (toneVel[k] - toneVel[k - 1]);
+        const auto hz = toneHz[k - 1] * std::pow(toneHz[k] / toneHz[k - 1], juce::jlimit(0.0f, 1.0f, t));
+        if (hz < 15000.0f)
+            candidate->toneCoefficient = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * hz
+                                                         / static_cast<float>(currentSampleRate));
+    }
     const auto attackSamples = juce::jmax(1.0, layerAttackSeconds(routing.attack) * currentSampleRate);
     candidate->attackGain = routing.attack <= 0.0f ? 1.0f : 0.0f;
     candidate->attackStep = routing.attack <= 0.0f
@@ -1250,6 +1266,13 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             {
                 readPianoStereoInterpolated(*pianoStroke, layer.piano->channels, voice.position,
                                             loopedPiano, left, right);
+                if (voice.toneCoefficient < 1.0f)
+                {
+                    voice.toneStateLeft += voice.toneCoefficient * (left - voice.toneStateLeft);
+                    voice.toneStateRight += voice.toneCoefficient * (right - voice.toneStateRight);
+                    left = voice.toneStateLeft;
+                    right = voice.toneStateRight;
+                }
                 left *= gain;
                 right *= gain;
             }
