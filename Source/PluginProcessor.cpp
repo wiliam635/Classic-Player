@@ -136,7 +136,17 @@ void ClassicPlayerAudioProcessor::savePadStripSettings()
     if (text == lastPadStripSettings) return;
     const auto file = padStripSettingsFile();
     if (file.getParentDirectory().createDirectory().failed()) return;
-    if (file.replaceWithText(text)) lastPadStripSettings = text;
+    if (file.replaceWithText(text))
+    {
+        lastPadStripSettings = text;
+        juce::String maps;
+        for (int i = 0; i <= ContinuousPadBank::count; ++i)
+            if (padStripBank.mapping(i) >= 0) maps << i << "=" << padStripBank.mapping(i) << " ";
+        midiDiagnostic("faixa de pads gravada | mapeamentos: " + (maps.isEmpty() ? juce::String("(nenhum)") : maps)
+                       + "| mapa dos knobs: " + (padStripUiMidiText.isEmpty() ? juce::String("(vazio)") : padStripUiMidiText));
+    }
+    else
+        midiDiagnostic("faixa de pads: FALHA ao gravar " + file.getFullPathName());
 }
 
 void ClassicPlayerAudioProcessor::loadPadStripSettings()
@@ -152,7 +162,8 @@ void ClassicPlayerAudioProcessor::loadPadStripSettings()
         for (int i = 0; i <= ContinuousPadBank::count; ++i)
             if (padStripBank.mapping(i) >= 0) maps << i << "=" << padStripBank.mapping(i) << " ";
         midiDiagnostic("faixa de pads restaurada | mapeamentos: " + (maps.isEmpty() ? juce::String("(nenhum)") : maps)
-                       + "| canal " + juce::String(padStripBank.midiChannel()));
+                       + "| canal " + juce::String(padStripBank.midiChannel())
+                       + "| mapa dos knobs gravado: " + strip.getProperty("uiMidi").toString());
     }
     padStripVolume.store(juce::jlimit(0.0f, 100.0f, (float) strip.getProperty("volume", 80.0f)));
     padStripCutoff.store(juce::jlimit(0.0f, 100.0f, (float) strip.getProperty("cutoff", 100.0f)));
