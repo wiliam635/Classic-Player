@@ -11062,7 +11062,7 @@ static juce::String hudTr(const char* pt, const char* en, const char* es)
     return juce::String::fromUTF8(language == 1 ? en : language == 2 ? es : pt);
 }
 
-static juce::String uiMidiDisplayName(const juce::String& key, const juce::Slider* slider)
+static juce::String uiMidiDisplayName(const juce::String& key, juce::Slider* slider)
 {
     const auto parts = juce::StringArray::fromTokens(key, ":", "");
     const auto layerText = [&] { return hudTr("Camada ", "Layer ", "Capa ") + juce::String(parts[2].getIntValue() + 1); };
