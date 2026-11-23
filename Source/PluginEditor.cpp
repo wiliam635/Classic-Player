@@ -10992,15 +10992,19 @@ void ClassicPlayerAudioProcessorEditor::drainUiMidi()
             return;
         }
         {
-            static int unmatched = 0;
-            bool any = false;
-            for (const auto& item : uiMidiMap)
-                any = any || (item.second.first == cc && (item.second.second <= 0 || item.second.second == channel));
-            if (!any && !uiMidiMap.empty() && unmatched < 10)
+            // One line per distinct CC/channel seen, so the log shows every control that arrives (and whether it
+            // matched a mapped knob) instead of the first ten messages only.
+            static std::set<int> reported;
+            const auto code = cc * 32 + channel;
+            if (reported.size() < 80 && reported.insert(code).second)
             {
-                ++unmatched;
+                juce::String hits;
+                for (const auto& item : uiMidiMap)
+                    if (item.second.first == cc && (item.second.second <= 0 || item.second.second == channel))
+                        hits << item.first << " ";
                 classicProcessor.midiDiagnostic("CC " + juce::String(cc) + " canal " + juce::String(channel)
-                    + " nao corresponde a nenhum controle mapeado da interface");
+                    + (hits.isEmpty() ? juce::String(" nao corresponde a nenhum controle mapeado da interface")
+                                      : " mapeado em " + hits + "| valor " + juce::String(value)));
             }
         }
         for (const auto& item : uiMidiMap)
