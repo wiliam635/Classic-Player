@@ -14,6 +14,7 @@ constexpr double restrikeFadeSeconds = 0.2;
 // Reference model. Velocity law in dB below velocity 127, measured on a reference player with five NPNO files and three
 // keys (identical for all of them): a floor of -34.3 dB up to velocity 16, saturation from 120 upwards.
 struct ReferenceVelocityPoint { int velocity; float db; };
+constexpr float referenceAirGain = 0.45f;
 constexpr std::array<ReferenceVelocityPoint, 18> referenceVelocityTable {{
     { 1, -34.3f }, { 16, -34.3f }, { 20, -33.4f }, { 24, -32.5f }, { 28, -30.8f }, { 32, -29.6f },
     { 40, -25.8f }, { 48, -21.4f }, { 56, -18.6f }, { 64, -14.5f }, { 72, -12.3f }, { 80, -9.8f },
@@ -708,13 +709,15 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
         candidate->level *= softPedalGain;
     candidate->velocity = velocity;
     candidate->toneStateLeft = candidate->toneStateRight = 0.0f;
+    candidate->airStateLeft = candidate->airStateRight = 0.0f;
+    candidate->airCoefficient = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * 9000.0f / static_cast<float>(currentSampleRate));
     candidate->toneCoefficient = 1.0f;
     if (routing.pianoReferenceModel && !routing.velocitySensitivityOff && stroke.bank != 2)
     {
         // Reference brightness with the EQ voicing off (measured on Royal 3D): a one-pole low-pass near 2.6 kHz,
         // slightly higher for soft notes. The Soft/Mid/Bright voicings sit on top of this.
         static const float toneVel[] { 0.0f, 30.0f, 64.0f, 100.0f, 120.0f };
-        static const float toneHz[] { 3200.0f, 3200.0f, 2700.0f, 2600.0f, 2600.0f };
+        static const float toneHz[] { 2900.0f, 2900.0f, 2300.0f, 2200.0f, 2200.0f };
         const auto v = juce::jlimit(0.0f, 127.0f, velocity * 127.0f);
         size_t k = 1;
         while (k < 4 && v > toneVel[k]) ++k;
@@ -1269,10 +1272,14 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                                             loopedPiano, left, right);
                 if (voice.toneCoefficient < 1.0f)
                 {
+                    voice.airStateLeft += voice.airCoefficient * (left - voice.airStateLeft);
+                    voice.airStateRight += voice.airCoefficient * (right - voice.airStateRight);
+                    const auto airLeft = left - voice.airStateLeft;
+                    const auto airRight = right - voice.airStateRight;
                     voice.toneStateLeft += voice.toneCoefficient * (left - voice.toneStateLeft);
                     voice.toneStateRight += voice.toneCoefficient * (right - voice.toneStateRight);
-                    left = voice.toneStateLeft;
-                    right = voice.toneStateRight;
+                    left = voice.toneStateLeft + referenceAirGain * airLeft;
+                    right = voice.toneStateRight + referenceAirGain * airRight;
                 }
                 left *= gain;
                 right *= gain;

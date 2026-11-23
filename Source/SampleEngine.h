@@ -92,6 +92,8 @@ private:
         // Reference model: velocity-dependent one-pole low-pass (soft notes are darker). 1 = bypass.
         float toneCoefficient = 1.0f;
         float toneStateLeft = 0.0f, toneStateRight = 0.0f;
+        float airCoefficient = 1.0f; // one-pole at ~9 kHz that splits off the top octave added back as "air"
+        float airStateLeft = 0.0f, airStateRight = 0.0f;
     };
 
     struct Layer
