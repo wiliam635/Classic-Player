@@ -1028,7 +1028,11 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 // The sample layer (timbre) can be kept from dropping below a
                 // floor, while the voice level below still follows the real
                 // velocity. Floor 1 leaves the selection unchanged.
-                const auto layerVelocity = juce::jmax(velocity,
+                // Reference model: sample-layer choice leans one notch softer than the plain velocity (exponent
+                // 1.15, measured on Royal 3D) so soft and medium notes keep the mellow layer instead of the
+                // bright one. The volume still follows the unchanged velocity.
+                const auto layerVelocity = juce::jmax(
+                    (routing.pianoReferenceModel ? std::pow(velocity, 1.15f) : velocity),
                     static_cast<float>(juce::jlimit(1, 127, routing.pianoTimbreFloor)) / 127.0f);
                 auto stroke = routing.pianoPedalResonance && pedalDown
                     ? findPianoStroke(layer, note, layerVelocity, 1) : -1;
