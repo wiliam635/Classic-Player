@@ -953,6 +953,75 @@ static constexpr UiTranslation uiTranslations[] {
     { "Volume master — use CONFIGURACOES para MIDI Learn",
       "Master volume — use SETTINGS for MIDI Learn",
       "Volumen master — usa CONFIGURACIÓN para MIDI Learn" },
+    // Added: remaining buttons, tooltips and status messages
+    { "FECHAR EDITOR", "CLOSE EDITOR", "CERRAR EDITOR" },
+    { "IMPORTAR BUNDLE", "IMPORT BUNDLE", "IMPORTAR BUNDLE" },
+    { "EXCLUIR BUNDLE", "DELETE BUNDLE", "ELIMINAR BUNDLE" },
+    { "BANCOS IMPORTADOS", "IMPORTED BANKS", "BANCOS IMPORTADOS" },
+    { "EFEITOS NORD", "NORD EFFECTS", "EFECTOS NORD" },
+    { "EDITAR ADSR", "EDIT ADSR", "EDITAR ADSR" },
+    { "EDITAR CURVA VELOCITY", "EDIT VELOCITY CURVE", "EDITAR CURVA DE VELOCITY" },
+    { "DESLIGAR SENSIBILIDADE", "SENSITIVITY OFF", "DESACTIVAR SENSIBILIDAD" },
+    { "CONCLUIR CALIBRACAO", "FINISH CALIBRATION", "TERMINAR CALIBRACIÓN" },
+    { "EDITAR PADS", "EDIT PADS", "EDITAR PADS" },
+    { "ABRIR NORD ORGAN", "OPEN NORD ORGAN", "ABRIR NORD ORGAN" },
+    { "EDITAR MOOG", "EDIT MOOG", "EDITAR MOOG" },
+    { "CURVAS / PRESETS", "CURVES / PRESETS", "CURVAS / PRESETS" },
+    { "USAR ESTA CURVA", "USE THIS CURVE", "USAR ESTA CURVA" },
+    { "CALIBRAR VELOCITY", "CALIBRATE VELOCITY", "CALIBRAR VELOCITY" },
+    { "AJUSTAR CURVA", "ADJUST CURVE", "AJUSTAR CURVA" },
+    { "DESENHAR CURVA", "DRAW CURVE", "DIBUJAR CURVA" },
+    { "CURTA 4s", "SHORT 4s", "CORTA 4s" },
+    { "MEDIA 8s", "MEDIUM 8s", "MEDIA 8s" },
+    { "LONGA 12s", "LONG 12s", "LARGA 12s" },
+    { "VEL EDITADA", "EDITED VEL", "VEL EDITADA" },
+    { "VEL CALIBRADA", "CALIBRATED VEL", "VEL CALIBRADA" },
+    { "TODOS", "ALL", "TODOS" },
+    { "INCLINACAO", "SLOPE", "INCLINACIÓN" },
+    { "PISO DE TIMBRE (NPNO)", "TIMBRE FLOOR (NPNO)", "PISO DE TIMBRE (NPNO)" },
+    { "BANCO IMPORTADO", "IMPORTED BANK", "BANCO IMPORTADO" },
+    { "PRESET / PROGRAMA", "PRESET / PROGRAM", "PRESET / PROGRAMA" },
+    { "NENHUM BANCO IMPORTADO", "NO BANK IMPORTED", "NINGÚN BANCO IMPORTADO" },
+    { "POLIFONIA", "POLYPHONY", "POLIFONÍA" },
+    { "CANAL MIDI DOS PADS", "PADS MIDI CHANNEL", "CANAL MIDI DE LOS PADS" },
+    { "CAUDA NPNO", "NPNO TAIL", "COLA NPNO" },
+    { "ÓRGÃO TONEWHEEL · 9 DRAWBARS · LESLIE E PERCUSSÃO", "TONEWHEEL ORGAN · 9 DRAWBARS · LESLIE AND PERCUSSION", "ÓRGANO TONEWHEEL · 9 DRAWBARS · LESLIE Y PERCUSIÓN" },
+    { "GRAFITE ÂMBAR", "GRAPHITE AMBER", "GRAFITO ÁMBAR" },
+    { "CLÁSSICO", "CLASSIC", "CLÁSICO" },
+    { "PEDAL NORMAL", "NORMAL PEDAL", "PEDAL NORMAL" },
+    { "PEDAL INVERTIDO", "INVERTED PEDAL", "PEDAL INVERTIDO" },
+    { "Restaurar esta layer ao padrão", "Reset this layer to default", "Restaurar esta capa al valor predeterminado" },
+    { "Desligar o limiter e o teto de seguranca da saida master", "Turn off the limiter and the safety ceiling on the master output", "Desactivar el limitador y el techo de seguridad de la salida master" },
+    { "OFF: picos podem ultrapassar 0 dBFS e distorcer na saida.", "OFF: peaks can exceed 0 dBFS and distort the output.", "OFF: los picos pueden superar 0 dBFS y distorsionar la salida." },
+    { "Importa o .ns4pbundle para a biblioteca do usuario. Depois, abra BANCOS IMPORTADOS e escolha o preset completo.", "Imports the .ns4pbundle into the user library. Then open IMPORTED BANKS and choose the full preset.", "Importa el .ns4pbundle a la biblioteca del usuario. Después, abra BANCOS IMPORTADOS y elija el preset completo." },
+    { "Abre os bancos e presets importados. O preset completo cria suas partes em layers separadas.", "Opens the imported banks and presets. A full preset creates its parts on separate layers.", "Abre los bancos y presets importados. El preset completo crea sus partes en capas separadas." },
+    { "Encurta o decaimento das notas NPNO, inclusive com o pedal pressionado. Afeta notas novas; Release continua independente.", "Shortens the decay of NPNO notes, even with the pedal down. Affects new notes; Release stays independent.", "Acorta el decaimiento de las notas NPNO, incluso con el pedal pisado. Afecta a notas nuevas; Release sigue siendo independiente." },
+    { "Abrir os controles Attack, Decay, Sustain e Release desta layer.", "Open the Attack, Decay, Sustain and Release controls of this layer.", "Abrir los controles Attack, Decay, Sustain y Release de esta capa." },
+    { "Abrir o editor da curva de resposta ao velocity desta layer.", "Open the velocity response curve editor of this layer.", "Abrir el editor de la curva de respuesta al velocity de esta capa." },
+    { "Clique e toque a nota mais grave no teclado MIDI ou virtual. Clique novamente para cancelar.", "Click and play the lowest note on the MIDI or virtual keyboard. Click again to cancel.", "Haga clic y toque la nota más grave en el teclado MIDI o virtual. Haga clic de nuevo para cancelar." },
+    { "Clique e toque a nota mais aguda no teclado MIDI ou virtual. Clique novamente para cancelar.", "Click and play the highest note on the MIDI or virtual keyboard. Click again to cancel.", "Haga clic y toque la nota más aguda en el teclado MIDI o virtual. Haga clic de nuevo para cancelar." },
+    { "Restaurar toda a faixa de notas (0 a 127), sem alterar oitava ou canal MIDI.", "Restore the full note range (0 to 127) without changing octave or MIDI channel.", "Restaurar todo el rango de notas (0 a 127) sin cambiar la octava ni el canal MIDI." },
+    { "Usa velocity fixa de 100 e preserva a curva editada para reativar depois.", "Uses a fixed velocity of 100 and keeps the edited curve to re-enable later.", "Usa un velocity fijo de 100 y conserva la curva editada para reactivarla después." },
+    { "Toca cada nota com velocity fixa de 100; a curva editada fica salva para quando reativar.", "Plays every note at a fixed velocity of 100; the edited curve is kept for when you re-enable it.", "Toca cada nota con velocity fijo de 100; la curva editada se guarda para cuando la reactive." },
+    { "Excluir o arquivo selecionado da biblioteca", "Delete the selected file from the library", "Eliminar el archivo seleccionado de la biblioteca" },
+    { "Pad contínuo: mostra os pads no lugar do teclado virtual", "Continuous pad: shows the pads in place of the virtual keyboard", "Pad continuo: muestra los pads en lugar del teclado virtual" },
+    { "Palco: mixer e teclado virtual visíveis", "Stage: mixer and virtual keyboard visible", "Escenario: mixer y teclado virtual visibles" },
+    { "Mixer: oculta o teclado virtual e fecha o inspetor", "Mixer: hides the virtual keyboard and closes the inspector", "Mixer: oculta el teclado virtual y cierra el inspector" },
+    { "Abrir o Live Set", "Open the Live Set", "Abrir el Live Set" },
+    { "Mostrar os botões de MIDI Learn de volume, master e pânico", "Show the MIDI Learn buttons for volume, master and panic", "Mostrar los botones de MIDI Learn de volumen, master y pánico" },
+    { "Mostrar o nome do acorde no display", "Show the chord name on the display", "Mostrar el nombre del acorde en el display" },
+    { "Mostrar o analisador de espectro no display", "Show the spectrum analyzer on the display", "Mostrar el analizador de espectro en el display" },
+    { "Fazer ou importar um backup completo das bibliotecas e configuracoes", "Create or import a full backup of the libraries and settings", "Crear o importar una copia de seguridad completa de las bibliotecas y ajustes" },
+    { "Polaridade do pedal sustain (vale para todos os motores). Use INVERTIDO se o seu pedal solta o som quando está pressionado.", "Sustain pedal polarity (applies to every engine). Use INVERTED if your pedal releases the sound when pressed.", "Polaridad del pedal de sustain (vale para todos los motores). Use INVERTIDO si su pedal suelta el sonido al pisarlo." },
+    { "Clique e mova um CC para controlar o ganho. Clique novamente para cancelar; botao direito para excluir o mapeamento.", "Click and move a CC to control the gain. Click again to cancel; right-click to delete the mapping.", "Haga clic y mueva un CC para controlar la ganancia. Haga clic de nuevo para cancelar; clic derecho para eliminar el mapeo." },
+    { "Importando banco...", "Importing bank...", "Importando banco..." },
+    { "Banco importado. Escolha um preset para carregar.", "Bank imported. Choose a preset to load.", "Banco importado. Elija un preset para cargar." },
+    { "Preparando os timbres do preset...", "Preparing the preset sounds...", "Preparando los timbres del preset..." },
+    { "Excluindo banco...", "Deleting bank...", "Eliminando banco..." },
+    { "Banco excluído da biblioteca.", "Bank deleted from the library.", "Banco eliminado de la biblioteca." },
+    { "CUTOFF, ATTACK e RELEASE: controles da camada, abaixo", "CUTOFF, ATTACK and RELEASE: layer controls, below", "CUTOFF, ATTACK y RELEASE: controles de la capa, abajo" },
+    { "Cutoff da layer Pad Contínuo; também pode ser controlado por MIDI Learn.", "Continuous Pad layer cutoff; can also be controlled by MIDI Learn.", "Cutoff de la capa Pad Continuo; también se puede controlar con MIDI Learn." },
+    { "Liga ou desliga a layer por completo: desligada ela para de processar e não usa CPU. MUTE (M) só silencia.", "Turns the layer fully on or off: when off it stops processing and uses no CPU. MUTE (M) only silences.", "Activa o desactiva la capa por completo: apagada deja de procesar y no usa CPU. MUTE (M) solo silencia." }
 };
 
 std::atomic<int> activeUiLanguage { 0 };
@@ -1001,7 +1070,8 @@ juce::String localizedUiText(const juce::String& value, int language)
                 return value.dropLastCharacters(sourceSuffix.length())
                      + juce::String::fromUTF8(suffix[(size_t) localeIndex]);
         }
-    const std::array<std::array<const char*, 3>, 10> dynamicPrefixes {{
+    const std::array<std::array<const char*, 3>, 11> dynamicPrefixes {{
+        {{ "CANAL ", "CHANNEL ", "CANAL " }},
         {{ "EXPORTADO: ", "EXPORTED: ", "EXPORTADO: " }},
         {{ "Exportar preset de ", "Export effect preset: ", "Exportar preset de " }},
         {{ "GRAVANDO ", "RECORDING ", "GRABANDO " }},
@@ -10986,16 +11056,23 @@ void ClassicPlayerAudioProcessorEditor::collectMidiSliders(juce::Component& root
 static const juce::String kMidHudDot = juce::String::fromUTF8(" \xc2\xb7 ");
 static const juce::String kMidHudArrow = juce::String::fromUTF8("  \xe2\x86\x92  ");
 
+static juce::String hudTr(const char* pt, const char* en, const char* es)
+{
+    const auto language = activeUiLanguage.load();
+    return juce::String::fromUTF8(language == 1 ? en : language == 2 ? es : pt);
+}
+
 static juce::String uiMidiDisplayName(const juce::String& key, const juce::Slider* slider)
 {
     const auto parts = juce::StringArray::fromTokens(key, ":", "");
-    const auto layerText = [&] { return "Camada " + juce::String(parts[2].getIntValue() + 1); };
+    const auto layerText = [&] { return hudTr("Camada ", "Layer ", "Capa ") + juce::String(parts[2].getIntValue() + 1); };
     if (parts.size() >= 3 && parts[0] == "pk")
     {
-        if (parts[1] == "strip") return juce::String::fromUTF8("Pads cont\xc3\xadnuos") + kMidHudDot + juce::String(parts[2] == "vol" ? "Volume" : parts[2] == "cut" ? "Cutoff" : parts[2]);
-        if (parts[1] == "pad") return "Pad " + juce::String(parts[2].getIntValue() + 1) + kMidHudDot + "Volume";
+        if (parts[1] == "strip") return hudTr("Pads cont\xc3\xadnuos", "Continuous pads", "Pads continuos") + kMidHudDot
+                                                  + (parts[2] == "vol" ? hudTr("Volume", "Volume", "Volumen") : parts[2] == "cut" ? juce::String("Cutoff") : parts[2]);
+        if (parts[1] == "pad") return "Pad " + juce::String(parts[2].getIntValue() + 1) + kMidHudDot + hudTr("Volume", "Volume", "Volumen");
         const auto field = parts.size() >= 4 ? parts[3] : juce::String();
-        if (parts[1] == "hpf") return layerText() + kMidHudDot + "Filtro grave (HPF)";
+        if (parts[1] == "hpf") return layerText() + kMidHudDot + hudTr("Filtro grave (HPF)", "Low cut (HPF)", "Filtro de graves (HPF)");
         if (parts[1] == "lpf") return layerText() + kMidHudDot + "Cutoff (LPF)";
         return layerText() + kMidHudDot + parts[1] + (field.isEmpty() ? juce::String() : " " + field);
     }
@@ -11062,7 +11139,7 @@ void ClassicPlayerAudioProcessorEditor::drainUiMidi()
                 {
                     classicProcessor.applyUiMidiTarget(item.first, value / 127.0f);
                     midiHud.show(uiMidiDisplayName(item.first, nullptr),
-                                 "CC " + juce::String(cc) + kMidHudDot + "canal " + juce::String(channel) + kMidHudDot + "valor "
+                                 "CC " + juce::String(cc) + kMidHudDot + hudTr("canal ", "channel ", "canal ") + juce::String(channel) + kMidHudDot + hudTr("valor ", "value ", "valor ")
                                  + juce::String(value) + "  (" + juce::String(juce::roundToInt(value * 100.0f / 127.0f)) + "%)");
                 }
                 continue;
@@ -11071,7 +11148,7 @@ void ClassicPlayerAudioProcessorEditor::drainUiMidi()
             slider.setValue(slider.proportionOfLengthToValue(juce::jlimit(0.0, 1.0, value / 127.0)),
                             juce::sendNotificationSync);
             midiHud.show(uiMidiDisplayName(item.first, &slider),
-                         "CC " + juce::String(cc) + kMidHudDot + "canal " + juce::String(channel) + kMidHudDot + "valor "
+                         "CC " + juce::String(cc) + kMidHudDot + hudTr("canal ", "channel ", "canal ") + juce::String(channel) + kMidHudDot + hudTr("valor ", "value ", "valor ")
                          + juce::String(value) + kMidHudArrow + slider.getTextFromValue(slider.getValue())
                          + slider.getTextValueSuffix());
         }
