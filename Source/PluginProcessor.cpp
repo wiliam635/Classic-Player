@@ -6265,9 +6265,10 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     "pianoDynamicsExponent" + juce::String(i + 1), 2.2f)));
                 config.pianoNaturalDecay = static_cast<bool>(state.getProperty(
                     "pianoNaturalDecay" + juce::String(i + 1), true));
-                // Programs saved before the reference model keep the previous sound exactly.
+                // Programs saved before the reference model get it too (velocity law, level, release); a value
+                // that was saved is kept as saved.
                 config.pianoReferenceModel = static_cast<bool>(state.getProperty(
-                    "pianoReferenceModel" + juce::String(i + 1), false));
+                    "pianoReferenceModel" + juce::String(i + 1), true));
                 config.pianoLongRelease = static_cast<bool>(state.getProperty(
                     "pianoLongRelease" + juce::String(i + 1), false));
                 config.pianoStringRes = static_cast<bool>(state.getProperty(
