@@ -10757,6 +10757,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     }
 
     addAndMakeVisible(masterLearnButton);
+    addAndMakeVisible(midiHud);
     addAndMakeVisible(masterMeter);
     cpuMeter.setTooltip(juce::String::fromUTF8("Carga do processamento de áudio do Classic Player. 100% indica que o tempo disponível para o buffer foi consumido."));
     addAndMakeVisible(cpuMeter);
@@ -10973,6 +10974,30 @@ void ClassicPlayerAudioProcessorEditor::collectMidiSliders(juce::Component& root
         collectMidiSliders(*child);
 }
 
+static const juce::String kMidHudDot = juce::String::fromUTF8(" \xc2\xb7 ");
+static const juce::String kMidHudArrow = juce::String::fromUTF8("  \xe2\x86\x92  ");
+
+static juce::String uiMidiDisplayName(const juce::String& key, const juce::Slider* slider)
+{
+    const auto parts = juce::StringArray::fromTokens(key, ":", "");
+    const auto layerText = [&] { return "Camada " + juce::String(parts[2].getIntValue() + 1); };
+    if (parts.size() >= 3 && parts[0] == "pk")
+    {
+        if (parts[1] == "strip") return juce::String::fromUTF8("Pads cont\xc3\xadnuos") + kMidHudDot + juce::String(parts[2] == "vol" ? "Volume" : parts[2] == "cut" ? "Cutoff" : parts[2]);
+        if (parts[1] == "pad") return "Pad " + juce::String(parts[2].getIntValue() + 1) + kMidHudDot + "Volume";
+        const auto field = parts.size() >= 4 ? parts[3] : juce::String();
+        if (parts[1] == "hpf") return layerText() + kMidHudDot + "Filtro grave (HPF)";
+        if (parts[1] == "lpf") return layerText() + kMidHudDot + "Cutoff (LPF)";
+        return layerText() + kMidHudDot + parts[1] + (field.isEmpty() ? juce::String() : " " + field);
+    }
+    if (slider != nullptr)
+    {
+        if (slider->getName().isNotEmpty()) return slider->getName();
+        if (slider->getTooltip().isNotEmpty()) return slider->getTooltip().upToFirstOccurrenceOf(".", false, false);
+    }
+    return "Controle " + key.fromLastOccurrenceOf("/", false, false);
+}
+
 void ClassicPlayerAudioProcessorEditor::drainUiMidi()
 {
     if (uiMidiSeenRevision != classicProcessor.uiMidiMapRevision()) uiMidiMapLoad();
@@ -11025,12 +11050,21 @@ void ClassicPlayerAudioProcessorEditor::drainUiMidi()
             if (found == uiMidiSliders.end() || found->second == nullptr)
             {
                 if (item.first.startsWith("pk:"))
+                {
                     classicProcessor.applyUiMidiTarget(item.first, value / 127.0f);
+                    midiHud.show(uiMidiDisplayName(item.first, nullptr),
+                                 "CC " + juce::String(cc) + kMidHudDot + "canal " + juce::String(channel) + kMidHudDot + "valor "
+                                 + juce::String(value) + "  (" + juce::String(juce::roundToInt(value * 100.0f / 127.0f)) + "%)");
+                }
                 continue;
             }
             auto& slider = *found->second;
             slider.setValue(slider.proportionOfLengthToValue(juce::jlimit(0.0, 1.0, value / 127.0)),
                             juce::sendNotificationSync);
+            midiHud.show(uiMidiDisplayName(item.first, &slider),
+                         "CC " + juce::String(cc) + kMidHudDot + "canal " + juce::String(channel) + kMidHudDot + "valor "
+                         + juce::String(value) + kMidHudArrow + slider.getTextFromValue(slider.getValue())
+                         + slider.getTextValueSuffix());
         }
     }
 }
@@ -11563,6 +11597,8 @@ void ClassicPlayerAudioProcessorEditor::resized()
     interfaceCanvas.setBounds(0, 0, juce::roundToInt(getWidth() / interfaceScale),
                              juce::roundToInt(getHeight() / interfaceScale));
     interfaceCanvas.setTransform(juce::AffineTransform::scale(interfaceScale));
+    midiHud.setBounds(juce::jmax(0, (getWidth() - 420) / 2), 8, juce::jmin(420, getWidth()), 50);
+    midiHud.toFront(false);
     auto area = interfaceCanvas.getLocalBounds().reduced(14);
     auto header = area.removeFromTop(120);
     const bool compactHeader = interfaceCanvas.getWidth() < 1100;

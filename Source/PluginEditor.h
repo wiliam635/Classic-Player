@@ -27,6 +27,49 @@ public:
 
 private:
     friend struct LiveSetLayoutRegressionAccess;
+    // On-screen readout of the control a physical CC just moved (name, CC, channel, value). Visible on every
+    // screen (Mixer, Pads, Stage, Live Set) because it is a child of the editor itself.
+    class MidiHud final : public juce::Component, private juce::Timer
+    {
+    public:
+        MidiHud() { setInterceptsMouseClicks(false, false); setVisible(false); }
+        void show(const juce::String& name, const juce::String& detail)
+        {
+            title = name;
+            line = detail;
+            shownAt = juce::Time::getMillisecondCounterHiRes();
+            setVisible(true);
+            toFront(false);
+            startTimerHz(30);
+            repaint();
+        }
+        void paint(juce::Graphics& g) override
+        {
+            const auto age = juce::Time::getMillisecondCounterHiRes() - shownAt;
+            const auto alpha = age < 1600.0 ? 1.0f : juce::jlimit(0.0f, 1.0f, 1.0f - (float) (age - 1600.0) / 500.0f);
+            auto area = getLocalBounds().toFloat().reduced(2.0f);
+            g.setColour(juce::Colour(0xf0101821).withMultipliedAlpha(alpha));
+            g.fillRoundedRectangle(area, 8.0f);
+            g.setColour(juce::Colour(0xffff9d1c).withMultipliedAlpha(alpha));
+            g.drawRoundedRectangle(area, 8.0f, 1.5f);
+            auto text = getLocalBounds().reduced(12, 6);
+            g.setColour(juce::Colours::white.withMultipliedAlpha(alpha));
+            g.setFont(juce::FontOptions(15.0f, juce::Font::bold));
+            g.drawText(title, text.removeFromTop(text.getHeight() / 2), juce::Justification::centredLeft, true);
+            g.setColour(juce::Colour(0xffff9d1c).withMultipliedAlpha(alpha));
+            g.setFont(juce::FontOptions(13.0f));
+            g.drawText(line, text, juce::Justification::centredLeft, true);
+        }
+    private:
+        void timerCallback() override
+        {
+            if (juce::Time::getMillisecondCounterHiRes() - shownAt > 2100.0) { stopTimer(); setVisible(false); return; }
+            repaint();
+        }
+        juce::String title, line;
+        double shownAt = 0.0;
+    };
+    MidiHud midiHud;
     class ContextButton final : public juce::TextButton
     {
     public:
