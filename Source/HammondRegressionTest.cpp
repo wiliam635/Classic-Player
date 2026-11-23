@@ -462,6 +462,11 @@ static void padStripRestartRegression()
         check(a->padStrip().mapping(0) == 33, "restart test: Learn failed");
         a->setUiMidiMapString("pk:strip:vol=26:1;pk:strip:cut=27:1;pk:pad:1=40:1;");
         ContinuousPadRegressionAccess::savePadStrip(*a);
+        // Without an open slider registration the CC must still move volume and cutoff.
+        check(a->applyUiMidiTarget("pk:strip:vol", 0.5f) && std::abs(a->padStripVolumeValue() - 50.0f) < 0.01f,
+              "pad strip volume CC must apply through its pk:strip:vol key");
+        check(a->applyUiMidiTarget("pk:strip:cut", 0.25f) && std::abs(a->padStripCutoffValue() - 25.0f) < 0.01f,
+              "pad strip cutoff CC must apply through its pk:strip:cut key");
     }
     // A program saved before the strip knobs were mapped: loading it must not erase their maps.
     juce::File oldProgram;
