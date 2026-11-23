@@ -648,6 +648,11 @@ private:
     int rawCCRead = 0, rawCCWrite = 0;
     mutable juce::CriticalSection uiMidiMapLock;
     juce::String uiMidiMapText;
+    // CC maps of the pad strip knobs ("pk:strip:*"). The strip is global in the standalone, so these follow it
+    // (PadStrip.xml) instead of being replaced by whatever each program saved.
+    juce::String padStripUiMidiText;
+    static juce::String stripUiMidiEntries(const juce::String& text, bool wanted);
+    void applyProgramUiMidiMap(const juce::String& text);
     void buildGenericMidiTables();
     void processGenericMidi(int cc, int channel, int value);
     std::array<std::array<std::atomic<int>, learnTargetCount>, Sf2Engine::layerCount> learnedChannels {};

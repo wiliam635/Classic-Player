@@ -131,6 +131,7 @@ void ClassicPlayerAudioProcessor::savePadStripSettings()
     for (const auto child : bank) strip.addChild(child.createCopy(), -1, nullptr);
     strip.setProperty("volume", padStripVolume.load(), nullptr);
     strip.setProperty("cutoff", padStripCutoff.load(), nullptr);
+    strip.setProperty("uiMidi", padStripUiMidiText, nullptr);
     const auto text = strip.toXmlString();
     if (text == lastPadStripSettings) return;
     const auto file = padStripSettingsFile();
@@ -156,6 +157,11 @@ void ClassicPlayerAudioProcessor::loadPadStripSettings()
     padStripVolume.store(juce::jlimit(0.0f, 100.0f, (float) strip.getProperty("volume", 80.0f)));
     padStripCutoff.store(juce::jlimit(0.0f, 100.0f, (float) strip.getProperty("cutoff", 100.0f)));
     lastPadStripSettings = strip.toXmlString();
+    if (const auto saved = strip.getProperty("uiMidi").toString(); saved.isNotEmpty())
+    {
+        padStripUiMidiText = saved;
+        setUiMidiMapString(stripUiMidiEntries(uiMidiMapString(), false) + saved);
+    }
 }
 
 void ClassicPlayerAudioProcessor::restoreStartupSettings()
@@ -523,6 +529,7 @@ ClassicPlayerAudioProcessor::~ClassicPlayerAudioProcessor()
     nordBundleAlive->store(false);
     nordBundlePool.removeAllJobs(true, -1);
     stopTimer();
+    if (wrapperType == wrapperType_Standalone && padStripSettingsLoaded) savePadStripSettings();
     if (startupSettingsDirty.exchange(false)) saveStartupSettings();
     stopAudioRecording();
     recordingThread.stopThread(2000);
@@ -3111,8 +3118,32 @@ void ClassicPlayerAudioProcessor::midiDiagnostic(const juce::String& text)
         "    midi | " + text + "\n");
 }
 
+juce::String ClassicPlayerAudioProcessor::stripUiMidiEntries(const juce::String& text, bool wanted)
+{
+    juce::String result;
+    for (const auto& entry : juce::StringArray::fromTokens(text, ";", ""))
+        if (entry.isNotEmpty() && entry.startsWith("pk:strip:") == wanted)
+            result << entry << ";";
+    return result;
+}
+
+// A program restores its own CC maps, but the pad strip knobs belong to the strip, which is global in the
+// standalone: their maps are kept (and saved with PadStrip.xml) and win over what the program carried.
+void ClassicPlayerAudioProcessor::applyProgramUiMidiMap(const juce::String& text)
+{
+    const auto globalStrip = wrapperType == wrapperType_Standalone || applyingProgramState;
+    if (!globalStrip) { setUiMidiMapString(text); return; }
+    if (padStripUiMidiText.isEmpty()) padStripUiMidiText = stripUiMidiEntries(text, true); // seed from the program
+    setUiMidiMapString(stripUiMidiEntries(text, false) + padStripUiMidiText);
+}
+
 void ClassicPlayerAudioProcessor::setUiMidiMapString(const juce::String& text)
 {
+    if (const auto strip = stripUiMidiEntries(text, true); strip != padStripUiMidiText)
+    {
+        padStripUiMidiText = strip;
+        if (wrapperType == wrapperType_Standalone && padStripSettingsLoaded) savePadStripSettings();
+    }
     midiDiagnostic("mapa dos controles da interface: " + (text.isEmpty() ? juce::String("(vazio)") : text));
     {
         const juce::ScopedLock lock(uiMidiMapLock);
@@ -5732,7 +5763,9 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 realtimeMasterEq[(size_t) band].store(-1.0f);
             }
             if (state.hasProperty("uiMidiMap"))
-                setUiMidiMapString(state.getProperty("uiMidiMap").toString());
+                applyProgramUiMidiMap(state.getProperty("uiMidiMap").toString());
+            else if (padStripUiMidiText.isNotEmpty() && wrapperType == wrapperType_Standalone)
+                applyProgramUiMidiMap({});
             if (state.hasProperty("parameterMidiMap"))
             {
                 for (size_t i = 0; i < genericMidiParams.size(); ++i)

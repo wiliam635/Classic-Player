@@ -460,14 +460,30 @@ static void padStripRestartRegression()
         a->padStrip().learn(0);
         ContinuousPadRegressionAccess::handleIncomingMidiMessage(*a, juce::MidiMessage::controllerEvent(1, 33, 127));
         check(a->padStrip().mapping(0) == 33, "restart test: Learn failed");
-        a->setUiMidiMapString("pk:strip:vol=26:1;");
+        a->setUiMidiMapString("pk:strip:vol=26:1;pk:strip:cut=27:1;pk:pad:1=40:1;");
         ContinuousPadRegressionAccess::savePadStrip(*a);
+    }
+    // A program saved before the strip knobs were mapped: loading it must not erase their maps.
+    juce::File oldProgram;
+    {
+        juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
+        juce::TemporaryFile emptyStorage;
+        const auto emptyRoot = emptyStorage.getFile();
+        check(emptyRoot.createDirectory().wasOk(), "old program storage");
+        struct EmptyCleanup { juce::File directory; ~EmptyCleanup() { directory.deleteRecursively(); } } emptyCleanup { emptyRoot };
+        auto fresh = std::make_unique<ClassicPlayerAudioProcessor>(emptyRoot);
+        oldProgram = root.getChildFile("old-program.ckprogram");
+        juce::File savedFile;
+        check(fresh->saveProgramToFile(oldProgram, savedFile).wasOk(), "old program save");
     }
     // The app was closed and reopened: the saved mapping must trigger the pad with no re-assignment.
     juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
     auto b = std::make_unique<ClassicPlayerAudioProcessor>(root);
     juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
     check(b->padStrip().mapping(0) == 33, "pad strip mapping lost after restart");
+    check(b->uiMidiMapString().contains("pk:strip:vol=26:1"), "pad strip VOLUME CC map lost after restart");
+    check(b->uiMidiMapString().contains("pk:strip:cut=27:1"), "pad strip CUTOFF CC map lost after restart");
+    check(!b->uiMidiMapString().contains("pk:pad:1"), "a per-program CC map became global");
     b->prepareToPlay(48000, 128);
     ContinuousPadRegressionAccess::activateForTest(*b);
     juce::AudioBuffer<float> audio(2, 128);
@@ -475,6 +491,9 @@ static void padStripRestartRegression()
     ContinuousPadRegressionAccess::handleIncomingMidiMessage(*b, juce::MidiMessage::controllerEvent(1, 33, 127));
     for (int i = 0; i < 4; ++i) { audio.clear(); b->processBlock(audio, midi); midi.clear(); }
     check(b->padStrip().selected() == 0, "restored pad strip CC mapping did not trigger the pad after restart");
+    check(b->loadProgram(oldProgram).wasOk(), "old program load");
+    check(b->uiMidiMapString().contains("pk:strip:vol=26:1") && b->padStrip().mapping(0) == 33,
+          "loading a program saved before the mapping erased the pad strip VOLUME map");
 }
 
 static void continuousPadRegression()
