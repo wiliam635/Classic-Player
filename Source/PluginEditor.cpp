@@ -11111,7 +11111,7 @@ static juce::String uiMidiDisplayName(const juce::String& key, juce::Slider* sli
         {
             const auto layerToken = key.fromFirstOccurrenceOf("/L", false, false).upToFirstOccurrenceOf("/", false, false);
             if (key.startsWith("ui:") && layerToken.containsOnly("0123456789") && layerToken.isNotEmpty())
-                return hudTr("Camada ", "Layer ", "Capa ") + layerToken + kMidHudDot + caption;
+                return hudTr("Camada ", "Layer ", "Capa ") + juce::String(layerToken.getIntValue() + 1) + kMidHudDot + caption;
             return caption;
         }
     }
