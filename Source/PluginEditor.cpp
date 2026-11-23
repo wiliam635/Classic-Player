@@ -4008,87 +4008,6 @@ private:
     juce::ThreadPool bundlePool { 1 };
 };
 
-class NordPianoExtrasPanel final : public juce::Component, private juce::Timer
-{
-public:
-    NordPianoExtrasPanel(ClassicPlayerAudioProcessor& p, int layer)
-        : processor(p), index(layer)
-    {
-        const auto setup = [this] (juce::Label& label, juce::TextButton& button, const juce::String& name,
-                                   const juce::String& hint)
-        {
-            label.setText(name, juce::dontSendNotification);
-            label.setColour(juce::Label::textColourId, juce::Colour(text));
-            label.setFont(juce::FontOptions(9.0f, juce::Font::bold));
-            addAndMakeVisible(label);
-            button.setClickingTogglesState(true);
-            button.setTooltip(hint);
-            flatButton(button);
-            addAndMakeVisible(button);
-        };
-        setup(longLabel, longButton, "LONG RELEASE",
-              "Dobra o release dos sons NPNO. Soltar a tecla deixa uma cauda mais longa.");
-        longButton.onClick = [this] { change([this] (auto& c) { c.pianoLongRelease = longButton.getToggleState(); }); };
-        setup(stringLabel, stringButton, "STRING RES",
-              "Ressonancia simpatica das cordas: reforca a nota tocada e, com o pedal, as cordas graves livres.");
-        stringButton.onClick = [this] { change([this] (auto& c) { c.pianoStringRes = stringButton.getToggleState(); }); };
-        refresh(processor.layerConfig(index));
-        setSize(620, 42);
-        startTimerHz(5);
-    }
-
-    void resized() override
-    {
-        auto area = getLocalBounds().reduced(4, 0);
-        const auto width = area.getWidth() / 2;
-        const auto place = [&] (juce::Label& label, juce::TextButton& button)
-        {
-            auto cell = area.removeFromLeft(width);
-            label.setBounds(cell.removeFromTop(15));
-            button.setBounds(cell.reduced(2, 1));
-        };
-        place(longLabel, longButton);
-        stringLabel.setBounds(area.removeFromTop(15));
-        stringButton.setBounds(area.reduced(2, 1));
-    }
-
-    void paint(juce::Graphics& g) override
-    {
-        g.setColour(juce::Colour(nordui::slate));
-        g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 6.0f);
-        g.setColour(juce::Colour(nordui::slateLight));
-        g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 6.0f, 1.0f);
-    }
-
-private:
-    template <typename Fn>
-    void change(Fn fn)
-    {
-        auto config = processor.layerConfig(index);
-        fn(config);
-        processor.setLayerConfig(index, config);
-        refresh(config);
-    }
-
-    void timerCallback() override { if (isShowing()) refresh(processor.layerConfig(index)); }
-
-    void refresh(const Sf2Engine::LayerConfig& config)
-    {
-        const auto set = [] (juce::TextButton& button, bool on)
-        {
-            button.setToggleState(on, juce::dontSendNotification);
-            button.setButtonText(on ? "SIM" : "NAO");
-        };
-        set(longButton, config.pianoLongRelease);
-        set(stringButton, config.pianoStringRes);
-    }
-
-    ClassicPlayerAudioProcessor& processor;
-    int index;
-    juce::Label longLabel, stringLabel;
-    juce::TextButton longButton, stringButton;
-};
-
 class NordPianoTimbrePanel final : public juce::Component, private juce::Timer
 {
 public:
@@ -4186,6 +4105,24 @@ public:
             processor.setLayerConfig(index, config);
             refreshToggleLabels(config);
         };
+        setupToggle(longReleaseLabel, longReleaseButton, "LONG REL",
+                    "Dobra o release dos sons NPNO. Soltar a tecla deixa uma cauda mais longa.");
+        longReleaseButton.onClick = [this]
+        {
+            auto config = processor.layerConfig(index);
+            config.pianoLongRelease = longReleaseButton.getToggleState();
+            processor.setLayerConfig(index, config);
+            refreshToggleLabels(config);
+        };
+        setupToggle(stringResLabel, stringResButton, "STRING RES",
+                    "Ressonancia simpatica das cordas: reforca a nota tocada e, com o pedal, as cordas graves livres.");
+        stringResButton.onClick = [this]
+        {
+            auto config = processor.layerConfig(index);
+            config.pianoStringRes = stringResButton.getToggleState();
+            processor.setLayerConfig(index, config);
+            refreshToggleLabels(config);
+        };
         setupToggle(pedalResonanceLabel, pedalResonanceButton, "REFLEXOES",
                     "SIM ativa as amostras de reflexao do NPNO: Bank 1 com sustain pressionado e Bank 2 ao soltar a tecla. Requer que o arquivo contenha essas amostras.");
         pedalResonanceButton.onClick = [this]
@@ -4208,6 +4145,12 @@ public:
         auto decayArea = area.removeFromRight(90);
         decayLabel.setBounds(decayArea.removeFromTop(15));
         decayBox.setBounds(decayArea.reduced(2, 1));
+        auto stringArea = area.removeFromRight(78);
+        stringResLabel.setBounds(stringArea.removeFromTop(15));
+        stringResButton.setBounds(stringArea.reduced(2, 1));
+        auto longArea = area.removeFromRight(66);
+        longReleaseLabel.setBounds(longArea.removeFromTop(15));
+        longReleaseButton.setBounds(longArea.reduced(2, 1));
         auto pedalArea = area.removeFromRight(92);
         pedalResonanceLabel.setBounds(pedalArea.removeFromTop(15));
         pedalResonanceButton.setBounds(pedalArea.reduced(2, 1));
@@ -4251,6 +4194,10 @@ private:
         softReleaseButton.setButtonText(config.pianoSoftRelease ? "SIM" : "NAO");
         pedalResonanceButton.setToggleState(config.pianoPedalResonance, juce::dontSendNotification);
         pedalResonanceButton.setButtonText(config.pianoPedalResonance ? "SIM" : "NAO");
+        longReleaseButton.setToggleState(config.pianoLongRelease, juce::dontSendNotification);
+        longReleaseButton.setButtonText(config.pianoLongRelease ? "SIM" : "NAO");
+        stringResButton.setToggleState(config.pianoStringRes, juce::dontSendNotification);
+        stringResButton.setButtonText(config.pianoStringRes ? "SIM" : "NAO");
     }
 
     void selectMode(int mode, bool updateProcessor = true)
@@ -4268,9 +4215,9 @@ private:
 
     ClassicPlayerAudioProcessor& processor;
     int index;
-    juce::Label title, decayLabel, dynamicLabel, softReleaseLabel, pedalResonanceLabel;
+    juce::Label title, decayLabel, dynamicLabel, softReleaseLabel, pedalResonanceLabel, longReleaseLabel, stringResLabel;
     juce::ComboBox decayBox, dynamicBox;
-    juce::TextButton softReleaseButton, pedalResonanceButton;
+    juce::TextButton softReleaseButton, pedalResonanceButton, longReleaseButton, stringResButton;
     std::array<juce::TextButton, 4> modes;
 };
 
@@ -7738,9 +7685,6 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         auto* nordTimbrePanel = new NordPianoTimbrePanel(processor, index);
         nordTimbrePanel->setSize(actionWidth, 42);
         dialog->addCustomComponent(new CenteredPanel(nordTimbrePanel, actionWidth, 42));
-        auto* nordExtrasPanel = new NordPianoExtrasPanel(processor, index);
-        nordExtrasPanel->setSize(actionWidth, 42);
-        dialog->addCustomComponent(new CenteredPanel(nordExtrasPanel, actionWidth, 42));
     }
     if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordSample)
     {
