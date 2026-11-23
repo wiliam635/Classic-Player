@@ -11,29 +11,29 @@ constexpr double pianoCrossfadeSeconds = 0.55;
 // A key struck again under the sustain pedal fades the previous voice of the same note over this time.
 constexpr double restrikeFadeSeconds = 0.2;
 
-// Sharp model. Velocity law in dB below velocity 127, measured on Sharp Stage Pianos with five NPNO files and three
+// Reference model. Velocity law in dB below velocity 127, measured on a reference player with five NPNO files and three
 // keys (identical for all of them): a floor of -34.3 dB up to velocity 16, saturation from 120 upwards.
-struct SharpVelocityPoint { int velocity; float db; };
-constexpr std::array<SharpVelocityPoint, 18> sharpVelocityTable {{
+struct ReferenceVelocityPoint { int velocity; float db; };
+constexpr std::array<ReferenceVelocityPoint, 18> referenceVelocityTable {{
     { 1, -34.3f }, { 16, -34.3f }, { 20, -33.4f }, { 24, -32.5f }, { 28, -30.8f }, { 32, -29.6f },
     { 40, -25.8f }, { 48, -21.4f }, { 56, -18.6f }, { 64, -14.5f }, { 72, -12.3f }, { 80, -9.8f },
     { 88, -8.2f }, { 96, -6.2f }, { 104, -4.0f }, { 112, -1.3f }, { 120, 0.0f }, { 127, 0.0f } }};
 // Dyn steps: the normalised velocity is raised to these exponents before layer choice and gain.
-constexpr std::array<float, 4> sharpDynExponents { 1.0f, 0.82f, 0.65f, 0.50f };
-constexpr double sharpReleaseFloorSeconds = 0.55; // release setting never acts faster than this (average of 4 pianos)
-constexpr double sharpReleaseScale = 0.85;
-constexpr double sharpMakeupDb = 6.4;             // 4 dB of the old piano model + 2.4 dB measured against the Sharp
+constexpr std::array<float, 4> referenceDynExponents { 1.0f, 0.82f, 0.65f, 0.50f };
+constexpr double referenceReleaseFloorSeconds = 0.55; // release setting never acts faster than this (average of 4 pianos)
+constexpr double referenceReleaseScale = 0.85;
+constexpr double referenceMakeupDb = 6.4;             // 4 dB of the old piano model + 2.4 dB measured against the reference player
 constexpr float softPedalGain = 0.653f;           // -3.7 dB
 constexpr double pitchBendSemitones = 2.0;
 
-float sharpVelocityDb(float velocity01)
+float referenceVelocityDb(float velocity01)
 {
     const auto v = juce::jlimit(1.0f, 127.0f, velocity01 * 127.0f);
-    for (size_t i = 1; i < sharpVelocityTable.size(); ++i)
-        if (v <= static_cast<float>(sharpVelocityTable[i].velocity))
+    for (size_t i = 1; i < referenceVelocityTable.size(); ++i)
+        if (v <= static_cast<float>(referenceVelocityTable[i].velocity))
         {
-            const auto& a = sharpVelocityTable[i - 1];
-            const auto& b = sharpVelocityTable[i];
+            const auto& a = referenceVelocityTable[i - 1];
+            const auto& b = referenceVelocityTable[i];
             const auto t = (v - static_cast<float>(a.velocity)) / static_cast<float>(b.velocity - a.velocity);
             return a.db + t * (b.db - a.db);
         }
@@ -48,11 +48,11 @@ float halfPedalStretch(float depth)
 }
 
 float releaseCoefficientFor(float releaseControl, double sampleRate, bool softRelease = false, float stretch = 1.0f,
-                            bool sharpModel = false, bool longRelease = false)
+                            bool referenceModel = false, bool longRelease = false)
 {
     auto releaseSeconds = layerReleaseSeconds(releaseControl);
     if (longRelease) releaseSeconds *= 2.0;
-    if (sharpModel) releaseSeconds = juce::jmax(sharpReleaseFloorSeconds, sharpReleaseScale * releaseSeconds);
+    if (referenceModel) releaseSeconds = juce::jmax(referenceReleaseFloorSeconds, referenceReleaseScale * releaseSeconds);
     if (softRelease)
         releaseSeconds = juce::jmin(15.0, juce::jmax(0.18, releaseSeconds * 1.5));
     if (stretch > 1.0f)
@@ -673,7 +673,7 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
                          * static_cast<double>(NordPianoDecoder::sampleRate) / currentSampleRate;
     // Dynamic compression lifts the quietest keystrokes but preserves the
     // original velocity used above to select the sample/timbre layer.
-    const auto dynamicLift = routing.pianoSharpModel ? 0.0f : 0.10f * juce::jlimit(0, 3, routing.pianoDynamicCompression);
+    const auto dynamicLift = routing.pianoReferenceModel ? 0.0f : 0.10f * juce::jlimit(0, 3, routing.pianoDynamicCompression);
     // Piano dynamics: a real piano's soft notes are far quieter than the old linear law gave. The exponent
     // only shapes the volume; layer selection already happened with the shaped velocity.
     const auto pianoModel = !routing.velocitySensitivityOff && routing.pianoDynamicsExponent > 1.001f;
@@ -684,10 +684,10 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     const auto modelMakeup = pianoModel ? 1.5849f : 1.0f;
     candidate->level = (levelVelocity + (1.0f - levelVelocity) * dynamicLift) * strokeGain * modelMakeup
         * routing.nordSplit.gain(inputNote < 0 ? note - routing.octave*12 : inputNote);
-    if (routing.pianoSharpModel && !routing.velocitySensitivityOff && layer.piano->levelsMeasured
+    if (routing.pianoReferenceModel && !routing.velocitySensitivityOff && layer.piano->levelsMeasured
         && stroke.bank != 2)
     {
-        // Sharp law: the loudest layer of this key plays at its natural level and every softer layer is scaled so
+        // Reference law: the loudest layer of this key plays at its natural level and every softer layer is scaled so
         // the loudness follows the fixed table, whatever the file's own layer balance is.
         const auto effectiveGainDb = [&] (const NordPianoDecoder::Stroke& s)
         {
@@ -699,7 +699,7 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
         const auto topIndex = findPianoStroke(layer, note, 1.0f, stroke.bank);
         const auto& top = topIndex >= 0 ? layer.piano->strokes[(size_t) topIndex] : stroke;
         const auto levelDb = static_cast<double>(top.peakDb) + effectiveGainDb(top)
-                           + static_cast<double>(sharpVelocityDb(velocity)) + sharpMakeupDb
+                           + static_cast<double>(referenceVelocityDb(velocity)) + referenceMakeupDb
                            - static_cast<double>(stroke.peakDb);
         candidate->level = static_cast<float>(std::pow(10.0, levelDb / 20.0)) * levelScale
             * routing.nordSplit.gain(inputNote < 0 ? note - routing.octave*12 : inputNote);
@@ -749,7 +749,7 @@ void SampleEngine::releasePianoVoiceFor(Voice& voice, const Sf2Engine::LayerConf
     voice.sostenutoHeld = false;
     voice.released = true;
     voice.releaseCoefficient = releaseCoefficientFor(routing.release, currentSampleRate, routing.pianoSoftRelease,
-                                                    halfPedalStretch, routing.pianoSharpModel, routing.pianoLongRelease);
+                                                    halfPedalStretch, routing.pianoReferenceModel, routing.pianoLongRelease);
 }
 
 void SampleEngine::releaseVoice(Layer& layer, int note, int channel, float releaseControl)
@@ -929,8 +929,8 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             const auto isDown = routing.sustainEnabled && message.getControllerValue() >= 64;
             layer.sustainDown[(size_t) channel - 1] = isDown;
             const auto value = message.getControllerValue();
-            // The Sharp ignores CC64 below the switch point: half pedalling only exists outside the Sharp model.
-            const auto depth = routing.sustainEnabled && !routing.pianoSharpModel && value < 64
+            // The reference player ignores CC64 below the switch point: half pedalling only exists outside the reference model.
+            const auto depth = routing.sustainEnabled && !routing.pianoReferenceModel && value < 64
                 ? static_cast<float>(value) / 64.0f : 0.0f;
             layer.pedalDepth[(size_t) channel - 1] = depth;
             if (wasDown && !isDown)
@@ -987,7 +987,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 case 67: // soft pedal: -3.7 dB on the notes struck while it is down
                     layer.softPedalDown[index] = value >= 64;
                     return;
-                case 7:  // volume and expression follow a squared law (64 = -12 dB), as measured on the Sharp
+                case 7:  // volume and expression follow a squared law (64 = -12 dB), as measured on the reference player
                     layer.cc7[index] = static_cast<float>(value) * static_cast<float>(value) / (127.0f * 127.0f);
                     return;
                 case 11:
@@ -1012,8 +1012,8 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             else if (!routing.velocitySensitivityOff && routing.velocityCurve == 2) velocity *= velocity;
             else if (!routing.velocitySensitivityOff && routing.velocityCurve == 4)
                 velocity = routing.velocityTable[(size_t) message.getVelocity()] / 127.0f;
-            if (routing.pianoSharpModel && layer.pianoLoaded && !routing.velocitySensitivityOff)
-                velocity = std::pow(velocity, sharpDynExponents[(size_t) juce::jlimit(0, 3, routing.pianoDynamicCompression)]);
+            if (routing.pianoReferenceModel && layer.pianoLoaded && !routing.velocitySensitivityOff)
+                velocity = std::pow(velocity, referenceDynExponents[(size_t) juce::jlimit(0, 3, routing.pianoDynamicCompression)]);
             layer.lastVelocityIn.store(message.getVelocity(), std::memory_order_relaxed);
             layer.lastVelocityShaped.store(juce::jlimit(1, 127, juce::roundToInt(velocity * 127.0f)),
                                            std::memory_order_relaxed);
@@ -1034,7 +1034,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                     ? findPianoStroke(layer, note, layerVelocity, 1) : -1;
                 if (stroke < 0)
                     stroke = findPianoStroke(layer, note, layerVelocity, 0);
-                if (stroke >= 0 && pedalDown && routing.pianoNaturalDecay && !routing.pianoSharpModel)
+                if (stroke >= 0 && pedalDown && routing.pianoNaturalDecay && !routing.pianoReferenceModel)
                 {
                     // Re-striking a key under the sustain pedal re-excites the same string: the previous voice of
                     // that note (key already up, held only by the pedal) fades out quickly instead of stacking
@@ -1042,7 +1042,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                     const auto fast = static_cast<float>(std::exp(std::log(0.0001)
                         / juce::jmax(1.0, restrikeFadeSeconds * currentSampleRate)));
                     const auto normal = releaseCoefficientFor(routing.release, currentSampleRate, routing.pianoSoftRelease, 1.0f,
-                                                              routing.pianoSharpModel, routing.pianoLongRelease);
+                                                              routing.pianoReferenceModel, routing.pianoLongRelease);
                     for (auto& voice : layer.voices)
                         if (voice.active && voice.sampleIndex >= 0 && !voice.pianoRelease && voice.waitingForSustain
                             && voice.note == note && voice.channel == channel)
@@ -1293,7 +1293,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                      std::memory_order_relaxed);
 }
 
-// Sympathetic string resonance (STRING RES). Measured on the Sharp: without the pedal the played note gains narrow
+// Sympathetic string resonance (STRING RES). Measured on the reference player: without the pedal the played note gains narrow
 // resonances at and around its own pitch (the detuned unison strings); with the pedal down all the free strings
 // ring, which adds a strong low-frequency halo that follows the pedal and stops when it is released.
 void SampleEngine::processStringResonance(Layer& layer, const Sf2Engine::LayerConfig& routing, int samples)

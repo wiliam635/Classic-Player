@@ -869,15 +869,15 @@ struct SampleEngineRegressionTests
                 "Lifting a latched pedal to a half position must release with the half-pedal tail");
     }
 
-    // ---- Sharp model: controllers and the fixed velocity law ----
-    static float voiceLevelAt(int velocity, bool sharp, int dyn = 0)
+    // ---- Reference model: controllers and the fixed velocity law ----
+    static float voiceLevelAt(int velocity, bool reference, int dyn = 0)
     {
         auto engine = instrument(48000.0);
         auto& layer = engine->layers[0];
         SampleEngine::measurePianoLevels(*layer.piano);
         auto routing = config();
         routing.enabled = true;
-        routing.pianoSharpModel = sharp;
+        routing.pianoReferenceModel = reference;
         routing.pianoDynamicCompression = dyn;
         routing.pianoDynamicsExponent = 2.2f;
         juce::AudioBuffer<float> audio(2, 64);
@@ -887,28 +887,28 @@ struct SampleEngineRegressionTests
         engine->renderLayer(layer, audio, midi, routing);
         for (const auto& voice : layer.voices)
             if (voice.active) return voice.level;
-        require(false, "Sharp model test: no voice");
+        require(false, "Reference model test: no voice");
         return 0.0f;
     }
 
-    static void sharpVelocityLaw()
+    static void referenceVelocityLaw()
     {
         const auto top = voiceLevelAt(127, true);
         const auto db = [&] (int v, int dyn = 0) { return 20.0f * std::log10(voiceLevelAt(v, true, dyn) / top); };
-        require(std::abs(db(64) - (-14.5f)) < 0.6f, "Sharp velocity law: velocity 64 must sit 14.5 dB below 127");
-        require(std::abs(db(96) - (-6.2f)) < 0.6f, "Sharp velocity law: velocity 96 must sit 6.2 dB below 127");
+        require(std::abs(db(64) - (-14.5f)) < 0.6f, "Velocity law: velocity 64 must sit 14.5 dB below 127");
+        require(std::abs(db(96) - (-6.2f)) < 0.6f, "Velocity law: velocity 96 must sit 6.2 dB below 127");
         require(std::abs(db(8) - (-34.3f)) < 0.6f && std::abs(db(1) - (-34.3f)) < 0.6f,
-                "Sharp velocity law: soft notes must stop at the -34.3 dB floor");
-        require(std::abs(db(122)) < 0.7f, "Sharp velocity law: velocity 120 and above are the same level");
+                "Velocity law: soft notes must stop at the -34.3 dB floor");
+        require(std::abs(db(122)) < 0.7f, "Velocity law: velocity 120 and above are the same level");
         // Dyn 3 raises the normalised velocity to 0.5: velocity 32 plays like 64.
         require(std::abs(db(32, 3) - db(64, 0)) < 0.7f, "Dyn 3 must make velocity 32 play like velocity 64");
-        // Without the Sharp model the old piano model is untouched.
+        // Without the reference player model the old piano model is untouched.
         require(voiceLevelAt(64, false) < voiceLevelAt(127, false) * 0.3f && voiceLevelAt(1, false) < top * 0.01f,
                 "The old piano model changed");
-        std::cout << "Sharp velocity law passed\n";
+        std::cout << "Reference velocity law passed\n";
     }
 
-    static void sharpControllers()
+    static void referenceControllers()
     {
         // Soft pedal: -3.7 dB on the notes struck while it is down.
         {
@@ -982,10 +982,10 @@ struct SampleEngineRegressionTests
             require(std::abs(advance / expected - 1.0) < 0.01, "Pitch bend must raise the pitch by two semitones");
             require(std::abs(layer.channelGainNow[0] - 0.254f) < 0.01f, "CC7 at 64 must be -12 dB (squared law)");
         }
-        std::cout << "Sharp controllers passed\n";
+        std::cout << "Reference controllers passed\n";
     }
 
-    static void sharpReleaseAndHalfPedal()
+    static void referenceReleaseAndHalfPedal()
     {
         // Release floor: the setting never acts faster than 0.55 s; Long Release doubles the setting.
         const auto coefficient = [] (float control, bool longRelease)
@@ -995,7 +995,7 @@ struct SampleEngineRegressionTests
             auto routing = config();
             routing.enabled = true;
             routing.release = control;
-            routing.pianoSharpModel = true;
+            routing.pianoReferenceModel = true;
             routing.pianoLongRelease = longRelease;
             juce::AudioBuffer<float> audio(2, 64);
             juce::MidiBuffer midi;
@@ -1009,16 +1009,16 @@ struct SampleEngineRegressionTests
         };
         require(coefficient(2.0f, false) == coefficient(40.0f, false), "Below the floor the release setting must not change anything");
         require(coefficient(50.0f, true) > coefficient(50.0f, false), "Long Release must lengthen the release");
-        std::cout << "Sharp release passed\n";
+        std::cout << "Reference release passed\n";
     }
 
     static void run()
     {
         decodedPianoCacheSharesPcm();
         halfPedalRelease();
-        sharpVelocityLaw();
-        sharpControllers();
-        sharpReleaseAndHalfPedal();
+        referenceVelocityLaw();
+        referenceControllers();
+        referenceReleaseAndHalfPedal();
         require(Sf2Engine::LayerConfig{}.pianoTimbre == -1,
                 "A new NPNO layer must start with neutral OFF voicing");
         {

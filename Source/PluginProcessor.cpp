@@ -1880,8 +1880,8 @@ juce::Result ClassicPlayerAudioProcessor::loadNordPiano(int layer, const juce::F
         // performances restore their own values and keep the old behaviour.
         routing.pianoDynamicsExponent = 2.2f;
         routing.pianoNaturalDecay = true;
-        // Sharp model for new loads: fixed velocity law, Dyn 0.82/0.65/0.50, release floor, 3 ms attack, SOFT voicing.
-        routing.pianoSharpModel = true;
+        // Reference model for new loads: fixed velocity law, Dyn 0.82/0.65/0.50, release floor, 3 ms attack, SOFT voicing.
+        routing.pianoReferenceModel = true;
         routing.pianoDynamicCompression = 0;
         routing.pianoTimbre = 0;
         routing.attack = 3.0f;
@@ -5152,7 +5152,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
     const juce::StringArray oneBased {
         "layerType", "dx7Layer", "dx7Patch", "sf2Layer", "sf2Bank", "sf2Program", "pianoTimbre", "pianoDecaySeconds",
         "pianoSoftRelease", "pianoDynamicCompression", "pianoTimbreFloor", "pianoPedalResonance",
-        "pianoDynamicsExponent", "pianoNaturalDecay", "pianoSharpModel", "pianoLongRelease", "pianoStringRes",
+        "pianoDynamicsExponent", "pianoNaturalDecay", "pianoReferenceModel", "pianoLongRelease", "pianoStringRes",
         "nordTremoloMix", "nordTremoloRate", "nordFlangerMix", "nordFlangerRate",
         "nordSplitLowPoint", "nordSplitHighPoint", "nordSplitLowWidth", "nordSplitHighWidth",
         "nordMorphVolumeWheel", "nordMorphVolumePressure", "nordMorphVolumePedal",
@@ -5395,7 +5395,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("pianoPedalResonance" + juce::String(i + 1), config.pianoPedalResonance, nullptr);
         state.setProperty("pianoDynamicsExponent" + juce::String(i + 1), config.pianoDynamicsExponent, nullptr);
         state.setProperty("pianoNaturalDecay" + juce::String(i + 1), config.pianoNaturalDecay, nullptr);
-        state.setProperty("pianoSharpModel" + juce::String(i + 1), config.pianoSharpModel, nullptr);
+        state.setProperty("pianoReferenceModel" + juce::String(i + 1), config.pianoReferenceModel, nullptr);
         state.setProperty("pianoLongRelease" + juce::String(i + 1), config.pianoLongRelease, nullptr);
         state.setProperty("pianoStringRes" + juce::String(i + 1), config.pianoStringRes, nullptr);
         state.setProperty("pianoReleaseSamplesEnabled" + juce::String(i + 1),
@@ -6220,9 +6220,9 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     "pianoDynamicsExponent" + juce::String(i + 1), 2.2f)));
                 config.pianoNaturalDecay = static_cast<bool>(state.getProperty(
                     "pianoNaturalDecay" + juce::String(i + 1), true));
-                // Programs saved before the Sharp model keep the previous sound exactly.
-                config.pianoSharpModel = static_cast<bool>(state.getProperty(
-                    "pianoSharpModel" + juce::String(i + 1), false));
+                // Programs saved before the reference model keep the previous sound exactly.
+                config.pianoReferenceModel = static_cast<bool>(state.getProperty(
+                    "pianoReferenceModel" + juce::String(i + 1), false));
                 config.pianoLongRelease = static_cast<bool>(state.getProperty(
                     "pianoLongRelease" + juce::String(i + 1), false));
                 config.pianoStringRes = static_cast<bool>(state.getProperty(

@@ -2,7 +2,7 @@
 
 Calibrado contra a saída de um piano de referência estilo Nord (WX Stage-IV), medida em áudio com o mesmo
 arquivo `White Grand XL 6.3.npno`. Nenhum código, tabela ou amostra do player de referência foi usado; a
-análise estática do Sharp Stage Pianos serviu apenas para saber que seleção de amostra, ganho por velocity,
+análise estática de um player de referência serviu apenas para saber que seleção de amostra, ganho por velocity,
 decaimento do loop, ressonância e soltura são etapas separadas.
 
 ## O que foi medido (C3/C4/C5, velocity 20/64/127, 10 s)
