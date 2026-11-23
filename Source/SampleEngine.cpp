@@ -711,15 +711,16 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     candidate->toneCoefficient = 1.0f;
     if (routing.pianoReferenceModel && !routing.velocitySensitivityOff && stroke.bank != 2)
     {
-        // Soft notes lose their top end like a real piano; forte keeps it. Cutoff follows velocity on a log scale.
+        // Reference brightness with the EQ voicing off (measured on Royal 3D): a one-pole low-pass near 2.6 kHz,
+        // slightly higher for soft notes. The Soft/Mid/Bright voicings sit on top of this.
         static const float toneVel[] { 0.0f, 30.0f, 64.0f, 100.0f, 120.0f };
-        static const float toneHz[] { 2600.0f, 2600.0f, 5000.0f, 9500.0f, 20000.0f };
+        static const float toneHz[] { 3200.0f, 3200.0f, 2700.0f, 2600.0f, 2600.0f };
         const auto v = juce::jlimit(0.0f, 127.0f, velocity * 127.0f);
         size_t k = 1;
         while (k < 4 && v > toneVel[k]) ++k;
         const auto t = (v - toneVel[k - 1]) / (toneVel[k] - toneVel[k - 1]);
         const auto hz = toneHz[k - 1] * std::pow(toneHz[k] / toneHz[k - 1], juce::jlimit(0.0f, 1.0f, t));
-        if (hz < 15000.0f)
+        if (hz < 19000.0f)
             candidate->toneCoefficient = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * hz
                                                          / static_cast<float>(currentSampleRate));
     }
