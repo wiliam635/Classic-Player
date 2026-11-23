@@ -567,6 +567,7 @@ static constexpr UiTranslation uiTranslations[] {
     { "PORTAMENTO", "PORTAMENTO", "PORTAMENTO" },
     { "SUSTAIN ON", "SUSTAIN ON", "SUSTAIN ON" },
     { "SUSTAIN OFF", "SUSTAIN OFF", "SUSTAIN OFF" },
+    { "SUSTAIN INVERTIDO", "SUSTAIN INVERTED", "SUSTAIN INVERTIDO" },
     { "MIDI OMNI", "MIDI OMNI", "MIDI OMNI" },
     { "VEL LINEAR", "LINEAR VEL", "VEL LINEAL" },
     { "VEL SOFT", "SOFT VEL", "VEL SUAVE" },
@@ -5894,7 +5895,7 @@ public:
         lowNoteBox.setVisible(false);
         highNoteBox.setVisible(false);
         modeBox.addItem("POLI", 1); modeBox.addItem("MONO / LEGATO", 2); modeBox.addItem("PORTAMENTO", 3);
-        sustainBox.addItem("SUSTAIN ON", 1); sustainBox.addItem("SUSTAIN OFF", 2);
+        sustainBox.addItem("SUSTAIN ON", 1); sustainBox.addItem("SUSTAIN OFF", 2); sustainBox.addItem("SUSTAIN INVERTIDO", 3);
         channelBox.addItem("MIDI OMNI", 1);
         for (int channel = 1; channel <= 16; ++channel) channelBox.addItem("MIDI CH " + juce::String(channel), channel + 1);
         for (int value = -4; value <= 4; ++value) octaveBox.addItem((value > 0 ? "+" : "") + juce::String(value) + " OIT", value + 5);
@@ -6041,7 +6042,7 @@ private:
     {
         const auto config = processor.layerConfig(index);
         modeBox.setSelectedId(config.portamento ? 3 : config.mono ? 2 : 1, juce::dontSendNotification);
-        sustainBox.setSelectedId(config.sustainEnabled ? 1 : 2, juce::dontSendNotification);
+        sustainBox.setSelectedId(!config.sustainEnabled ? 2 : config.sustainInverted ? 3 : 1, juce::dontSendNotification);
         channelBox.setSelectedId(config.midiChannel + 1, juce::dontSendNotification);
         octaveBox.setSelectedId(config.octave + 5, juce::dontSendNotification);
         lowNoteBox.setSelectedId(config.lowNote + 1, juce::dontSendNotification);
@@ -6068,7 +6069,7 @@ private:
     {
         auto config = processor.layerConfig(index);
         config.mono = modeBox.getSelectedId() == 2; config.portamento = modeBox.getSelectedId() == 3;
-        config.sustainEnabled = sustainBox.getSelectedId() != 2; config.midiChannel = channelBox.getSelectedId() - 1;
+        config.sustainEnabled = sustainBox.getSelectedId() != 2; config.sustainInverted = sustainBox.getSelectedId() == 3; config.midiChannel = channelBox.getSelectedId() - 1;
         config.octave = octaveBox.getSelectedId() - 5; config.lowNote = lowNoteBox.getSelectedId() - 1; config.highNote = highNoteBox.getSelectedId() - 1;
         config.velocityCurve = velocityBox.getSelectedId() - 1;
         if (polyphonyBox.getSelectedId() > 0)
@@ -6147,7 +6148,7 @@ public:
         addAndMakeVisible(sensitivityButton);
         sensitivityButton.setVisible(true);
         modeBox.addItem("POLI", 1); modeBox.addItem("MONO / LEGATO", 2); modeBox.addItem("PORTAMENTO", 3);
-        sustainBox.addItem("SUSTAIN ON", 1); sustainBox.addItem("SUSTAIN OFF", 2);
+        sustainBox.addItem("SUSTAIN ON", 1); sustainBox.addItem("SUSTAIN OFF", 2); sustainBox.addItem("SUSTAIN INVERTIDO", 3);
         channelBox.addItem("MIDI OMNI", 1);
         for (int channel = 1; channel <= 16; ++channel)
             channelBox.addItem("MIDI CH " + juce::String(channel), channel + 1);
@@ -6341,7 +6342,7 @@ private:
     {
         const auto config = processor.layerConfig(index);
         modeBox.setSelectedId(config.portamento ? 3 : config.mono ? 2 : 1, juce::dontSendNotification);
-        sustainBox.setSelectedId(config.sustainEnabled ? 1 : 2, juce::dontSendNotification);
+        sustainBox.setSelectedId(!config.sustainEnabled ? 2 : config.sustainInverted ? 3 : 1, juce::dontSendNotification);
         channelBox.setSelectedId(config.midiChannel + 1, juce::dontSendNotification);
         octaveBox.setSelectedId(config.octave + 5, juce::dontSendNotification);
         lowNoteBox.setSelectedId(config.lowNote + 1, juce::dontSendNotification);
@@ -6373,6 +6374,7 @@ private:
         config.mono = modeBox.getSelectedId() == 2;
         config.portamento = modeBox.getSelectedId() == 3;
         config.sustainEnabled = sustainBox.getSelectedId() != 2;
+        config.sustainInverted = sustainBox.getSelectedId() == 3;
         config.midiChannel = channelBox.getSelectedId() - 1;
         config.octave = octaveBox.getSelectedId() - 5;
         config.lowNote = lowNoteBox.getSelectedId() - 1;
@@ -7504,7 +7506,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::initialiseComboBoxes()
     mode.addItem("POLI", 1);
     mode.addItem("MONO LEGATO", 2);
     mode.addItem("PORTAMENTO", 3);
-    sustain.addItem("SUSTAIN ON", 1); sustain.addItem("SUSTAIN OFF", 2);
+    sustain.addItem("SUSTAIN ON", 1); sustain.addItem("SUSTAIN OFF", 2); sustain.addItem("SUSTAIN INVERTIDO", 3);
     midiChannel.addItem("MIDI OMNI", 1);
     for (int channel = 1; channel <= 16; ++channel)
         midiChannel.addItem("MIDI CH " + juce::String(channel), channel + 1);
@@ -10065,7 +10067,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::refresh()
                                                   : juce::Colour(panelLight));
     mode.setSelectedId(config.portamento ? 3 : (config.mono ? 2 : 1),
                        juce::dontSendNotification);
-    sustain.setSelectedId(config.sustainEnabled ? 1 : 2, juce::dontSendNotification);
+    sustain.setSelectedId(!config.sustainEnabled ? 2 : config.sustainInverted ? 3 : 1, juce::dontSendNotification);
     midiChannel.setSelectedId(config.midiChannel + 1, juce::dontSendNotification);
     octave.setSelectedId(config.octave + 5, juce::dontSendNotification);
     lowNote.setSelectedId(config.lowNote + 1, juce::dontSendNotification);
@@ -10082,6 +10084,7 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::applyConfig()
     config.mono = mode.getSelectedId() >= 2;
     config.portamento = mode.getSelectedId() == 3;
     config.sustainEnabled = sustain.getSelectedId() != 2;
+    config.sustainInverted = sustain.getSelectedId() == 3;
     config.midiChannel = juce::jlimit(0, 16, midiChannel.getSelectedId() - 1);
     config.octave = octave.getSelectedId() - 5;
     config.lowNote = juce::jlimit(0, 127, lowNote.getSelectedId() - 1);

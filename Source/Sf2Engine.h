@@ -31,6 +31,7 @@ public:
         bool mono = false; // Mono legato: one voice at a time, without a gap.
         bool portamento = false;
         bool sustainEnabled = true;
+        bool sustainInverted = false; // pedal with reversed polarity: CC64 value v is read as 127 - v
         int midiChannel = 0; // New layers default to OMNI; Drum Pads override to channel 10.
         int muteCC = -1;
         int muteCCChannel = -1;

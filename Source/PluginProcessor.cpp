@@ -5244,7 +5244,7 @@ juce::Result ClassicPlayerAudioProcessor::loadLayerPreset(int destinationLayer,
         "velocityCurve", "velocitySensitivityOff", "velocityCalibrated", "velocityEditorMode", "velocityOutputMin",
         "velocityOutputMax", "velocitySlope", "velocityTable",
         "velocitySoftInput", "velocityMidInput", "velocityHardInput", "mono", "portamento",
-        "sustain", "highPassHz", "lowPassHz", "midiDevice"
+        "sustain", "sustainInverted", "highPassHz", "lowPassHz", "midiDevice"
     };
     for (const auto& prefix : zeroBased)
         copyProperty(prefix + sourceZero, prefix + destinationZero);
@@ -5539,6 +5539,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         state.setProperty("mono" + juce::String(i), config.mono, nullptr);
         state.setProperty("portamento" + juce::String(i), config.portamento, nullptr);
         state.setProperty("sustain" + juce::String(i), config.sustainEnabled, nullptr);
+        state.setProperty("sustainInverted" + juce::String(i), config.sustainInverted, nullptr);
         state.setProperty("highPassHz" + juce::String(i), config.highPassHz, nullptr);
         state.setProperty("lowPassHz" + juce::String(i), config.lowPassHz, nullptr);
         state.setProperty("midiDevice" + juce::String(i), layerMidiDevice(i), nullptr);
@@ -6372,6 +6373,7 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 config.mono = state.getProperty("mono" + juce::String(i), false);
                 config.portamento = state.getProperty("portamento" + juce::String(i), false);
                 config.sustainEnabled = state.getProperty("sustain" + juce::String(i), true);
+                config.sustainInverted = state.getProperty("sustainInverted" + juce::String(i), false);
                 config.highPassHz = juce::jlimit(20.0f, 1000.0f, static_cast<float>(state.getProperty("highPassHz" + juce::String(i), 20.0f)));
                 config.lowPassHz = juce::jlimit(1000.0f, 20000.0f, static_cast<float>(state.getProperty("lowPassHz" + juce::String(i), 20000.0f)));
                 engine.setConfig(i, config);
