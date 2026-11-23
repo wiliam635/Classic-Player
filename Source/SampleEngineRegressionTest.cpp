@@ -51,7 +51,9 @@ struct SampleEngineRegressionTests
 
     static void decodedPianoCacheSharesPcm()
     {
-        SampleEngine engine;
+        // Heap-allocated: the engine holds every layer's voices and is too large for a Windows 1 MB stack.
+        auto engineHolder = std::make_unique<SampleEngine>();
+        auto& engine = *engineHolder;
         const auto source = juce::File::getSpecialLocation(juce::File::tempDirectory)
             .getChildFile("classic-piano-cache-test.npno");
         auto decoded = std::make_shared<NordPianoDecoder::Instrument>();
@@ -1147,7 +1149,8 @@ int main(int argc, char** argv)
         }
         if (argc > 2)
         {
-            SampleEngine cache;
+            auto cacheHolder = std::make_unique<SampleEngine>();
+            auto& cache = *cacheHolder;
             for (int argument = 1; argument < argc; ++argument)
                 SampleEngineRegressionTests::require(
                     cache.preloadSample(juce::File(juce::String::fromUTF8(argv[argument]))).wasOk(),
