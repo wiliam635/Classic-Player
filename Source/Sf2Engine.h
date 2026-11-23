@@ -15,6 +15,11 @@
 #include "NordSplit.h"
 #include "NordArpeggiator.h"
 
+// Sustain pedal polarity, one setting for the whole instrument: when inverted, CC64 value v is read as 127 - v by every
+// engine. Switch-type pedals exist in both polarities, so this is a property of the pedal, not of a layer.
+inline std::atomic<bool>& globalSustainInverted() { static std::atomic<bool> flag { false }; return flag; }
+inline int sustainPedalValue(int value) { return globalSustainInverted().load(std::memory_order_relaxed) ? 127 - value : value; }
+
 class Sf2Engine
 {
 public:

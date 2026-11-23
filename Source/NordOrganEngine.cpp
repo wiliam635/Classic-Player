@@ -119,7 +119,7 @@ void NordOrganEngine::handleMessage(Layer& layer, const Config& config,
     const auto channel = juce::jlimit(1, 16, message.getChannel());
     if (message.isController() && message.getControllerNumber() == 64)
     {
-        const auto held = message.getControllerValue() >= 64 && config.routing.sustainEnabled;
+        const auto held = sustainPedalValue(message.getControllerValue()) >= 64 && config.routing.sustainEnabled;
         layer.sustain[(size_t)(channel - 1)] = held;
         if (!held)
             for (auto& voice : layer.voices)

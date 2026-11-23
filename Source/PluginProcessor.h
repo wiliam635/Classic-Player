@@ -442,6 +442,10 @@ private:
     void timerCallback() override;
     void processMasterMidiMessage(const juce::MidiMessage&);
     void saveStartupSettings();
+public:
+    bool sustainPedalInverted() const noexcept { return globalSustainInverted().load(); }
+    void setSustainPedalInverted(bool inverted) { globalSustainInverted().store(inverted); saveStartupSettings(); }
+private:
     // The standalone pad strip belongs to the app, not to a performance: it is kept in PadStrip.xml and a
     // program change never reloads or clears it.
     juce::File padStripSettingsFile() const;

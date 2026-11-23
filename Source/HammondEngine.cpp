@@ -119,7 +119,7 @@ void HammondEngine::message(int index,const juce::MidiMessage& m,Config& c)
     if(m.isController()){
         const int cc=m.getControllerNumber(), value=m.getControllerValue();
         if(cc==64){
-            l.sustain[(size_t)ch]=c.routing.sustainEnabled&&value>=64;
+            l.sustain[(size_t)ch]=c.routing.sustainEnabled&&sustainPedalValue(value)>=64;
             if(!l.sustain[(size_t)ch])for(auto& v:l.voices)if(v.channel==ch&&!v.down)release(v);
             return;
         }

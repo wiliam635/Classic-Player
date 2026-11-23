@@ -801,14 +801,15 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
         }
         else if (message.isController() && message.getControllerNumber() == 64)
         {
+            const auto pedalValue = sustainPedalValue(message.getControllerValue());
             if (config.routing.nordArp.enabled)
                 layer.arpeggiator.controller(message.getChannel(), 64,
-                    config.routing.sustainEnabled ? message.getControllerValue() : 0, emitArp);
+                    config.routing.sustainEnabled ? pedalValue : 0, emitArp);
             if (!config.routing.sustainEnabled)
                 return;
 
             const auto channelIndex = static_cast<size_t>(message.getChannel() - 1);
-            const auto sustainDown = message.getControllerValue() >= 64;
+            const auto sustainDown = pedalValue >= 64;
             if (layer.sustainPedal[channelIndex] && !sustainDown)
             {
                 for (auto& voice : layer.voices)

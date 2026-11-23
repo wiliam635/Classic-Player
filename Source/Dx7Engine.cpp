@@ -556,7 +556,7 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
     if (message.isController() && message.getControllerNumber() == 64)
     {
         if (!config.sustainEnabled) return;
-        layer.sustainDown = message.getControllerValue() >= 64;
+        layer.sustainDown = sustainPedalValue(message.getControllerValue()) >= 64;
         if (!layer.sustainDown)
         {
             if (config.mono || config.portamento)

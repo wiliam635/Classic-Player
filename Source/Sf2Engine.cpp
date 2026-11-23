@@ -500,13 +500,14 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
             if (!layer.config.sustainEnabled) return;
             const auto channelIndex = (size_t) (channel - 1);
             const auto wasDown = layer.sustainDown[channelIndex];
-            const auto isDown = value >= 64;
+            const auto pedalValue = sustainPedalValue(value);
+            const auto isDown = pedalValue >= 64;
             layer.sustainDown[channelIndex] = isDown;
             // In mono/legato mode sustain is controlled exclusively by the
             // note stack below. Always neutralize FluidSynth's own CC64 state:
             // it may have been left down before the layer entered legato mode.
             if (!monoMode)
-                fluid_synth_cc(layer.synth.get(), channel - 1, cc, value);
+                fluid_synth_cc(layer.synth.get(), channel - 1, cc, pedalValue);
             else
                 fluid_synth_cc(layer.synth.get(), channel - 1, 64, 0);
             if (wasDown && !isDown && monoMode && layer.monoNote >= 0

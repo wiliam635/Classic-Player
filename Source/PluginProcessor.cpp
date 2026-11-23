@@ -98,6 +98,7 @@ void ClassicPlayerAudioProcessor::saveStartupSettings()
         settings.setAttribute("eqChannel" + juce::String(band), masterEqCCChannel[(size_t) band].load());
     }
     settings.setAttribute("panicCC", panicCC.load());
+    settings.setAttribute("sustainInverted", globalSustainInverted().load() ? 1 : 0);
     settings.setAttribute("panicChannel", panicCCChannel.load());
     settings.setAttribute("liveSetSwapMode", liveSetSwapMode());
     const auto file = startupSettingsFile();
@@ -196,6 +197,7 @@ void ClassicPlayerAudioProcessor::restoreStartupSettings()
             masterEqCCChannel[(size_t) band].store(juce::jlimit(-1, 16, settings->getIntAttribute("eqChannel" + juce::String(band), -1)));
         }
         panicCC.store(juce::jlimit(-1, 119, settings->getIntAttribute("panicCC", -1)));
+        globalSustainInverted().store(settings->getIntAttribute("sustainInverted", 0) != 0);
         panicCCChannel.store(juce::jlimit(-1, 16, settings->getIntAttribute("panicChannel", -1)));
         liveSetSwapModeValue.store(juce::jlimit(0, liveSetSwapModeCount - 1,
                                                 settings->getIntAttribute("liveSetSwapMode", 0)));
@@ -5362,6 +5364,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
         if (const auto* currentValue = parameters.getRawParameterValue(parameterId))
             parameterState.setProperty("value", currentValue->load(), nullptr);
     }
+    state.setProperty("sustainPedalInverted", globalSustainInverted().load(), nullptr);
     state.setProperty("masterLearnCC", masterCC.load(), nullptr);
     state.setProperty("masterLearnChannel", masterCCChannel.load(), nullptr);
     for (int band = 0; band < 3; ++band)
@@ -5760,6 +5763,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
             if (!validVisualOrder)
                 for (int position = 0; position < Sf2Engine::layerCount; ++position)
                     visualLayerOrder[(size_t) position].store(position, std::memory_order_relaxed);
+            if (wrapperType != wrapperType_Standalone && state.hasProperty("sustainPedalInverted"))
+                globalSustainInverted().store((bool) state.getProperty("sustainPedalInverted"));
             masterCC.store(juce::jlimit(-1, 119, (int) state.getProperty("masterLearnCC", -1)));
             masterCCChannel.store(juce::jlimit(-1, 16, (int) state.getProperty("masterLearnChannel", -1)));
             masterLearning.store(false);
