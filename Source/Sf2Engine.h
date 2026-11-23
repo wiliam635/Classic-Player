@@ -79,6 +79,12 @@ public:
         // pianoNaturalDecay: after the recorded decay ends and the sustain loop starts, the note keeps
         // decaying at a per-key rate (instead of holding the loop level until the global tail fades it).
         bool pianoNaturalDecay = false;
+        // Sharp model (measured against Sharp Stage Pianos with five NPNOs): fixed velocity law and Dyn exponents
+        // 0.82/0.65/0.50 applied to the velocity before layer choice, layers normalised so the dynamics do not
+        // depend on the file, release floor of ~0.67 s, and a 2 ms attack. Off for saved programs.
+        bool pianoSharpModel = false;
+        bool pianoLongRelease = false; // doubles the NPNO release
+        bool pianoStringRes = false;   // sympathetic string resonance (follows the sustain pedal)
         NordEffectSettings nordFx;
         NordMorphSettings nordMorph;
         float gain = 0.8f;

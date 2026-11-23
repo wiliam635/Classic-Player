@@ -4008,6 +4008,93 @@ private:
     juce::ThreadPool bundlePool { 1 };
 };
 
+class NordPianoSharpPanel final : public juce::Component, private juce::Timer
+{
+public:
+    NordPianoSharpPanel(ClassicPlayerAudioProcessor& p, int layer)
+        : processor(p), index(layer)
+    {
+        const auto setup = [this] (juce::Label& label, juce::TextButton& button, const juce::String& name,
+                                   const juce::String& hint)
+        {
+            label.setText(name, juce::dontSendNotification);
+            label.setColour(juce::Label::textColourId, juce::Colour(text));
+            label.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+            addAndMakeVisible(label);
+            button.setClickingTogglesState(true);
+            button.setTooltip(hint);
+            flatButton(button);
+            addAndMakeVisible(button);
+        };
+        setup(modelLabel, modelButton, "MODELO SHARP",
+              "SIM usa a curva de velocidade fixa, o Dyn 1-3 com os expoentes 0,82 / 0,65 / 0,50, o piso de release e "
+              "o ataque curto medidos na Sharp Stage Pianos. NAO mantem o som antigo deste programa.");
+        modelButton.onClick = [this] { change([this] (auto& c) { c.pianoSharpModel = modelButton.getToggleState(); }); };
+        setup(longLabel, longButton, "LONG RELEASE",
+              "Dobra o release dos sons NPNO. Soltar a tecla deixa uma cauda mais longa.");
+        longButton.onClick = [this] { change([this] (auto& c) { c.pianoLongRelease = longButton.getToggleState(); }); };
+        setup(stringLabel, stringButton, "STRING RES",
+              "Ressonancia simpatica das cordas: reforca a nota tocada e, com o pedal, as cordas graves livres.");
+        stringButton.onClick = [this] { change([this] (auto& c) { c.pianoStringRes = stringButton.getToggleState(); }); };
+        refresh(processor.layerConfig(index));
+        setSize(620, 42);
+        startTimerHz(5);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(4, 0);
+        const auto width = area.getWidth() / 3;
+        const auto place = [&] (juce::Label& label, juce::TextButton& button)
+        {
+            auto cell = area.removeFromLeft(width);
+            label.setBounds(cell.removeFromTop(15));
+            button.setBounds(cell.reduced(2, 1));
+        };
+        place(modelLabel, modelButton);
+        place(longLabel, longButton);
+        stringLabel.setBounds(area.removeFromTop(15));
+        stringButton.setBounds(area.reduced(2, 1));
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.setColour(juce::Colour(nordui::slate));
+        g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 6.0f);
+        g.setColour(juce::Colour(nordui::slateLight));
+        g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 6.0f, 1.0f);
+    }
+
+private:
+    template <typename Fn>
+    void change(Fn fn)
+    {
+        auto config = processor.layerConfig(index);
+        fn(config);
+        processor.setLayerConfig(index, config);
+        refresh(config);
+    }
+
+    void timerCallback() override { if (isShowing()) refresh(processor.layerConfig(index)); }
+
+    void refresh(const Sf2Engine::LayerConfig& config)
+    {
+        const auto set = [] (juce::TextButton& button, bool on)
+        {
+            button.setToggleState(on, juce::dontSendNotification);
+            button.setButtonText(on ? "SIM" : "NAO");
+        };
+        set(modelButton, config.pianoSharpModel);
+        set(longButton, config.pianoLongRelease);
+        set(stringButton, config.pianoStringRes);
+    }
+
+    ClassicPlayerAudioProcessor& processor;
+    int index;
+    juce::Label modelLabel, longLabel, stringLabel;
+    juce::TextButton modelButton, longButton, stringButton;
+};
+
 class NordPianoTimbrePanel final : public juce::Component, private juce::Timer
 {
 public:
@@ -4073,7 +4160,7 @@ public:
         dynamicBox.addItem("1", 2);
         dynamicBox.addItem("2", 3);
         dynamicBox.addItem("3", 4);
-        dynamicBox.setTooltip("Eleva o volume das notas suaves sem mudar a amostra escolhida pela velocidade. Niveis 1 a 3.");
+        dynamicBox.setTooltip("Niveis 1 a 3. Com o MODELO SHARP usa os expoentes 0,82 / 0,65 / 0,50 sobre a velocidade (muda tambem a camada). Sem ele, eleva o volume das notas suaves sem mudar a amostra.");
         dynamicBox.setSelectedId(processor.layerConfig(index).pianoDynamicCompression + 1,
                                  juce::dontSendNotification);
         dynamicBox.onChange = [this]
@@ -7657,6 +7744,9 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::showLayerEditor()
         auto* nordTimbrePanel = new NordPianoTimbrePanel(processor, index);
         nordTimbrePanel->setSize(actionWidth, 42);
         dialog->addCustomComponent(new CenteredPanel(nordTimbrePanel, actionWidth, 42));
+        auto* nordSharpPanel = new NordPianoSharpPanel(processor, index);
+        nordSharpPanel->setSize(actionWidth, 42);
+        dialog->addCustomComponent(new CenteredPanel(nordSharpPanel, actionWidth, 42));
     }
     if (processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordSample)
     {

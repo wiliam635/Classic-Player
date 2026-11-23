@@ -869,10 +869,156 @@ struct SampleEngineRegressionTests
                 "Lifting a latched pedal to a half position must release with the half-pedal tail");
     }
 
+    // ---- Sharp model: controllers and the fixed velocity law ----
+    static float voiceLevelAt(int velocity, bool sharp, int dyn = 0)
+    {
+        auto engine = instrument(48000.0);
+        auto& layer = engine->layers[0];
+        SampleEngine::measurePianoLevels(*layer.piano);
+        auto routing = config();
+        routing.enabled = true;
+        routing.pianoSharpModel = sharp;
+        routing.pianoDynamicCompression = dyn;
+        routing.pianoDynamicsExponent = 2.2f;
+        juce::AudioBuffer<float> audio(2, 64);
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) velocity), 0);
+        audio.clear();
+        engine->renderLayer(layer, audio, midi, routing);
+        for (const auto& voice : layer.voices)
+            if (voice.active) return voice.level;
+        require(false, "Sharp model test: no voice");
+        return 0.0f;
+    }
+
+    static void sharpVelocityLaw()
+    {
+        const auto top = voiceLevelAt(127, true);
+        const auto db = [&] (int v, int dyn = 0) { return 20.0f * std::log10(voiceLevelAt(v, true, dyn) / top); };
+        require(std::abs(db(64) - (-14.5f)) < 0.6f, "Sharp velocity law: velocity 64 must sit 14.5 dB below 127");
+        require(std::abs(db(96) - (-6.2f)) < 0.6f, "Sharp velocity law: velocity 96 must sit 6.2 dB below 127");
+        require(std::abs(db(8) - (-34.3f)) < 0.6f && std::abs(db(1) - (-34.3f)) < 0.6f,
+                "Sharp velocity law: soft notes must stop at the -34.3 dB floor");
+        require(std::abs(db(122)) < 0.7f, "Sharp velocity law: velocity 120 and above are the same level");
+        // Dyn 3 raises the normalised velocity to 0.5: velocity 32 plays like 64.
+        require(std::abs(db(32, 3) - db(64, 0)) < 0.7f, "Dyn 3 must make velocity 32 play like velocity 64");
+        // Without the Sharp model the old piano model is untouched.
+        require(voiceLevelAt(64, false) < voiceLevelAt(127, false) * 0.3f && voiceLevelAt(1, false) < top * 0.01f,
+                "The old piano model changed");
+        std::cout << "Sharp velocity law passed\n";
+    }
+
+    static void sharpControllers()
+    {
+        // Soft pedal: -3.7 dB on the notes struck while it is down.
+        {
+            auto engine = instrument(48000.0);
+            auto& layer = engine->layers[0];
+            auto routing = config();
+            routing.enabled = true;
+            routing.pianoDynamicsExponent = 2.2f;
+            SampleEngine::measurePianoLevels(*layer.piano);
+            juce::AudioBuffer<float> audio(2, 64);
+            juce::MidiBuffer midi;
+            midi.addEvent(juce::MidiMessage::controllerEvent(1, 67, 127), 0);
+            midi.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 100), 1);
+            engine->renderLayer(layer, audio, midi, routing);
+            const auto soft = layer.voices[0].level;
+            const auto plain = voiceLevelAt(100, false);
+            require(std::abs(20.0f * std::log10(soft / plain) + 3.7f) < 0.3f, "Soft pedal must lower new notes by 3.7 dB");
+        }
+        // Sostenuto: holds the key that was down when the pedal went down, not a note struck afterwards.
+        {
+            auto engine = instrument(48000.0);
+            auto& layer = engine->layers[0];
+            auto routing = config();
+            routing.enabled = true;
+            juce::AudioBuffer<float> audio(2, 64);
+            juce::MidiBuffer midi;
+            midi.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 100), 0);
+            midi.addEvent(juce::MidiMessage::controllerEvent(1, 66, 127), 8);
+            midi.addEvent(juce::MidiMessage::noteOff(1, 60), 16);
+            midi.addEvent(juce::MidiMessage::noteOn(1, 64, (juce::uint8) 100), 24);
+            midi.addEvent(juce::MidiMessage::noteOff(1, 64), 32);
+            engine->renderLayer(layer, audio, midi, routing);
+            int heldC = 0, releasedE = 0;
+            for (const auto& voice : layer.voices)
+            {
+                if (!voice.active) continue;
+                if (voice.note == 60 && voice.waitingForSustain && !voice.released) ++heldC;
+                if (voice.note == 64 && voice.released) ++releasedE;
+            }
+            require(heldC == 1, "Sostenuto did not hold the key that was down");
+            require(releasedE == 1, "Sostenuto must not hold a note struck after the pedal");
+            midi.clear();
+            midi.addEvent(juce::MidiMessage::controllerEvent(1, 66, 0), 0);
+            engine->renderLayer(layer, audio, midi, routing);
+            int still = 0;
+            for (const auto& voice : layer.voices)
+                if (voice.active && voice.note == 60 && voice.waitingForSustain && !voice.released) ++still;
+            require(still == 0, "Releasing the sostenuto pedal did not release the held note");
+        }
+        // Pitch bend +-2 semitones and CC7 squared law.
+        {
+            auto engine = instrument(48000.0);
+            auto& layer = engine->layers[0];
+            auto routing = config();
+            routing.enabled = true;
+            juce::AudioBuffer<float> audio(2, 1024);
+            juce::MidiBuffer midi;
+            midi.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 100), 0);
+            midi.addEvent(juce::MidiMessage::pitchWheel(1, 16383), 0);
+            midi.addEvent(juce::MidiMessage::controllerEvent(1, 7, 64), 0);
+            audio.clear();
+            engine->renderLayer(layer, audio, midi, routing);
+            midi.clear();
+            audio.clear();
+            engine->renderLayer(layer, audio, midi, routing); // let the bend and volume settle
+            const auto before = layer.voices[0].position;
+            audio.clear();
+            engine->renderLayer(layer, audio, midi, routing);
+            const auto advance = (layer.voices[0].position - before) / 1024.0;
+            const auto expected = layer.voices[0].increment * std::pow(2.0, 2.0 / 12.0);
+            require(std::abs(advance / expected - 1.0) < 0.01, "Pitch bend must raise the pitch by two semitones");
+            require(std::abs(layer.channelGainNow[0] - 0.254f) < 0.01f, "CC7 at 64 must be -12 dB (squared law)");
+        }
+        std::cout << "Sharp controllers passed\n";
+    }
+
+    static void sharpReleaseAndHalfPedal()
+    {
+        // Release floor: the setting never acts faster than 0.55 s; Long Release doubles the setting.
+        const auto coefficient = [] (float control, bool longRelease)
+        {
+            auto engine = instrument(48000.0);
+            auto& layer = engine->layers[0];
+            auto routing = config();
+            routing.enabled = true;
+            routing.release = control;
+            routing.pianoSharpModel = true;
+            routing.pianoLongRelease = longRelease;
+            juce::AudioBuffer<float> audio(2, 64);
+            juce::MidiBuffer midi;
+            midi.addEvent(juce::MidiMessage::noteOn(1, 60, (juce::uint8) 100), 0);
+            midi.addEvent(juce::MidiMessage::noteOff(1, 60), 8);
+            engine->renderLayer(layer, audio, midi, routing);
+            for (const auto& voice : layer.voices)
+                if (voice.active && voice.released) return voice.releaseCoefficient;
+            require(false, "Release test: no released voice");
+            return 0.0f;
+        };
+        require(coefficient(2.0f, false) == coefficient(40.0f, false), "Below the floor the release setting must not change anything");
+        require(coefficient(50.0f, true) > coefficient(50.0f, false), "Long Release must lengthen the release");
+        std::cout << "Sharp release passed\n";
+    }
+
     static void run()
     {
         decodedPianoCacheSharesPcm();
         halfPedalRelease();
+        sharpVelocityLaw();
+        sharpControllers();
+        sharpReleaseAndHalfPedal();
         require(Sf2Engine::LayerConfig{}.pianoTimbre == -1,
                 "A new NPNO layer must start with neutral OFF voicing");
         {

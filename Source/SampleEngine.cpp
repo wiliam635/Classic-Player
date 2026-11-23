@@ -11,6 +11,35 @@ constexpr double pianoCrossfadeSeconds = 0.55;
 // A key struck again under the sustain pedal fades the previous voice of the same note over this time.
 constexpr double restrikeFadeSeconds = 0.2;
 
+// Sharp model. Velocity law in dB below velocity 127, measured on Sharp Stage Pianos with five NPNO files and three
+// keys (identical for all of them): a floor of -34.3 dB up to velocity 16, saturation from 120 upwards.
+struct SharpVelocityPoint { int velocity; float db; };
+constexpr std::array<SharpVelocityPoint, 18> sharpVelocityTable {{
+    { 1, -34.3f }, { 16, -34.3f }, { 20, -33.4f }, { 24, -32.5f }, { 28, -30.8f }, { 32, -29.6f },
+    { 40, -25.8f }, { 48, -21.4f }, { 56, -18.6f }, { 64, -14.5f }, { 72, -12.3f }, { 80, -9.8f },
+    { 88, -8.2f }, { 96, -6.2f }, { 104, -4.0f }, { 112, -1.3f }, { 120, 0.0f }, { 127, 0.0f } }};
+// Dyn steps: the normalised velocity is raised to these exponents before layer choice and gain.
+constexpr std::array<float, 4> sharpDynExponents { 1.0f, 0.82f, 0.65f, 0.50f };
+constexpr double sharpReleaseFloorSeconds = 0.55; // release setting never acts faster than this (average of 4 pianos)
+constexpr double sharpReleaseScale = 0.85;
+constexpr double sharpMakeupDb = 6.4;             // 4 dB of the old piano model + 2.4 dB measured against the Sharp
+constexpr float softPedalGain = 0.653f;           // -3.7 dB
+constexpr double pitchBendSemitones = 2.0;
+
+float sharpVelocityDb(float velocity01)
+{
+    const auto v = juce::jlimit(1.0f, 127.0f, velocity01 * 127.0f);
+    for (size_t i = 1; i < sharpVelocityTable.size(); ++i)
+        if (v <= static_cast<float>(sharpVelocityTable[i].velocity))
+        {
+            const auto& a = sharpVelocityTable[i - 1];
+            const auto& b = sharpVelocityTable[i];
+            const auto t = (v - static_cast<float>(a.velocity)) / static_cast<float>(b.velocity - a.velocity);
+            return a.db + t * (b.db - a.db);
+        }
+    return 0.0f;
+}
+
 // Half pedal: a CC64 value below the switch point (64) leaves the dampers partly lifted, so a released key rings
 // longer than with the pedal up. Binary (on/off) pedals send only 0 or 127 and are unaffected: depth is 0.
 float halfPedalStretch(float depth)
@@ -18,9 +47,12 @@ float halfPedalStretch(float depth)
     return 1.0f + 3.0f * depth * depth;
 }
 
-float releaseCoefficientFor(float releaseControl, double sampleRate, bool softRelease = false, float stretch = 1.0f)
+float releaseCoefficientFor(float releaseControl, double sampleRate, bool softRelease = false, float stretch = 1.0f,
+                            bool sharpModel = false, bool longRelease = false)
 {
     auto releaseSeconds = layerReleaseSeconds(releaseControl);
+    if (longRelease) releaseSeconds *= 2.0;
+    if (sharpModel) releaseSeconds = juce::jmax(sharpReleaseFloorSeconds, sharpReleaseScale * releaseSeconds);
     if (softRelease)
         releaseSeconds = juce::jmin(15.0, juce::jmax(0.18, releaseSeconds * 1.5));
     if (stretch > 1.0f)
@@ -68,6 +100,8 @@ void SampleEngine::prepare(double sampleRate, int maximumBlockSize)
     currentSampleRate = juce::jmax(1.0, sampleRate);
     currentBlockSize = juce::jmax(1, maximumBlockSize);
     scratch.setSize(2, currentBlockSize, false, false, true);
+    resonanceInput.assign((size_t) juce::jmax(1, currentBlockSize), 0.0f);
+    resonanceOutput.assign((size_t) juce::jmax(1, currentBlockSize), 0.0f);
     prefetchScratch.assign((size_t) PianoPrefetcher::maxVoices, PianoPrefetcher::Voice {});
     prefetcher.start();
     for (auto& events : combinedMidi)
@@ -125,6 +159,7 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file,
         destination.peak.store(0.0f, std::memory_order_release);
         destination.sustainDown.fill(false);
         destination.pedalDepth.fill(0.0f);
+        resetPianoControllers(destination);
         destination.cutoffState.fill(0.0f);
         destination.compressorEnvelope.fill(0.0f);
         destination.pianoLowEqState.fill(0.0f);
@@ -163,6 +198,7 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file,
     destination.sourceSampleRate = juce::jmax(1.0, reader->sampleRate);
     destination.sustainDown.fill(false);
     destination.pedalDepth.fill(0.0f);
+    resetPianoControllers(destination);
     destination.config.startSeconds = 0.0;
     destination.config.endSeconds = 0.0;
     destination.config.loop = false;
@@ -192,6 +228,7 @@ juce::Result SampleEngine::prepareSample(const juce::File& file,
     decoded = findCachedPiano(file);
     if (decoded != nullptr)
     {
+        measurePianoLevels(*decoded);
         std::uint64_t bytes = 0;
         for (const auto& stroke : decoded->strokes)
             bytes += stroke.interleavedPcm.capacity() * sizeof(std::int16_t);
@@ -202,12 +239,14 @@ juce::Result SampleEngine::prepareSample(const juce::File& file,
     // Fast path: a previous import already stored the decoded and prepared instrument.
     if (FastLoadCache::loadPiano(file, *decoded, maxDecodedBytes))
     {
+        measurePianoLevels(*decoded);
         decoded = cachePiano(file, std::move(decoded));
         return juce::Result::ok();
     }
     if (const auto result = NordPianoDecoder::decodeFile(file, *decoded, maxDecodedBytes); result.failed())
     { decoded.reset(); return result; }
     if (file.getParentDirectory().getFileName() != "Organ") preparePianoLoops(*decoded);
+    measurePianoLevels(*decoded);
     decoded = cachePiano(file, std::move(decoded));
     FastLoadCache::storePiano(file, decoded);
     return juce::Result::ok();
@@ -287,6 +326,7 @@ void SampleEngine::unload(int layer)
     destination.modulationKind = Layer::ModulationKind::none;
     destination.sustainDown.fill(false);
     destination.pedalDepth.fill(0.0f);
+    resetPianoControllers(destination);
     destination.cutoffState.fill(0.0f);
     destination.compressorEnvelope.fill(0.0f);
     destination.pianoLowEqState.fill(0.0f);
@@ -310,6 +350,7 @@ void SampleEngine::stopLayerSounds(int index)
     auto& layer = layers[(size_t) index];
     layer.sustainDown.fill(false);
     layer.pedalDepth.fill(0.0f);
+    resetPianoControllers(layer);
     layer.nordFx.reset();
     layer.reverb.reset();
     layer.eq.reset();
@@ -326,6 +367,7 @@ void SampleEngine::stopAllSounds()
     {
         layer.sustainDown.fill(false);
         layer.pedalDepth.fill(0.0f);
+        resetPianoControllers(layer);
         layer.nordFx.reset();
         // Idle audio thread during a program change: clear frozen effect tails (see Sf2Engine).
         layer.reverb.reset();
@@ -569,6 +611,36 @@ void SampleEngine::preparePianoLoops(NordPianoDecoder::Instrument& piano)
     }
 }
 
+void SampleEngine::resetPianoControllers(Layer& layer)
+{
+    layer.sostenutoDown.fill(false);
+    layer.softPedalDown.fill(false);
+    layer.pitchBendValue.fill(0.0f);
+    layer.pitchRatioNow.fill(1.0f);
+    layer.cc7.fill(1.0f);
+    layer.cc11.fill(1.0f);
+    layer.channelGainNow.fill(1.0f);
+    layer.stringRes = {};
+}
+
+void SampleEngine::measurePianoLevels(NordPianoDecoder::Instrument& piano)
+{
+    static std::mutex measureMutex;
+    const std::lock_guard<std::mutex> guard(measureMutex);
+    if (piano.levelsMeasured) return;
+    const auto channels = juce::jmax(1, piano.channels);
+    const auto window = static_cast<int>(0.3 * NordPianoDecoder::sampleRate);
+    for (auto& stroke : piano.strokes)
+    {
+        const auto frames = juce::jmin(window, stroke.frameCount(channels));
+        std::int32_t peak = 1;
+        for (int i = 0; i < frames * channels; ++i)
+            peak = juce::jmax(peak, std::abs(static_cast<std::int32_t>(stroke.interleavedPcm[(size_t) i])));
+        stroke.peakDb = 20.0f * std::log10(static_cast<float>(peak) / 32768.0f);
+    }
+    piano.levelsMeasured = true;
+}
+
 void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int channel,
                                   float velocity, const Sf2Engine::LayerConfig& routing, int inputNote,
                                   float levelScale)
@@ -601,7 +673,7 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
                          * static_cast<double>(NordPianoDecoder::sampleRate) / currentSampleRate;
     // Dynamic compression lifts the quietest keystrokes but preserves the
     // original velocity used above to select the sample/timbre layer.
-    const auto dynamicLift = 0.10f * juce::jlimit(0, 3, routing.pianoDynamicCompression);
+    const auto dynamicLift = routing.pianoSharpModel ? 0.0f : 0.10f * juce::jlimit(0, 3, routing.pianoDynamicCompression);
     // Piano dynamics: a real piano's soft notes are far quieter than the old linear law gave. The exponent
     // only shapes the volume; layer selection already happened with the shaped velocity.
     const auto pianoModel = !routing.velocitySensitivityOff && routing.pianoDynamicsExponent > 1.001f;
@@ -612,6 +684,28 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     const auto modelMakeup = pianoModel ? 1.5849f : 1.0f;
     candidate->level = (levelVelocity + (1.0f - levelVelocity) * dynamicLift) * strokeGain * modelMakeup
         * routing.nordSplit.gain(inputNote < 0 ? note - routing.octave*12 : inputNote);
+    if (routing.pianoSharpModel && !routing.velocitySensitivityOff && layer.piano->levelsMeasured
+        && stroke.bank != 2)
+    {
+        // Sharp law: the loudest layer of this key plays at its natural level and every softer layer is scaled so
+        // the loudness follows the fixed table, whatever the file's own layer balance is.
+        const auto effectiveGainDb = [&] (const NordPianoDecoder::Stroke& s)
+        {
+            const auto t = static_cast<int>(s.trimDb);
+            const auto st = t >= 0x8000 ? t - 0x10000 : t;
+            return globalGainDb + (layer.piano->signedTenthsDbTrim ? -static_cast<double>(st) / 10.0
+                                                                   : -static_cast<double>(t));
+        };
+        const auto topIndex = findPianoStroke(layer, note, 1.0f, stroke.bank);
+        const auto& top = topIndex >= 0 ? layer.piano->strokes[(size_t) topIndex] : stroke;
+        const auto levelDb = static_cast<double>(top.peakDb) + effectiveGainDb(top)
+                           + static_cast<double>(sharpVelocityDb(velocity)) + sharpMakeupDb
+                           - static_cast<double>(stroke.peakDb);
+        candidate->level = static_cast<float>(std::pow(10.0, levelDb / 20.0)) * levelScale
+            * routing.nordSplit.gain(inputNote < 0 ? note - routing.octave*12 : inputNote);
+    }
+    if (layer.softPedalDown[(size_t) juce::jlimit(1, 16, channel) - 1])
+        candidate->level *= softPedalGain;
     candidate->velocity = velocity;
     const auto attackSamples = juce::jmax(1.0, layerAttackSeconds(routing.attack) * currentSampleRate);
     candidate->attackGain = routing.attack <= 0.0f ? 1.0f : 0.0f;
@@ -646,6 +740,16 @@ void SampleEngine::releasePianoVoice(Voice& voice, float releaseControl, bool so
     voice.waitingForSustain = false;
     voice.released = true;
     voice.releaseCoefficient = releaseCoefficientFor(releaseControl, currentSampleRate, softRelease, stretch);
+}
+
+void SampleEngine::releasePianoVoiceFor(Voice& voice, const Sf2Engine::LayerConfig& routing, float halfPedalStretch)
+{
+    if (!voice.active || voice.pianoRelease || voice.released) return;
+    voice.waitingForSustain = false;
+    voice.sostenutoHeld = false;
+    voice.released = true;
+    voice.releaseCoefficient = releaseCoefficientFor(routing.release, currentSampleRate, routing.pianoSoftRelease,
+                                                    halfPedalStretch, routing.pianoSharpModel, routing.pianoLongRelease);
 }
 
 void SampleEngine::releaseVoice(Layer& layer, int note, int channel, float releaseControl)
@@ -778,7 +882,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
         layer.pedalDepth.fill(0.0f);
         for (auto& voice : layer.voices)
             if (voice.active && voice.waitingForSustain)
-                releasePianoVoice(voice, routing.release, routing.pianoSoftRelease);
+                releasePianoVoiceFor(voice, routing);
     }
 
     const auto startReleaseReflection = [&] (int note, int channel, float velocity)
@@ -799,11 +903,12 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
         {
             const auto channel = juce::jlimit(1, 16, message.getChannel());
             layer.sustainDown[(size_t) channel - 1] = false;
+            layer.sostenutoDown[(size_t) channel - 1] = false;
             for (auto& voice : layer.voices)
                 if (voice.active && voice.channel == channel)
                 {
                     if (message.isAllSoundOff()) voice = {};
-                    else if (layer.pianoLoaded) releasePianoVoice(voice, routing.release, routing.pianoSoftRelease);
+                    else if (layer.pianoLoaded) releasePianoVoiceFor(voice, routing);
                     else releaseVoice(layer, voice.note, channel, routing.release);
                 }
             return;
@@ -824,7 +929,9 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             const auto isDown = routing.sustainEnabled && message.getControllerValue() >= 64;
             layer.sustainDown[(size_t) channel - 1] = isDown;
             const auto value = message.getControllerValue();
-            const auto depth = routing.sustainEnabled && value < 64 ? static_cast<float>(value) / 64.0f : 0.0f;
+            // The Sharp ignores CC64 below the switch point: half pedalling only exists outside the Sharp model.
+            const auto depth = routing.sustainEnabled && !routing.pianoSharpModel && value < 64
+                ? static_cast<float>(value) / 64.0f : 0.0f;
             layer.pedalDepth[(size_t) channel - 1] = depth;
             if (wasDown && !isDown)
             {
@@ -832,10 +939,63 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                 // Starting a bank-2 reflection for every deferred note creates new
                 // pitched attacks and can steal voices that are already fading.
                 for (auto& voice : layer.voices)
-                    if (voice.active && voice.waitingForSustain && voice.channel == channel)
-                        releasePianoVoice(voice, routing.release, routing.pianoSoftRelease, halfPedalStretch(depth));
+                    if (voice.active && voice.waitingForSustain && voice.channel == channel && !voice.sostenutoHeld)
+                        releasePianoVoiceFor(voice, routing, halfPedalStretch(depth));
             }
             return;
+        }
+
+        if (layer.pianoLoaded && message.isPitchWheel())
+        {
+            const auto channel = juce::jlimit(1, 16, message.getChannel());
+            layer.pitchBendValue[(size_t) channel - 1] = juce::jlimit(-1.0f, 1.0f,
+                static_cast<float>(message.getPitchWheelValue() - 8192) / 8192.0f);
+            return;
+        }
+
+        if (layer.pianoLoaded && message.isController())
+        {
+            const auto channel = juce::jlimit(1, 16, message.getChannel());
+            const auto index = (size_t) channel - 1;
+            const auto value = message.getControllerValue();
+            switch (message.getControllerNumber())
+            {
+                case 66: // sostenuto: holds only the keys that are down when the pedal goes down
+                {
+                    const auto wasDown = layer.sostenutoDown[index];
+                    const auto isDown = value >= 64;
+                    layer.sostenutoDown[index] = isDown;
+                    if (!wasDown && isDown)
+                    {
+                        for (auto& voice : layer.voices)
+                            if (voice.active && voice.sampleIndex >= 0 && !voice.pianoRelease && voice.channel == channel
+                                && !voice.released && !voice.waitingForSustain)
+                                voice.sostenutoHeld = true;
+                    }
+                    else if (wasDown && !isDown)
+                    {
+                        for (auto& voice : layer.voices)
+                            if (voice.active && voice.channel == channel && voice.sostenutoHeld)
+                            {
+                                voice.sostenutoHeld = false;
+                                if (voice.waitingForSustain && !layer.sustainDown[index])
+                                    releasePianoVoiceFor(voice, routing);
+                            }
+                    }
+                    return;
+                }
+                case 67: // soft pedal: -3.7 dB on the notes struck while it is down
+                    layer.softPedalDown[index] = value >= 64;
+                    return;
+                case 7:  // volume and expression follow a squared law (64 = -12 dB), as measured on the Sharp
+                    layer.cc7[index] = static_cast<float>(value) * static_cast<float>(value) / (127.0f * 127.0f);
+                    return;
+                case 11:
+                    layer.cc11[index] = static_cast<float>(value) * static_cast<float>(value) / (127.0f * 127.0f);
+                    return;
+                default:
+                    break;
+            }
         }
 
         if (message.isNoteOn())
@@ -852,6 +1012,8 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             else if (!routing.velocitySensitivityOff && routing.velocityCurve == 2) velocity *= velocity;
             else if (!routing.velocitySensitivityOff && routing.velocityCurve == 4)
                 velocity = routing.velocityTable[(size_t) message.getVelocity()] / 127.0f;
+            if (routing.pianoSharpModel && layer.pianoLoaded && !routing.velocitySensitivityOff)
+                velocity = std::pow(velocity, sharpDynExponents[(size_t) juce::jlimit(0, 3, routing.pianoDynamicCompression)]);
             layer.lastVelocityIn.store(message.getVelocity(), std::memory_order_relaxed);
             layer.lastVelocityShaped.store(juce::jlimit(1, 127, juce::roundToInt(velocity * 127.0f)),
                                            std::memory_order_relaxed);
@@ -872,14 +1034,15 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                     ? findPianoStroke(layer, note, layerVelocity, 1) : -1;
                 if (stroke < 0)
                     stroke = findPianoStroke(layer, note, layerVelocity, 0);
-                if (stroke >= 0 && pedalDown && routing.pianoNaturalDecay)
+                if (stroke >= 0 && pedalDown && routing.pianoNaturalDecay && !routing.pianoSharpModel)
                 {
                     // Re-striking a key under the sustain pedal re-excites the same string: the previous voice of
                     // that note (key already up, held only by the pedal) fades out quickly instead of stacking
                     // with the new one. Only the piano model enables this; saved performances keep stacking.
                     const auto fast = static_cast<float>(std::exp(std::log(0.0001)
                         / juce::jmax(1.0, restrikeFadeSeconds * currentSampleRate)));
-                    const auto normal = releaseCoefficientFor(routing.release, currentSampleRate, routing.pianoSoftRelease);
+                    const auto normal = releaseCoefficientFor(routing.release, currentSampleRate, routing.pianoSoftRelease, 1.0f,
+                                                              routing.pianoSharpModel, routing.pianoLongRelease);
                     for (auto& voice : layer.voices)
                         if (voice.active && voice.sampleIndex >= 0 && !voice.pianoRelease && voice.waitingForSustain
                             && voice.note == note && voice.channel == channel)
@@ -922,9 +1085,14 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                         if (voice.active && voice.sampleIndex >= 0 && !voice.pianoRelease
                             && voice.note == note && voice.channel == channel)
                         {
+                            if (voice.sostenutoHeld)
+                            {
+                                voice.waitingForSustain = true;
+                                continue;
+                            }
                             releasedVelocity = voice.velocity;
-                            releasePianoVoice(voice, routing.release, routing.pianoSoftRelease,
-                                              halfPedalStretch(layer.pedalDepth[(size_t) channel - 1]));
+                            releasePianoVoiceFor(voice, routing,
+                                                 halfPedalStretch(layer.pedalDepth[(size_t) channel - 1]));
                         }
                     startReleaseReflection(note, channel, releasedVelocity);
                 }
@@ -952,6 +1120,32 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
     const auto renderVoices = [&] (int firstSample, int lastSample)
     {
       if (firstSample >= lastSample) return;
+      // Channel volume/expression and pitch bend move smoothly across each rendered span.
+      const auto spanSamples = static_cast<float>(lastSample - firstSample);
+      std::array<float, 16> gainStart, gainEnd, ratioStart, ratioEnd;
+      gainStart.fill(1.0f); gainEnd.fill(1.0f); ratioStart.fill(1.0f); ratioEnd.fill(1.0f);
+      auto controlsTrivial = true;
+      if (layer.pianoLoaded)
+      {
+          const auto gainFollow = std::exp(-spanSamples / (0.005f * static_cast<float>(currentSampleRate)));
+          const auto pitchFollow = std::exp(-spanSamples / (0.012f * static_cast<float>(currentSampleRate)));
+          for (size_t c = 0; c < 16; ++c)
+          {
+              const auto gainTarget = layer.cc7[c] * layer.cc11[c];
+              const auto ratioTarget = layer.pitchBendValue[c] == 0.0f ? 1.0f
+                  : std::pow(2.0f, static_cast<float>(pitchBendSemitones / 12.0) * layer.pitchBendValue[c]);
+              gainStart[c] = layer.channelGainNow[c];
+              ratioStart[c] = layer.pitchRatioNow[c];
+              gainEnd[c] = gainTarget + (gainStart[c] - gainTarget) * gainFollow;
+              ratioEnd[c] = ratioTarget + (ratioStart[c] - ratioTarget) * pitchFollow;
+              if (std::abs(gainEnd[c] - gainTarget) < 1.0e-5f) gainEnd[c] = gainTarget;
+              if (std::abs(ratioEnd[c] - ratioTarget) < 1.0e-6f) ratioEnd[c] = ratioTarget;
+              layer.channelGainNow[c] = gainEnd[c];
+              layer.pitchRatioNow[c] = ratioEnd[c];
+              if (gainStart[c] != 1.0f || gainEnd[c] != 1.0f || ratioStart[c] != 1.0f || ratioEnd[c] != 1.0f)
+                  controlsTrivial = false;
+          }
+      }
       for (auto& voice : layer.voices)
       {
         if (!voice.active) continue;
@@ -981,8 +1175,17 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
         const auto adsrTarget = juce::jlimit(0.0f, 1.0f, routing.sustainLevel * 0.01f);
         const auto adsrStep = static_cast<float>((1.0f - adsrTarget)
             / juce::jmax(1.0, routing.decayMs * 0.001 * currentSampleRate));
+        const auto controlIndex = static_cast<size_t>(juce::jlimit(1, 16, voice.channel)) - 1;
         for (int sample = firstSample; sample < lastSample; ++sample)
         {
+            auto channelGain = 1.0f;
+            auto channelRatio = 1.0f;
+            if (!controlsTrivial)
+            {
+                const auto fraction = static_cast<float>(sample - firstSample) / spanSamples;
+                channelGain = gainStart[controlIndex] + (gainEnd[controlIndex] - gainStart[controlIndex]) * fraction;
+                channelRatio = ratioStart[controlIndex] + (ratioEnd[controlIndex] - ratioStart[controlIndex]) * fraction;
+            }
             const auto elapsedDecay = static_cast<double>(voice.age) * inverseDecaySamples;
             if (isPianoVoice && finitePiano && elapsedDecay >= 1.0)
             {
@@ -1036,7 +1239,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                     lifetimeGain = static_cast<float>(remaining * remaining);
             }
             const auto gain = voice.level * voice.releaseGain * voice.attackGain * voice.decayGain * lifetimeGain
-                            * voice.loopDecayGain * voice.earlyDecayGain;
+                            * voice.loopDecayGain * voice.earlyDecayGain * channelGain;
             float left = 0.0f;
             float right = 0.0f;
             if (isPianoVoice)
@@ -1061,7 +1264,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             {
                 voice.decayGain = juce::jmax(adsrTarget, voice.decayGain - adsrStep);
             }
-            voice.position += voice.increment;
+            voice.position += voice.increment * static_cast<double>(channelRatio);
             ++voice.age;
             if (voice.released)
             {
@@ -1090,6 +1293,83 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                      std::memory_order_relaxed);
 }
 
+// Sympathetic string resonance (STRING RES). Measured on the Sharp: without the pedal the played note gains narrow
+// resonances at and around its own pitch (the detuned unison strings); with the pedal down all the free strings
+// ring, which adds a strong low-frequency halo that follows the pedal and stops when it is released.
+void SampleEngine::processStringResonance(Layer& layer, const Sf2Engine::LayerConfig& routing, int samples)
+{
+    auto& res = layer.stringRes;
+    if (!routing.pianoStringRes && !res.active) return;
+    if (samples <= 0 || samples > static_cast<int>(resonanceInput.size())) return;
+
+    constexpr float pedalLevel = 1.0f;   // gain of a free string under the pedal
+    constexpr float noteLevel = 1.0f;    // gain of the strings around a sounding note
+    const auto sampleRate = currentSampleRate;
+    auto pedal = false;
+    for (const auto down : layer.sustainDown) pedal = pedal || down;
+    std::array<bool, 128> sounding {};
+    for (const auto& voice : layer.voices)
+        if (voice.active && voice.sampleIndex >= 0 && !voice.pianoRelease && !voice.released)
+            sounding[(size_t) juce::jlimit(0, 127, voice.note)] = true;
+
+    const auto* left = scratch.getReadPointer(0);
+    const auto* right = scratch.getReadPointer(1);
+    auto* input = resonanceInput.data();
+    auto* output = resonanceOutput.data();
+    for (int i = 0; i < samples; ++i) { input[i] = 0.5f * (left[i] + right[i]); output[i] = 0.0f; }
+
+    const auto riseFollow = 1.0f - std::exp(-static_cast<float>(samples) / static_cast<float>(0.35 * sampleRate));
+    const auto fallFollow = 1.0f - std::exp(-static_cast<float>(samples) / static_cast<float>(0.015 * sampleRate));
+    constexpr std::array<double, 4> ratios { 1.0, 0.975, 1.0, 1.025 };
+    auto anyActive = false;
+    for (int k = 0; k < Layer::stringResCount; ++k)
+    {
+        const auto note = 21 + k;
+        const auto frequency = 440.0 * std::pow(2.0, static_cast<double>(note - 69) / 12.0);
+        const auto tiltGain = std::pow(10.0f, juce::jmin(11.0f, 4.3f - static_cast<float>(k - 21)) / 20.0f);
+        for (int j = 0; j < 4; ++j)
+        {
+            auto target = 0.0f;
+            if (routing.pianoStringRes)
+            {
+                if (j == 0) target = pedal ? pedalLevel : 0.0f;
+                else if (sounding[(size_t) note]) target = noteLevel;
+            }
+            auto& level = res.level[(size_t) k][(size_t) j];
+            level += (target - level) * (target > level ? riseFollow : fallFollow);
+            auto& y1 = res.y1[(size_t) k][(size_t) j];
+            auto& y2 = res.y2[(size_t) k][(size_t) j];
+            if (level < 1.0e-4f && target == 0.0f) { level = 0.0f; y1 = 0.0f; y2 = 0.0f; continue; }
+            anyActive = true;
+            const auto decaySeconds = (j == 0 ? 6.0 : 1.4) - (j == 0 ? 3.5 : 1.0) * static_cast<double>(k) / (Layer::stringResCount - 1);
+            const auto radius = std::exp(-1.0 / (decaySeconds * sampleRate));
+            const auto theta = juce::MathConstants<double>::twoPi * frequency * ratios[(size_t) j] / sampleRate;
+            const auto a1 = static_cast<float>(-2.0 * radius * std::cos(theta));
+            const auto a2 = static_cast<float>(radius * radius);
+            const auto inputGain = static_cast<float>(2.0 * (1.0 - radius) * std::sin(theta));
+            const auto outputGain = level * tiltGain;
+            auto s1 = y1, s2 = y2;
+            for (int i = 0; i < samples; ++i)
+            {
+                const auto value = input[i] * inputGain - a1 * s1 - a2 * s2;
+                s2 = s1;
+                s1 = value;
+                output[i] += value * outputGain;
+            }
+            y1 = s1; y2 = s2;
+        }
+    }
+    constexpr auto mix = 1.0f;
+    auto* outLeft = scratch.getWritePointer(0);
+    auto* outRight = scratch.getWritePointer(1);
+    for (int i = 0; i < samples; ++i)
+    {
+        outLeft[i] += mix * output[i];
+        outRight[i] += mix * output[i];
+    }
+    res.active = anyActive;
+}
+
 void SampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<float>& output,
                                         const Sf2Engine::LayerConfig& routing)
 {
@@ -1098,6 +1378,7 @@ void SampleEngine::processEffectsAndMix(Layer& layer, juce::AudioBuffer<float>& 
 
     if (layer.pianoLoaded)
     {
+        processStringResonance(layer, routing, samples);
         const auto timbre = juce::jlimit(-1, 2, routing.pianoTimbre);
         const auto lowCorner = juce::jmin(250.0, currentSampleRate * 0.2);
         const auto highCorner = juce::jmin(2000.0, currentSampleRate * 0.4);

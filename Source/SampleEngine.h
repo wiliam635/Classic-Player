@@ -81,6 +81,7 @@ private:
         float pianoDecaySeconds = 15.0f; // captured at note-on to avoid jumps during playback
         bool pianoRelease = false;
         bool waitingForSustain = false;
+        bool sostenutoHeld = false; // key was down when the sostenuto pedal was pressed
         // Natural NPNO decay: set at note-on, applied once the voice reaches its sustain loop.
         bool naturalDecay = false;
         bool loopDecayActive = false;
@@ -104,6 +105,22 @@ private:
         std::array<Voice, Sf2Engine::maxPolyphonyPerLayer> voices;
         std::array<bool, 16> sustainDown {};
         std::array<float, 16> pedalDepth {}; // half-pedal: 0 = up, up to ~1 just below the CC64 switch point
+        std::array<bool, 16> sostenutoDown {};
+        std::array<bool, 16> softPedalDown {};
+        // Per MIDI channel controllers: pitch bend (+-2 semitones), volume (CC7) and expression (CC11).
+        std::array<float, 16> pitchBendValue {};        // -1..1
+        std::array<float, 16> pitchRatioNow = [] { std::array<float, 16> a; a.fill(1.0f); return a; }(); // smoothed playback ratio
+        std::array<float, 16> cc7 = [] { std::array<float, 16> a; a.fill(1.0f); return a; }();
+        std::array<float, 16> cc11 = [] { std::array<float, 16> a; a.fill(1.0f); return a; }();
+        std::array<float, 16> channelGainNow = [] { std::array<float, 16> a; a.fill(1.0f); return a; }();
+        static constexpr int stringResCount = 56; // A0..E5 string fundamentals
+        struct StringRes
+        {
+            // Four resonators per string: [0] fixed pitch, undamped by the sustain pedal; [1..3] at -2.5%, 0, +2.5%
+            // around a sounding note (the detuned unison strings).
+            std::array<std::array<float, 4>, stringResCount> y1 {}, y2 {}, level {};
+            bool active = false;
+        } stringRes;
         std::array<float, 2> cutoffState {};
         std::array<float, 2> compressorEnvelope {};
         std::array<float, 2> pianoLowEqState {};
@@ -133,6 +150,10 @@ private:
                          const Sf2Engine::LayerConfig& routing, int inputNote = -1, float levelScale = 1.0f);
     Voice& allocateVoice(Layer&, int polyphony);
     static void preparePianoLoops(NordPianoDecoder::Instrument&);
+    static void measurePianoLevels(NordPianoDecoder::Instrument&);
+    static void resetPianoControllers(Layer&);
+    void processStringResonance(Layer&, const Sf2Engine::LayerConfig&, int samples);
+    void releasePianoVoiceFor(Voice&, const Sf2Engine::LayerConfig&, float halfPedalStretch = 1.0f);
     std::shared_ptr<NordPianoDecoder::Instrument> findCachedPiano(const juce::File&);
     std::shared_ptr<NordPianoDecoder::Instrument> cachePiano(
         const juce::File&, std::shared_ptr<NordPianoDecoder::Instrument>);
@@ -156,6 +177,7 @@ private:
     std::vector<PianoPrefetcher::Voice> prefetchScratch; // audio-thread scratch for publishPrefetch (heap, sized in prepare)
     std::array<juce::MidiBuffer, layerCount> combinedMidi;
     juce::AudioBuffer<float> scratch;
+    std::vector<float> resonanceInput, resonanceOutput;
     juce::AudioFormatManager formats;
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;
