@@ -2059,6 +2059,13 @@ public:
         repaint();
     }
 
+    // Heading as drawn in the dock header ("Instrument" or "Instrument · REVERB"), used by the on-screen MIDI readout.
+    juce::String headingText() const
+    {
+        const auto first = localizedUiText(title, activeUiLanguage.load());
+        return inSub ? first + juce::String::fromUTF8(" \xc2\xb7 ") + localizedUiText(subTitle, activeUiLanguage.load()) : first;
+    }
+
     void leaveSubPage()
     {
         subPanels.clear();
@@ -11147,6 +11154,14 @@ static juce::String uiMidiDisplayName(const juce::String& key, juce::Slider* sli
                         if (label->getText().trim().isNotEmpty()) { caption = label->getText(); break; }
         }
         if (caption.isNotEmpty()) caption = localizedUiText(caption.trim(), activeUiLanguage.load());
+        if (caption.isNotEmpty())
+            for (auto* c = slider->getParentComponent(); c != nullptr; c = c->getParentComponent())
+                if (auto* dock = dynamic_cast<InspectorDock*>(c))
+                {
+                    const auto heading = dock->headingText();
+                    if (heading.isNotEmpty() && !caption.startsWithIgnoreCase(heading)) caption = heading + kMidHudDot + caption;
+                    break;
+                }
         if (caption.isEmpty() && slider->getTooltip().isNotEmpty())
             caption = slider->getTooltip().upToFirstOccurrenceOf(".", false, false);
         if (caption.isNotEmpty())
