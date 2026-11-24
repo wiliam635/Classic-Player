@@ -18,7 +18,7 @@ public class UsbDirectFormatsTest {
         ByteArrayOutputStream o = new ByteArrayOutputStream();
         put(o, 9, 4, 0, 0, 0, 1, 1, 0x20, 0);                                        // audio control, UAC2
         put(o, 8, 0x24, 0x0a, 5, 1, 3, 0, 0);                                        // clock source id 5
-        put(o, 17, 0x24, 2, 1, 0x01, 0x01, 0, 5, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0);      // input terminal 1, clock 5, 2 channels
+        put(o, 17, 0x24, 2, 1, 0x01, 0x01, 0, 5, 2, 3, 0, 0, 0, 0, 0, 0, 0);      // input terminal 1, clock 5, 2 channels
         put(o, 9, 4, 1, 0, 0, 1, 2, 0x20, 0);                                        // streaming alt 0
         put(o, 9, 4, 1, 1, 2, 1, 2, 0x20, 0);                                        // streaming alt 1
         put(o, 16, 0x24, 1, 1, 0, 1, 1, 0, 0, 0, 2, 3, 0, 0, 0, 0);                  // AS_GENERAL: link 1, PCM, 2 channels
