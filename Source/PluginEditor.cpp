@@ -11003,6 +11003,13 @@ juce::Component* ClassicPlayerAudioProcessorEditor::resolveMidiSlider(juce::Comp
     juce::Slider* slider = nullptr;
     for (auto* c = source; c != nullptr; c = c->getParentComponent())
     {
+        // The + and - buttons of the transpose control are separate assignments (one step per press).
+        if (auto* button = dynamic_cast<juce::Button*>(c); button != nullptr && button->getParentComponent() == &transposeSlider)
+        {
+            const auto label = button->getButtonText().trim();
+            if (label == "+") { id = "pk:transpose:up"; return button; }
+            if (label == "-" || label == juce::String::fromUTF8("\xe2\x88\x92")) { id = "pk:transpose:down"; return button; }
+        }
         if (c->getProperties().contains("midiDedicated")) return nullptr;
         if (auto* candidate = dynamic_cast<juce::Slider*>(c)) { slider = candidate; break; }
     }
@@ -11100,7 +11107,7 @@ static juce::String uiMidiDisplayName(const juce::String& key, juce::Slider* sli
     {
         if (parts[1] == "strip") return hudTr("Pads cont\xc3\xadnuos", "Continuous pads", "Pads continuos") + kMidHudDot
                                                   + (parts[2] == "vol" ? hudTr("Volume", "Volume", "Volumen") : parts[2] == "cut" ? juce::String("Cutoff") : parts[2]);
-        if (parts[1] == "transpose") return juce::String("TRANSPOSE");
+        if (parts[1] == "transpose") return juce::String("TRANSPOSE") + (parts[2] == "up" ? " +" : parts[2] == "down" ? juce::String::fromUTF8(" \xe2\x88\x92") : juce::String());
         if (parts[1] == "pad") return "Pad " + juce::String(parts[2].getIntValue() + 1) + kMidHudDot + hudTr("Volume", "Volume", "Volumen");
         const auto field = parts.size() >= 4 ? parts[3] : juce::String();
         if (parts[1] == "hpf") return layerText() + kMidHudDot + hudTr("Filtro grave (HPF)", "Low cut (HPF)", "Filtro de graves (HPF)");
@@ -11279,7 +11286,19 @@ void ClassicPlayerAudioProcessorEditor::drainUiMidi()
                 if (item.first.startsWith("pk:"))
                 {
                     classicProcessor.applyUiMidiTarget(item.first, value / 127.0f);
-                    midiHud.show(uiMidiDisplayName(item.first, nullptr), hudDetail());
+                    if (item.first.startsWith("pk:transpose:") && !item.first.endsWith(":0"))
+                    {
+                        // Button steps: show the resulting value, and stay quiet on release.
+                        if (value >= 64)
+                        {
+                            const auto semitones = classicProcessor.globalTransposeSemitones();
+                            midiHud.show("TRANSPOSE " + juce::String(semitones > 0 ? "+" : "") + juce::String(semitones),
+                                         "CC " + juce::String(cc) + kMidHudDot + hudTr("canal ", "channel ", "canal ") + juce::String(channel)
+                                         + kMidHudDot + (item.first.endsWith(":up") ? "+1" : juce::String::fromUTF8("\xe2\x88\x92" "1")));
+                        }
+                    }
+                    else
+                        midiHud.show(uiMidiDisplayName(item.first, nullptr), hudDetail());
                     hudShown = true;
                 }
                 continue;

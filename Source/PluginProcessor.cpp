@@ -3015,6 +3015,16 @@ bool ClassicPlayerAudioProcessor::applyUiMidiTarget(const juce::String& key, flo
     const auto lerp = [n](float lo, float hi) { return lo + n * (hi - lo); };
     if (kind == "transpose")
     {
+        if (parts[2] == "up" || parts[2] == "down")
+        {
+            // A controller button: one step per press (rising edge), nothing on release.
+            const auto index = parts[2] == "up" ? 0u : 1u;
+            const auto pressed = n >= 0.5f;
+            const auto wasPressed = transposeButtonHeld[index].exchange(pressed);
+            if (pressed && !wasPressed)
+                setGlobalTransposeSemitones(globalTransposeSemitones() + (index == 0u ? 1 : -1));
+            return true;
+        }
         setGlobalTransposeSemitones(juce::roundToInt(-12.0f + 24.0f * n));
         return true;
     }

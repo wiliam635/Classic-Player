@@ -671,6 +671,7 @@ private:
     // (PadStrip.xml) instead of being replaced by whatever each program saved.
     juce::String padStripUiMidiText;
     bool transposeCcDefaultApplied = false;
+    std::array<std::atomic<bool>, 2> transposeButtonHeld {};
     static juce::String stripUiMidiEntries(const juce::String& text, bool wanted);
     void applyProgramUiMidiMap(const juce::String& text);
     void buildGenericMidiTables();
