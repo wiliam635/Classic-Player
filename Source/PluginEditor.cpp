@@ -11092,7 +11092,7 @@ static juce::String uiMidiDisplayName(const juce::String& key, juce::Slider* sli
         }
         if (parts[1] == "ana")
         {
-            static const char* const names[] = { "Osc 1 n\xc3\xadvel", "Osc 2 n\xc3\xadvel", "Osc 3 n\xc3\xadvel", "Osc 2 semitons", "Osc 3 semitons", "Ru\xc3\xaddo", "Cutoff", "Resson\xc3\xa2ncia",
+            static const char* const names[] = { "Osc 1 n\xc3\xadvel", "Osc 2 n\xc3\xadvel", "Osc 3 n\xc3\xadvel", "Osc 2 semitons", "Osc 3 semitons", "Ru\xc3\xad" "do", "Cutoff", "Resson\xc3\xa2ncia",
                 "Env. filtro quantidade", "Ataque", "Decay", "Sustain", "Release", "LFO velocidade", "LFO \xe2\x86\x92 pitch", "LFO \xe2\x86\x92 filtro", "Drive", "Keytracking",
                 "Mod wheel \xe2\x86\x92 filtro", "Osc 1 semitons", "Glide", "Filtro ataque", "Filtro decay", "Filtro sustain" };
             const auto index = field.getIntValue();
@@ -11157,7 +11157,7 @@ static juce::String processorMappingName(const juce::String& token)
     if (token.startsWith("eq:"))
     {
         const auto band = token.fromFirstOccurrenceOf(":", false, false).getIntValue();
-        const auto name = band == 0 ? hudTr("graves", "low", "graves") : band == 1 ? hudTr("m\xc3\xa9dios", "mid", "medios") : hudTr("agudos", "high", "agudos");
+        const auto name = band == 0 ? hudTr("graves", "low", "graves") : band == 1 ? hudTr("m\xc3\xa9" "dios", "mid", "medios") : hudTr("agudos", "high", "agudos");
         return hudTr("EQ master ", "Master EQ ", "EQ master ") + name;
     }
     if (token.startsWith("param:")) return token.fromFirstOccurrenceOf(":", false, false);
@@ -11257,7 +11257,7 @@ void ClassicPlayerAudioProcessorEditor::drainUiMidi()
                 midiHud.show(names.joinIntoString(" + "), hudDetail());
             }
             else
-                midiHud.show(hudTr("CC sem fun\xc3\xa7\xc3\xa3o atribu\xc3\xadda", "CC with no assigned function", "CC sin funci\xc3\xb3n asignada"), hudDetail());
+                midiHud.show(hudTr("CC sem fun\xc3\xa7\xc3\xa3o atribu\xc3\xad" "da", "CC with no assigned function", "CC sin funci\xc3\xb3n asignada"), hudDetail());
         }
     }
 }
