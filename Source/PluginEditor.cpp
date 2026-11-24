@@ -2439,6 +2439,7 @@ public:
             addAndMakeVisible(label);
 
             auto* knob = knobs.add(new juce::Slider());
+            knob->setName(specification.label);   // caption used by the on-screen MIDI readout
             knob->setRange(specification.minimum, specification.maximum, specification.interval);
             knob->setValue(specification.value, juce::dontSendNotification);
             knob->setNumDecimalPlacesToDisplay(specification.decimals);
@@ -11137,6 +11138,15 @@ static juce::String uiMidiDisplayName(const juce::String& key, juce::Slider* sli
                 if (best < 100000) break;
             }
         }
+        if (caption.isEmpty())
+        {
+            // Knobs laid out as (label, knob) pairs: the label added just before the slider names it, wherever it is drawn.
+            if (auto* parent = slider->getParentComponent())
+                for (int i = parent->getIndexOfChildComponent(slider) - 1; i >= 0 && i >= parent->getIndexOfChildComponent(slider) - 2; --i)
+                    if (auto* label = dynamic_cast<juce::Label*>(parent->getChildComponent(i)))
+                        if (label->getText().trim().isNotEmpty()) { caption = label->getText(); break; }
+        }
+        if (caption.isNotEmpty()) caption = localizedUiText(caption.trim(), activeUiLanguage.load());
         if (caption.isEmpty() && slider->getTooltip().isNotEmpty())
             caption = slider->getTooltip().upToFirstOccurrenceOf(".", false, false);
         if (caption.isNotEmpty())
