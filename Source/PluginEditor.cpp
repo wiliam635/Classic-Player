@@ -10488,6 +10488,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     {
         return (double) juce::jlimit(-12, 12, t.retainCharacters("-0123456789").getIntValue());
     };
+    transposeSlider.updateText();   // the label text only refreshes on a value change otherwise: show "TRANSPOSE 0" from the start
     transposeSlider.getProperties().set("midiKey", "pk:transpose:0");
     transposeSlider.setTooltip(juce::String::fromUTF8("Transpor tudo (todas as camadas e o teclado na tela) de -12 a +12 semitons. Clique com o botão direito para atribuir um CC. Clique duplo volta para 0."));
     transposeSlider.onValueChange = [this] { classicProcessor.setGlobalTransposeSemitones(juce::roundToInt(transposeSlider.getValue())); };
