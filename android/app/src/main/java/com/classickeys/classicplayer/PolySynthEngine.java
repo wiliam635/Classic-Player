@@ -240,6 +240,8 @@ final class PolySynthEngine {
     private static native void nativeNoteOff(int note,int channel);
     private static native void nativeControl(int controller, int value,int channel);
     private static native void nativeAllNotesOff();
+    private static native void nativeSetNordExtras(int layer, boolean longRelease, boolean stringRes);
+    private static native void nativePitchBend(int value14, int channel);
     private static native void nativeSetGlobalTranspose(int semitones);
     private static native void nativeSetSustainInverted(boolean inverted);
     private static native void nativeRender(short[] output, int frames);
@@ -441,6 +443,8 @@ final class PolySynthEngine {
     void control(int controller,int value,int channel){nativeControl(controller,value,channel);}
     void setSustain(int channel,boolean on) { nativeControl(64, on ? 127 : 0,channel); }
     void allNotesOff() { nativeAllNotesOff(); }
+    void setNordExtras(int layer, boolean longRelease, boolean stringRes) { nativeSetNordExtras(layer, longRelease, stringRes); }
+    void pitchBend(int value14, int channel) { nativePitchBend(value14, channel); }
     private volatile int globalTranspose;
     private volatile boolean sustainInverted;
     void setGlobalTranspose(int semitones) { globalTranspose=Math.max(-12,Math.min(12,semitones)); nativeSetGlobalTranspose(globalTranspose); }

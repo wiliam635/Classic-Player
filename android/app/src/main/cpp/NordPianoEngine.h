@@ -16,6 +16,7 @@ struct Stroke {
     uint8_t root = 60, bank = 0, velocityLayer = 0;
     uint16_t trim = 0;
     uint32_t loopStart = 0, loopEnd = 0;
+    float peakDb = -120.f;   // peak of the first 0.3 s in dBFS, measured after loading
     // PCM is either owned (freshly decoded) or points into a read-only mapping
     // of the fast-load cache; the audio thread only ever reads `data`.
     std::vector<int16_t> owned;
@@ -44,10 +45,11 @@ bool load(const std::string& path, size_t decodedBudgetBytes,
           Instrument& destination, std::string& error);
 
 struct Voice {
-    bool active = false, keyDown = false, released = false, waitingForSustain = false;
+    bool active = false, keyDown = false, released = false, waitingForSustain = false, sostenutoHeld = false;
     int note = -1, channel = 0, stroke = -1;
     uint64_t serial = 0, age = 0;
     double position = 0, increment = 1;
+    float toneHz = 0, toneLeft = 0, toneRight = 0, airLeft = 0, airRight = 0;   // reference voicing: velocity-dependent low-pass
     float level = 0, attackGain = 1, releaseGain = 1, releaseSeconds = 0.04f, decayGain = 1, decaySeconds = 15.f;
 };
 
@@ -62,7 +64,29 @@ struct Layer {
     bool reflections = false;   // pedal-down reflection bank, opt-in like the desktop
     float decaySeconds = 15.f;  // CAUDA NPNO 3..15 s
     std::array<float,2> eqLowState {}, eqHighState {};
+    bool longRelease = false;   // doubles the release
+    bool stringRes = false;     // sympathetic string resonance (follows the sustain pedal)
+    std::array<bool,16> pedal {}, sostenutoDown {}, softDown {};
+    std::array<float,16> bend {};   // -1..1, +-2 semitones
+    std::array<float,16> ratioNow = [] { std::array<float,16> a; a.fill(1.f); return a; }();
+    std::array<float,16> cc7 = [] { std::array<float,16> a; a.fill(1.f); return a; }();
+    std::array<float,16> cc11 = [] { std::array<float,16> a; a.fill(1.f); return a; }();
+    std::array<float,16> gainNow = [] { std::array<float,16> a; a.fill(1.f); return a; }();
+    static constexpr int stringResCount = 56;   // A0..E5 string fundamentals
+    struct StringRes {
+        std::array<std::array<float,4>,stringResCount> y1 {}, y2 {}, level {};
+        bool active = false;
+    } res;
+    std::vector<float> resIn, resOut;           // preallocated off the audio thread
 };
+
+/** Peak level of every stroke (first 0.3 s); needed by the reference velocity law. */
+void measureLevels(Instrument& piano);
+/** CC 7, 11 (squared law), 66 sostenuto and 67 soft pedal. sustainDown is the current CC64 state. */
+void control(Layer& layer, int channel, int controller, int value);
+void pitchBend(Layer& layer, int channel, int value14);
+void resetControllers(Layer& layer);
+void prepareResonance(Layer& layer);
 
 void noteOn(Layer& layer, int note, int velocity, int channel, bool sustain,
             int voiceBudget, float attackSeconds, int timbreFloor = 1);

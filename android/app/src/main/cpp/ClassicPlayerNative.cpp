@@ -139,7 +139,7 @@ float masterPeak = 0.0f;
 std::atomic<float> publishedMasterPeak {0.0f};
 std::mutex synthMutex;
 
-enum class MidiCommandType : uint8_t { NoteOn, NoteOff, Control, AllNotesOff };
+enum class MidiCommandType : uint8_t { NoteOn, NoteOff, Control, AllNotesOff, PitchBend };
 struct MidiCommand { MidiCommandType type; int value1, value2, channel; uint64_t queuedAtNanos = 0; };
 constexpr size_t kMidiQueueCapacity = 2048;
 std::array<MidiCommand, kMidiQueueCapacity> midiQueue {};
@@ -620,6 +620,7 @@ void sendAllNotesOff()
         for(auto& voice:hammondLayers[(size_t)layer].voices)voice={};
         for(auto& voice:nordLayers[(size_t)layer].voices)voice={};
         for(auto& voice:nsmpLayers[(size_t)layer].voices)voice={};
+        nordLayers[(size_t)layer].pedal.fill(false);nordLayers[(size_t)layer].sostenutoDown.fill(false);
     }
 }
 }
@@ -708,8 +709,9 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadNord(
         auto& nord=nordLayers[(size_t)layer];
         nord.instrument=std::move(instrument);
         nord.finitePiano=finitePiano==JNI_TRUE;
-        nord.eqMode=1;
-        layerAttack[(size_t)layer]=0.005f;
+        nord.eqMode=0;   // SOFT voicing, like the desktop default for new pianos
+        nord_android::prepareResonance(nord);
+        layerAttack[(size_t)layer]=0.003f;
         // The long piano decay is part of the sample's natural held-note
         // envelope; key release itself must remain short and independent.
         // Desktop layer Release=30 maps to a 300 ms fade-to-silence time.
@@ -799,6 +801,23 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetNordOptions(JNIEnv*,
     auto& l=nordLayers[(size_t)layer];
     l.dynamicCompression=std::clamp((int)dynamic,0,3);l.softRelease=soft==JNI_TRUE;l.reflections=reflections==JNI_TRUE;
     l.decaySeconds=std::clamp((float)decaySeconds,3.f,15.f);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetNordExtras(JNIEnv*,jclass,jint layer,jboolean longRelease,jboolean stringRes)
+{
+    if(layer<0||layer>=kLayerCount)return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    auto& l=nordLayers[(size_t)layer];
+    l.longRelease=longRelease==JNI_TRUE;l.stringRes=stringRes==JNI_TRUE;
+    if(l.stringRes)nord_android::prepareResonance(l);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativePitchBend(JNIEnv*,jclass,jint value14,jint channel)
+{
+    if(channel<0||channel>15)return;
+    enqueueMidiCommand({MidiCommandType::PitchBend,value14,0,channel});
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -1289,13 +1308,13 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
         }
         else if(engineTypes[(size_t)layer]==EngineType::dx7) {
             auto& dx=dxLayers[(size_t)layer]; DxVoice* target=nullptr;
-            if(layerSustainEnabled[li]&&sustainDown[(size_t)midiChannel])
-                for(int i=0;i<voiceBudget;++i){auto& old=dx.voices[(size_t)i];
-                    if(old.active&&!old.fading&&old.note==routedNote&&old.channel==midiChannel&&old.synth){
+            // Re-striking a note that still sounds (pedal, long release) never stacks a second copy.
+            for(int i=0;i<voiceBudget;++i){auto& old=dx.voices[(size_t)i];
+                    if(old.active&&!old.fading&&!old.released&&old.note==routedNote&&old.channel==midiChannel&&old.synth){
                         old.fading=true;old.fadeGain=1.0f;if(!old.released){old.synth->keyup();old.released=true;}
                     }}
             for(int i=0;i<voiceBudget;++i)if(!dx.voices[(size_t)i].active){target=&dx.voices[(size_t)i];break;}
-            if(target==nullptr){target=&dx.voices[0];for(int i=1;i<voiceBudget;++i){auto& voice=dx.voices[(size_t)i];if(voice.serial<target->serial)target=&voice;}}
+            if(target==nullptr){target=&dx.voices[0];for(int i=1;i<voiceBudget;++i){auto& voice=dx.voices[(size_t)i];const bool releasing=voice.released||voice.fading,best=target->released||target->fading;if((releasing&&!best)||(releasing==best&&voice.serial<target->serial))target=&voice;}}
             target->serial=++dx.serial;
             target->active=true; target->note=routedNote; target->channel=midiChannel; target->read=N; target->samples.fill(0); target->released=false; target->decayGain=1.0f; target->age=0; target->fading=false; target->fadeGain=1.0f;
             if(!target->synth){target->active=false;continue;}
@@ -1455,7 +1474,16 @@ static void applyControl(jint controller, jint value, jint midiChannel)
             }
         }
     }
+    if(const int cc=controller&0x7f;cc==66||cc==67||cc==7||cc==11){
+        for(int layer=0;layer<kLayerCount;++layer){
+            const auto li=(size_t)layer;
+            if(engineTypes[li]!=EngineType::nord||(layerMidiChannel[li]>=0&&layerMidiChannel[li]!=midiChannel))continue;
+            nord_android::control(nordLayers[li],midiChannel,cc,value&0x7f);
+        }
+    }
     if ((controller & 0x7f) == 64) {
+        for(int layer=0;layer<kLayerCount;++layer)if(engineTypes[(size_t)layer]==EngineType::nord)
+            nordLayers[(size_t)layer].pedal[(size_t)midiChannel]=((value&0x7f)>=64)!=sustainInverted.load(std::memory_order_relaxed)&&layerSustainEnabled[(size_t)layer];
         const bool wasDown = sustainDown[(size_t)midiChannel];
         sustainDown[(size_t)midiChannel] = ((value & 0x7f) >= 64) != sustainInverted.load(std::memory_order_relaxed);
         if (wasDown && !sustainDown[(size_t)midiChannel]) {
@@ -1538,6 +1566,13 @@ static void applyMidiCommand(const MidiCommand& command)
         case MidiCommandType::NoteOff: applyNoteOff(command.value1,command.channel); break;
         case MidiCommandType::Control: applyControl(command.value1,command.value2,command.channel); break;
         case MidiCommandType::AllNotesOff: sendAllNotesOff(); break;
+        case MidiCommandType::PitchBend:
+            for(int layer=0;layer<kLayerCount;++layer){
+                const auto li=(size_t)layer;
+                if(engineTypes[li]!=EngineType::nord||(layerMidiChannel[li]>=0&&layerMidiChannel[li]!=command.channel))continue;
+                nord_android::pitchBend(nordLayers[li],command.channel,command.value1);
+            }
+            break;
     }
 }
 

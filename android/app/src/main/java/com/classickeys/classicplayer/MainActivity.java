@@ -259,6 +259,7 @@ public final class MainActivity extends Activity {
             } else if(first!=1)audioEngine.control(first,second,channel);
             return;
         }
+        if (type == 0xe0) { audioEngine.pitchBend(first | (second << 7), channel); return; }
         if (type != 0x80 && type != 0x90) return;
         screen.setMidiSignal();
         if (type == 0x90 && second > 0) {
@@ -1292,10 +1293,10 @@ public final class MainActivity extends Activity {
                     screen.setLearnedVolume(layer,.8f);screen.setLayerPan(layer,0f);
                     screen.setLayerTone(layer,100f,0f,0f,0f);
                     screen.setLayerEq(layer,0f,0f,0f,220f,1200f,4200f,.707f,1f,.707f,20f,20000f);
-                    save.putInt("nord_eq_mode_"+layer,-1);
+                    save.putInt("nord_eq_mode_"+layer,0);
                 }
                 save.apply();screen.applyLoadedEditorState(layer);
-                audioEngine.setNordEqMode(layer,getSharedPreferences("layers",MODE_PRIVATE).getInt("nord_eq_mode_"+layer,-1));
+                audioEngine.setNordEqMode(layer,getSharedPreferences("layers",MODE_PRIVATE).getInt("nord_eq_mode_"+layer,0));
                 screen.setAudioStatus("NPNO: "+name+" carregado ("+audioEngine.nordLoadInfo()+")");screen.invalidate();
                 if(libraryReplacePanel!=null){finishLibraryReplace();openNordEditor(layer);}
             });
@@ -1638,8 +1639,9 @@ public final class MainActivity extends Activity {
     private void applyLayerPolyphony(int layer){if(audioEngine!=null)audioEngine.setLayerPolyphony(layer,getSharedPreferences("layers",MODE_PRIVATE).getInt("poly_"+layer,128));}
     private void applyNordOptions(int layer){
         if(audioEngine==null)return;SharedPreferences p=getSharedPreferences("layers",MODE_PRIVATE);
-        audioEngine.setNordEqMode(layer,p.getInt("nord_eq_mode_"+layer,-1));
+        audioEngine.setNordEqMode(layer,p.getInt("nord_eq_mode_"+layer,0));
         audioEngine.setNordOptions(layer,p.getInt("nord_dyn_"+layer,0),p.getBoolean("nord_soft_"+layer,false),false,p.getFloat("nord_decay_"+layer,15f));
+        audioEngine.setNordExtras(layer,p.getBoolean("nord_long_rel_"+layer,false),p.getBoolean("nord_string_res_"+layer,false));
     }
     private String restoreLayerMotorRaw(int layer,int engine){
         if(audioEngine==null)return null;
@@ -1676,7 +1678,7 @@ public final class MainActivity extends Activity {
             if(path==null)return null;
             String error=audioEngine.loadNord(layer,path,nordDecodedBudget(),nordFinite(category));
             if(error!=null)return null;
-            audioEngine.setNordEqMode(layer,prefs.getInt("nord_eq_mode_"+layer,-1));
+            audioEngine.setNordEqMode(layer,prefs.getInt("nord_eq_mode_"+layer,0));
             return prefs.getString("name_"+layer,new File(path).getName());
         }
         if(engine==8){
@@ -2331,12 +2333,14 @@ public final class MainActivity extends Activity {
         LinearLayout holder2=new LinearLayout(this);body.addView(holder2,new LinearLayout.LayoutParams(-1,-2));
         LinearLayout card2=desktopBox("",holder2);
         LinearLayout opts=EditorUi.gridRow(card2);
-        segmented(opts,"EQ",new String[]{"OFF","SOFT","MID","BRIGHT"},p.getInt("nord_eq_mode_"+layer,-1)+1,which->{p.edit().putInt("nord_eq_mode_"+layer,which-1).apply();if(audioEngine!=null)audioEngine.setNordEqMode(layer,which-1);});
+        segmented(opts,"EQ",new String[]{"OFF","SOFT","MID","BRIGHT"},p.getInt("nord_eq_mode_"+layer,0)+1,which->{p.edit().putInt("nord_eq_mode_"+layer,which-1).apply();if(audioEngine!=null)audioEngine.setNordEqMode(layer,which-1);});
         ((LinearLayout.LayoutParams)opts.getChildAt(0).getLayoutParams()).weight=2.6f;
         EditorUi.selectorCell(opts,"DYN COMP",new String[]{"OFF","1","2","3"},p.getInt("nord_dyn_"+layer,0),i->{p.edit().putInt("nord_dyn_"+layer,i).apply();applyNordOptions(layer);});
         segmented(opts,"SOFT REL",new String[]{"NAO","SIM"},p.getBoolean("nord_soft_"+layer,false)?1:0,i->{p.edit().putBoolean("nord_soft_"+layer,i==1).apply();applyNordOptions(layer);});
         final float[] decays={4f,8f,12f,15f};float curDecay=p.getFloat("nord_decay_"+layer,15f);int decayIdx=3;for(int d=0;d<decays.length;d++)if(Math.abs(decays[d]-curDecay)<.5f)decayIdx=d;
         EditorUi.selectorCell(opts,"CAUDA NPNO",new String[]{"CURTA 4s","MEDIA 8s","LONGA 12s","ORIGINAL 15s"},decayIdx,i->{p.edit().putFloat("nord_decay_"+layer,decays[i]).apply();applyNordOptions(layer);});
+        segmented(opts,"LONG REL",new String[]{"NAO","SIM"},p.getBoolean("nord_long_rel_"+layer,false)?1:0,i->{p.edit().putBoolean("nord_long_rel_"+layer,i==1).apply();applyNordOptions(layer);});
+        segmented(opts,"STRING RES",new String[]{"NAO","SIM"},p.getBoolean("nord_string_res_"+layer,false)?1:0,i->{p.edit().putBoolean("nord_string_res_"+layer,i==1).apply();applyNordOptions(layer);});
     }
 
     private void showImportedNord(final int layer,final EditorUi.Panel host){
