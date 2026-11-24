@@ -226,6 +226,10 @@ public:
     // Raw CC feed for sliders that are not APVTS parameters (editor-side map).
     void setUiMidiWanted(bool wanted) { uiMidiWanted.store(wanted); }
     void setUiMidiLearnActive(bool active) { uiMidiLearnActive.store(active); }
+    // The on-screen CC readout needs every controller even when no editor-side map exists.
+    void setUiHudWanted(bool wanted) { uiHudWanted.store(wanted); }
+    // Processor-side assignments of a physical CC: "layer:<index>:<target>", "master", "panic", "eq:<band>", "param:<name>".
+    juce::StringArray describeMappedCC(int cc, int channel) const;
     bool popRawCC(int& cc, int& channel, int& value);
     juce::String uiMidiMapString() const;
     void setUiMidiMapString(const juce::String& text);
@@ -640,7 +644,7 @@ private:
     std::unique_ptr<std::atomic<bool>[]> genericMidiDirty;
     std::atomic<int> genericMidiLearnIndex { -1 };
     std::atomic<bool> genericMidiAnyDirty { false };
-    std::atomic<bool> uiMidiWanted { false }, uiMidiLearnActive { false };
+    std::atomic<bool> uiMidiWanted { false }, uiMidiLearnActive { false }, uiHudWanted { false };
     std::atomic<bool> uiMidiMapsCC7 { false }, uiMidiMapsCC11 { false };
     std::atomic<int> uiMidiRevision { 0 };
     std::atomic<bool> uiEditorDraining { false };

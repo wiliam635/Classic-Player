@@ -10837,6 +10837,7 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
 
     addAndMakeVisible(masterLearnButton);
     addAndMakeVisible(midiHud);
+    classicProcessor.setUiHudWanted(true);
     addAndMakeVisible(masterMeter);
     cpuMeter.setTooltip(juce::String::fromUTF8("Carga do processamento de áudio do Classic Player. 100% indica que o tempo disponível para o buffer foi consumido."));
     addAndMakeVisible(cpuMeter);
@@ -11074,6 +11075,37 @@ static juce::String uiMidiDisplayName(const juce::String& key, juce::Slider* sli
         const auto field = parts.size() >= 4 ? parts[3] : juce::String();
         if (parts[1] == "hpf") return layerText() + kMidHudDot + hudTr("Filtro grave (HPF)", "Low cut (HPF)", "Filtro de graves (HPF)");
         if (parts[1] == "lpf") return layerText() + kMidHudDot + "Cutoff (LPF)";
+        if (parts[1] == "nfx")
+        {
+            static const char* const keys[] = { "tremoloRate", "tremoloMix", "delayBpm", "delayFeedback", "delayMix", "flangerRate", "flangerMix", "chorusRate", "chorusMix" };
+            static const char* const pt[] = { "Tremolo velocidade", "Tremolo mix", "Delay tempo (BPM)", "Delay feedback", "Delay mix", "Flanger velocidade", "Flanger mix", "Chorus velocidade", "Chorus mix" };
+            static const char* const en[] = { "Tremolo rate", "Tremolo mix", "Delay tempo (BPM)", "Delay feedback", "Delay mix", "Flanger rate", "Flanger mix", "Chorus rate", "Chorus mix" };
+            static const char* const es[] = { "Tremolo velocidad", "Tremolo mix", "Delay tempo (BPM)", "Delay feedback", "Delay mix", "Flanger velocidad", "Flanger mix", "Chorus velocidad", "Chorus mix" };
+            for (int i = 0; i < 9; ++i) if (field == keys[i]) return layerText() + kMidHudDot + hudTr(pt[i], en[i], es[i]);
+        }
+        if (parts[1] == "vel")
+        {
+            if (field == "floor") return layerText() + kMidHudDot + hudTr("Velocity piso do timbre", "Velocity timbre floor", "Velocity piso del timbre");
+            if (field == "min") return layerText() + kMidHudDot + hudTr("Velocity m\xc3\xadnima", "Velocity minimum", "Velocity m\xc3\xadnima");
+            if (field == "max") return layerText() + kMidHudDot + hudTr("Velocity m\xc3\xa1xima", "Velocity maximum", "Velocity m\xc3\xa1xima");
+            if (field == "slope") return layerText() + kMidHudDot + hudTr("Velocity curva", "Velocity slope", "Velocity curva");
+        }
+        if (parts[1] == "ana")
+        {
+            static const char* const names[] = { "Osc 1 n\xc3\xadvel", "Osc 2 n\xc3\xadvel", "Osc 3 n\xc3\xadvel", "Osc 2 semitons", "Osc 3 semitons", "Ru\xc3\xaddo", "Cutoff", "Resson\xc3\xa2ncia",
+                "Env. filtro quantidade", "Ataque", "Decay", "Sustain", "Release", "LFO velocidade", "LFO \xe2\x86\x92 pitch", "LFO \xe2\x86\x92 filtro", "Drive", "Keytracking",
+                "Mod wheel \xe2\x86\x92 filtro", "Osc 1 semitons", "Glide", "Filtro ataque", "Filtro decay", "Filtro sustain" };
+            const auto index = field.getIntValue();
+            if (juce::isPositiveAndBelow(index, 24)) return layerText() + kMidHudDot + "Analog " + juce::String::fromUTF8(names[index]);
+        }
+        if (parts[1] == "ham")
+        {
+            if (field.startsWith("bar")) return layerText() + kMidHudDot + hudTr("Drawbar ", "Drawbar ", "Drawbar ") + juce::String(field.substring(3).getIntValue() + 1);
+            if (field == "click") return layerText() + kMidHudDot + "Click";
+            if (field == "leakage") return layerText() + kMidHudDot + hudTr("Vazamento", "Leakage", "Fuga");
+            if (field == "drive") return layerText() + kMidHudDot + "Drive";
+            if (field == "level") return layerText() + kMidHudDot + hudTr("N\xc3\xadvel", "Level", "Nivel");
+        }
         return layerText() + kMidHudDot + parts[1] + (field.isEmpty() ? juce::String() : " " + field);
     }
     if (slider != nullptr)
@@ -11118,6 +11150,30 @@ static juce::String uiMidiDisplayName(const juce::String& key, juce::Slider* sli
     return hudTr("Controle ", "Control ", "Control ") + key.fromLastOccurrenceOf("/", false, false);
 }
 
+static juce::String processorMappingName(const juce::String& token)
+{
+    if (token == "master") return hudTr("Volume master", "Master volume", "Volumen master");
+    if (token == "panic") return hudTr("P\xc3\xa2nico", "Panic", "P\xc3\xa1nico");
+    if (token.startsWith("eq:"))
+    {
+        const auto band = token.fromFirstOccurrenceOf(":", false, false).getIntValue();
+        const auto name = band == 0 ? hudTr("graves", "low", "graves") : band == 1 ? hudTr("m\xc3\xa9dios", "mid", "medios") : hudTr("agudos", "high", "agudos");
+        return hudTr("EQ master ", "Master EQ ", "EQ master ") + name;
+    }
+    if (token.startsWith("param:")) return token.fromFirstOccurrenceOf(":", false, false);
+    if (token.startsWith("layer:"))
+    {
+        const auto parts = juce::StringArray::fromTokens(token, ":", "");
+        const auto target = parts[2].getIntValue();
+        static const char* const pt[] = { "Volume", "Cutoff", "Reverb", "Compressor", "Release", "Mute", "Liga/desliga" };
+        static const char* const en[] = { "Volume", "Cutoff", "Reverb", "Compressor", "Release", "Mute", "On/off" };
+        static const char* const es[] = { "Volumen", "Cutoff", "Reverb", "Compresor", "Release", "Mute", "Encender/apagar" };
+        const auto index = juce::jlimit(0, 6, target);
+        return hudTr("Camada ", "Layer ", "Capa ") + juce::String(parts[1].getIntValue() + 1) + kMidHudDot + hudTr(pt[index], en[index], es[index]);
+    }
+    return token;
+}
+
 void ClassicPlayerAudioProcessorEditor::drainUiMidi()
 {
     if (uiMidiSeenRevision != classicProcessor.uiMidiMapRevision()) uiMidiMapLoad();
@@ -11152,6 +11208,10 @@ void ClassicPlayerAudioProcessorEditor::drainUiMidi()
                                       : " mapeado em " + hits + "| valor " + juce::String(value)));
             }
         }
+        bool hudShown = false;
+        const auto hudDetail = [&] { return "CC " + juce::String(cc) + kMidHudDot + hudTr("canal ", "channel ", "canal ") + juce::String(channel)
+                                          + kMidHudDot + hudTr("valor ", "value ", "valor ") + juce::String(value)
+                                          + "  (" + juce::String(juce::roundToInt(value * 100.0f / 127.0f)) + "%)"; };
         for (const auto& item : uiMidiMap)
         {
             if (item.second.first != cc || (item.second.second > 0 && item.second.second != channel)) continue;
@@ -11172,9 +11232,8 @@ void ClassicPlayerAudioProcessorEditor::drainUiMidi()
                 if (item.first.startsWith("pk:"))
                 {
                     classicProcessor.applyUiMidiTarget(item.first, value / 127.0f);
-                    midiHud.show(uiMidiDisplayName(item.first, nullptr),
-                                 "CC " + juce::String(cc) + kMidHudDot + hudTr("canal ", "channel ", "canal ") + juce::String(channel) + kMidHudDot + hudTr("valor ", "value ", "valor ")
-                                 + juce::String(value) + "  (" + juce::String(juce::roundToInt(value * 100.0f / 127.0f)) + "%)");
+                    midiHud.show(uiMidiDisplayName(item.first, nullptr), hudDetail());
+                    hudShown = true;
                 }
                 continue;
             }
@@ -11185,6 +11244,20 @@ void ClassicPlayerAudioProcessorEditor::drainUiMidi()
                          "CC " + juce::String(cc) + kMidHudDot + hudTr("canal ", "channel ", "canal ") + juce::String(channel) + kMidHudDot + hudTr("valor ", "value ", "valor ")
                          + juce::String(value) + kMidHudArrow + slider.getTextFromValue(slider.getValue())
                          + slider.getTextValueSuffix());
+            hudShown = true;
+        }
+        if (!hudShown && cc != 64 && cc < 120)
+        {
+            // Controls mapped on the processor side (layer volume/cutoff/..., master, EQ, panic, plugin parameters).
+            const auto tokens = classicProcessor.describeMappedCC(cc, channel);
+            if (!tokens.isEmpty())
+            {
+                juce::StringArray names;
+                for (const auto& token : tokens) names.add(processorMappingName(token));
+                midiHud.show(names.joinIntoString(" + "), hudDetail());
+            }
+            else
+                midiHud.show(hudTr("CC sem fun\xc3\xa7\xc3\xa3o atribu\xc3\xadda", "CC with no assigned function", "CC sin funci\xc3\xb3n asignada"), hudDetail());
         }
     }
 }
@@ -11195,6 +11268,7 @@ ClassicPlayerAudioProcessorEditor::~ClassicPlayerAudioProcessorEditor()
     parameterMidiMenu.reset();
     classicProcessor.setUiEditorDraining(false);
     classicProcessor.setUiMidiLearnActive(false);
+    classicProcessor.setUiHudWanted(false);
     classicProcessor.setSpectrumCaptureEnabled(false);
     ++liveSetSwitchGeneration;
     classicProcessor.cancelLiveSetFade();
@@ -11717,7 +11791,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
     interfaceCanvas.setBounds(0, 0, juce::roundToInt(getWidth() / interfaceScale),
                              juce::roundToInt(getHeight() / interfaceScale));
     interfaceCanvas.setTransform(juce::AffineTransform::scale(interfaceScale));
-    midiHud.setBounds(juce::jmax(0, (getWidth() - 420) / 2), 8, juce::jmin(420, getWidth()), 50);
+    midiHud.setBounds(juce::jmax(0, (getWidth() - 480) / 2), 8, juce::jmin(480, getWidth()), 58);
     midiHud.toFront(false);
     auto area = interfaceCanvas.getLocalBounds().reduced(14);
     auto header = area.removeFromTop(120);

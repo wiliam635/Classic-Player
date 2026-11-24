@@ -3127,6 +3127,31 @@ void ClassicPlayerAudioProcessor::drainHeadlessUiMidi()
                 applyUiMidiTarget(entry.key, (float) value / 127.0f);
 }
 
+juce::StringArray ClassicPlayerAudioProcessor::describeMappedCC(int cc, int channel) const
+{
+    juce::StringArray result;
+    bool onLayer = false;
+    for (int layer = 0; layer < activeLayerCount(); ++layer)
+        for (int target = 0; target < learnTargetCount; ++target)
+        {
+            if (learnedCCs[(size_t) layer][(size_t) target].load(std::memory_order_relaxed) != cc) continue;
+            const auto assigned = learnedChannels[(size_t) layer][(size_t) target].load(std::memory_order_relaxed);
+            if (assigned >= 0 && assigned != channel) continue;
+            result.add("layer:" + juce::String(layer) + ":" + juce::String(target));
+            onLayer = true;
+        }
+    const auto matches = [&](int mappedCC, int mappedChannel) { return mappedCC == cc && (mappedChannel <= 0 || mappedChannel == channel); };
+    if (!onLayer && matches(masterCC.load(), masterCCChannel.load())) result.add("master");
+    if (matches(panicCC.load(), panicCCChannel.load())) result.add("panic");
+    for (int band = 0; band < 3; ++band)
+        if (matches(masterEqCC[(size_t) band].load(), masterEqCCChannel[(size_t) band].load())) result.add("eq:" + juce::String(band));
+    if (genericMidiCC != nullptr)
+        for (size_t i = 0; i < genericMidiParams.size(); ++i)
+            if (matches(genericMidiCC[i].load(std::memory_order_relaxed), genericMidiChannel[i].load(std::memory_order_relaxed)))
+                result.add("param:" + genericMidiParams[i]->getName(64));
+    return result;
+}
+
 bool ClassicPlayerAudioProcessor::popRawCC(int& cc, int& channel, int& value)
 {
     const juce::SpinLock::ScopedLockType lock(rawCCLock);
@@ -3457,7 +3482,7 @@ void ClassicPlayerAudioProcessor::processMidiControlMessage(const juce::MidiMess
         processGenericMidi(cc, channel, controllerValue);
     }
 
-    if (uiMidiWanted.load(std::memory_order_relaxed) || uiMidiLearnActive.load(std::memory_order_relaxed))
+    if (uiMidiWanted.load(std::memory_order_relaxed) || uiHudWanted.load(std::memory_order_relaxed) || uiMidiLearnActive.load(std::memory_order_relaxed))
     {
         if (!rawCCAlreadyQueued)
         {
@@ -4377,7 +4402,7 @@ void ClassicPlayerAudioProcessor::routeIncomingMidiMessage(const juce::String& s
     // UI knobs/faders mapped by right-click (and their Learn) must see every physical controller,
     // not only those from a device that some layer happens to listen to.
     const bool rawQueued = message.isController() && message.getControllerNumber() != 64
-        && (uiMidiWanted.load(std::memory_order_relaxed) || uiMidiLearnActive.load(std::memory_order_relaxed));
+        && (uiMidiWanted.load(std::memory_order_relaxed) || uiHudWanted.load(std::memory_order_relaxed) || uiMidiLearnActive.load(std::memory_order_relaxed));
     if (rawQueued)
     {
         const juce::SpinLock::ScopedLockType lock(rawCCLock);

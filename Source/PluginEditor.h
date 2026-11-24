@@ -52,13 +52,14 @@ private:
             g.fillRoundedRectangle(area, 8.0f);
             g.setColour(juce::Colour(0xffff9d1c).withMultipliedAlpha(alpha));
             g.drawRoundedRectangle(area, 8.0f, 1.5f);
-            auto text = getLocalBounds().reduced(12, 6);
+            auto text = getLocalBounds().reduced(12, 5);
+            auto titleArea = text.removeFromTop(26);
             g.setColour(juce::Colours::white.withMultipliedAlpha(alpha));
-            g.setFont(juce::FontOptions(15.0f, juce::Font::bold));
-            g.drawText(title, text.removeFromTop(text.getHeight() / 2), juce::Justification::centredLeft, true);
+            g.setFont(juce::Font(juce::FontOptions(17.0f, juce::Font::bold)));
+            g.drawFittedText(title, titleArea, juce::Justification::centredLeft, 1, 0.7f);
             g.setColour(juce::Colour(0xffff9d1c).withMultipliedAlpha(alpha));
-            g.setFont(juce::FontOptions(13.0f));
-            g.drawText(line, text, juce::Justification::centredLeft, true);
+            g.setFont(juce::Font(juce::FontOptions(14.0f)));
+            g.drawFittedText(line, text, juce::Justification::centredLeft, 1, 0.7f);
         }
     private:
         void timerCallback() override
