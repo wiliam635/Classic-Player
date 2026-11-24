@@ -382,6 +382,13 @@ void noteOn(Layer& layer,int note,int velocity,int channel,bool sustain,int voic
     int chosen=findStroke(piano,root,bank,limit);
     if(chosen<0&&bank==1)chosen=findStroke(piano,root,0,limit);
     if(chosen<0)return;
+    // Re-strike under the sustain pedal: the same key struck again hides the voice the pedal was still holding, so a
+    // repeated chord does not pile up copies of every note (kept on Android to protect the CPU; the desktop lets them stack).
+    if(sustain&&layer.finitePiano)
+        for(auto& old:layer.voices)
+            if(old.active&&old.waitingForSustain&&!old.keyDown&&!old.released&&!old.sostenutoHeld&&old.note==note&&old.channel==channel){
+                old.released=true;old.waitingForSustain=false;old.releaseSeconds=restrikeFadeSeconds;
+            }
     Voice* target=nullptr;int budget=std::clamp(voiceBudget,1,maxVoices);
     for(int i=0;i<budget;++i)if(!layer.voices[(size_t)i].active){target=&layer.voices[(size_t)i];break;}
     if(!target){target=&layer.voices[0];for(int i=1;i<budget;++i){auto& v=layer.voices[(size_t)i];
