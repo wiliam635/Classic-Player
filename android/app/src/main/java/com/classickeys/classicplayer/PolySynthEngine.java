@@ -240,6 +240,8 @@ final class PolySynthEngine {
     private static native void nativeNoteOff(int note,int channel);
     private static native void nativeControl(int controller, int value,int channel);
     private static native void nativeAllNotesOff();
+    private static native void nativeSetGlobalTranspose(int semitones);
+    private static native void nativeSetSustainInverted(boolean inverted);
     private static native void nativeRender(short[] output, int frames);
     private static native float nativeLayerPeak(int layer);
     private static native float nativeMasterPeak();
@@ -439,6 +441,12 @@ final class PolySynthEngine {
     void control(int controller,int value,int channel){nativeControl(controller,value,channel);}
     void setSustain(int channel,boolean on) { nativeControl(64, on ? 127 : 0,channel); }
     void allNotesOff() { nativeAllNotesOff(); }
+    private volatile int globalTranspose;
+    private volatile boolean sustainInverted;
+    void setGlobalTranspose(int semitones) { globalTranspose=Math.max(-12,Math.min(12,semitones)); nativeSetGlobalTranspose(globalTranspose); }
+    int globalTranspose() { return globalTranspose; }
+    void setSustainInverted(boolean inverted) { sustainInverted=inverted; nativeSetSustainInverted(inverted); }
+    boolean sustainInverted() { return sustainInverted; }
     float layerPeak(int layer) { return nativeLayerPeak(layer); }
     float masterPeak() { return nativeMasterPeak(); }
     void close() { stop(); nativeUnloadAll(); }

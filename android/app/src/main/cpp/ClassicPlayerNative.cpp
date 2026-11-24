@@ -255,6 +255,8 @@ float processBiquad(Biquad& f,float input)
 // Keep their physical key state here so sustain can defer Note Off correctly.
 std::array<std::array<bool,128>,16> physicalKeys {};
 std::array<bool,16> sustainDown {};
+std::atomic<int> globalTranspose{0};
+std::atomic<bool> sustainInverted{false};
 
 struct DxVoice
 {
@@ -1246,7 +1248,7 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
         if(layerGains[li]<=0.0f&&silentSamples[li]>=kSilentGraceSamples)continue;
         if(layerMidiChannel[li]>=0&&layerMidiChannel[li]!=midiChannel)continue;
         if(note<layerLowNote[li]||note>layerHighNote[li])continue;
-        const int routedNote=std::clamp(note+layerOctave[li]*12,0,127);
+        const int routedNote=std::clamp(note+layerOctave[li]*12+(midiChannel==9?0:globalTranspose.load(std::memory_order_relaxed)),0,127);
         if((int)velocity<layerVelocityLow[li]||(int)velocity>layerVelocityHigh[li])continue;
         int routedVelocity=std::clamp((int)velocity,1,127);
         if(layerSensitivityOff[li])routedVelocity=100;
@@ -1455,7 +1457,7 @@ static void applyControl(jint controller, jint value, jint midiChannel)
     }
     if ((controller & 0x7f) == 64) {
         const bool wasDown = sustainDown[(size_t)midiChannel];
-        sustainDown[(size_t)midiChannel] = (value & 0x7f) >= 64;
+        sustainDown[(size_t)midiChannel] = ((value & 0x7f) >= 64) != sustainInverted.load(std::memory_order_relaxed);
         if (wasDown && !sustainDown[(size_t)midiChannel]) {
             // Match the desktop sample engine: release only NPNO voices that
             // were explicitly marked as waiting for this pedal-up. Do this
@@ -1508,6 +1510,19 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeControl(JNIEnv*,jclass,
 {
     if(channel<0||channel>15)return;
     enqueueMidiCommand({MidiCommandType::Control,controller,value,channel});
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetGlobalTranspose(JNIEnv*,jclass,jint semitones)
+{
+    globalTranspose.store(std::clamp((int)semitones,-12,12),std::memory_order_relaxed);
+    enqueueMidiCommand({MidiCommandType::AllNotesOff,0,0,0});
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetSustainInverted(JNIEnv*,jclass,jboolean inverted)
+{
+    sustainInverted.store(inverted==JNI_TRUE,std::memory_order_relaxed);
 }
 
 extern "C" JNIEXPORT void JNICALL

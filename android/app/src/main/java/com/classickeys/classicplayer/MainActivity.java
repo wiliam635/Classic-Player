@@ -404,6 +404,8 @@ public final class MainActivity extends Activity {
         audioEngine.setOboePreferred(getSharedPreferences("audio",MODE_PRIVATE).getBoolean("oboe_preferred",false));
         audioEngine.setBufferFrames(getSharedPreferences("audio",MODE_PRIVATE).getInt("buffer_frames",512));
         audioEngine.setUsbDirectWanted(getSharedPreferences("audio",MODE_PRIVATE).getBoolean("usb_direct",false));
+        audioEngine.setGlobalTranspose(audioPrefs.getInt("global_transpose",0));
+        audioEngine.setSustainInverted(audioPrefs.getBoolean("sustain_inverted",false));
         audioEngine.setMaster(screen.faderGain(screen.masterVolume));
         audioEngine.setMasterEffects(screen.masterReverb,screen.masterChorus);
         licenseManager = new LicenseManager(this);
@@ -768,6 +770,31 @@ public final class MainActivity extends Activity {
         if(message!=null&&!message.isEmpty())
             new EditorUi.Alert(this).setTitle("USB DIRETO").setMessage(message+"\n\nO app continua na saída normal.")
                 .setPositiveButton("OK",null).show();
+    }
+
+    /** Global transpose, -12..+12 semitones, applied to every engine except channel 10 (drums). */
+    private void showTransposeChooser() {
+        String[] labels=new String[25];
+        for(int i=0;i<25;i++){int v=i-12;labels[i]=(v>0?"+"+v:String.valueOf(v))+(v==0?" · sem transpose":v==1||v==-1?" semitom":" semitons");}
+        new EditorUi.Alert(this).setTitle("TRANSPOSE GERAL")
+            .setSingleChoiceItems(labels,audioEngine.globalTranspose()+12,(dialog,which)->{
+                dialog.dismiss();
+                applyGlobalTranspose(which-12);
+            }).setNegativeButton("CANCELAR",null).show();
+    }
+
+    private void applyGlobalTranspose(int semitones){
+        audioEngine.setGlobalTranspose(semitones);
+        getSharedPreferences("audio",MODE_PRIVATE).edit().putInt("global_transpose",audioEngine.globalTranspose()).apply();
+        screen.invalidate();
+    }
+
+    private void toggleSustainPolarity(){
+        boolean inverted=!audioEngine.sustainInverted();
+        audioEngine.setSustainInverted(inverted);
+        audioEngine.allNotesOff();
+        getSharedPreferences("audio",MODE_PRIVATE).edit().putBoolean("sustain_inverted",inverted).apply();
+        screen.invalidate();
     }
 
     private void showAudioBufferChooser() {
@@ -3426,8 +3453,11 @@ public final class MainActivity extends Activity {
                 text(canvas, routedAudioLabel(), 52, h * .34f, h * .026f, EditorUi.MUTED);
                 text(canvas, midiStatus, 52, h * .42f, h * .026f, EditorUi.MUTED);
                 fittedText(canvas,audioCapabilityStatus,52,w-52,h*.465f,h*.016f,EditorUi.MUTED);
-                text(canvas, "Toque nas linhas acima para alternar a saída e o controlador.", 52, h * .54f, h * .022f, EditorUi.MUTED);
                 float actionRight = Math.min(w - 52, 430);
+                float midX=(52+actionRight)/2f;
+                int gt=audioEngine.globalTranspose();
+                button(canvas,"TRANSPOSE · "+(gt>0?"+"+gt:String.valueOf(gt)),52,h*.52f,midX-6,h*.555f,gt!=0);
+                button(canvas,"PEDAL · "+(audioEngine.sustainInverted()?"INVERTIDO":"NORMAL"),midX+6,h*.52f,actionRight,h*.555f,audioEngine.sustainInverted());
                 fittedText(canvas,audioEngine.nordVoiceStatus(),52,w*.46f,h*.575f,h*.02f,teal);
                 button(canvas, "MIDI LEARN · VOLUME", 52, h*.59f, actionRight, h*.66f, pendingLearnTarget>=0);
                 button(canvas, "PARAR TODAS AS NOTAS", 52, h*.69f, actionRight, h*.76f, false);
@@ -3744,6 +3774,11 @@ public final class MainActivity extends Activity {
                 invalidate(); return true;
             }
             if (settings && tap) {
+                if(event.getY()>=h*.52f&&event.getY()<h*.555f&&event.getX()<w*.48f){
+                    float actionRightTap=Math.min(w-52,430);
+                    if(event.getX()<(52+actionRightTap)/2f)showTransposeChooser();else toggleSustainPolarity();
+                    return true;
+                }
                 if(event.getX()>w*.48f&&event.getY()>h*.50f){
                     if(event.getY()>=h*.50f&&event.getY()<h*.555f)showAudioEngineChooser();
                     else if(event.getY()>=h*.56f&&event.getY()<h*.615f)showAudioSampleRateChooser();
