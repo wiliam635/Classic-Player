@@ -578,7 +578,7 @@ void Dx7Engine::dispatch(Layer& layer, const Sf2Engine::LayerConfig& config,
     }
     if (!message.isNoteOnOrOff()) return;
 
-    const auto note = message.getNoteNumber() + config.octave * 12;
+    const auto note = message.getNoteNumber() + noteShift(config.octave);
     if (note < 0 || note > 127 || message.getNoteNumber() < config.lowNote
         || message.getNoteNumber() > config.highNote) return;
 

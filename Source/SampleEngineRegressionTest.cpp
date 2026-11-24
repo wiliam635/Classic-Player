@@ -199,6 +199,27 @@ struct SampleEngineRegressionTests
         require(!layer.sustainDown[0], "Inverted pedal: CC64=127 should release the sustain");
     }
 
+    static void globalTransposeShiftsNotes(double rate)
+    {
+        struct Restore { ~Restore() { globalTranspose().store(0); } } restore;
+        require(noteShift(1) == 12, "Octave shift changed without transpose");
+        globalTranspose().store(-5);
+        require(noteShift(1) == 7 && noteShift(-1) == -17, "Transpose is not added to the layer octave");
+        auto engine = instrument(rate);
+        auto& layer = engine->layers[0];
+        const auto routing = config();
+        juce::AudioBuffer<float> audio(2, 64);
+        juce::MidiBuffer midi;
+        globalTranspose().store(2);
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, 0.8f), 0);
+        audio.clear();
+        engine->renderLayer(layer, audio, midi, routing);
+        const auto voice = std::find_if(layer.voices.begin(), layer.voices.end(),
+            [](const auto& candidate) { return candidate.active; });
+        require(voice != layer.voices.end(), "Transposed note did not start a voice");
+        require(voice->note == 62, "Transpose +2 did not play note 62 for key 60");
+    }
+
     static void mappedFaderIsNotChannelVolume(double rate)
     {
         auto engine = instrument(rate);
@@ -1130,6 +1151,7 @@ struct SampleEngineRegressionTests
             midiTiming(rate);
             sustainAndPolyphony(rate);
             invertedSustainPedal(rate);
+            globalTransposeShiftsNotes(rate);
             mappedFaderIsNotChannelVolume(rate);
             lifetime(rate);
             shortenedDecay(rate);

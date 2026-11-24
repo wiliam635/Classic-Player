@@ -186,7 +186,7 @@ void HammondEngine::message(int index,const juce::MidiMessage& m,Config& c)
     v.active=v.down=true;v.note=m.getNoteNumber();v.channel=ch;
     v.velocity=c.routing.velocitySensitivityOff ? (100.0f/127.0f) : m.getFloatVelocity();
     v.velocity *= c.routing.nordSplit.gain(v.note);
-    const double base=hz(juce::jlimit(0,127,v.note+c.routing.octave*12));
+    const double base=hz(juce::jlimit(0,127,v.note+noteShift(c.routing.octave)));
     for(size_t i=0;i<ratios.size();++i){
         double f=base*ratios[i];const double high=std::min(hz(114),sampleRate*.45);
         while(f>high)f*=.5;while(f<hz(24))f*=2;

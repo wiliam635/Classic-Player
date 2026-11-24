@@ -548,6 +548,7 @@ private:
     juce::TextButton updateButton { "ATUALIZACOES" };
     juce::TextButton backupButton { "BACKUP" };
     juce::TextButton sustainPolarityButton { "PEDAL NORMAL" };
+    juce::Slider transposeSlider;
     std::unique_ptr<juce::FileChooser> backupChooser;
     juce::ThreadPool backupJobs { 1 };
     bool backupBusy = false;

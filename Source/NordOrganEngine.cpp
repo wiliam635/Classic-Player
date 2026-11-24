@@ -172,7 +172,7 @@ void NordOrganEngine::handleMessage(Layer& layer, const Config& config,
     selected->note = note;
     selected->channel = channel;
     const auto bassOffset = config.model == Model::b3Bass ? -12 : 0;
-    const auto base = 440.0 * std::exp2((note + config.routing.octave * 12 + bassOffset - 69) / 12.0);
+    const auto base = 440.0 * std::exp2((note + noteShift(config.routing.octave) + bassOffset - 69) / 12.0);
     for (size_t i = 0; i < drawbarRatios.size(); ++i)
     {
         auto frequency = base * drawbarRatios[i];

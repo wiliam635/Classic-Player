@@ -10472,6 +10472,26 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     };
     sustainPolarityButton.setButtonText(classicProcessor.sustainPedalInverted() ? "PEDAL INVERTIDO" : "PEDAL NORMAL");
     addAndMakeVisible(sustainPolarityButton);
+    transposeSlider.setName("TRANSPOSE");
+    transposeSlider.setSliderStyle(juce::Slider::IncDecButtons);
+    transposeSlider.setIncDecButtonsMode(juce::Slider::incDecButtonsNotDraggable);
+    transposeSlider.setRange(-12.0, 12.0, 1.0);
+    transposeSlider.setValue(classicProcessor.globalTransposeSemitones(), juce::dontSendNotification);
+    transposeSlider.setTextBoxStyle(juce::Slider::TextBoxLeft, false, 96, 24);
+    transposeSlider.setDoubleClickReturnValue(true, 0.0);
+    transposeSlider.textFromValueFunction = [](double v)
+    {
+        const auto semitones = juce::roundToInt(v);
+        return juce::String("TRANSPOSE ") + (semitones > 0 ? "+" : "") + juce::String(semitones);
+    };
+    transposeSlider.valueFromTextFunction = [](const juce::String& t)
+    {
+        return (double) juce::jlimit(-12, 12, t.retainCharacters("-0123456789").getIntValue());
+    };
+    transposeSlider.getProperties().set("midiKey", "pk:transpose:0");
+    transposeSlider.setTooltip(juce::String::fromUTF8("Transpor tudo (todas as camadas e o teclado na tela) de -12 a +12 semitons. Clique com o botão direito para atribuir um CC. Clique duplo volta para 0."));
+    transposeSlider.onValueChange = [this] { classicProcessor.setGlobalTransposeSemitones(juce::roundToInt(transposeSlider.getValue())); };
+    addAndMakeVisible(transposeSlider);
     flatButton(newProgramButton);
     flatButton(saveProgramButton);
     flatButton(exportProgramButton);
@@ -11079,6 +11099,7 @@ static juce::String uiMidiDisplayName(const juce::String& key, juce::Slider* sli
     {
         if (parts[1] == "strip") return hudTr("Pads cont\xc3\xadnuos", "Continuous pads", "Pads continuos") + kMidHudDot
                                                   + (parts[2] == "vol" ? hudTr("Volume", "Volume", "Volumen") : parts[2] == "cut" ? juce::String("Cutoff") : parts[2]);
+        if (parts[1] == "transpose") return juce::String("TRANSPOSE");
         if (parts[1] == "pad") return "Pad " + juce::String(parts[2].getIntValue() + 1) + kMidHudDot + hudTr("Volume", "Volume", "Volumen");
         const auto field = parts.size() >= 4 ? parts[3] : juce::String();
         if (parts[1] == "hpf") return layerText() + kMidHudDot + hudTr("Filtro grave (HPF)", "Low cut (HPF)", "Filtro de graves (HPF)");
@@ -11890,7 +11911,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
     recordingButton.setBounds(footerRow.removeFromLeft(156).reduced(1, 0));
     // Keep the requested order on one row. Let the recording path use only
     // the space left after reserving the remaining controls.
-    const auto statusWidth = juce::jlimit(140, 230, footerRow.getWidth() - 928);
+    const auto statusWidth = juce::jlimit(140, 230, footerRow.getWidth() - 1098);
     recordingStatus.setBounds(footerRow.removeFromLeft(statusWidth).reduced(6, 0));
     keyboardVisibilityButton.setBounds({}); // the PALCO / MIXER modes now control the virtual keyboard
     audioMidiSettingsButton.setBounds(footerRow.removeFromLeft(140).reduced(2, 0));
@@ -11900,6 +11921,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
     updateButton.setBounds(footerRow.removeFromLeft(146).reduced(2, 0));
     backupButton.setBounds(footerRow.removeFromLeft(120).reduced(2, 0));
     sustainPolarityButton.setBounds(footerRow.removeFromLeft(150).reduced(2, 0));
+    transposeSlider.setBounds(footerRow.removeFromLeft(170).reduced(2, 0));
     skinSelector.setVisible(true);
     audioMidiSettingsButton.setVisible(!showingLiveSet
         && classicProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone);
@@ -11938,6 +11960,7 @@ void ClassicPlayerAudioProcessorEditor::resized()
         auto utilities = liveFooter.removeFromBottom(32).reduced(2, 1);
         backupButton.setBounds(utilities.removeFromLeft(112).reduced(1, 0));
         sustainPolarityButton.setBounds(utilities.removeFromLeft(150).reduced(1, 0));
+        transposeSlider.setBounds(utilities.removeFromLeft(170).reduced(1, 0));
         auto panicControls = utilities.removeFromRight(178);
         panicLearnButton.setBounds(panicControls.removeFromRight(80).reduced(1, 0));
         panicButton.setBounds(panicControls.reduced(1, 0));
@@ -12287,6 +12310,8 @@ void ClassicPlayerAudioProcessorEditor::timerCallback()
     classicProcessor.consumeMidiControlUpdates();
     classicProcessor.flushParameterMidiUpdates();
     drainUiMidi();
+    if (juce::roundToInt(transposeSlider.getValue()) != classicProcessor.globalTransposeSemitones())
+        transposeSlider.setValue(classicProcessor.globalTransposeSemitones(), juce::dontSendNotification);
     if (showingLiveSet)
         refreshLiveSetVolumeIndicators();
     if (classicProcessor.consumeLiveSetSlotMidiLearnChanged())

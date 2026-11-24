@@ -603,7 +603,7 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
         if (!generated && !routing.acceptsVelocity((int) message.getVelocity())) return;
         const auto inputNote = message.getNoteNumber();
         if (!generated && (inputNote < routing.lowNote || inputNote > routing.highNote)) return;
-        const auto note = juce::jlimit(0, 127, inputNote + routing.octave * 12);
+        const auto note = juce::jlimit(0, 127, inputNote + noteShift(routing.octave));
         auto velocity = generated ? juce::jlimit(1, 127, (int) message.getVelocity())
             : routing.velocitySensitivityOff ? 100
             : juce::jlimit(1, 127, (int) message.getVelocity());
@@ -646,7 +646,7 @@ void NordSampleEngine::handleMidiMessage(Layer& layer, const juce::MidiMessage& 
             if (routing.nordArp.mode != 2) return;
         }
         if (!generated && (inputNote < routing.lowNote || inputNote > routing.highNote)) return;
-        const auto note = juce::jlimit(0, 127, inputNote + routing.octave * 12);
+        const auto note = juce::jlimit(0, 127, inputNote + noteShift(routing.octave));
         if (monoMode && generated)
         {
             if (layer.monoNote == note && layer.monoChannel == channel) layer.monoNote = -1;

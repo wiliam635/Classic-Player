@@ -496,7 +496,7 @@ void SampleEngine::startVoice(Layer& layer, int note, int channel, float velocit
     candidate->position = static_cast<double>(startSample);
     candidate->increment = std::pow(2.0, semitones / 12.0)
                          * layer.sourceSampleRate / currentSampleRate;
-    candidate->level = velocity * routing.nordSplit.gain(inputNote < 0 ? note - routing.octave*12 : inputNote);
+    candidate->level = velocity * routing.nordSplit.gain(inputNote < 0 ? note - noteShift(routing.octave) : inputNote);
     candidate->velocity = velocity;
     const auto attackSamples = juce::jmax(1.0, layerAttackSeconds(routing.attack) * currentSampleRate);
     candidate->attackGain = routing.attack <= 0.0f ? 1.0f : 0.0f;
@@ -684,7 +684,7 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
     // measured on the reference player (its forte and mezzo-forte are 4-5 dB above the old level).
     const auto modelMakeup = pianoModel ? 1.5849f : 1.0f;
     candidate->level = (levelVelocity + (1.0f - levelVelocity) * dynamicLift) * strokeGain * modelMakeup
-        * routing.nordSplit.gain(inputNote < 0 ? note - routing.octave*12 : inputNote);
+        * routing.nordSplit.gain(inputNote < 0 ? note - noteShift(routing.octave) : inputNote);
     if (routing.pianoReferenceModel && !routing.velocitySensitivityOff && layer.piano->levelsMeasured
         && stroke.bank != 2)
     {
@@ -703,7 +703,7 @@ void SampleEngine::startPianoVoice(Layer& layer, int sampleIndex, int note, int 
                            + static_cast<double>(referenceVelocityDb(velocity)) + referenceMakeupDb
                            - static_cast<double>(stroke.peakDb);
         candidate->level = static_cast<float>(std::pow(10.0, levelDb / 20.0)) * levelScale
-            * routing.nordSplit.gain(inputNote < 0 ? note - routing.octave*12 : inputNote);
+            * routing.nordSplit.gain(inputNote < 0 ? note - noteShift(routing.octave) : inputNote);
     }
     if (layer.softPedalDown[(size_t) juce::jlimit(1, 16, channel) - 1])
         candidate->level *= softPedalGain;
@@ -1026,7 +1026,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
             if (!routing.acceptsVelocity((int) message.getVelocity())) return;
             const auto inputNote = message.getNoteNumber();
             if (inputNote < routing.lowNote || inputNote > routing.highNote) return;
-            const auto note = juce::jlimit(0, 127, inputNote + routing.octave * 12);
+            const auto note = juce::jlimit(0, 127, inputNote + noteShift(routing.octave));
             auto velocity = routing.velocitySensitivityOff ? (100.0f / 127.0f)
                 : juce::jlimit(0.0f, 1.0f, message.getFloatVelocity());
             if (!routing.velocitySensitivityOff && routing.velocityCurve == 3 && routing.velocityCalibrationEnabled)
@@ -1094,7 +1094,7 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
         {
             const auto inputNote = message.getNoteNumber();
             if (inputNote < routing.lowNote || inputNote > routing.highNote) return;
-            const auto note = juce::jlimit(0, 127, inputNote + routing.octave * 12);
+            const auto note = juce::jlimit(0, 127, inputNote + noteShift(routing.octave));
             if (layer.pianoLoaded)
             {
                 const auto channel = juce::jlimit(1, 16, message.getChannel());

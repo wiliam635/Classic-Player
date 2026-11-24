@@ -395,7 +395,7 @@ void AnalogSynthEngine::noteOn(int layerIndex, int midiChannel, int note,
         }
     }
 
-    const auto frequency = midiNoteToFrequency(note + config.routing.octave * 12);
+    const auto frequency = midiNoteToFrequency(note + noteShift(config.routing.octave));
     const auto splitGain = config.routing.nordSplit.gain(splitSourceNote >= 0 ? splitSourceNote : note);
     if (config.browserCompatible && mono && voice->active && voice->browserVoice)
     {
@@ -484,7 +484,7 @@ void AnalogSynthEngine::noteOff(int layerIndex, int midiChannel, int note, const
             voice.midiChannel = replacementChannel;
             voice.velocity = layer.heldVelocities[replacementIndex];
             voice.splitGain = config.routing.nordSplit.gain(replacement);
-            voice.targetFrequency = midiNoteToFrequency(replacement + config.routing.octave * 12);
+            voice.targetFrequency = midiNoteToFrequency(replacement + noteShift(config.routing.octave));
             if (config.browserCompatible)
                 voice.amp.stage = EnvelopeStage::legato;
             return; // Last-note priority with a continuous envelope: true legato.
@@ -883,7 +883,7 @@ void AnalogSynthEngine::process(juce::AudioBuffer<float>& output, const juce::Mi
                             voice.midiChannel = replacementChannel;
                             voice.velocity = layer.heldVelocities[replacementIndex];
                             voice.splitGain = config.routing.nordSplit.gain(replacement);
-                            voice.targetFrequency = midiNoteToFrequency(replacement + config.routing.octave * 12);
+                            voice.targetFrequency = midiNoteToFrequency(replacement + noteShift(config.routing.octave));
                             if (config.browserCompatible)
                                 voice.amp.stage = EnvelopeStage::legato;
                         }

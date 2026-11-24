@@ -449,6 +449,16 @@ private:
 public:
     bool sustainPedalInverted() const noexcept { return globalSustainInverted().load(); }
     void setSustainPedalInverted(bool inverted) { globalSustainInverted().store(inverted); saveStartupSettings(); }
+    // Global transpose in semitones (-12..+12) for every layer. Held notes are released when it changes, because
+    // each engine keys a note-off on the shifted note number.
+    int globalTransposeSemitones() const noexcept { return globalTranspose().load(); }
+    void setGlobalTransposeSemitones(int semitones)
+    {
+        const auto value = juce::jlimit(-12, 12, semitones);
+        if (globalTranspose().exchange(value) == value) return;
+        pendingPanic.store(true);
+        startupSettingsDirty.store(true);
+    }
 private:
     // The standalone pad strip belongs to the app, not to a performance: it is kept in PadStrip.xml and a
     // program change never reloads or clears it.

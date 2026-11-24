@@ -18,6 +18,10 @@
 // Sustain pedal polarity, one setting for the whole instrument: when inverted, CC64 value v is read as 127 - v by every
 // engine. Switch-type pedals exist in both polarities, so this is a property of the pedal, not of a layer.
 inline std::atomic<bool>& globalSustainInverted() { static std::atomic<bool> flag { false }; return flag; }
+// Global transpose in semitones (-12..+12), shared by every engine. It is added to each layer's own octave shift
+// after the layer's key range has been checked, so key splits stay on the physical keys.
+inline std::atomic<int>& globalTranspose() { static std::atomic<int> semitones { 0 }; return semitones; }
+inline int noteShift(int octave) { return octave * 12 + globalTranspose().load(std::memory_order_relaxed); }
 inline int sustainPedalValue(int value) { return globalSustainInverted().load(std::memory_order_relaxed) ? 127 - value : value; }
 
 class Sf2Engine

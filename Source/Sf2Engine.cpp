@@ -589,7 +589,9 @@ void Sf2Engine::dispatchMidi(Layer& layer, const juce::MidiMessage& message)
     const auto sourceNote = message.getNoteNumber();
     if (sourceNote < layer.config.lowNote || sourceNote > layer.config.highNote)
         return;
-    const auto note = juce::jlimit(0, 127, sourceNote + layer.config.octave * 12);
+    // General MIDI percussion (channel 10) must not be transposed: that would change the drum instrument.
+    const auto note = juce::jlimit(0, 127, sourceNote + layer.config.octave * 12
+                                              + (message.getChannel() == 10 ? 0 : globalTranspose().load(std::memory_order_relaxed)));
 
     if (message.isNoteOn())
     {

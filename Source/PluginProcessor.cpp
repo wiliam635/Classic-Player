@@ -99,6 +99,7 @@ void ClassicPlayerAudioProcessor::saveStartupSettings()
     }
     settings.setAttribute("panicCC", panicCC.load());
     settings.setAttribute("sustainInverted", globalSustainInverted().load() ? 1 : 0);
+    settings.setAttribute("globalTranspose", globalTranspose().load());
     settings.setAttribute("panicChannel", panicCCChannel.load());
     settings.setAttribute("liveSetSwapMode", liveSetSwapMode());
     const auto file = startupSettingsFile();
@@ -198,6 +199,7 @@ void ClassicPlayerAudioProcessor::restoreStartupSettings()
         }
         panicCC.store(juce::jlimit(-1, 119, settings->getIntAttribute("panicCC", -1)));
         globalSustainInverted().store(settings->getIntAttribute("sustainInverted", 0) != 0);
+        globalTranspose().store(juce::jlimit(-12, 12, settings->getIntAttribute("globalTranspose", 0)));
         panicCCChannel.store(juce::jlimit(-1, 16, settings->getIntAttribute("panicChannel", -1)));
         liveSetSwapModeValue.store(juce::jlimit(0, liveSetSwapModeCount - 1,
                                                 settings->getIntAttribute("liveSetSwapMode", 0)));
@@ -2984,6 +2986,11 @@ bool ClassicPlayerAudioProcessor::applyUiMidiTarget(const juce::String& key, flo
     const auto kind = parts[1];
     const auto number = parts[2].getIntValue();
     const auto lerp = [n](float lo, float hi) { return lo + n * (hi - lo); };
+    if (kind == "transpose")
+    {
+        setGlobalTransposeSemitones(juce::roundToInt(-12.0f + 24.0f * n));
+        return true;
+    }
     if (kind == "strip")
     {
         // Keys are "pk:strip:vol" / "pk:strip:cut" (three parts); accept a trailing index too.
@@ -5425,6 +5432,7 @@ void ClassicPlayerAudioProcessor::getStateInformation(juce::MemoryBlock& destina
             parameterState.setProperty("value", currentValue->load(), nullptr);
     }
     state.setProperty("sustainPedalInverted", globalSustainInverted().load(), nullptr);
+    state.setProperty("globalTranspose", globalTranspose().load(), nullptr);
     state.setProperty("masterLearnCC", masterCC.load(), nullptr);
     state.setProperty("masterLearnChannel", masterCCChannel.load(), nullptr);
     for (int band = 0; band < 3; ++band)
@@ -5825,6 +5833,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     visualLayerOrder[(size_t) position].store(position, std::memory_order_relaxed);
             if (wrapperType != wrapperType_Standalone && state.hasProperty("sustainPedalInverted"))
                 globalSustainInverted().store((bool) state.getProperty("sustainPedalInverted"));
+            if (wrapperType != wrapperType_Standalone && state.hasProperty("globalTranspose"))
+                globalTranspose().store(juce::jlimit(-12, 12, (int) state.getProperty("globalTranspose")));
             masterCC.store(juce::jlimit(-1, 119, (int) state.getProperty("masterLearnCC", -1)));
             masterCCChannel.store(juce::jlimit(-1, 16, (int) state.getProperty("masterLearnChannel", -1)));
             masterLearning.store(false);
