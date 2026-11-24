@@ -170,7 +170,7 @@ public final class MainActivity extends Activity {
         if (audioEngine == null) return;
         if (type == 0xb0) {
             screen.setMidiSignal();
-            screen.setLastMidiControl(first,channel,second);
+            screen.setLastMidiControl(first,channel,second,midiControlName(first,channel));
             if(first==64){
                 // Match desktop: CC64 is reserved for sustain and cannot be
                 // assigned to a layer parameter through MIDI Learn.
@@ -184,6 +184,22 @@ public final class MainActivity extends Activity {
             if(pendingPadCcLearn>=0&&first!=64){
                 getSharedPreferences("pads",MODE_PRIVATE).edit().putInt(pendingPadCcLearn==12?"pad_stop_cc":"pad_cc_"+pendingPadCcLearn,first).apply();
                 screen.setMidiStatus(pendingPadCcLearn==12?"MIDI: STOP CC "+first+" aprendido":"MIDI: PAD "+(pendingPadCcLearn+1)+" CC "+first+" aprendido");final String padToast="ATRIBUÍDO: CC "+first;mainHandler.post(()->android.widget.Toast.makeText(this,padToast,android.widget.Toast.LENGTH_SHORT).show());pendingPadCcLearn=-1;return;
+            }
+            if(pendingTransposeLearn>=0){
+                String key=pendingTransposeLearn==0?"transpose_cc":pendingTransposeLearn==1?"transpose_up_cc":"transpose_down_cc";
+                getSharedPreferences("midi_learn",MODE_PRIVATE).edit().putInt(key,first).apply();
+                screen.setMidiStatus("MIDI: TRANSPOSE "+(pendingTransposeLearn==0?"":pendingTransposeLearn==1?"+ ":"− ")+"CC "+first+" aprendido");
+                pendingTransposeLearn=-1;return;
+            }
+            {
+                SharedPreferences tp=getSharedPreferences("midi_learn",MODE_PRIVATE);
+                int upCc=tp.getInt("transpose_up_cc",-1),downCc=tp.getInt("transpose_down_cc",-1);
+                if(first==upCc||first==downCc){
+                    boolean up=first==upCc,pressed=second>=64,was=transposeButtonDown[up?0:1][channel];
+                    transposeButtonDown[up?0:1][channel]=pressed;
+                    if(pressed&&!was){int next=Math.max(-12,Math.min(12,audioEngine.globalTranspose()+(up?1:-1)));mainHandler.post(()->applyGlobalTranspose(next));}
+                    return;
+                }
             }
             // Learn is handled before the reserved MIDI CC filters so STOP
             // can intentionally use CC 120/123 when a controller provides it.
@@ -232,6 +248,11 @@ public final class MainActivity extends Activity {
                     &&(getSharedPreferences("midi_learn",MODE_PRIVATE).getInt("cc_channel_7",-1)<0
                     ||getSharedPreferences("midi_learn",MODE_PRIVATE).getInt("cc_channel_7",-1)==channel)) {
                 padEngine.stopAll(); screen.setMidiStatus("MIDI: pads parados"); return;
+            }
+            if(first==getSharedPreferences("midi_learn",MODE_PRIVATE).getInt("transpose_cc",85)){
+                final int shifted=Math.round(second/127f*24f)-12;
+                mainHandler.post(()->applyGlobalTranspose(shifted));
+                return;
             }
             if (first == 120 || first == 123) {
                 panicMidiState();
@@ -780,7 +801,43 @@ public final class MainActivity extends Activity {
             .setSingleChoiceItems(labels,audioEngine.globalTranspose()+12,(dialog,which)->{
                 dialog.dismiss();
                 applyGlobalTranspose(which-12);
+            }).setNeutralButton("APRENDER CC",(d,w)->showTransposeLearnChooser()).setNegativeButton("CANCELAR",null).show();
+    }
+
+    private int pendingTransposeLearn=-1;
+    private final boolean[][] transposeButtonDown=new boolean[2][16];
+
+    private void showTransposeLearnChooser(){
+        String[] choices={"Slider de transpose (CC padrão 85)","Botão + (um passo por toque)","Botão − (um passo por toque)","Restaurar padrão (CC 85, sem botões)"};
+        new EditorUi.Alert(this).setTitle("APRENDER CC · TRANSPOSE")
+            .setMessage("Escolha a função e mova o controle no teclado.")
+            .setItems(choices,(dialog,which)->{
+                if(which==3){
+                    getSharedPreferences("midi_learn",MODE_PRIVATE).edit().remove("transpose_cc").remove("transpose_up_cc").remove("transpose_down_cc").apply();
+                    screen.setMidiStatus("MIDI: transpose restaurado (CC 85)");return;
+                }
+                pendingTransposeLearn=which;screen.setMidiStatus("MIDI: mova o controle para o TRANSPOSE");
             }).setNegativeButton("CANCELAR",null).show();
+    }
+
+    /** Name of the function a CC currently controls, for the on-screen HUD. */
+    private String midiControlName(int cc,int channel){
+        if(cc==64)return "SUSTAIN";
+        if(cc==120||cc==123)return "PÂNICO";
+        SharedPreferences tp=getSharedPreferences("midi_learn",MODE_PRIVATE);
+        if(cc==tp.getInt("transpose_up_cc",-1))return "TRANSPOSE +";
+        if(cc==tp.getInt("transpose_down_cc",-1))return "TRANSPOSE −";
+        String[] targets={"VOLUME","FILTRO","REVERB","COMP","MUTE"};
+        for(int layer=0;layer<6;layer++)for(int t=0;t<5;t++)
+            if(MidiLearnMapping.load(tp,layer,t).matches(cc,channel))return "CAMADA "+(layer+1)+" "+targets[t];
+        for(int t=0;t<8;t++){
+            int learnedChannel=tp.getInt("cc_channel_"+t,-1);
+            if(tp.getInt("cc_"+t,-1)==cc&&(learnedChannel<0||learnedChannel==channel))
+                return t<6?"CAMADA "+(t+1)+" VOLUME":t==6?"MASTER":"PARAR PADS";
+        }
+        if(cc==tp.getInt("transpose_cc",85))return "TRANSPOSE";
+        if(cc==1)return "MOD WHEEL";
+        return "";
     }
 
     private void applyGlobalTranspose(int semitones){
@@ -3250,7 +3307,7 @@ public final class MainActivity extends Activity {
         void setAccount(String value) { account = value == null ? "" : value; postInvalidate(); }
         void setMidiSignal() { midiSignal = true; postInvalidateDelayed(180); }
         void setLastNoteOff(int note) { lastNoteOff = note; postInvalidate(); }
-        void setLastMidiControl(int cc,int channel,int value){lastMidiControl="CC "+cc+" · CH "+(channel+1)+" · "+value;postInvalidate();}
+        void setLastMidiControl(int cc,int channel,int value,String name){lastMidiControl=(name==null||name.isEmpty()?"":name+" · ")+"CC "+cc+" · CH "+(channel+1)+" · "+value;postInvalidate();}
         void setLayerModulationEnabled(int layer,boolean enabled){if(layer<0||layer>=6)return;modulationEnabled[layer]=enabled;getSharedPreferences("layers",MODE_PRIVATE).edit().putBoolean("modulation_enabled_"+layer,enabled).apply();if(audioEngine!=null)audioEngine.setLayerModulationEnabled(layer,enabled);postInvalidate();}
         void setLayerName(int layer, String name) { if (layer >= 0 && layer < layerNames.length) { layerNames[layer] = name; postInvalidate(); } }
         void setPresetName(int layer, String name) { if (layer >= 0 && layer < presetNames.length) { presetNames[layer] = name == null ? "" : name; postInvalidate(); } }
