@@ -100,6 +100,7 @@ void ClassicPlayerAudioProcessor::saveStartupSettings()
     settings.setAttribute("panicCC", panicCC.load());
     settings.setAttribute("sustainInverted", globalSustainInverted().load() ? 1 : 0);
     settings.setAttribute("globalTranspose", globalTranspose().load());
+    settings.setAttribute("transposeCcDefault", transposeCcDefaultApplied ? 1 : 0);
     settings.setAttribute("panicChannel", panicCCChannel.load());
     settings.setAttribute("liveSetSwapMode", liveSetSwapMode());
     const auto file = startupSettingsFile();
@@ -200,9 +201,35 @@ void ClassicPlayerAudioProcessor::restoreStartupSettings()
         panicCC.store(juce::jlimit(-1, 119, settings->getIntAttribute("panicCC", -1)));
         globalSustainInverted().store(settings->getIntAttribute("sustainInverted", 0) != 0);
         globalTranspose().store(juce::jlimit(-12, 12, settings->getIntAttribute("globalTranspose", 0)));
+        transposeCcDefaultApplied = settings->getIntAttribute("transposeCcDefault", 0) != 0;
         panicCCChannel.store(juce::jlimit(-1, 16, settings->getIntAttribute("panicChannel", -1)));
         liveSetSwapModeValue.store(juce::jlimit(0, liveSetSwapModeCount - 1,
                                                 settings->getIntAttribute("liveSetSwapMode", 0)));
+    }
+    // Default CC for the global transpose (a rarely used, undefined controller number), offered once: after that the
+    // user's own choice, including removing it, is respected. It is skipped when another control already uses that CC.
+    if (wrapperType == wrapperType_Standalone && !transposeCcDefaultApplied)
+    {
+        constexpr int defaultTransposeCC = 85;
+        const auto current = uiMidiMapString() + padStripUiMidiText;
+        bool taken = current.contains("pk:transpose:");
+        for (const auto& entry : juce::StringArray::fromTokens(current, ";", ""))
+        {
+            const auto eq = entry.lastIndexOfChar('='), colon = entry.lastIndexOfChar(':');
+            if (eq > 0 && colon > eq && entry.substring(eq + 1, colon).getIntValue() == defaultTransposeCC) taken = true;
+        }
+        for (int layer = 0; layer < Sf2Engine::layerCount && !taken; ++layer)
+            for (int target = 0; target < learnTargetCount; ++target)
+                if (learnedCCs[(size_t) layer][(size_t) target].load(std::memory_order_relaxed) == defaultTransposeCC) taken = true;
+        if (masterCC.load() == defaultTransposeCC || panicCC.load() == defaultTransposeCC) taken = true;
+        for (const auto& band : masterEqCC) if (band.load() == defaultTransposeCC) taken = true;
+        transposeCcDefaultApplied = true;
+        startupSettingsDirty.store(true);
+        if (!taken)
+        {
+            padStripUiMidiText += "pk:transpose:0=" + juce::String(defaultTransposeCC) + ":0;";
+            setUiMidiMapString(stripUiMidiEntries(uiMidiMapString(), false) + padStripUiMidiText);
+        }
     }
     // Start every standalone launch with zero layers and no loaded performance.
     // Saved programs remain in the library and can be selected from the UI.
@@ -3189,7 +3216,7 @@ juce::String ClassicPlayerAudioProcessor::stripUiMidiEntries(const juce::String&
 {
     juce::String result;
     for (const auto& entry : juce::StringArray::fromTokens(text, ";", ""))
-        if (entry.isNotEmpty() && entry.startsWith("pk:strip:") == wanted)
+        if (entry.isNotEmpty() && (entry.startsWith("pk:strip:") || entry.startsWith("pk:transpose:")) == wanted)
             result << entry << ";";
     return result;
 }
