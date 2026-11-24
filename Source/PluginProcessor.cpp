@@ -1141,6 +1141,8 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             (float) config.nordArp.rangeSemitones, config.nordMorph.arpRange, 48.0f)));
         engine.setRuntimeConfig(i, config);
         nordRouting[(size_t) i] = config;
+        nordRouting[(size_t) i].ignoreChannelVolumeCC7 = ccVolumeMapped;
+        nordRouting[(size_t) i].ignoreChannelVolumeCC11 = ccExpressionMapped;
         nordRouting[(size_t) i].enabled = config.enabled
             && type == LayerType::nord
             && nordLoaded[(size_t) i].load(std::memory_order_relaxed);
