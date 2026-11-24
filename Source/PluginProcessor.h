@@ -641,6 +641,7 @@ private:
     std::atomic<int> genericMidiLearnIndex { -1 };
     std::atomic<bool> genericMidiAnyDirty { false };
     std::atomic<bool> uiMidiWanted { false }, uiMidiLearnActive { false };
+    std::atomic<bool> uiMidiMapsCC7 { false }, uiMidiMapsCC11 { false };
     std::atomic<int> uiMidiRevision { 0 };
     std::atomic<bool> uiEditorDraining { false };
     int headlessMapRevision = -1;

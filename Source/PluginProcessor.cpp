@@ -986,6 +986,23 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         }
     }
 
+    // CC7 / CC11 drive the NPNO channel volume only while no control of the app is mapped to them.
+    bool ccVolumeMapped = uiMidiMapsCC7.load(std::memory_order_relaxed)
+        || masterCC.load(std::memory_order_relaxed) == 7 || panicCC.load(std::memory_order_relaxed) == 7;
+    bool ccExpressionMapped = uiMidiMapsCC11.load(std::memory_order_relaxed)
+        || masterCC.load(std::memory_order_relaxed) == 11 || panicCC.load(std::memory_order_relaxed) == 11;
+    for (const auto& band : masterEqCC)
+    {
+        ccVolumeMapped = ccVolumeMapped || band.load(std::memory_order_relaxed) == 7;
+        ccExpressionMapped = ccExpressionMapped || band.load(std::memory_order_relaxed) == 11;
+    }
+    for (int learnLayer = 0; learnLayer < Sf2Engine::layerCount; ++learnLayer)
+        for (int learnTarget = 0; learnTarget < learnTargetCount; ++learnTarget)
+        {
+            const auto learned = learnedCCs[(size_t) learnLayer][(size_t) learnTarget].load(std::memory_order_relaxed);
+            ccVolumeMapped = ccVolumeMapped || learned == 7;
+            ccExpressionMapped = ccExpressionMapped || learned == 11;
+        }
     std::array<Sf2Engine::LayerConfig, Sf2Engine::layerCount> nordRouting;
     std::array<Sf2Engine::LayerConfig, Sf2Engine::layerCount> nordSampleRouting;
     std::array<NordOrganEngine::Config, Sf2Engine::layerCount> nordOrganRouting;
@@ -1128,6 +1145,8 @@ void ClassicPlayerAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
             && type == LayerType::nord
             && nordLoaded[(size_t) i].load(std::memory_order_relaxed);
         nordSampleRouting[(size_t) i] = config;
+        nordSampleRouting[(size_t) i].ignoreChannelVolumeCC7 = ccVolumeMapped;
+        nordSampleRouting[(size_t) i].ignoreChannelVolumeCC11 = ccExpressionMapped;
         nordSampleRouting[(size_t) i].enabled = config.enabled
             && type == LayerType::nordSample && !isLayerMuted(i);
         dx7LayerConfigs[(size_t) i] = config;
@@ -3164,6 +3183,20 @@ void ClassicPlayerAudioProcessor::setUiMidiMapString(const juce::String& text)
         uiMidiMapText = text;
     }
     uiMidiWanted.store(text.isNotEmpty());
+    {
+        bool uses7 = false, uses11 = false;
+        for (const auto& entry : juce::StringArray::fromTokens(text, ";", ""))
+        {
+            const auto eq = entry.lastIndexOfChar('=');
+            const auto colon = entry.lastIndexOfChar(':');
+            if (eq <= 0 || colon <= eq) continue;
+            const auto cc = entry.substring(eq + 1, colon).getIntValue();
+            uses7 = uses7 || cc == 7;
+            uses11 = uses11 || cc == 11;
+        }
+        uiMidiMapsCC7.store(uses7);
+        uiMidiMapsCC11.store(uses11);
+    }
     uiMidiRevision.fetch_add(1);
 }
 

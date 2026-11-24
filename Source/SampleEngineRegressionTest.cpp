@@ -199,6 +199,24 @@ struct SampleEngineRegressionTests
         require(!layer.sustainDown[0], "Inverted pedal: CC64=127 should release the sustain");
     }
 
+    static void mappedFaderIsNotChannelVolume(double rate)
+    {
+        auto engine = instrument(rate);
+        auto& layer = engine->layers[0];
+        auto routing = config();
+        juce::AudioBuffer<float> audio(2, 64);
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::controllerEvent(1, 7, 64), 0);
+        audio.clear();
+        engine->renderLayer(layer, audio, midi, routing);
+        require(layer.cc7[0] < 0.3f, "CC7 should act as channel volume while nothing is mapped to it");
+        // A fader mapped to a layer/master control sends CC7 too: it must not also lower the NPNO channel volume.
+        routing.ignoreChannelVolumeCC7 = true;
+        audio.clear();
+        engine->renderLayer(layer, audio, midi, routing);
+        require(layer.cc7[0] == 1.0f, "A mapped CC7 must not also change the NPNO channel volume");
+    }
+
     static void sustainAndPolyphony(double rate)
     {
         auto engine = instrument(rate);
@@ -1112,6 +1130,7 @@ struct SampleEngineRegressionTests
             midiTiming(rate);
             sustainAndPolyphony(rate);
             invertedSustainPedal(rate);
+            mappedFaderIsNotChannelVolume(rate);
             lifetime(rate);
             shortenedDecay(rate);
             adsrSustain(rate);

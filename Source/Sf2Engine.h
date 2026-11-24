@@ -36,6 +36,10 @@ public:
         bool mono = false; // Mono legato: one voice at a time, without a gap.
         bool portamento = false;
         bool sustainEnabled = true;
+        // Set by the processor (not saved): this CC is already a mapped control of the app (a learned fader, master, ...),
+        // so the NPNO engine must not also apply it as MIDI channel volume / expression.
+        bool ignoreChannelVolumeCC7 = false;
+        bool ignoreChannelVolumeCC11 = false;
         int midiChannel = 0; // New layers default to OMNI; Drum Pads override to channel 10.
         int muteCC = -1;
         int muteCCChannel = -1;

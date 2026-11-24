@@ -1008,10 +1008,13 @@ void SampleEngine::renderLayer(Layer& layer, juce::AudioBuffer<float>& output,
                     layer.softPedalDown[index] = value >= 64;
                     return;
                 case 7:  // volume and expression follow a squared law (64 = -12 dB), as measured on the reference player
-                    layer.cc7[index] = static_cast<float>(value) * static_cast<float>(value) / (127.0f * 127.0f);
+                    // A fader the user mapped to a layer or master control must not also change the channel volume.
+                    layer.cc7[index] = routing.ignoreChannelVolumeCC7 ? 1.0f
+                        : static_cast<float>(value) * static_cast<float>(value) / (127.0f * 127.0f);
                     return;
                 case 11:
-                    layer.cc11[index] = static_cast<float>(value) * static_cast<float>(value) / (127.0f * 127.0f);
+                    layer.cc11[index] = routing.ignoreChannelVolumeCC11 ? 1.0f
+                        : static_cast<float>(value) * static_cast<float>(value) / (127.0f * 127.0f);
                     return;
                 default:
                     break;
