@@ -181,7 +181,7 @@ public final class MainActivity extends Activity {
             if(pendingLayerLearn>=0&&pendingLayerLearnTarget>=0){
                 collectLayerLearnCandidate(first,channel,second);return;
             }
-            if(pendingPadCcLearn>=0&&first!=64){
+            if(pendingPadCcLearn>=0&&first!=64&&padChannelOk(channel)){
                 getSharedPreferences("pads",MODE_PRIVATE).edit().putInt(pendingPadCcLearn==12?"pad_stop_cc":"pad_cc_"+pendingPadCcLearn,first).apply();
                 screen.setMidiStatus(pendingPadCcLearn==12?"MIDI: STOP CC "+first+" aprendido":"MIDI: PAD "+(pendingPadCcLearn+1)+" CC "+first+" aprendido");final String padToast="ATRIBUÍDO: CC "+first;mainHandler.post(()->android.widget.Toast.makeText(this,padToast,android.widget.Toast.LENGTH_SHORT).show());pendingPadCcLearn=-1;return;
             }
@@ -236,7 +236,7 @@ public final class MainActivity extends Activity {
                 }
             }
             if(learnedLayerControl)return;
-            if(padLayerActive&&continuousPadActive&&first!=64){
+            if(padLayerActive&&continuousPadActive&&first!=64&&padChannelOk(channel)){
                 SharedPreferences padMap=getSharedPreferences("pads",MODE_PRIVATE);int stopCc=padMap.getInt("pad_stop_cc",-1);
                 boolean down=second>=64,edge=down&&!padCcDown[channel][first];padCcDown[channel][first]=down;
                 if(first==stopCc&&down){padEngine.stopAll(true);screen.setMidiStatus("MIDI: pads parados");return;}
@@ -264,12 +264,12 @@ public final class MainActivity extends Activity {
         screen.setMidiSignal();
         if (type == 0x90 && second > 0) {
             captureNordCalibration(second);
-            if(pendingPadMidiLearn>=0){getSharedPreferences("pads",MODE_PRIVATE).edit().putInt("pad_note_"+pendingPadMidiLearn,first).apply();screen.setMidiStatus("MIDI: PAD "+(pendingPadMidiLearn+1)+" nota "+first+" aprendida");final String noteToast="ATRIBUÍDO: NOTA "+first;mainHandler.post(()->android.widget.Toast.makeText(this,noteToast,android.widget.Toast.LENGTH_SHORT).show());pendingPadMidiLearn=-1;return;}
+            if(pendingPadMidiLearn>=0&&padChannelOk(channel)){getSharedPreferences("pads",MODE_PRIVATE).edit().putInt("pad_note_"+pendingPadMidiLearn,first).apply();screen.setMidiStatus("MIDI: PAD "+(pendingPadMidiLearn+1)+" nota "+first+" aprendida");final String noteToast="ATRIBUÍDO: NOTA "+first;mainHandler.post(()->android.widget.Toast.makeText(this,noteToast,android.widget.Toast.LENGTH_SHORT).show());pendingPadMidiLearn=-1;return;}
             // Some controllers resend Note On before a missing release. Kill
             // the previous instance first so the voice can never accumulate.
             if (midiHeld[channel][first]) audioEngine.noteOff(first,channel);
             midiHeld[channel][first] = true;
-            if(padLayerActive){SharedPreferences padMap=getSharedPreferences("pads",MODE_PRIVATE);for(int pad=0;pad<(continuousPadActive?12:8);pad++)if(padMap.getInt("pad_note_"+pad,36+pad)==first){padEngine.trigger(pad,continuousPadActive);break;}}
+            if(padLayerActive&&padChannelOk(channel)){SharedPreferences padMap=getSharedPreferences("pads",MODE_PRIVATE);for(int pad=0;pad<(continuousPadActive?12:8);pad++)if(padMap.getInt("pad_note_"+pad,36+pad)==first){padEngine.trigger(pad,continuousPadActive);break;}}
             lastIncomingVelocity=second;
             audioEngine.noteOn(first, second,channel);
         }
@@ -604,6 +604,7 @@ public final class MainActivity extends Activity {
         super.onResume();
         hideSystemBars();
         if (audioEngine != null) audioEngine.start();
+        PolySynthEngine.switchFade(1,getSharedPreferences("audio",MODE_PRIVATE).getInt("switch_in_ms",8));
         restorePreferredAudioDevice();
         if(screen!=null)screen.postDelayed(this::restorePreferredAudioDevice,1000);
         AudioManager audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
@@ -845,6 +846,15 @@ public final class MainActivity extends Activity {
         audioEngine.setGlobalTranspose(semitones);
         getSharedPreferences("audio",MODE_PRIVATE).edit().putInt("global_transpose",audioEngine.globalTranspose()).apply();
         screen.invalidate();
+    }
+
+    private long lastTransposeTap;
+    private final Runnable openTranspose=this::showTransposeChooser;
+    /** One tap opens the list, a double tap resets the transpose to 0 (like double-clicking the desktop slider). */
+    private void onTransposeTap(){
+        long now=android.os.SystemClock.uptimeMillis();
+        if(now-lastTransposeTap<350){mainHandler.removeCallbacks(openTranspose);lastTransposeTap=0;applyGlobalTranspose(0);}
+        else{lastTransposeTap=now;mainHandler.postDelayed(openTranspose,360);}
     }
 
     private void toggleSustainPolarity(){
@@ -1936,7 +1946,37 @@ public final class MainActivity extends Activity {
                     String name=input.getText().toString().trim();if(name.isEmpty())name="PROGRAMA "+(slot+1);e.putBoolean(root+"_valid",true).putString(root+"_name",name).apply();screen.setLiveName(slot,name);
                 }).setNegativeButton("CANCELAR",null).show();
     }
+    /** TEMPO DA TROCA: the sound fades out before the program changes and back in afterwards (no click on the switch). */
     private void loadLiveSlot(int bank,int slot){
+        SharedPreferences live=getSharedPreferences("live_set",MODE_PRIVATE);
+        if(live.getBoolean("bank_"+bank+"_slot_"+slot+"_valid",false)&&audioEngine!=null){
+            int outMs=getSharedPreferences("audio",MODE_PRIVATE).getInt("switch_out_ms",35);
+            PolySynthEngine.switchFade(0,outMs);
+            mainHandler.postDelayed(()->loadLiveSlotNow(bank,slot),outMs+10L);
+        }else loadLiveSlotNow(bank,slot);
+    }
+    private void showSwitchTimeChooser(){
+        final int[][] options={{20,5},{35,8},{60,15},{100,25}};
+        SharedPreferences a=getSharedPreferences("audio",MODE_PRIVATE);
+        int selected=1;for(int i=0;i<options.length;i++)if(options[i][0]==a.getInt("switch_out_ms",35))selected=i;
+        String[] labels={"Curta · 20 ms saída / 5 ms entrada","Padrão · 35 ms saída / 8 ms entrada","Média · 60 ms saída / 15 ms entrada","Longa · 100 ms saída / 25 ms entrada"};
+        new EditorUi.Alert(this).setTitle("TEMPO DA TROCA").setMessage("Fade do som ao trocar de programa no Live Set.")
+            .setSingleChoiceItems(labels,selected,(d,which)->{
+                d.dismiss();
+                a.edit().putInt("switch_out_ms",options[which][0]).putInt("switch_in_ms",options[which][1]).apply();
+                screen.invalidate();
+            }).setNegativeButton("CANCELAR",null).show();
+    }
+    private boolean padChannelOk(int channel){int c=getSharedPreferences("pads",MODE_PRIVATE).getInt("pad_midi_channel",-1);return c<0||c==channel;}
+    private void showPadChannelChooser(){
+        String[] labels=new String[17];labels[0]="Todos os canais";for(int i=1;i<=16;i++)labels[i]="Canal "+i;
+        SharedPreferences pr=getSharedPreferences("pads",MODE_PRIVATE);
+        new EditorUi.Alert(this).setTitle("CANAL MIDI DOS PADS").setMessage("Vale para o aprendizado, os pads e o STOP.")
+            .setSingleChoiceItems(labels,pr.getInt("pad_midi_channel",-1)+1,(d,which)->{
+                d.dismiss();pr.edit().putInt("pad_midi_channel",which-1).apply();screen.invalidate();
+            }).setNegativeButton("CANCELAR",null).show();
+    }
+    private void loadLiveSlotNow(int bank,int slot){
         SharedPreferences live=getSharedPreferences("live_set",MODE_PRIVATE);String root="bank_"+bank+"_slot_"+slot;if(!live.getBoolean(root+"_valid",false)){new EditorUi.Alert(this).setMessage("Este slot está vazio. Ative SALVAR SLOT e toque nele para guardar o programa atual.").setPositiveButton("OK",null).show();return;}
         int version=live.getInt(root+"_version",1);boolean legacyContinuous=false;for(int layer=0;layer<6;layer++){int engine=live.getInt(root+"_"+layer+"_engine",0);if(engine==5||engine==6)legacyContinuous=engine==6;}SharedPreferences.Editor e=getSharedPreferences("layers",MODE_PRIVATE).edit();
         screen.masterReverb=live.getFloat(root+"_reverb",0f);screen.masterChorus=live.getFloat(root+"_chorus",0f);if(audioEngine!=null)audioEngine.setMasterEffects(screen.masterReverb,screen.masterChorus);
@@ -1997,11 +2037,12 @@ public final class MainActivity extends Activity {
             }
         }
         for(int position=0;position<6;position++)e.putInt("layer_order_"+position,live.getInt(root+"_layer_order_"+position,screen.layerOrder[position]));
-        e.apply();screen.masterVolume=live.getFloat(root+"_master",screen.masterVolume);SharedPreferences.Editor pads=getSharedPreferences("pads",MODE_PRIVATE).edit().putFloat("crossfade_seconds",live.getFloat(root+"_pad_fade",1f)).putInt("pad_stop_cc",live.getInt(root+"_pad_stop_cc",-1));for(int pad=0;pad<12;pad++){
-            if(version>=6){String drum=live.getString(root+"_drum_pad_"+pad,null),continuous=live.getString(root+"_continuous_pad_"+pad,null);if(drum==null)pads.remove(padSampleKey(false,pad));else pads.putString(padSampleKey(false,pad),drum);if(continuous==null)pads.remove(padSampleKey(true,pad));else pads.putString(padSampleKey(true,pad),continuous);}
-            else{String path=live.getString(root+"_pad_"+pad,null);pads.remove(padSampleKey(!legacyContinuous,pad));if(path==null)pads.remove(padSampleKey(legacyContinuous,pad));else pads.putString(padSampleKey(legacyContinuous,pad),path);}
-            for(boolean continuous:new boolean[]{false,true}){String name=version>=8?live.getString(root+(continuous?"_continuous_pad_name_":"_drum_pad_name_")+pad,null):null;if(name==null)pads.remove(padNameKey(continuous,pad));else pads.putString(padNameKey(continuous,pad),name);}
-            pads.putInt("pad_note_"+pad,live.getInt(root+"_pad_note_"+pad,36+pad)).putInt("pad_cc_"+pad,live.getInt(root+"_pad_cc_"+pad,-1));}pads.apply();recreate();
+        e.apply();screen.masterVolume=live.getFloat(root+"_master",screen.masterVolume);// The continuous pad strip (samples, names, fade, MIDI notes/CCs, STOP) is global: a program change never overwrites it.
+        SharedPreferences.Editor pads=getSharedPreferences("pads",MODE_PRIVATE).edit();for(int pad=0;pad<12;pad++){
+            if(version>=6){String drum=live.getString(root+"_drum_pad_"+pad,null),continuous=live.getString(root+"_continuous_pad_"+pad,null);if(drum==null)pads.remove(padSampleKey(false,pad));else pads.putString(padSampleKey(false,pad),drum);}
+            else if(!legacyContinuous){String path=live.getString(root+"_pad_"+pad,null);if(path==null)pads.remove(padSampleKey(false,pad));else pads.putString(padSampleKey(false,pad),path);}
+            {String name=version>=8?live.getString(root+"_drum_pad_name_"+pad,null):null;if(name==null)pads.remove(padNameKey(false,pad));else pads.putString(padNameKey(false,pad),name);}
+        }pads.apply();recreate();
     }
 
     private void showLoginScreen() {
@@ -3158,7 +3199,7 @@ public final class MainActivity extends Activity {
         private String account = "";
         private boolean midiSignal;
         private int lastNoteOff = -1;
-        private String lastMidiControl = "";
+        private String lastMidiControl = "",lastMidiName="",lastMidiDetail="";private long lastMidiControlAt;
         // Desktop builds open directly on the mixer; keep the same workflow on Android.
         private boolean liveSet = false;
         private boolean padsMode = false;
@@ -3311,7 +3352,7 @@ public final class MainActivity extends Activity {
         void setAccount(String value) { account = value == null ? "" : value; postInvalidate(); }
         void setMidiSignal() { midiSignal = true; postInvalidateDelayed(180); }
         void setLastNoteOff(int note) { lastNoteOff = note; postInvalidate(); }
-        void setLastMidiControl(int cc,int channel,int value,String name){lastMidiControl=(name==null||name.isEmpty()?"":name+" · ")+"CC "+cc+" · CH "+(channel+1)+" · "+value;postInvalidate();}
+        void setLastMidiControl(int cc,int channel,int value,String name){lastMidiName=name==null?"":name;lastMidiDetail="CC "+cc+" · CH "+(channel+1)+" · "+value;lastMidiControl=(lastMidiName.isEmpty()?"":lastMidiName+" · ")+lastMidiDetail;lastMidiControlAt=android.os.SystemClock.uptimeMillis();postInvalidate();postInvalidateDelayed(1900);}
         void setLayerModulationEnabled(int layer,boolean enabled){if(layer<0||layer>=6)return;modulationEnabled[layer]=enabled;getSharedPreferences("layers",MODE_PRIVATE).edit().putBoolean("modulation_enabled_"+layer,enabled).apply();if(audioEngine!=null)audioEngine.setLayerModulationEnabled(layer,enabled);postInvalidate();}
         void setLayerName(int layer, String name) { if (layer >= 0 && layer < layerNames.length) { layerNames[layer] = name; postInvalidate(); } }
         void setPresetName(int layer, String name) { if (layer >= 0 && layer < presetNames.length) { presetNames[layer] = name == null ? "" : name; postInvalidate(); } }
@@ -3477,7 +3518,16 @@ public final class MainActivity extends Activity {
             if(padEngine!=null)padEngine.setMaster(faderGain(masterVolume));
         }
 
-        @Override protected void onDraw(Canvas canvas) {
+        /** On-screen CC readout: the function a controller just moved, its CC, channel and value. */
+        private void drawCcHud(Canvas canvas){
+            if(lastMidiName.isEmpty()||android.os.SystemClock.uptimeMillis()-lastMidiControlAt>1800)return;
+            float w=getWidth(),h=getHeight();
+            box(canvas,w*.22f,h*.17f,w*.78f,h*.27f,EditorUi.PANEL,true);
+            fittedText(canvas,lastMidiName,w*.24f,w*.76f,h*.222f,h*.036f,EditorUi.ACCENT);
+            fittedText(canvas,lastMidiDetail,w*.24f,w*.76f,h*.255f,h*.019f,EditorUi.MUTED);
+        }
+        @Override protected void onDraw(Canvas canvas) {drawContent(canvas);drawCcHud(canvas);}
+        private void drawContent(Canvas canvas) {
             final float w = getWidth(), h = getHeight();
             canvas.drawColor(EditorUi.BACKGROUND);
             final int teal = EditorUi.ACCENT, text = EditorUi.TEXT, panel = EditorUi.PANEL;
@@ -3517,8 +3567,11 @@ public final class MainActivity extends Activity {
                 float actionRight = Math.min(w - 52, 430);
                 float midX=(52+actionRight)/2f;
                 int gt=audioEngine.globalTranspose();
-                button(canvas,"TRANSPOSE · "+(gt>0?"+"+gt:String.valueOf(gt)),52,h*.52f,midX-6,h*.555f,gt!=0);
-                button(canvas,"PEDAL · "+(audioEngine.sustainInverted()?"INVERTIDO":"NORMAL"),midX+6,h*.52f,actionRight,h*.555f,audioEngine.sustainInverted());
+                button(canvas,"TRANSPOSE · "+(gt>0?"+"+gt:String.valueOf(gt)),52,h*.475f,midX-6,h*.51f,gt!=0);
+                button(canvas,"PEDAL · "+(audioEngine.sustainInverted()?"INVERTIDO":"NORMAL"),midX+6,h*.475f,actionRight,h*.51f,audioEngine.sustainInverted());
+                int padChannel=getSharedPreferences("pads",MODE_PRIVATE).getInt("pad_midi_channel",-1);
+                button(canvas,"PADS · CANAL "+(padChannel<0?"TODOS":String.valueOf(padChannel+1)),52,h*.515f,midX-6,h*.55f,padChannel>=0);
+                button(canvas,"TROCA · "+getSharedPreferences("audio",MODE_PRIVATE).getInt("switch_out_ms",35)+" ms",midX+6,h*.515f,actionRight,h*.55f,false);
                 fittedText(canvas,audioEngine.nordVoiceStatus(),52,w*.46f,h*.575f,h*.02f,teal);
                 button(canvas, "MIDI LEARN · VOLUME", 52, h*.59f, actionRight, h*.66f, pendingLearnTarget>=0);
                 button(canvas, "PARAR TODAS AS NOTAS", 52, h*.69f, actionRight, h*.76f, false);
@@ -3835,9 +3888,11 @@ public final class MainActivity extends Activity {
                 invalidate(); return true;
             }
             if (settings && tap) {
-                if(event.getY()>=h*.52f&&event.getY()<h*.555f&&event.getX()<w*.48f){
+                if(event.getY()>=h*.475f&&event.getY()<h*.55f&&event.getX()<w*.48f){
                     float actionRightTap=Math.min(w-52,430);
-                    if(event.getX()<(52+actionRightTap)/2f)showTransposeChooser();else toggleSustainPolarity();
+                    boolean leftColumn=event.getX()<(52+actionRightTap)/2f,topRow=event.getY()<h*.512f;
+                    if(topRow){if(leftColumn)onTransposeTap();else toggleSustainPolarity();}
+                    else if(leftColumn)showPadChannelChooser();else showSwitchTimeChooser();
                     return true;
                 }
                 if(event.getX()>w*.48f&&event.getY()>h*.50f){

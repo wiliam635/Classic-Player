@@ -135,6 +135,9 @@ std::array<std::atomic<float>, kLayerCount> publishedLayerPeaks {
 std::array<float, kMaxFrames * 2> scratch {};
 float masterGain = 0.8f;
 float smoothedMasterGain = 0.8f;
+std::atomic<float> switchFadeTarget{1.0f};
+std::atomic<int> switchFadeMs{35};
+float switchFadeCurrent = 1.0f, blockFade = 1.0f;
 float masterPeak = 0.0f;
 std::atomic<float> publishedMasterPeak {0.0f};
 std::mutex synthMutex;
@@ -811,6 +814,16 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetNordExtras(JNIEnv*,j
     auto& l=nordLayers[(size_t)layer];
     l.longRelease=longRelease==JNI_TRUE;l.stringRes=stringRes==JNI_TRUE;
     if(l.stringRes)nord_android::prepareResonance(l);
+}
+
+// mode 0: fade the master out, 1: fade it in, 2: start silent and fade in. The fade lives in the
+// process, so it survives the Activity being recreated by a Live Set change.
+extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSwitchFade(JNIEnv*,jclass,jint mode,jint milliseconds)
+{
+    switchFadeMs.store(std::clamp((int)milliseconds,1,2000),std::memory_order_relaxed);
+    if(mode==2)switchFadeCurrent=0.0f;
+    switchFadeTarget.store(mode==0?0.0f:1.0f,std::memory_order_relaxed);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -1638,6 +1651,12 @@ static bool renderClassicPlayerPcmImpl(int16_t* output,int frames,bool realtime)
     std::array<MidiCommand,64> commands{};
     const size_t commandCount=takeMidiCommands(commands.data(),commands.size());
     for(size_t i=0;i<commandCount;++i)applyMidiCommand(commands[i]);
+    {   // Program switch fade (TEMPO DA TROCA): the master ramps down before a Live Set change and up after it.
+        const float fadeTarget=switchFadeTarget.load(std::memory_order_relaxed);
+        const float fadeStep=(float)frames/std::max(1.0f,(float)kSampleRate*(float)std::max(1,switchFadeMs.load(std::memory_order_relaxed))*0.001f);
+        switchFadeCurrent+=std::clamp(fadeTarget-switchFadeCurrent,-fadeStep,fadeStep);
+        blockFade=switchFadeCurrent;
+    }
     std::array<float, kLayerCount> renderedPeaks {};
     // These arrays have room for the largest supported callback, but the
     // current block is normally much shorter. Clear only the region used by
@@ -1914,7 +1933,7 @@ static bool renderClassicPlayerPcmImpl(int16_t* output,int frames,bool realtime)
         const float targetLayer = layerGains[(size_t) layer];
         const float outputCalibration=engineTypes[li]==EngineType::hammond
                 ?kHammondOutputCalibration:1.0f;
-        const float targetMaster = masterGain;
+        const float targetMaster = masterGain*blockFade;
         // Gain changes are smoothed per block to avoid clicks when a fader is
         // moved while notes are sounding.
         const float layerStep = (targetLayer - smoothedLayerGains[(size_t)layer]) / (float)std::max(frames, 1);
@@ -2004,7 +2023,7 @@ static bool renderClassicPlayerPcmImpl(int16_t* output,int frames,bool realtime)
         smoothedLayerGains[(size_t)layer] = targetLayer;
         smoothedLayerPan[(size_t)layer]=layerPan[(size_t)layer];
     }
-    smoothedMasterGain = masterGain;
+    smoothedMasterGain = masterGain*blockFade;
     float renderedMasterPeak = 0.0f;
     bool clippedThisBlock=false;
     // Loop-invariant reverb geometry is hoisted out of the per-sample loop and
