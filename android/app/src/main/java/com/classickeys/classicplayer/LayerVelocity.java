@@ -12,6 +12,8 @@ final class LayerVelocity {
     final float[] decayMs = new float[LAYERS];
     final float[] sustainPercent = {100f,100f,100f,100f,100f,100f};
     final boolean[] sensitivityOff = new boolean[LAYERS];
+    /** Hand-drawn curve (128 outputs), null when the layer uses the shaped curve. */
+    final int[][] custom = new int[LAYERS][];
     private final SharedPreferences prefs;
 
     LayerVelocity(SharedPreferences prefs) {
@@ -23,6 +25,8 @@ final class LayerVelocity {
             sensitivityOff[i] = prefs.getBoolean("off_" + i, false);
             decayMs[i] = prefs.getFloat("decay_" + i, 0f); sustainPercent[i] = prefs.getFloat("sustain_" + i, 100f);
             noteLow[i] = prefs.getInt("note_low_" + i, 0); noteHigh[i] = prefs.getInt("note_high_" + i, 127);
+            String csv = prefs.getString("drawn_" + i, null);
+            if (csv != null) { String[] parts = csv.split(","); if (parts.length == 128) { int[] table = new int[128]; try { for (int v = 0; v < 128; v++) table[v] = Math.max(1, Math.min(127, Integer.parseInt(parts[v].trim()))); custom[i] = table; } catch (NumberFormatException ignored) { } } }
         }
     }
 
@@ -36,9 +40,19 @@ final class LayerVelocity {
     void apply(PolySynthEngine engine, int i) {
         if (engine == null || i < 0 || i >= LAYERS) return;
         engine.setLayerVelocity(i, low[i], high[i], sensitivityOff[i], outMin[i], outMax[i], slope[i], timbreFloor[i]);
+        engine.setVelocityTable(i, custom[i]);
         engine.setLayerAdsr(i, decayMs[i], sustainPercent[i]);
     }
 
+    /** Stores a drawn curve (or clears it with null). */
+    void setCustom(int i, int[] table) {
+        custom[i] = table;
+        if (table == null) { prefs.edit().remove("drawn_" + i).apply(); return; }
+        StringBuilder sb = new StringBuilder();
+        for (int v = 0; v < 128; v++) { if (v > 0) sb.append(','); sb.append(table[v]); }
+        prefs.edit().putString("drawn_" + i, sb.toString()).apply();
+    }
+
     /** Back to the linear curve: output 1..127 with no slope. */
-    void resetCurve(int i) { outMin[i] = 1; outMax[i] = 127; slope[i] = 0f; }
+    void resetCurve(int i) { outMin[i] = 1; outMax[i] = 127; slope[i] = 0f; setCustom(i, null); }
 }

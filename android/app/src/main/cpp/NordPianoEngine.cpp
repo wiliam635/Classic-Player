@@ -301,7 +301,7 @@ float velocityDb(float velocity01){
 float effectiveRelease(const Layer& layer,float seconds){
     float s=seconds;
     if(layer.longRelease)s*=2.f;
-    s=std::max(releaseFloorSeconds,releaseScale*s);
+    s=releaseScale*s;   // the RELEASE knob acts over its whole range (default 650 ms gives the 0.55 s of the reference)
     if(layer.softRelease)s=std::min(15.f,std::max(.18f,s*1.5f));
     return std::clamp(s,.005f,15.0f);
 }

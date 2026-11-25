@@ -44,7 +44,7 @@ std::array<EngineType, kLayerCount> engineTypes {};
 std::array<nord_android::Layer,kLayerCount> nordLayers {};
 std::array<nsmp_android::Layer,kLayerCount> nsmpLayers {};
 // Audition SoundFonts without layer processing or envelope overrides.
-std::array<bool, kLayerCount> sf2OriginalSound {true,true,true,true,true,true};
+std::array<bool, kLayerCount> sf2OriginalSound {false,false,false,false,false,false};
 std::array<int, kLayerCount> layerVoiceBudgets {};
 std::array<float, kLayerCount> layerGains { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
 std::array<float, kLayerCount> smoothedLayerGains { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
@@ -54,7 +54,9 @@ std::array<float,kLayerCount> layerPan{},smoothedLayerPan{};
 std::array<int,kLayerCount> layerVelocityLow {1,1,1,1,1,1}, layerVelocityHigh {127,127,127,127,127,127}, layerTimbreFloor {1,1,1,1,1,1};
 std::array<bool,kLayerCount> layerSensitivityOff {};
 std::array<std::array<uint8_t,128>,kLayerCount> layerVelocityTable {};
+std::array<bool,kLayerCount> layerCustomVelocity {};
 void buildVelocityTable(size_t layer,int minimum,int maximum,float slope){
+    if(layerCustomVelocity[layer])return;   // a drawn curve owns the table until it is cleared
     minimum=std::clamp(minimum,1,127);maximum=std::clamp(maximum,minimum,127);slope=std::clamp(slope,-100.0f,100.0f);
     const float exponent=std::exp2(-slope/50.0f);auto& table=layerVelocityTable[layer];table[0]=1;
     for(int value=1;value<128;++value){
@@ -267,6 +269,7 @@ struct DxVoice
     uint64_t serial = 0;
     int note = -1, channel = 0;
     std::unique_ptr<Dx7Note> synth;
+    float attackGain = 1.0f, releaseGain = 1.0f;   // layer ATTACK / RELEASE knobs on top of the patch envelope
     std::array<int32_t, N> samples {};
     int read = N;
     bool released = false;
@@ -718,7 +721,7 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeLoadNord(
         // The long piano decay is part of the sample's natural held-note
         // envelope; key release itself must remain short and independent.
         // Desktop layer Release=30 maps to a 300 ms fade-to-silence time.
-        layerRelease[(size_t)layer]=nord.finitePiano?0.30f:.01f;
+        layerRelease[(size_t)layer]=nord.finitePiano?0.65f:.01f;
         engineTypes[(size_t)layer]=EngineType::nord;
         distributeLayerVoiceBudgets();
     }catch(const std::bad_alloc&){return env->NewStringUTF("Memória insuficiente para decodificar o NPNO");}
@@ -1098,6 +1101,18 @@ Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerVelocity(JNIEnv
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetVelocityTable(JNIEnv* env,jclass,jint layer,jintArray values)
+{
+    if(layer<0||layer>=kLayerCount)return;
+    std::lock_guard<std::mutex> lock(synthMutex);
+    const auto i=(size_t)layer;
+    if(values==nullptr||env->GetArrayLength(values)<128){layerCustomVelocity[i]=false;return;}
+    jint raw[128];env->GetIntArrayRegion(values,0,128,raw);
+    for(int v=0;v<128;++v)layerVelocityTable[i][(size_t)v]=(uint8_t)std::clamp((int)raw[v],1,127);
+    layerCustomVelocity[i]=true;
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_classickeys_classicplayer_PolySynthEngine_nativeSetLayerModulationEnabled(JNIEnv*,jclass,jint layer,jboolean enabled)
 {
     if(layer<0||layer>=kLayerCount)return;
@@ -1329,7 +1344,7 @@ static void applyNoteOn(jint note, jint velocity, jint midiChannel)
             for(int i=0;i<voiceBudget;++i)if(!dx.voices[(size_t)i].active){target=&dx.voices[(size_t)i];break;}
             if(target==nullptr){target=&dx.voices[0];for(int i=1;i<voiceBudget;++i){auto& voice=dx.voices[(size_t)i];const bool releasing=voice.released||voice.fading,best=target->released||target->fading;if((releasing&&!best)||(releasing==best&&voice.serial<target->serial))target=&voice;}}
             target->serial=++dx.serial;
-            target->active=true; target->note=routedNote; target->channel=midiChannel; target->read=N; target->samples.fill(0); target->released=false; target->decayGain=1.0f; target->age=0; target->fading=false; target->fadeGain=1.0f;
+            target->active=true; target->note=routedNote; target->channel=midiChannel; target->read=N; target->samples.fill(0); target->released=false; target->decayGain=1.0f; target->age=0; target->fading=false; target->fadeGain=1.0f; target->attackGain=layerAttack[li]>0.0005f?0.0f:1.0f; target->releaseGain=1.0f;
             if(!target->synth){target->active=false;continue;}
             target->synth->init(dx.patches[(size_t)dx.selected].data(),routedNote,routedVelocity,1,&controllers);
         }
@@ -1715,6 +1730,8 @@ static bool renderClassicPlayerPcmImpl(int16_t* output,int frames,bool realtime)
             const float dxDecayStep=layerDecayMs[li]>0.0f?(1.0f-dxDecayTarget)/std::max(1.0f,layerDecayMs[li]*.001f*kSampleRate):0.0f;
             const uint64_t dxAttackSamples=(uint64_t)std::max(0.0f,layerAttack[li]*kSampleRate);
             const float dxFadeCoefficient=std::exp(std::log(0.0001f)/(0.2f*kSampleRate)); // -80 dB in 0.2 s
+            const float dxReleaseCoefficient=layerRelease[li]>0.001f?std::exp(std::log(0.0001f)/(layerRelease[li]*kSampleRate)):1.0f;
+            const float dxAttackStep=layerAttack[li]>0.0005f?1.0f/(layerAttack[li]*kSampleRate):1.0f;
             for(int voiceIndex=0;voiceIndex<layerVoiceBudgets[li];++voiceIndex) {
                 auto& voice=dx.voices[(size_t)voiceIndex];
                 if(!voice.active||!voice.synth)continue;
@@ -1729,7 +1746,9 @@ static bool renderClassicPlayerPcmImpl(int16_t* output,int frames,bool realtime)
                         voice.fadeGain*=dxFadeCoefficient;
                         if(voice.fadeGain<0.0001f){voice.active=false;voice.read=N;voice.fading=false;break;}
                     }
-                    const float value=(float)voice.samples[(size_t)voice.read++]/(float)(1<<24)*0.024f*voice.decayGain*voice.fadeGain;
+                    voice.attackGain=std::min(1.0f,voice.attackGain+dxAttackStep);
+                    if(voice.released&&dxReleaseCoefficient<1.0f){voice.releaseGain*=dxReleaseCoefficient;if(voice.releaseGain<0.0001f){voice.active=false;voice.read=N;voice.releaseGain=1.0f;break;}}
+                    const float value=(float)voice.samples[(size_t)voice.read++]/(float)(1<<24)*0.024f*voice.decayGain*voice.fadeGain*voice.attackGain*voice.releaseGain;
                     scratch[(size_t)sample*2]+=value;
                 }
             }

@@ -604,6 +604,7 @@ public final class MainActivity extends Activity {
         super.onResume();
         hideSystemBars();
         if (audioEngine != null) audioEngine.start();
+        startPlaybackService();
         PolySynthEngine.switchFade(1,getSharedPreferences("audio",MODE_PRIVATE).getInt("switch_in_ms",8));
         restorePreferredAudioDevice();
         if(screen!=null)screen.postDelayed(this::restorePreferredAudioDevice,1000);
@@ -626,14 +627,32 @@ public final class MainActivity extends Activity {
         AudioManager audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
         if (audioManager != null) audioManager.unregisterAudioDeviceCallback(audioDeviceCallback);
         if (midiManager != null) midiManager.unregisterDeviceCallback(midiCallback);
-        if (audioEngine != null) audioEngine.allNotesOff();
-        if (audioEngine != null) audioEngine.stop();
-        if (padEngine != null) padEngine.stopImmediately();
-        closeMidi();
+        // Background operation: the foreground service keeps the process alive, so sound and the MIDI keyboard
+        // stay on when the app is not in front. Switching this off (pref "background_audio") restores the old stop-on-pause.
+        if (!getSharedPreferences("audio",MODE_PRIVATE).getBoolean("background_audio",true)) {
+            if (audioEngine != null) audioEngine.allNotesOff();
+            if (audioEngine != null) audioEngine.stop();
+            if (padEngine != null) padEngine.stopImmediately();
+            closeMidi();
+        }
         super.onPause();
     }
 
+    private void startPlaybackService() {
+        if (!getSharedPreferences("audio",MODE_PRIVATE).getBoolean("background_audio",true)) return;
+        try {
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                    && !getSharedPreferences("audio",MODE_PRIVATE).getBoolean("asked_notifications",false)) {
+                getSharedPreferences("audio",MODE_PRIVATE).edit().putBoolean("asked_notifications",true).apply();
+                requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 77);
+            }
+            android.content.Intent intent = new android.content.Intent(this, PlaybackService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent); else startService(intent);
+        } catch (RuntimeException ignored) { /* the app still works in the foreground */ }
+    }
+
     @Override protected void onDestroy() {
+        stopService(new android.content.Intent(this, PlaybackService.class));
         if(usbPermissionReceiver!=null){try{unregisterReceiver(usbPermissionReceiver);}catch(IllegalArgumentException ignored){}usbPermissionReceiver=null;}
         if (padEngine != null) padEngine.stopImmediately();
         closing = true;
@@ -1297,7 +1316,7 @@ public final class MainActivity extends Activity {
                 SharedPreferences.Editor save=getSharedPreferences("layers",MODE_PRIVATE).edit()
                         .putInt("engine_"+layer,7).putString("npno_"+layer,file.getAbsolutePath())
                         .putString("nord_category_"+layer,category).putString("nord_browser_category_"+layer,category).putString("name_"+layer,name);
-                screen.setLayerEnvelope(layer,resetControls?.005f:screen.layerAttack[layer],"Piano Acústico".equals(category)?0.30f:.0f);
+                screen.setLayerEnvelope(layer,resetControls?.005f:screen.layerAttack[layer],"Piano Acústico".equals(category)?0.65f:.0f);
                 if(resetControls){
                     screen.setLayerRouting(layer,-1,0,0,true);
                     screen.setLearnedVolume(layer,.8f);screen.setLayerPan(layer,0f);
@@ -2674,6 +2693,8 @@ public final class MainActivity extends Activity {
         }else{
             // VELOCIDADE like the desktop: curve preset, shaped curve (MIN / MAX / INCLINAÇÃO), reset/save/load, timbre floor and last hit.
             final boolean nord="NPNO".equals(engine);final LayerVelocity lv=velocity();
+            final EffectGraphs.VelocityDraw[] drawPadHolder=new EffectGraphs.VelocityDraw[1];
+            final Runnable drawPadReset=()->{if(drawPadHolder[0]!=null)drawPadHolder[0].linear();};
             final String[] curveNames=nord?new String[]{"LINEAR","SUAVE","FORTE","ADAPTATIVA","AJUSTAR CURVA"}:new String[]{"LINEAR","SUAVE","FORTE","AJUSTAR CURVA"};
             final SharedPreferences velocityProfile=getSharedPreferences("nord_velocity",MODE_PRIVATE);final String velocityKey=nord?nordVelocityProfileKey():"";
             final int userCurve=nord?4:3;
@@ -2692,9 +2713,14 @@ public final class MainActivity extends Activity {
             Button useCurve=EditorUi.button(this,"USAR ESTA CURVA",useUserCurve);
             LinearLayout.LayoutParams ucp=new LinearLayout.LayoutParams(EditorUi.dp(this,170),EditorUi.dp(this,44));ucp.gravity=Gravity.BOTTOM;curveRow.addView(useCurve,ucp);
             body.addView(velocityGraph,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,190)));
-            addSeekRow(body,"MIN",1,127,lv.outMin[layer],v->{lv.outMin[layer]=Math.min(v,lv.outMax[layer]);if(screen.routeVelocity[layer]!=4)useUserCurve.run();else commit.run();});
-            addSeekRow(body,"MAX",1,127,lv.outMax[layer],v->{lv.outMax[layer]=Math.max(v,lv.outMin[layer]);if(screen.routeVelocity[layer]!=4)useUserCurve.run();else commit.run();});
-            addSeekRow(body,"INCLINAÇÃO",-100,100,Math.round(lv.slope[layer]),v->{lv.slope[layer]=v;if(screen.routeVelocity[layer]!=4)useUserCurve.run();else commit.run();});
+            // Hand-drawn curve, like the Windows/Mac version: whatever is drawn here becomes the layer's velocity curve.
+            final EffectGraphs.VelocityDraw drawPad=new EffectGraphs.VelocityDraw(this);drawPad.set(lv.custom[layer]);drawPadHolder[0]=drawPad;
+            drawPad.listener=table->{lv.setCustom(layer,table);screen.setLayerRouting(layer,screen.routeChannel[layer],screen.routeOctave[layer],4,screen.routeSustain[layer]);commit.run();};
+            LinearLayout.LayoutParams drawParams=new LinearLayout.LayoutParams(-1,EditorUi.dp(this,230));drawParams.topMargin=EditorUi.dp(this,6);
+            body.addView(drawPad,drawParams);
+            addSeekRow(body,"MIN",1,127,lv.outMin[layer],v->{lv.setCustom(layer,null);drawPadReset.run();lv.outMin[layer]=Math.min(v,lv.outMax[layer]);if(screen.routeVelocity[layer]!=4)useUserCurve.run();else commit.run();});
+            addSeekRow(body,"MAX",1,127,lv.outMax[layer],v->{lv.setCustom(layer,null);drawPadReset.run();lv.outMax[layer]=Math.max(v,lv.outMin[layer]);if(screen.routeVelocity[layer]!=4)useUserCurve.run();else commit.run();});
+            addSeekRow(body,"INCLINAÇÃO",-100,100,Math.round(lv.slope[layer]),v->{lv.setCustom(layer,null);drawPadReset.run();lv.slope[layer]=v;if(screen.routeVelocity[layer]!=4)useUserCurve.run();else commit.run();});
             LinearLayout curveFiles=EditorUi.gridRow(body);
             EditorUi.addButton(curveFiles,"RESET LINEAR",()->{lv.resetCurve(layer);screen.setLayerRouting(layer,screen.routeChannel[layer],screen.routeOctave[layer],0,screen.routeSustain[layer]);commit.run();renderDesktopStylePage(layer,panel,4,items,selected,selection,secondaryLabel,secondaryAction);});
             EditorUi.addButton(curveFiles,"SALVAR CURVA",()->{getSharedPreferences("velocity_saved",MODE_PRIVATE).edit().putInt("min",lv.outMin[layer]).putInt("max",lv.outMax[layer]).putFloat("slope",lv.slope[layer]).apply();android.widget.Toast.makeText(this,"Curva salva",android.widget.Toast.LENGTH_SHORT).show();});
@@ -3029,7 +3055,7 @@ public final class MainActivity extends Activity {
                         f[band]=frequency;g[band]=gainDb;
                         screen.setLayerEq(layer,g[0],g[1],g[2],f[0],f[1],f[2],screen.eqLowQ[layer],screen.eqMidQ[layer],screen.eqHighQ[layer],screen.eqHighPass[layer],screen.eqLowPass[layer]);
                     }
-                    public void released(){renderEffectEditorBody(layer,effect,body,page,showAdjustments,showPresets);}
+                    public void released(){mainHandler.post(()->renderEffectEditorBody(layer,effect,body,page,showAdjustments,showPresets));}
                 };
                 LinearLayout split=new LinearLayout(this);split.setOrientation(LinearLayout.HORIZONTAL);body.addView(split,new LinearLayout.LayoutParams(-1,-2));
                 LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(0,EditorUi.dp(this,330),2f);gp.setMargins(0,2,EditorUi.dp(this,6),3);split.addView(eq,gp);
@@ -3050,7 +3076,7 @@ public final class MainActivity extends Activity {
                 pull.run();graph.onValues=pull;comp.mixSource=()->screen.layerCompMix[layer];comp.peakSource=()->audioEngine.layerPeak(layer);
                 comp.listener=new EffectGraphs.CompressorGraph.Listener(){
                     public void changed(float thresholdDb,float ratio){screen.setLayerCompressor(layer,(float)Math.pow(10,thresholdDb/20f),ratio,screen.compressorAttackMs[layer],screen.compressorReleaseMs[layer],screen.compressorMakeupDb[layer]);}
-                    public void released(){renderEffectEditorBody(layer,effect,body,page,showAdjustments,showPresets);}
+                    public void released(){mainHandler.post(()->renderEffectEditorBody(layer,effect,body,page,showAdjustments,showPresets));}
                 };
                 LinearLayout split=new LinearLayout(this);split.setOrientation(LinearLayout.HORIZONTAL);body.addView(split,new LinearLayout.LayoutParams(-1,-2));
                 LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(0,EditorUi.dp(this,300),2f);gp.setMargins(0,2,EditorUi.dp(this,6),3);split.addView(comp,gp);
@@ -3352,7 +3378,7 @@ public final class MainActivity extends Activity {
         void setAccount(String value) { account = value == null ? "" : value; postInvalidate(); }
         void setMidiSignal() { midiSignal = true; postInvalidateDelayed(180); }
         void setLastNoteOff(int note) { lastNoteOff = note; postInvalidate(); }
-        void setLastMidiControl(int cc,int channel,int value,String name){lastMidiName=name==null?"":name;lastMidiDetail="CC "+cc+" · CH "+(channel+1)+" · "+value;lastMidiControl=(lastMidiName.isEmpty()?"":lastMidiName+" · ")+lastMidiDetail;lastMidiControlAt=android.os.SystemClock.uptimeMillis();postInvalidate();postInvalidateDelayed(1900);}
+        void setLastMidiControl(int cc,int channel,int value,String name){lastMidiName=name==null||name.isEmpty()?"SEM FUNÇÃO ATRIBUÍDA":name;lastMidiDetail="CC "+cc+" · CH "+(channel+1)+" · "+value;lastMidiControl=(name==null||name.isEmpty()?"":name+" · ")+lastMidiDetail;lastMidiControlAt=android.os.SystemClock.uptimeMillis();postInvalidate();postInvalidateDelayed(1900);}
         void setLayerModulationEnabled(int layer,boolean enabled){if(layer<0||layer>=6)return;modulationEnabled[layer]=enabled;getSharedPreferences("layers",MODE_PRIVATE).edit().putBoolean("modulation_enabled_"+layer,enabled).apply();if(audioEngine!=null)audioEngine.setLayerModulationEnabled(layer,enabled);postInvalidate();}
         void setLayerName(int layer, String name) { if (layer >= 0 && layer < layerNames.length) { layerNames[layer] = name; postInvalidate(); } }
         void setPresetName(int layer, String name) { if (layer >= 0 && layer < presetNames.length) { presetNames[layer] = name == null ? "" : name; postInvalidate(); } }

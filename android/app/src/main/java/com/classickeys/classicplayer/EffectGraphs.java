@@ -122,6 +122,7 @@ final class EffectGraphs {
         static final float[] MIN_F = {40, 60, 1000}, MAX_F = {2000, 12000, 20000};
         Listener listener;
         private int drag = -1;
+        private float grabDx, grabDy;
         EqGraph(Context c) { super(c); }
         void set(float[] f, float[] g, float[] qq, float hp, float lp) { for (int i = 0; i < 3; i++) { freq[i] = f[i]; gain[i] = g[i]; q[i] = qq[i]; } highPass = hp; lowPass = lp; invalidate(); }
         private RectF plot() { Context k = getContext(); return new RectF(EditorUi.dp(k, 40), EditorUi.dp(k, 34), getWidth() - EditorUi.dp(k, 18), getHeight() - EditorUi.dp(k, 34)); }
@@ -176,18 +177,70 @@ final class EffectGraphs {
                 case MotionEvent.ACTION_DOWN: {
                     float best = reach; drag = -1;
                     for (int b = 0; b < 3; b++) { float d = (float) Math.hypot(e.getX() - x(r, freq[b]), e.getY() - y(r, gain[b])); if (d < best) { best = d; drag = b; } }
+                    if (drag >= 0) { grabDx = x(r, freq[drag]) - e.getX(); grabDy = y(r, gain[drag]) - e.getY(); }
                     if (drag >= 0) EditorUi.disallowIntercept(this,true);
                     return drag >= 0; }
                 case MotionEvent.ACTION_MOVE: {
                     if (drag < 0) return false;
-                    float f = (float) (20.0 * Math.pow(1000.0, Math.max(0f, Math.min(1f, (e.getX() - r.left) / r.width()))));
+                    // The point keeps the offset it was grabbed with, so it never jumps under the finger.
+                    float f = (float) (20.0 * Math.pow(1000.0, Math.max(0f, Math.min(1f, (e.getX() + grabDx - r.left) / r.width()))));
                     freq[drag] = Math.max(MIN_F[drag], Math.min(MAX_F[drag], f));
-                    gain[drag] = Math.max(-18f, Math.min(18f, (.5f - (e.getY() - r.top) / r.height()) * 36f));
+                    gain[drag] = Math.max(-18f, Math.min(18f, (.5f - (e.getY() + grabDy - r.top) / r.height()) * 36f));
                     if (listener != null) listener.changed(drag, freq[drag], gain[drag]);
                     invalidate(); return true; }
                 case MotionEvent.ACTION_UP: case MotionEvent.ACTION_CANCEL:
                     if (drag >= 0 && listener != null) listener.released();
                     drag = -1; EditorUi.disallowIntercept(this,false); return true;
+            }
+            return true;
+        }
+    }
+
+
+    /** Freehand velocity curve: drag a finger across the pad to draw output (vertical) for each input velocity (horizontal). */
+    static final class VelocityDraw extends View {
+        interface Listener { void drawn(int[] table); }
+        final int[] table = new int[128];
+        Listener listener;
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private int lastX = -1, lastY = -1;
+        VelocityDraw(Context c) { super(c); linear(); }
+        void linear() { for (int v = 0; v < 128; v++) table[v] = Math.max(1, v); invalidate(); }
+        void set(int[] values) { if (values == null) linear(); else { System.arraycopy(values, 0, table, 0, 128); invalidate(); } }
+        private RectF plot() { Context k = getContext(); return new RectF(EditorUi.dp(k, 34), EditorUi.dp(k, 26), getWidth() - EditorUi.dp(k, 14), getHeight() - EditorUi.dp(k, 26)); }
+        @Override protected void onDraw(Canvas c) {
+            Context k = getContext(); RectF r = plot(); float w = getWidth(), h = getHeight();
+            p.setStyle(Paint.Style.FILL); p.setColor(0xff0a1118); c.drawRoundRect(new RectF(0, 0, w, h), EditorUi.dp(k, 6), EditorUi.dp(k, 6), p);
+            p.setColor(0xff25323c); c.drawRect(r, p);
+            p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(EditorUi.dp(k, 1)); p.setColor(0xff33434e);
+            for (int i = 0; i <= 4; i++) { float gx = r.left + r.width() * i / 4f, gy = r.top + r.height() * i / 4f; c.drawLine(gx, r.top, gx, r.bottom, p); c.drawLine(r.left, gy, r.right, gy, p); }
+            p.setColor(0xff60727e); c.drawLine(r.left, r.bottom, r.right, r.top, p);
+            p.setStyle(Paint.Style.FILL); p.setColor(EditorUi.MUTED); p.setTextSize(EditorUi.dp(k, 10)); p.setTextAlign(Paint.Align.CENTER);
+            c.drawText("ENTRADA (velocity do teclado)", r.centerX(), h - EditorUi.dp(k, 8), p);
+            c.drawText("DESENHE A CURVA ARRASTANDO O DEDO", r.centerX(), EditorUi.dp(k, 16), p);
+            p.setTextAlign(Paint.Align.RIGHT); c.drawText("127", r.left - EditorUi.dp(k, 4), r.top + EditorUi.dp(k, 4), p); c.drawText("1", r.left - EditorUi.dp(k, 4), r.bottom, p);
+            Path curve = new Path();
+            for (int v = 1; v < 128; v++) { float px = r.left + r.width() * (v - 1) / 126f, py = r.bottom - r.height() * (table[v] - 1) / 126f; if (v == 1) curve.moveTo(px, py); else curve.lineTo(px, py); }
+            p.setStyle(Paint.Style.STROKE); p.setColor(EditorUi.ACCENT); p.setStrokeWidth(EditorUi.dp(k, 2.4f)); c.drawPath(curve, p);
+        }
+        @Override public boolean onTouchEvent(MotionEvent e) {
+            RectF r = plot();
+            int x = Math.max(1, Math.min(127, 1 + Math.round((e.getX() - r.left) / r.width() * 126f)));
+            int y = Math.max(1, Math.min(127, 1 + Math.round((r.bottom - e.getY()) / r.height() * 126f)));
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN: EditorUi.disallowIntercept(this, true); lastX = x; lastY = y; table[x] = y; invalidate(); return true;
+                case MotionEvent.ACTION_MOVE: {
+                    if (lastX < 0) { lastX = x; lastY = y; }
+                    int from = Math.min(lastX, x), to = Math.max(lastX, x);
+                    for (int v = from; v <= to; v++) {
+                        float t = to == from ? 1f : (v - lastX) / (float) (x - lastX);
+                        table[v] = Math.max(1, Math.min(127, Math.round(lastY + (y - lastY) * Math.max(0f, Math.min(1f, t)))));
+                    }
+                    lastX = x; lastY = y; invalidate(); return true; }
+                case MotionEvent.ACTION_UP: case MotionEvent.ACTION_CANCEL:
+                    table[0] = table[1]; lastX = -1; lastY = -1; EditorUi.disallowIntercept(this, false);
+                    if (listener != null) listener.drawn(table.clone());
+                    return true;
             }
             return true;
         }
