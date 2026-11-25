@@ -181,6 +181,14 @@ public final class MainActivity extends Activity {
             if(pendingLayerLearn>=0&&pendingLayerLearnTarget>=0){
                 collectLayerLearnCandidate(first,channel,second);return;
             }
+            if(pendingKnobLearn!=null){
+                if(first>=120){screen.setMidiStatus("MIDI: CC 120–127 são comandos reservados; mova outro controle");return;}
+                saveKnobCc(pendingKnobLearn,first,channel);
+                final String assigned=pendingKnobLearn;pendingKnobLearn=null;
+                screen.setMidiStatus("MIDI: "+assigned+" ← CC "+first+" · CH "+(channel+1));
+                mainHandler.post(()->android.widget.Toast.makeText(this,"ATRIBUÍDO: CC "+first+" → "+assigned,android.widget.Toast.LENGTH_LONG).show());
+                return;
+            }
             if(pendingPadCcLearn>=0&&first!=64&&padChannelOk(channel)){
                 getSharedPreferences("pads",MODE_PRIVATE).edit().putInt(pendingPadCcLearn==12?"pad_stop_cc":"pad_cc_"+pendingPadCcLearn,first).apply();
                 screen.setMidiStatus(pendingPadCcLearn==12?"MIDI: STOP CC "+first+" aprendido":"MIDI: PAD "+(pendingPadCcLearn+1)+" CC "+first+" aprendido");final String padToast="ATRIBUÍDO: CC "+first;mainHandler.post(()->android.widget.Toast.makeText(this,padToast,android.widget.Toast.LENGTH_SHORT).show());pendingPadCcLearn=-1;return;
@@ -236,6 +244,7 @@ public final class MainActivity extends Activity {
                 }
             }
             if(learnedLayerControl)return;
+            if(applyKnobCc(first,channel,second))return;
             if(padLayerActive&&continuousPadActive&&first!=64&&padChannelOk(channel)){
                 SharedPreferences padMap=getSharedPreferences("pads",MODE_PRIVATE);int stopCc=padMap.getInt("pad_stop_cc",-1);
                 boolean down=second>=64,edge=down&&!padCcDown[channel][first];padCcDown[channel][first]=down;
@@ -427,6 +436,7 @@ public final class MainActivity extends Activity {
         audioEngine.setBufferFrames(getSharedPreferences("audio",MODE_PRIVATE).getInt("buffer_frames",512));
         audioEngine.setUsbDirectWanted(getSharedPreferences("audio",MODE_PRIVATE).getBoolean("usb_direct",false));
         audioEngine.setGlobalTranspose(audioPrefs.getInt("global_transpose",0));
+        loadKnobCcMap();EditorUi.knobHook=this::showKnobCcMenu;
         audioEngine.setSustainInverted(audioPrefs.getBoolean("sustain_inverted",false));
         audioEngine.setMaster(screen.faderGain(screen.masterVolume));
         audioEngine.setMasterEffects(screen.masterReverb,screen.masterChorus);
@@ -825,6 +835,50 @@ public final class MainActivity extends Activity {
             }).setNeutralButton("APRENDER CC",(d,w)->showTransposeLearnChooser()).setNegativeButton("CANCELAR",null).show();
     }
 
+    // ---- MIDI assignment of any knob (long-press the knob, then move the physical control) ----
+    private volatile String pendingKnobLearn;
+    private final java.util.HashMap<Integer,java.util.ArrayList<String>> knobCcMap=new java.util.HashMap<>();
+    private void loadKnobCcMap(){
+        knobCcMap.clear();
+        for(java.util.Map.Entry<String,?> e:getSharedPreferences("knob_cc",MODE_PRIVATE).getAll().entrySet()){
+            try{String[] parts=String.valueOf(e.getValue()).split(",");int cc=Integer.parseInt(parts[0]);
+                knobCcMap.computeIfAbsent(cc,k->new java.util.ArrayList<>()).add(e.getKey()+"\u0001"+(parts.length>1?parts[1]:"-1"));}catch(RuntimeException ignored){}
+        }
+    }
+    private void saveKnobCc(String key,int cc,int channel){
+        getSharedPreferences("knob_cc",MODE_PRIVATE).edit().putString(key,cc+","+channel).apply();
+        loadKnobCcMap();
+    }
+    private void clearKnobCc(String key){getSharedPreferences("knob_cc",MODE_PRIVATE).edit().remove(key).apply();loadKnobCcMap();}
+    /** Applies a CC to every knob assigned to it; true if one was. */
+    private boolean applyKnobCc(int cc,int channel,int value){
+        java.util.ArrayList<String> entries=knobCcMap.get(cc);if(entries==null)return false;
+        boolean used=false;
+        for(String entry:entries){
+            String[] parts=entry.split("\u0001");int mappedChannel=Integer.parseInt(parts[1]);
+            if(mappedChannel>=0&&mappedChannel!=channel)continue;
+            final EditorUi.Knob knob=EditorUi.knobRegistry.get(parts[0]);
+            if(knob==null)continue;
+            used=true;final float normalized=value/127f;
+            mainHandler.post(()->knob.setNormalized(normalized));
+        }
+        return used;
+    }
+    private String knobCcName(int cc,int channel){
+        java.util.ArrayList<String> entries=knobCcMap.get(cc);if(entries==null)return "";
+        for(String entry:entries){String[] parts=entry.split("\u0001");int mapped=Integer.parseInt(parts[1]);if(mapped<0||mapped==channel)return parts[0];}
+        return "";
+    }
+    private void showKnobCcMenu(final EditorUi.Knob knob){
+        String current=getSharedPreferences("knob_cc",MODE_PRIVATE).getString(knob.key,null);
+        String[] items=current!=null?new String[]{"Atribuir MIDI (mova o controle físico)","Excluir mapeamento"}:new String[]{"Atribuir MIDI (mova o controle físico)"};
+        new EditorUi.Alert(this).setTitle(knob.key+(current!=null?" · CC "+current.split(",")[0]:" · sem MIDI"))
+            .setItems(items,(d,which)->{
+                if(which==0){pendingKnobLearn=knob.key;screen.setMidiStatus("MIDI: mova o controle para "+knob.key);android.widget.Toast.makeText(this,"MOVA O CONTROLE MIDI…",android.widget.Toast.LENGTH_SHORT).show();}
+                else{clearKnobCc(knob.key);android.widget.Toast.makeText(this,"MAPEAMENTO EXCLUÍDO",android.widget.Toast.LENGTH_SHORT).show();}
+            }).setNegativeButton("CANCELAR",null).show();
+    }
+
     private int pendingTransposeLearn=-1;
     private final boolean[][] transposeButtonDown=new boolean[2][16];
 
@@ -856,6 +910,7 @@ public final class MainActivity extends Activity {
             if(tp.getInt("cc_"+t,-1)==cc&&(learnedChannel<0||learnedChannel==channel))
                 return t<6?"CAMADA "+(t+1)+" VOLUME":t==6?"MASTER":"PARAR PADS";
         }
+        String knobName=knobCcName(cc,channel);if(!knobName.isEmpty())return knobName;
         if(cc==tp.getInt("transpose_cc",85))return "TRANSPOSE";
         if(cc==1)return "MOD WHEEL";
         return "";
@@ -2634,6 +2689,7 @@ public final class MainActivity extends Activity {
     /** Desktop Conceito D tabs: SOM | ENVELOPE | MIDI | EFEITOS | VELOCIDADE (SF2, DX7 and NPNO layers). */
     private void renderDesktopStylePage(final int layer,final EditorUi.Panel panel,int page,String[] items,int selected,
                                         PresetSelection selection,String secondaryLabel,Runnable secondaryAction){
+        EditorUi.knobScope="CAMADA "+(layer+1)+" · pág "+page;
         final LinearLayout body=panel.body;final String engine=screen.engineName(layer);
         if(page==0){renderLayerEditorPage(layer,panel,0,items,selected,selection,secondaryLabel,secondaryAction);return;}
         if(page==2){renderLayerEditorPage(layer,panel,3,items,selected,selection,secondaryLabel,secondaryAction);return;}
@@ -3015,6 +3071,7 @@ public final class MainActivity extends Activity {
     }
 
     private void renderEffectEditorBody(final int layer,final String effect,LinearLayout body,int page,Runnable showAdjustments,Runnable showPresets){
+        EditorUi.knobScope="CAMADA "+(layer+1)+" · "+effect;
         body.removeAllViews();
         if(page==2){
             TextView tip=EditorUi.label(this,"Presets portáteis do Android · formato JSON",10);tip.setTextColor(EditorUi.MUTED);body.addView(tip,new LinearLayout.LayoutParams(-1,EditorUi.dp(this,22)));

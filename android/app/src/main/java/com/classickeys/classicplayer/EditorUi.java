@@ -260,12 +260,20 @@ final class EditorUi {
     /** Tighter controls while the desktop-style inspector is open. */
     static boolean compact=false;
     static boolean knobDocked(){return knobDp>KNOB_BASE_DP;}
-    static Knob knob(LinearLayout row,String label,float value,float min,float max,String unit,Change action){Knob knob=new Knob(row.getContext(),label,value,min,max,unit,action);row.addView(knob,new LinearLayout.LayoutParams(0,dp(row.getContext(),knobDp),1));return knob;}
+    /** Which layer/page the knobs being built belong to; with the label it identifies a knob for MIDI assignment. */
+    static String knobScope="";
+    static final java.util.HashMap<String,Knob> knobRegistry=new java.util.HashMap<>();
+    interface KnobHook { void assign(Knob knob); }
+    static KnobHook knobHook;
+    static Knob knob(LinearLayout row,String label,float value,float min,float max,String unit,Change action){Knob knob=new Knob(row.getContext(),label,value,min,max,unit,action);
+        if(!knobScope.isEmpty()){knob.key=knobScope+" · "+label;knobRegistry.put(knob.key,knob);knob.onLongPress=()->{if(knobHook!=null)knobHook.assign(knob);};}row.addView(knob,new LinearLayout.LayoutParams(0,dp(row.getContext(),knobDp),1));return knob;}
     static final class Knob extends View {
         final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);final String label,unit;final float min,max;final Change action;
         float value,downX,downY,start;int pointer=-1,dragAxis;final int touchSlop;
         /** Long-press (without dragging) hook used for MIDI Learn assignment. */
-        Runnable onLongPress;boolean longPressed;
+        Runnable onLongPress;boolean longPressed;String key="";
+        /** A physical MIDI control moved: 0..1 across the knob's range, applied like a touch. */
+        void setNormalized(float n){float v=min+(max-min)*Math.max(0f,Math.min(1f,n));setValue(v);if(action!=null)action.set(v);}
         final Runnable longPressTask=()->{if(pointer>=0&&dragAxis==0&&onLongPress!=null){longPressed=true;performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);onLongPress.run();}};
         Knob(Context c,String label,float value,float min,float max,String unit,Change action){super(c);this.label=label;this.min=min;this.max=max;this.unit=unit;this.value=Math.max(min,Math.min(max,value));this.action=action;touchSlop=ViewConfiguration.get(c).getScaledTouchSlop();setFocusable(true);describe();}
         long lastTapTime;float lastTapX,lastTapY;
