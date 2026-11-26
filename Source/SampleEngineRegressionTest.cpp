@@ -143,19 +143,28 @@ struct SampleEngineRegressionTests
         }
         loaded = {};
 
-        // A writer that is dropped before end() must publish nothing and leave no temporary file behind.
-        cache.deleteFile();
+        // A writer that is dropped before end() must publish nothing and leave no temporary file behind. It uses a
+        // second source file: the first cache may still be memory-mapped by the warm-up thread, and Windows does not
+        // delete a mapped file.
+        const auto abortedSource = source.getSiblingFile("classic-aborted-piano-test.npno");
+        abortedSource.replaceWithText("aborted piano test " + juce::String(juce::Time::currentTimeMillis()));
+        const auto abortedCache = FastLoadCache::cacheFile(
+            FastLoadCache::sourceKey(abortedSource, FastLoadCache::Kind::piano));
+        abortedCache.deleteFile();
         {
-            FastLoadCache::PianoStreamWriter writer(source, nullptr);
+            FastLoadCache::PianoStreamWriter writer(abortedSource, nullptr);
             auto header = expected;
             require(writer.begin(header, 3).wasOk(), "Aborted piano begin failed");
             auto stroke = expected.strokes[0];
             require(writer.stroke(stroke).wasOk(), "Aborted piano stroke failed");
         }
-        require(!cache.existsAsFile(), "An incomplete streamed piano cache was published");
-        require(!cache.getParentDirectory().getChildFile(cache.getFileNameWithoutExtension() + ".tmp").existsAsFile(),
+        require(!abortedCache.existsAsFile(), "An incomplete streamed piano cache was published");
+        require(!abortedCache.getSiblingFile(abortedCache.getFileNameWithoutExtension() + ".tmp").existsAsFile(),
                 "An incomplete streamed piano left a temporary file");
+        abortedSource.deleteFile();
         source.deleteFile();
+        cache.deleteFile(); // best effort
+        std::cout << "Streamed piano cache round trip passed\n";
     }
 
     static bool hasCachedPiano(SampleEngine& engine, const juce::File& file)
