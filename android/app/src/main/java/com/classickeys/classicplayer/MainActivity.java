@@ -615,6 +615,7 @@ public final class MainActivity extends Activity {
         hideSystemBars();
         if (audioEngine != null) audioEngine.start();
         startPlaybackService();
+        offerBatteryExemption();
         PolySynthEngine.switchFade(1,getSharedPreferences("audio",MODE_PRIVATE).getInt("switch_in_ms",8));
         restorePreferredAudioDevice();
         if(screen!=null)screen.postDelayed(this::restorePreferredAudioDevice,1000);
@@ -648,6 +649,38 @@ public final class MainActivity extends Activity {
         super.onPause();
     }
 
+    private boolean backgroundAudio() { return getSharedPreferences("audio",MODE_PRIVATE).getBoolean("background_audio",true); }
+
+    // A recreation while the app is hidden (Live Set switched by MIDI) may stop before reaching onResume.
+    @Override protected void onStart() {
+        super.onStart();
+        if (audioEngine != null && backgroundAudio()) {
+            audioEngine.start();
+            if (midiDevice == null) refreshMidiDevices();
+        }
+    }
+
+    // "Back" on the main screen leaves the app playing instead of closing it.
+    @SuppressWarnings("deprecation")
+    @Override public void onBackPressed() {
+        if (backgroundAudio()) moveTaskToBack(true); else super.onBackPressed();
+    }
+
+    /** Battery saving is what most often silences a background app; Android asks the user to confirm. Offered once. */
+    private void offerBatteryExemption() {
+        if (Build.VERSION.SDK_INT < 23 || !backgroundAudio() || licenseManager == null || !licenseManager.isUsableOffline()) return;
+        final SharedPreferences prefs = getSharedPreferences("audio",MODE_PRIVATE);
+        android.os.PowerManager power = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+        if (prefs.getBoolean("asked_battery",false) || power == null || power.isIgnoringBatteryOptimizations(getPackageName())) return;
+        prefs.edit().putBoolean("asked_battery",true).apply();
+        new EditorUi.Alert(this).setTitle("TOCAR EM SEGUNDO PLANO")
+                .setMessage("Para o som e o teclado MIDI continuarem com outro aplicativo na frente ou com a tela apagada, permita que o Classic Player funcione sem a economia de bateria.")
+                .setPositiveButton("PERMITIR",(d,w)->{
+                    try { startActivity(new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:"+getPackageName()))); }
+                    catch (RuntimeException ignored) {}
+                }).setNegativeButton("AGORA NÃO",null).show();
+    }
+
     private void startPlaybackService() {
         if (!getSharedPreferences("audio",MODE_PRIVATE).getBoolean("background_audio",true)) return;
         try {
@@ -662,7 +695,8 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
-        stopService(new android.content.Intent(this, PlaybackService.class));
+        // Kept through a recreation: Android does not allow starting it again from the background.
+        if (!isChangingConfigurations()) stopService(new android.content.Intent(this, PlaybackService.class));
         if(usbPermissionReceiver!=null){try{unregisterReceiver(usbPermissionReceiver);}catch(IllegalArgumentException ignored){}usbPermissionReceiver=null;}
         if (padEngine != null) padEngine.stopImmediately();
         closing = true;

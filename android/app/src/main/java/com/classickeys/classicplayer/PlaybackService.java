@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
 
 /**
  * Keeps the process alive while the app is in the background, so audio and the MIDI keyboard keep
@@ -18,6 +19,10 @@ import android.os.IBinder;
 public final class PlaybackService extends Service {
     private static final String CHANNEL = "classic_player_playback";
     private static final int NOTIFICATION_ID = 41;
+
+    /** Without it the processor may sleep with the screen off, stopping MIDI and the direct USB audio driver. */
+    private PowerManager.WakeLock wakeLock;
+    static volatile boolean active;
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
@@ -31,8 +36,26 @@ public final class PlaybackService extends Service {
                 .setSmallIcon(R.drawable.classic_keys_samples_logo).setContentIntent(pending).setOngoing(true).build();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
         else startForeground(NOTIFICATION_ID, notification);
+        if (wakeLock == null) {
+            PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
+            if (power != null) {
+                wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ClassicPlayer:playback");
+                wakeLock.setReferenceCounted(false);
+                wakeLock.acquire();
+            }
+        }
+        active = true;
         return START_NOT_STICKY;
     }
+
+    @Override public void onDestroy() {
+        active = false;
+        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        wakeLock = null;
+        super.onDestroy();
+    }
+
+    @Override public void onTaskRemoved(Intent rootIntent) { stopSelf(); }
 
     @Override public IBinder onBind(Intent intent) { return null; }
 }
