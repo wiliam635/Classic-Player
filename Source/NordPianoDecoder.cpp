@@ -251,7 +251,7 @@ juce::Result fail(const char* message)
 }
 
 juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& destination,
-                                          std::uint64_t maxDecodedBytes)
+                                          std::uint64_t maxDecodedBytes, StrokeSink* sink)
 {
     destination = {};
 
@@ -350,6 +350,8 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
     // Include the release/reflection bank in the decoded PCM budget as well.
     const auto safeDecodedBytes = std::min(decodedAudioBudget(fileBytes), maxDecodedBytes);
     std::uint64_t totalDecodedBytes = 0;
+    std::uint64_t largestStrokeBytes = 0;
+    std::uint32_t keptStrokes = 0;
     size_t preflightRecordIndex = 0;
     for (size_t root = 0; root < rootCounts.size(); ++root)
         for (std::uint16_t strokeNumber = 0; strokeNumber < rootCounts[root]; ++strokeNumber)
@@ -361,13 +363,23 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
             {
                 if (expectedFrames > static_cast<std::uint32_t>(std::numeric_limits<int>::max()))
                     return fail("Uma gravação do piano Nord excede a duração máxima suportada.");
-                totalDecodedBytes += static_cast<std::uint64_t>(expectedFrames)
-                                   * channels * sizeof(std::int16_t);
+                const auto strokeBytes = static_cast<std::uint64_t>(expectedFrames)
+                                       * channels * sizeof(std::int16_t);
+                totalDecodedBytes += strokeBytes;
+                largestStrokeBytes = std::max(largestStrokeBytes, strokeBytes);
+                ++keptStrokes;
             }
             ++preflightRecordIndex;
         }
 
-    if (totalDecodedBytes > safeDecodedBytes)
+    // A piano that does not fit in RAM can still be imported when a sink stores each stroke on disk as soon as it
+    // is decoded (the fast-load cache is then memory-mapped). Only one stroke is resident at a time.
+    constexpr std::uint64_t streamedStrokeLimit = 256ull * bytesPerMiB;
+    const auto streaming = totalDecodedBytes > safeDecodedBytes && sink != nullptr
+                        && largestStrokeBytes <= streamedStrokeLimit
+                        && sink->available(totalDecodedBytes);
+
+    if (totalDecodedBytes > safeDecodedBytes && !streaming)
     {
         const auto requiredMiB = (totalDecodedBytes + bytesPerMiB - 1) / bytesPerMiB;
         const auto allowedMiB = safeDecodedBytes / bytesPerMiB;
@@ -375,6 +387,10 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
                     + juce::String::fromUTF8(" MiB de áudio decodificado; o limite seguro para este computador é ")
                     + juce::String(static_cast<juce::int64>(allowedMiB)) + " MiB.");
     }
+
+    if (streaming)
+        if (const auto began = sink->begin(parsed, keptStrokes); began.failed())
+            return began;
 
     parsed.strokes.reserve(strokeCount);
     std::array<bool, 128> rootsWithAttack {};
@@ -426,6 +442,12 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
                                                  stroke.interleavedPcm.vec());
                 if (result.failed())
                     return result;
+                if (streaming)
+                {
+                    if (const auto stored = sink->stroke(stroke); stored.failed())
+                        return stored;
+                    std::vector<std::int16_t>().swap(stroke.interleavedPcm.vec()); // give the PCM back right away
+                }
                 if (bank == 0)
                     rootsWithAttack[root] = true;
                 parsed.strokes.push_back(std::move(stroke));
@@ -449,6 +471,10 @@ juce::Result NordPianoDecoder::decodeFile(const juce::File& file, Instrument& de
     for (const auto root : parsed.keyMap)
         if (root != 0xff && (root >= rootsWithAttack.size() || !rootsWithAttack[root]))
             return fail("A tabela de teclas aponta para uma nota sem gravação de ataque.");
+
+    if (streaming)
+        if (const auto finished = sink->end(parsed); finished.failed())
+            return finished;
 
     destination = std::move(parsed);
     return juce::Result::ok();

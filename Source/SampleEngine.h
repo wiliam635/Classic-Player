@@ -155,6 +155,7 @@ private:
                          const Sf2Engine::LayerConfig& routing, int inputNote = -1, float levelScale = 1.0f);
     Voice& allocateVoice(Layer&, int polyphony);
     static void preparePianoLoops(NordPianoDecoder::Instrument&);
+    static void preparePianoLoop(NordPianoDecoder::Stroke&, int channels);
     static void measurePianoLevels(NordPianoDecoder::Instrument&);
     static void resetPianoControllers(Layer&);
     void processStringResonance(Layer&, const Sf2Engine::LayerConfig&, int samples);

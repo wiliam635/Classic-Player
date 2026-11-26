@@ -6,6 +6,7 @@
 #include <juce_core/juce_core.h>
 #include <algorithm>
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -294,6 +295,130 @@ inline void storePiano(const juce::File& source, std::shared_ptr<NordPianoDecode
         out.writeInt((int) 0x454E4421); // end marker "END!"
     });
 }
+
+// Writes the piano cache while the decoder runs, one stroke at a time, so a piano that does not fit in RAM can
+// still be imported: the decoder hands each stroke over and frees its PCM, and the next load maps the file. The
+// file layout is exactly what storePiano writes, so loadPiano reads it unchanged. The header fields that are only
+// known after the last stroke (signed trim flag, velocity scale) are patched in at the end. Nothing is published
+// unless every stroke was written: the temporary file is deleted on any failure or when the writer is dropped.
+class PianoStreamWriter final : public NordPianoDecoder::StrokeSink
+{
+public:
+    using PrepareStroke = std::function<void(NordPianoDecoder::Stroke&, int channels)>;
+
+    PianoStreamWriter(const juce::File& sourceFile, PrepareStroke prepareStroke)
+        : source(sourceFile), prepare(std::move(prepareStroke)) {}
+
+    ~PianoStreamWriter() override { abandon(); }
+
+    bool completed() const noexcept { return finished; }
+
+    bool available(std::uint64_t decodedBytes) override
+    {
+        if (disabled() || mappingDisabled()) return false;
+        auto folder = directory();
+        if (!folder.createDirectory().wasOk()) return false;
+        // Room for the cache file itself plus a little slack; a full disk would otherwise fail halfway through.
+        const auto free = folder.getBytesFreeOnVolume();
+        return free <= 0 || (juce::uint64) free > decodedBytes + 64ull * 1024 * 1024;
+    }
+
+    juce::Result begin(const NordPianoDecoder::Instrument& header, std::uint32_t keptStrokes) override
+    {
+        const auto key = sourceKey(source, Kind::piano);
+        target = cacheFile(key);
+        temp = directory().getChildFile(target.getFileNameWithoutExtension() + ".tmp");
+        out = std::make_unique<juce::FileOutputStream>(temp);
+        if (!out->openedOk())
+        {
+            out.reset();
+            return juce::Result::fail(juce::String::fromUTF8("Não foi possível criar o cache do piano Nord."));
+        }
+        out->setPosition(0);
+        out->truncate();
+        out->writeInt((int) magic);
+        out->writeInt((int) formatVersion);
+        out->writeInt((int) Kind::piano);
+        writeString(*out, key);
+        writeString(*out, header.name);
+        writeString(*out, header.voicing);
+        out->writeInt((int) header.streamVersion);
+        out->writeInt(header.channels);
+        out->writeInt(header.gainTenthsDb);
+        patchPosition = out->getPosition();
+        out->writeInt(0); // signedTenthsDbTrim, patched in end()
+        out->writeInt(0); // velocityScale, patched in end()
+        out->write(header.keyMap.data(), header.keyMap.size());
+        out->write(header.fineTune.data(), header.fineTune.size());
+        out->writeInt((int) keptStrokes);
+        channels = header.channels;
+        expected = keptStrokes;
+        return juce::Result::ok();
+    }
+
+    juce::Result stroke(NordPianoDecoder::Stroke& stroke) override
+    {
+        if (out == nullptr || written >= expected)
+            return juce::Result::fail(juce::String::fromUTF8("O cache do piano Nord recebeu gravações demais."));
+        if (prepare) prepare(stroke, channels);
+        out->writeInt((int) stroke.rootNote);
+        out->writeInt((int) stroke.bank);
+        out->writeInt((int) stroke.velocityLayer);
+        out->writeInt((int) stroke.trimDb);
+        out->writeInt((int) stroke.loopStartFrame);
+        out->writeInt((int) stroke.loopEndFrame);
+        savePcm(*out, stroke.interleavedPcm);
+        ++written;
+        if (!out->getStatus().wasOk())
+            return juce::Result::fail(juce::String::fromUTF8("Falha ao gravar o cache do piano Nord (disco cheio?)."));
+        return juce::Result::ok();
+    }
+
+    juce::Result end(const NordPianoDecoder::Instrument& done) override
+    {
+        if (out == nullptr || written != expected)
+            return juce::Result::fail(juce::String::fromUTF8("O cache do piano Nord ficou incompleto."));
+        out->writeInt((int) 0x454E4421); // end marker "END!"
+        const auto endPosition = out->getPosition();
+        out->setPosition(patchPosition);
+        out->writeInt(done.signedTenthsDbTrim ? 1 : 0);
+        out->writeInt(done.velocityScale);
+        out->setPosition(endPosition);
+        out->flush();
+        const auto ok = out->getStatus().wasOk();
+        out.reset();
+        if (!ok)
+        {
+            temp.deleteFile();
+            return juce::Result::fail(juce::String::fromUTF8("Falha ao gravar o cache do piano Nord (disco cheio?)."));
+        }
+        target.deleteFile();
+        if (!temp.moveFileTo(target))
+        {
+            temp.deleteFile();
+            return juce::Result::fail(juce::String::fromUTF8("Não foi possível concluir o cache do piano Nord."));
+        }
+        finished = true;
+        prune();
+        return juce::Result::ok();
+    }
+
+private:
+    void abandon() noexcept
+    {
+        if (finished) return;
+        out.reset();
+        if (temp != juce::File()) temp.deleteFile();
+    }
+
+    juce::File source, target, temp;
+    PrepareStroke prepare;
+    std::unique_ptr<juce::FileOutputStream> out;
+    juce::int64 patchPosition = 0;
+    int channels = 0;
+    std::uint32_t expected = 0, written = 0;
+    bool finished = false;
+};
 
 inline bool loadPiano(const juce::File& source, NordPianoDecoder::Instrument& instrument,
                       juce::uint64 maxDecodedBytes)

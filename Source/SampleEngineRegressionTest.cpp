@@ -1,7 +1,9 @@
 #include "SampleEngine.h"
+#include "FastLoadCache.h"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 
@@ -61,6 +63,99 @@ struct SampleEngineRegressionTests
         const auto cached = engine.cachePiano(source, decoded);
         require(cached == decoded && engine.findCachedPiano(source) == decoded,
                 "NPNO preload cache copied instead of sharing decoded PCM");
+    }
+
+    // A piano too big for RAM is written to the fast-load cache one stroke at a time; loadPiano must then read
+    // back exactly what was streamed, including the header fields that are only known after the last stroke.
+    static void streamedPianoCacheRoundTrip()
+    {
+        const auto source = juce::File::getSpecialLocation(juce::File::tempDirectory)
+            .getChildFile("classic-streamed-piano-test.npno");
+        source.replaceWithText("streamed piano test " + juce::String(juce::Time::currentTimeMillis()));
+        const auto cache = FastLoadCache::cacheFile(FastLoadCache::sourceKey(source, FastLoadCache::Kind::piano));
+        cache.deleteFile();
+
+        NordPianoDecoder::Instrument expected;
+        expected.name = "Streamed Test";
+        expected.voicing = "Soft";
+        expected.streamVersion = 0x464;
+        expected.channels = 2;
+        expected.gainTenthsDb = -7;
+        expected.signedTenthsDbTrim = true;
+        expected.velocityScale = 37;
+        expected.keyMap.fill(0xff);
+        expected.keyMap[60] = 60;
+        expected.keyMap[61] = 60;
+        expected.fineTune[60] = 3;
+        for (int i = 0; i < 3; ++i)
+        {
+            NordPianoDecoder::Stroke stroke;
+            stroke.rootNote = 60;
+            stroke.bank = (std::uint8_t) (i == 2 ? 1 : 0);
+            stroke.velocityLayer = (std::uint8_t) (i * 5);
+            stroke.trimDb = (std::uint16_t) (10 + i);
+            stroke.loopStartFrame = (std::uint32_t) (100 + i);
+            stroke.loopEndFrame = (std::uint32_t) (900 + i);
+            for (int n = 0; n < 2000 + i * 7; ++n)
+                stroke.interleavedPcm.push_back((std::int16_t) ((n * (i + 3)) % 20000 - 10000));
+            expected.strokes.push_back(std::move(stroke));
+        }
+
+        {
+            int prepared = 0;
+            FastLoadCache::PianoStreamWriter writer(source, [&prepared](NordPianoDecoder::Stroke&, int channels)
+            {
+                require(channels == 2, "Streamed piano writer lost the channel count");
+                ++prepared;
+            });
+            require(writer.available(1024), "Streamed piano cache reported unavailable");
+            // begin() sees the header without the two late fields, exactly as the decoder calls it.
+            auto header = expected;
+            header.signedTenthsDbTrim = false;
+            header.velocityScale = 31;
+            require(writer.begin(header, (std::uint32_t) expected.strokes.size()).wasOk(), "Streamed piano begin failed");
+            for (auto stroke : expected.strokes)
+                require(writer.stroke(stroke).wasOk(), "Streamed piano stroke write failed");
+            require(prepared == 3, "Streamed piano writer skipped the per-stroke preparation");
+            require(writer.end(expected).wasOk() && writer.completed(), "Streamed piano end failed");
+        }
+        require(cache.existsAsFile(), "Streamed piano cache file was not published");
+
+        NordPianoDecoder::Instrument loaded;
+        require(FastLoadCache::loadPiano(source, loaded, std::numeric_limits<std::uint64_t>::max()),
+                "Streamed piano cache could not be loaded");
+        require(loaded.name == expected.name && loaded.voicing == expected.voicing
+                && loaded.streamVersion == expected.streamVersion && loaded.channels == expected.channels
+                && loaded.gainTenthsDb == expected.gainTenthsDb && loaded.keyMap == expected.keyMap
+                && loaded.fineTune == expected.fineTune,
+                "Streamed piano header changed on the round trip");
+        require(loaded.signedTenthsDbTrim == expected.signedTenthsDbTrim && loaded.velocityScale == expected.velocityScale,
+                "Streamed piano late header fields were not patched in");
+        require(loaded.strokes.size() == expected.strokes.size(), "Streamed piano lost strokes");
+        for (size_t i = 0; i < expected.strokes.size(); ++i)
+        {
+            const auto& a = expected.strokes[i];
+            const auto& b = loaded.strokes[i];
+            require(a.rootNote == b.rootNote && a.bank == b.bank && a.velocityLayer == b.velocityLayer
+                    && a.trimDb == b.trimDb && a.loopStartFrame == b.loopStartFrame
+                    && a.loopEndFrame == b.loopEndFrame && a.interleavedPcm == b.interleavedPcm,
+                    "Streamed piano stroke changed on the round trip");
+        }
+        loaded = {};
+
+        // A writer that is dropped before end() must publish nothing and leave no temporary file behind.
+        cache.deleteFile();
+        {
+            FastLoadCache::PianoStreamWriter writer(source, nullptr);
+            auto header = expected;
+            require(writer.begin(header, 3).wasOk(), "Aborted piano begin failed");
+            auto stroke = expected.strokes[0];
+            require(writer.stroke(stroke).wasOk(), "Aborted piano stroke failed");
+        }
+        require(!cache.existsAsFile(), "An incomplete streamed piano cache was published");
+        require(!cache.getParentDirectory().getChildFile(cache.getFileNameWithoutExtension() + ".tmp").existsAsFile(),
+                "An incomplete streamed piano left a temporary file");
+        source.deleteFile();
     }
 
     static bool hasCachedPiano(SampleEngine& engine, const juce::File& file)
@@ -1079,6 +1174,7 @@ struct SampleEngineRegressionTests
     static void run()
     {
         decodedPianoCacheSharesPcm();
+        streamedPianoCacheRoundTrip();
         halfPedalRelease();
         referenceVelocityLaw();
         referenceControllers();

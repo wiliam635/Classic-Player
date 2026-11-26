@@ -39,13 +39,13 @@ inline std::uint64_t availableBytes() noexcept
 #endif
 }
 
-// Caps a "fraction of installed RAM" budget by what is actually free, but never below 1 GiB so
+// Caps a "fraction of installed RAM" budget by what is actually free, but never below 1.5 GiB so
 // a machine with a full file cache can still import a normal instrument.
 inline std::uint64_t limitByAvailable(std::uint64_t budgetBytes) noexcept
 {
     const auto available = availableBytes();
     if (available == 0) return budgetBytes;
-    constexpr std::uint64_t floorBytes = 1024ull * 1024ull * 1024ull;
+    constexpr std::uint64_t floorBytes = 1536ull * 1024ull * 1024ull;
     return std::min(budgetBytes, std::max(available, floorBytes));
 }
 }

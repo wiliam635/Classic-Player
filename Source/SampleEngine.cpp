@@ -244,9 +244,29 @@ juce::Result SampleEngine::prepareSample(const juce::File& file,
         decoded = cachePiano(file, std::move(decoded));
         return juce::Result::ok();
     }
-    if (const auto result = NordPianoDecoder::decodeFile(file, *decoded, maxDecodedBytes); result.failed())
+    // A piano too big for the RAM budget is decoded straight into the fast-load cache, one stroke at a time (the loop
+    // seams are prepared per stroke on the way), and then mapped from that file. Pianos that fit in RAM take the
+    // normal path below, unchanged.
+    const auto prepareLoops = file.getParentDirectory().getFileName() != "Organ";
+    FastLoadCache::PianoStreamWriter streamWriter(file, [prepareLoops](NordPianoDecoder::Stroke& stroke, int channels)
+    {
+        if (prepareLoops) preparePianoLoop(stroke, channels);
+    });
+    if (const auto result = NordPianoDecoder::decodeFile(file, *decoded, maxDecodedBytes, &streamWriter); result.failed())
     { decoded.reset(); return result; }
-    if (file.getParentDirectory().getFileName() != "Organ") preparePianoLoops(*decoded);
+    if (streamWriter.completed())
+    {
+        *decoded = {};
+        if (!FastLoadCache::loadPiano(file, *decoded, maxDecodedBytes))
+        {
+            decoded.reset();
+            return juce::Result::fail(juce::String::fromUTF8("Não foi possível ler o cache do piano Nord que acabou de ser gravado."));
+        }
+        measurePianoLevels(*decoded);
+        decoded = cachePiano(file, std::move(decoded));
+        return juce::Result::ok();
+    }
+    if (prepareLoops) preparePianoLoops(*decoded);
     measurePianoLevels(*decoded);
     decoded = cachePiano(file, std::move(decoded));
     FastLoadCache::storePiano(file, decoded);
@@ -536,13 +556,19 @@ void SampleEngine::preparePianoLoops(NordPianoDecoder::Instrument& piano)
     const auto channels = piano.channels;
     if (channels < 1 || channels > 2) return;
     for (auto& stroke : piano.strokes)
+        preparePianoLoop(stroke, channels);
+}
+
+void SampleEngine::preparePianoLoop(NordPianoDecoder::Stroke& stroke, int channels)
+{
+    if (channels < 1 || channels > 2) return;
     {
         const auto start = static_cast<int>(stroke.loopStartFrame);
         const auto end = static_cast<int>(stroke.loopEndFrame); // exclusive
         const auto length = end - start;
         if (stroke.bank == 2 || start < 0 || length < 8
             || end > stroke.frameCount(channels))
-            continue;
+            return;
         const auto maximum = static_cast<int>(length * 0.45);
         const auto aim = juce::jmin(maximum, juce::roundToInt(
             pianoCrossfadeSeconds * NordPianoDecoder::sampleRate));
@@ -551,7 +577,7 @@ void SampleEngine::preparePianoLoops(NordPianoDecoder::Instrument& piano)
         const auto low = juce::jmax(2, juce::roundToInt(aim - period));
         const auto high = juce::jmin(maximum, juce::roundToInt(aim + period));
         const auto step = juce::jmax(1, juce::roundToInt(period / 24.0));
-        if (low > high) continue;
+        if (low > high) return;
         const auto read = [&](int frame, int channel)
         {
             return static_cast<double>(stroke.interleavedPcm[
