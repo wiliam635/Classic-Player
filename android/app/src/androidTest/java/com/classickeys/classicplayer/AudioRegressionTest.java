@@ -154,6 +154,56 @@ public class AudioRegressionTest {
     @Test public void nsmpReverbHasTail() throws Exception { assertReverbAudible(5, "nsmp"); }
     @Test public void nordPianoReverbHasTail() throws Exception { assertReverbAudible(6, "npno"); }
 
+    /** Compressor, EQ and chorus must each change what is heard, on every engine. */
+    private short[] effectNote(int type, int effect) throws Exception {
+        for (int i = 0; i < 6; i++) engine.clearLayer(i);
+        engine.allNotesOff(); pcm(RATE);
+        if (type == 5) {
+            engine.loadNsmpTestTone(0);
+        } else if (type == 6) {
+            File npno = new File(context.getCacheDir(), "regression-royal.npno");
+            try (InputStream in = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().getContext().getAssets().open("fixture-royal-grand.npno");
+                 OutputStream out = new FileOutputStream(npno)) {
+                byte[] buf = new byte[1 << 16]; int n; while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            }
+            engine.loadNord(0, npno.getAbsolutePath(), 512L << 20, true);
+        } else activate(type, 0);
+        if (type == 1) engine.setSf2OriginalSound(0, false);
+        engine.setLayerGain(0, .5f);
+        engine.setLayerRouting(0, -1, 0, 0, 127, 0, true, 0);
+        engine.setLayerEq(0, 0, 0, 0, 220, 1200, 4200, .707f, 1, .707f, 20, 20000);
+        if (effect == 2) engine.setLayerEq(0, -18, 0, 0, 2000, 1200, 4200, .707f, 1, .707f, 20, 20000);
+        // A very low threshold so the quietest test instrument is compressed too.
+        engine.setLayerCompressor(0, .001f, 20f, .1f, 50f, 0f);
+        engine.setLayerTone(0, 100, 0, effect == 1 ? 1f : 0f, effect == 3 ? 1f : 0f);
+        engine.noteOn(60, 100, 0);
+        short[] out = pcm(RATE / 2);
+        engine.noteOff(60, 0); pcm(RATE * 3);
+        return out;
+    }
+    private void assertEffectsAudible(int type, String name) throws Exception {
+        short[] dry = effectNote(type, 0);
+        double plain = rms(dry);
+        assertTrue(name + " produced no sound", plain > .0005);
+        double compressed = rms(effectNote(type, 1)), equalized = rms(effectNote(type, 2));
+        // With the chorus fully wet the first 8 ms come from an empty delay line.
+        short[] wet = effectNote(type, 3);
+        double dryStart = rms(Arrays.copyOfRange(dry, 0, 700)), wetStart = rms(Arrays.copyOfRange(wet, 0, 700));
+        report("effects-" + name, "{\"dry\":" + plain + ",\"comp\":" + compressed + ",\"eqLowShelf\":" + equalized
+                + ",\"dryStart\":" + dryStart + ",\"chorusStart\":" + wetStart + "}");
+        assertTrue(name + " compressor changed nothing: " + plain + " -> " + compressed, compressed < plain * .7);
+        assertTrue(name + " EQ changed nothing: " + plain + " -> " + equalized, equalized < plain * .8);
+        int different = 0;
+        for (int i = 0; i < dry.length; i++) if (Math.abs(dry[i] - wet[i]) > 8) different++;
+        assertTrue(name + " chorus changed nothing (" + different + " samples)", different > dry.length / 20);
+    }
+    @Test public void sf2EffectsAreAudible() throws Exception { assertEffectsAudible(1, "sf2"); }
+    @Test public void dx7EffectsAreAudible() throws Exception { assertEffectsAudible(2, "dx7"); }
+    @Test public void analogEffectsAreAudible() throws Exception { assertEffectsAudible(3, "analog"); }
+    @Test public void hammondEffectsAreAudible() throws Exception { assertEffectsAudible(4, "hammond"); }
+    @Test public void nsmpEffectsAreAudible() throws Exception { assertEffectsAudible(5, "nsmp"); }
+    @Test public void nordPianoEffectsAreAudible() throws Exception { assertEffectsAudible(6, "npno"); }
+
     /** Same key struck 40 times under the pedal: the held voices must not stack (any engine). */
     private int maxVoicesRestruckUnderPedal(int type) throws Exception {
         activate(type, 0);
