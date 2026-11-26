@@ -274,6 +274,8 @@ final class EditorUi {
         Runnable onLongPress;boolean longPressed;String key="";
         /** A physical MIDI control moved: 0..1 across the knob's range, applied like a touch. */
         void setNormalized(float n){float v=min+(max-min)*Math.max(0f,Math.min(1f,n));setValue(v);if(action!=null)action.set(v);}
+        /** Follows a value changed elsewhere (a graph drag) without applying it again. */
+        void show(float v){setValue(v);}
         final Runnable longPressTask=()->{if(pointer>=0&&dragAxis==0&&onLongPress!=null){longPressed=true;performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);onLongPress.run();}};
         Knob(Context c,String label,float value,float min,float max,String unit,Change action){super(c);this.label=label;this.min=min;this.max=max;this.unit=unit;this.value=Math.max(min,Math.min(max,value));this.action=action;touchSlop=ViewConfiguration.get(c).getScaledTouchSlop();setFocusable(true);describe();}
         long lastTapTime;float lastTapX,lastTapY;

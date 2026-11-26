@@ -96,10 +96,10 @@ final class EffectGraphs {
                     float d1 = (float) Math.hypot(e.getX() - x(r, thresholdDb), e.getY() - y(r, transfer(thresholdDb, thresholdDb, ratio, makeupDb, mix)));
                     float d2 = (float) Math.hypot(e.getX() - x(r, 6), e.getY() - y(r, transfer(6f, thresholdDb, ratio, makeupDb, mix)));
                     drag = Math.min(d1, d2) > reach ? -1 : (d1 <= d2 ? 0 : 1);
-                    if (drag >= 0) EditorUi.disallowIntercept(this,true);
-                    return drag >= 0; }
+                    EditorUi.disallowIntercept(this,true);
+                    return true; }
                 case MotionEvent.ACTION_MOVE: {
-                    if (drag < 0) return false;
+                    if (drag < 0) return true;
                     if (drag == 0) thresholdDb = Math.max(-60f, Math.min(-1f, -60f + 66f * (e.getX() - r.left) / r.width()));
                     else { float outDb = -60f + 72f * (r.bottom - e.getY()) / r.height() - makeupDb; float gain = outDb - thresholdDb; float span = 6f - thresholdDb; ratio = Math.max(1f, Math.min(20f, gain <= .05f ? 20f : span / gain)); }
                     if (listener != null) listener.changed(thresholdDb, ratio);
@@ -122,7 +122,8 @@ final class EffectGraphs {
         static final float[] MIN_F = {40, 60, 1000}, MAX_F = {2000, 12000, 20000};
         Listener listener;
         private int drag = -1;
-        private float grabDx, grabDy;
+        private float grabDx, grabDy, downX, downY;
+        private boolean moving;
         EqGraph(Context c) { super(c); }
         void set(float[] f, float[] g, float[] qq, float hp, float lp) { for (int i = 0; i < 3; i++) { freq[i] = f[i]; gain[i] = g[i]; q[i] = qq[i]; } highPass = hp; lowPass = lp; invalidate(); }
         private RectF plot() { Context k = getContext(); return new RectF(EditorUi.dp(k, 40), EditorUi.dp(k, 34), getWidth() - EditorUi.dp(k, 18), getHeight() - EditorUi.dp(k, 34)); }
@@ -177,11 +178,21 @@ final class EffectGraphs {
                 case MotionEvent.ACTION_DOWN: {
                     float best = reach; drag = -1;
                     for (int b = 0; b < 3; b++) { float d = (float) Math.hypot(e.getX() - x(r, freq[b]), e.getY() - y(r, gain[b])); if (d < best) { best = d; drag = b; } }
+                    moving = drag >= 0; grabDx = grabDy = 0f; downX = e.getX(); downY = e.getY();
                     if (drag >= 0) { grabDx = x(r, freq[drag]) - e.getX(); grabDy = y(r, gain[drag]) - e.getY(); }
-                    if (drag >= 0) EditorUi.disallowIntercept(this,true);
-                    return drag >= 0; }
+                    else if (r.contains(e.getX(), e.getY())) {
+                        // Dragging the curve itself takes the band closest in frequency and brings it under the finger.
+                        float closest = Float.MAX_VALUE;
+                        for (int b = 0; b < 3; b++) { float d = Math.abs(e.getX() - x(r, freq[b])); if (d < closest) { closest = d; drag = b; } }
+                    }
+                    // Every touch on the graph stays here: otherwise the page scrolls, or the panel closes when the finger lifts outside it.
+                    EditorUi.disallowIntercept(this,true);
+                    return true; }
                 case MotionEvent.ACTION_MOVE: {
-                    if (drag < 0) return false;
+                    if (drag < 0) return true;
+                    // A tap on the curve must not move anything.
+                    if (!moving && Math.hypot(e.getX() - downX, e.getY() - downY) < android.view.ViewConfiguration.get(getContext()).getScaledTouchSlop()) return true;
+                    moving = true;
                     // The point keeps the offset it was grabbed with, so it never jumps under the finger.
                     float f = (float) (20.0 * Math.pow(1000.0, Math.max(0f, Math.min(1f, (e.getX() + grabDx - r.left) / r.width()))));
                     freq[drag] = Math.max(MIN_F[drag], Math.min(MAX_F[drag], f));
