@@ -172,7 +172,8 @@ public class AudioRegressionTest {
         engine.setLayerGain(0, .5f);
         engine.setLayerRouting(0, -1, 0, 0, 127, 0, true, 0);
         engine.setLayerEq(0, 0, 0, 0, 220, 1200, 4200, .707f, 1, .707f, 20, 20000);
-        if (effect == 2) engine.setLayerEq(0, -18, 0, 0, 2000, 1200, 4200, .707f, 1, .707f, 20, 20000);
+        // The three bands are peaking filters: cut around the note's fundamental and across its harmonics.
+        if (effect == 2) engine.setLayerEq(0, -18, -18, -18, 262, 900, 3500, .3f, .3f, .3f, 20, 20000);
         // A very low threshold so the quietest test instrument is compressed too.
         engine.setLayerCompressor(0, .001f, 20f, .1f, 50f, 0f);
         engine.setLayerTone(0, 100, 0, effect == 1 ? 1f : 0f, effect == 3 ? 1f : 0f);
@@ -189,10 +190,10 @@ public class AudioRegressionTest {
         // With the chorus fully wet the first 8 ms come from an empty delay line.
         short[] wet = effectNote(type, 3);
         double dryStart = rms(Arrays.copyOfRange(dry, 0, 700)), wetStart = rms(Arrays.copyOfRange(wet, 0, 700));
-        report("effects-" + name, "{\"dry\":" + plain + ",\"comp\":" + compressed + ",\"eqLowShelf\":" + equalized
+        report("effects-" + name, "{\"dry\":" + plain + ",\"comp\":" + compressed + ",\"eqCut\":" + equalized
                 + ",\"dryStart\":" + dryStart + ",\"chorusStart\":" + wetStart + "}");
         assertTrue(name + " compressor changed nothing: " + plain + " -> " + compressed, compressed < plain * .7);
-        assertTrue(name + " EQ changed nothing: " + plain + " -> " + equalized, equalized < plain * .8);
+        assertTrue(name + " EQ changed nothing: " + plain + " -> " + equalized, equalized < plain * .6);
         int different = 0;
         for (int i = 0; i < dry.length; i++) if (Math.abs(dry[i] - wet[i]) > 8) different++;
         assertTrue(name + " chorus changed nothing (" + different + " samples)", different > dry.length / 20);
