@@ -331,6 +331,7 @@ juce_add_gui_app(ClassicConverter
     ICON_SMALL "Resources/classic-player-app-icon.png")
 target_sources(ClassicConverter PRIVATE
     Source/ClassicConverterApp.cpp Source/ClassicSoundFile.h Source/ClassicSoundConvert.h
+    Source/ClassicSf2Export.h Source/NordPianoLoop.h
     Source/NordPianoDecoder.cpp Source/NordSampleDecoder.cpp Source/NordLegacySampleDecoder.cpp)
 target_compile_definitions(ClassicConverter PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
     CLASSIC_CONVERTER_VERSION="${PROJECT_VERSION}")

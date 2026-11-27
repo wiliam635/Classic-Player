@@ -1,6 +1,7 @@
 #include "SampleEngine.h"
 #include "FastLoadCache.h"
 #include "ClassicSoundFile.h"
+#include "ClassicSf2Export.h"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -155,6 +156,85 @@ struct SampleEngineRegressionTests
         prepared.reset();
         engine.reset();
         cache.deleteFile(); // may stay behind on Windows while the warm-up thread still maps it
+        folder.deleteRecursively();
+    }
+
+    // SF2 export: FluidSynth must load it, play both channels, follow the velocity law and keep looping.
+    static void soundFontExportPlays()
+    {
+        const auto folder = juce::File::getSpecialLocation(juce::File::tempDirectory)
+            .getChildFile("classic-sf2-test-" + juce::String(juce::Time::currentTimeMillis()));
+        require(folder.createDirectory().wasOk(), "Cannot create the SF2 test folder");
+        const auto file = folder.getChildFile("test.sf2");
+
+        NordPianoDecoder::Instrument piano;
+        piano.name = "SF2 Test";
+        piano.channels = 2;
+        piano.keyMap.fill(0xff);
+        for (int key = 55; key <= 65; ++key) piano.keyMap[(size_t) key] = 60;
+        piano.fineTune[60] = 5;
+        {
+            ClassicSf2Export::Writer writer(file);
+            require(writer.begin(piano, 3).wasOk(), "SF2 export did not start");
+            for (int i = 0; i < 3; ++i)
+            {
+                NordPianoDecoder::Stroke stroke;
+                stroke.rootNote = 60;
+                stroke.bank = (std::uint8_t) (i == 2 ? 1 : 0); // the pedal bank is left out of the SoundFont
+                stroke.velocityLayer = (std::uint8_t) (i * 16);
+                stroke.loopStartFrame = 8000;
+                stroke.loopEndFrame = 30000;
+                for (int n = 0; n < 35002; ++n)
+                {
+                    const auto value = (std::int16_t) std::lround(12000.0 * std::sin(
+                        juce::MathConstants<double>::twoPi * 261.63 * n / NordPianoDecoder::sampleRate));
+                    stroke.interleavedPcm.push_back(value);
+                    stroke.interleavedPcm.push_back(value);
+                }
+                require(writer.stroke(stroke).wasOk(), "SF2 export rejected a stroke");
+            }
+            require(writer.end(piano).wasOk() && writer.completed(), "SF2 export did not finish");
+        }
+        require(file.existsAsFile() && folder.getNumberOfChildFiles(juce::File::findFiles, "*.part") == 0,
+                "SF2 export left temporary files");
+
+        // RMS of the left and right channels over [from, from + 0.2) seconds of one note.
+        const auto play = [&file] (int key, int velocity, double from)
+        {
+            auto* settings = new_fluid_settings();
+            fluid_settings_setnum(settings, "synth.sample-rate", 48000.0);
+            fluid_settings_setint(settings, "synth.reverb.active", 0);
+            fluid_settings_setint(settings, "synth.chorus.active", 0);
+            auto* synth = new_fluid_synth(settings);
+            const auto id = fluid_synth_sfload(synth, file.getFullPathName().toRawUTF8(), 1);
+            std::array<double, 2> rms { -1.0, -1.0 };
+            if (id != FLUID_FAILED)
+            {
+                fluid_synth_noteon(synth, 0, key, velocity);
+                std::vector<float> left(9600), right(9600);
+                for (int skipped = 0; skipped < (int) (from * 48000.0); skipped += 480)
+                    fluid_synth_write_float(synth, 480, left.data(), 0, 1, right.data(), 0, 1);
+                fluid_synth_write_float(synth, 9600, left.data(), 0, 1, right.data(), 0, 1);
+                rms = { 0.0, 0.0 };
+                for (size_t n = 0; n < left.size(); ++n)
+                {
+                    rms[0] += (double) left[n] * left[n];
+                    rms[1] += (double) right[n] * right[n];
+                }
+                for (auto& value : rms) value = std::sqrt(value / (double) left.size());
+            }
+            delete_fluid_synth(synth);
+            delete_fluid_settings(settings);
+            return rms;
+        };
+        const auto loud = play(60, 127, 0.02);
+        require(loud[0] > 0.001 && loud[1] > 0.001, "The exported SoundFont does not play in stereo");
+        const auto soft = play(60, 32, 0.02);
+        const auto rangeDb = 20.0 * std::log10(loud[0] / juce::jmax(1.0e-9, soft[0]));
+        require(rangeDb > 24.0 && rangeDb < 36.0, "The exported SoundFont does not follow the velocity law");
+        const auto held = play(60, 127, 1.6); // past the end of the one-second sample
+        require(held[0] > loud[0] * 0.1, "The exported SoundFont does not loop held notes");
+        require(play(40, 127, 0.02)[0] < 1.0e-6, "The exported SoundFont plays unmapped keys");
         folder.deleteRecursively();
     }
 
@@ -1278,6 +1358,7 @@ struct SampleEngineRegressionTests
         decodedPianoCacheSharesPcm();
         streamedPianoCacheRoundTrip();
         classicPianoFileRoundTrip();
+        soundFontExportPlays();
         halfPedalRelease();
         referenceVelocityLaw();
         referenceControllers();

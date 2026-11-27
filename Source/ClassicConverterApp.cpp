@@ -10,15 +10,15 @@ juce::String text(const char* utf8) { return juce::String::fromUTF8(utf8); }
 
 juce::String megabytes(juce::int64 bytes) { return juce::String((double) bytes / 1.0e6, 1) + " MB"; }
 
-juce::String convertOne(const juce::File& source, const juce::File& folder, bool& ok)
+juce::String convertOne(const juce::File& source, const juce::File& folder, ClassicSoundConvert::Format format, bool& ok)
 {
     juce::File created;
     const auto start = juce::Time::getMillisecondCounterHiRes();
-    const auto result = ClassicSoundConvert::convert(source, folder, created);
+    const auto result = ClassicSoundConvert::convert(source, folder, created, format);
     ok = result.wasOk();
     if (!ok) return source.getFileName() + ": " + text("não convertido. ") + result.getErrorMessage();
     return source.getFileName() + " (" + megabytes(source.getSize()) + ") -> " + created.getFileName() + " ("
-         + megabytes(created.getSize()) + "), conferido, "
+         + megabytes(created.getSize()) + (format == ClassicSoundConvert::Format::classic ? "), conferido, " : "), pronto, ")
          + juce::String((juce::Time::getMillisecondCounterHiRes() - start) / 1000.0, 1) + " s";
 }
 
@@ -36,6 +36,9 @@ public:
         chooseFiles.setButtonText("ESCOLHER ARQUIVOS...");
         chooseFolder.setButtonText("PASTA DE DESTINO...");
         openFolder.setButtonText("ABRIR PASTA");
+        formatBox.addItem("Classic Player (.ckp / .cks)", 1);
+        formatBox.addItem(text("SoundFont (.sf2) - só pianos, som aproximado"), 2);
+        formatBox.setSelectedId(1, juce::dontSendNotification);
         chooseFiles.onClick = [this] { pickFiles(); };
         chooseFolder.onClick = [this] { pickFolder(); };
         openFolder.onClick = [this] { if (folder.createDirectory().wasOk()) folder.revealToUser(); };
@@ -43,11 +46,11 @@ public:
         log.setReadOnly(true);
         log.setScrollbarsShown(true);
         for (auto* component : std::initializer_list<juce::Component*> { &title, &chooseFiles, &chooseFolder,
-                                                                        &openFolder, &folderLabel, &log })
+                                                                        &openFolder, &folderLabel, &formatBox, &log })
             addAndMakeVisible(component);
         showFolder();
         append(text("Escolha os arquivos ou arraste para esta janela. Os originais não são alterados."));
-        setSize(720, 420);
+        setSize(720, 460);
     }
 
     ~ConverterWindowContent() override { stopThread(-1); } // never abandons a half-written conversion
@@ -74,13 +77,15 @@ public:
         area.removeFromTop(8);
         folderLabel.setBounds(area.removeFromTop(24));
         area.removeFromTop(8);
+        formatBox.setBounds(area.removeFromTop(28).removeFromLeft(430));
+        area.removeFromTop(8);
         log.setBounds(area);
     }
 
     bool isInterestedInFileDrag(const juce::StringArray& files) override
     {
         for (const auto& path : files)
-            if (ClassicSoundConvert::outputExtension(juce::File(path)).isNotEmpty()) return true;
+            if (ClassicSoundConvert::outputExtension(juce::File(path), selectedFormat()).isNotEmpty()) return true;
         return false;
     }
 
@@ -92,7 +97,17 @@ public:
     }
 
 private:
-    struct Job { juce::File source, folder; };
+    struct Job
+    {
+        juce::File source, folder;
+        ClassicSoundConvert::Format format = ClassicSoundConvert::Format::classic;
+    };
+
+    ClassicSoundConvert::Format selectedFormat() const
+    {
+        return formatBox.getSelectedId() == 2 ? ClassicSoundConvert::Format::soundFont
+                                              : ClassicSoundConvert::Format::classic;
+    }
 
     void showFolder() { folderLabel.setText("Destino: " + folder.getFullPathName(), juce::dontSendNotification); }
 
@@ -105,7 +120,9 @@ private:
     void pickFiles()
     {
         chooser = std::make_unique<juce::FileChooser>("Escolha os arquivos Nord", juce::File{},
-            "*.npno;*.NPNO;*.nsmp;*.NSMP;*.nsmp3;*.NSMP3;*.nsmp4;*.NSMP4");
+            selectedFormat() == ClassicSoundConvert::Format::soundFont
+                ? "*.npno;*.NPNO;*.ckp;*.CKP"
+                : "*.npno;*.NPNO;*.nsmp;*.NSMP;*.nsmp3;*.NSMP3;*.nsmp4;*.NSMP4");
         chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
                                  | juce::FileBrowserComponent::canSelectMultipleItems,
                              [this](const juce::FileChooser& dialog) { enqueue(dialog.getResults()); });
@@ -130,9 +147,9 @@ private:
         {
             const juce::ScopedLock guard(queueLock);
             for (const auto& file : files)
-                if (ClassicSoundConvert::outputExtension(file).isNotEmpty())
+                if (ClassicSoundConvert::outputExtension(file, selectedFormat()).isNotEmpty())
                 {
-                    queue.add({ file, folder });
+                    queue.add({ file, folder, selectedFormat() });
                     ++added;
                 }
         }
@@ -157,7 +174,7 @@ private:
             if (!found) { wait(-1); continue; }
             post("Convertendo " + job.source.getFileName() + "...");
             bool ok = false;
-            post(convertOne(job.source, job.folder, ok));
+            post(convertOne(job.source, job.folder, job.format, ok));
         }
     }
 
@@ -172,6 +189,7 @@ private:
     juce::Label title, folderLabel;
     juce::TextButton chooseFiles, chooseFolder, openFolder;
     juce::TextEditor log;
+    juce::ComboBox formatBox;
     juce::File folder;
     std::unique_ptr<juce::FileChooser> chooser;
     juce::CriticalSection queueLock;
@@ -206,14 +224,17 @@ public:
 
     void initialise(const juce::String&) override
     {
-        // Headless use: "Classic Converter" --convert <file> <destination folder>
+        // Headless use: "Classic Converter" --convert (or --convert-sf2) <file> <destination folder>
         const auto arguments = getCommandLineParameterArray();
-        if (arguments.size() == 3 && arguments[0] == "--convert")
+        if (arguments.size() == 3 && (arguments[0] == "--convert" || arguments[0] == "--convert-sf2"))
         {
             bool ok = false;
             const auto cwd = juce::File::getCurrentWorkingDirectory();
             std::cout << convertOne(cwd.getChildFile(arguments[1].unquoted()),
-                                    cwd.getChildFile(arguments[2].unquoted()), ok) << std::endl;
+                                    cwd.getChildFile(arguments[2].unquoted()),
+                                    arguments[0] == "--convert-sf2" ? ClassicSoundConvert::Format::soundFont
+                                                                    : ClassicSoundConvert::Format::classic,
+                                    ok) << std::endl;
             setApplicationReturnValue(ok ? 0 : 1);
             quit();
             return;
