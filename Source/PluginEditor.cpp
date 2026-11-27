@@ -3902,12 +3902,12 @@ public:
 
         flatButton(importButton);
         importButton.setButtonText(isSampleLayer ? "IMPORTAR NSMP" : "IMPORTAR NPNO");
-        importButton.setTooltip(isSampleLayer ? "Importar uma amostra Nord (.nsmp, .nsmp3, .nsmp4, .cksample)" : "Importar um piano (.npno, .ckpiano) nesta categoria");
+        importButton.setTooltip(isSampleLayer ? "Importar uma amostra Nord (.nsmp, .nsmp3, .nsmp4, .cks)" : "Importar um piano (.npno, .ckp) nesta categoria");
         importButton.onClick = [this]
         {
             chooser = std::make_unique<juce::FileChooser>(
-                isSampleLayer ? "Escolha uma amostra Nord (.nsmp, .nsmp3, .nsmp4, .cksample)" : "Escolha um piano (.npno, .ckpiano)",
-                juce::File{}, isSampleLayer ? "*.nsmp;*.NSMP;*.nsmp3;*.NSMP3;*.nsmp4;*.NSMP4;*.cksample;*.CKSAMPLE" : "*.npno;*.NPNO;*.ckpiano;*.CKPIANO");
+                isSampleLayer ? "Escolha uma amostra Nord (.nsmp, .nsmp3, .nsmp4, .cks)" : "Escolha um piano (.npno, .ckp)",
+                juce::File{}, isSampleLayer ? "*.nsmp;*.NSMP;*.nsmp3;*.NSMP3;*.nsmp4;*.NSMP4;*.cks;*.CKS" : "*.npno;*.NPNO;*.ckp;*.CKP");
             chooser->launchAsync(juce::FileBrowserComponent::openMode
                                      | juce::FileBrowserComponent::canSelectFiles,
                 [this](const juce::FileChooser& fileChooser)
@@ -9545,10 +9545,10 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::chooseSoundFont()
 {
     const auto isNord = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nord;
     const auto isNordSample = processor.layerType(index) == ClassicPlayerAudioProcessor::LayerType::nordSample;
-    const auto title = isNordSample ? "Escolha uma amostra Nord NSMP (.nsmp, .nsmp3, .nsmp4, .cksample)"
-                     : isNord ? "Escolha um piano (.npno, .ckpiano)" : "Escolha um SoundFont (.sf2)";
-    const auto filter = isNordSample ? "*.nsmp;*.NSMP;*.nsmp3;*.NSMP3;*.nsmp4;*.NSMP4;*.cksample;*.CKSAMPLE"
-                      : isNord ? "*.npno;*.NPNO;*.ckpiano;*.CKPIANO" : "*.sf2;*.SF2";
+    const auto title = isNordSample ? "Escolha uma amostra Nord NSMP (.nsmp, .nsmp3, .nsmp4, .cks)"
+                     : isNord ? "Escolha um piano (.npno, .ckp)" : "Escolha um SoundFont (.sf2)";
+    const auto filter = isNordSample ? "*.nsmp;*.NSMP;*.nsmp3;*.NSMP3;*.nsmp4;*.NSMP4;*.cks;*.CKS"
+                      : isNord ? "*.npno;*.NPNO;*.ckp;*.CKP" : "*.sf2;*.SF2";
     fileChooser = std::make_unique<juce::FileChooser>(
         localizedUiText(title, activeUiLanguage.load()), juce::File{}, filter);
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode |
@@ -9716,8 +9716,8 @@ void ClassicPlayerAudioProcessorEditor::LayerStrip::updateSourceTypeVisibility()
         control->setVisible(!isDrumPads);
 
     loadButton.setButtonText(isNordSample ? "IMPORTAR NSMP" : isNord ? "IMPORTAR NPNO" : "IMPORTAR SF2");
-    loadButton.setTooltip(isNordSample ? "Importar uma amostra Nord NSMP (.nsmp, .nsmp3, .nsmp4, .cksample)"
-                       : isNord ? "Importar um piano (.npno, .ckpiano)" : "Importar um SoundFont (.sf2)");
+    loadButton.setTooltip(isNordSample ? "Importar uma amostra Nord NSMP (.nsmp, .nsmp3, .nsmp4, .cks)"
+                       : isNord ? "Importar um piano (.npno, .ckp)" : "Importar um SoundFont (.sf2)");
     loadButton.setVisible(isSf2 || isNord || isNordSample);
     categoryBox.setVisible(isSf2 || isNord || isNordSample);
     libraryBox.setVisible(isSf2 || isNord || isNordSample);

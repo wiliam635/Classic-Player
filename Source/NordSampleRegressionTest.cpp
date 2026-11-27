@@ -166,36 +166,36 @@ struct NordSampleRegressionTests
         require(exported == 1 && wavFiles.size() == 1 && wavFiles[0].getSize() > 44,
                 "NSMP4 zone WAV export did not produce a playable-sized file");
 
-        // Classic Converter path: NSMP -> .cksample, read back and loaded by the player.
+        // Classic Converter path: NSMP -> .cks, read back and loaded by the player.
         juce::File converted;
         const auto conversion = ClassicSoundConvert::convert(file, exportFolder, converted);
         require(conversion.wasOk(), conversion.getErrorMessage().toRawUTF8());
-        require(converted.hasFileExtension(".cksample") && converted.existsAsFile()
+        require(converted.hasFileExtension(".cks") && converted.existsAsFile()
                 && exportFolder.getNumberOfChildFiles(juce::File::findFiles, "*.part") == 0,
-                "Conversion did not publish exactly one finished .cksample");
+                "Conversion did not publish exactly one finished .cks");
         NordSampleDecoder::Instrument reread;
         require(ClassicSoundFile::readSample(converted, reread, std::numeric_limits<std::uint64_t>::max()).wasOk(),
-                "Cannot read the converted .cksample");
+                "Cannot read the converted .cks");
         require(reread.name == instrument.name && reread.gain == instrument.gain && reread.detune == instrument.detune
-                && reread.zones.size() == instrument.zones.size(), ".cksample header changed in the round trip");
+                && reread.zones.size() == instrument.zones.size(), ".cks header changed in the round trip");
         const auto& copy = reread.zones.front();
         require(copy.root == zone.root && copy.low == zone.low && copy.high == zone.high
                 && copy.velocityLow == zone.velocityLow && copy.velocityHigh == zone.velocityHigh
                 && copy.channels == zone.channels && copy.gain == zone.gain && copy.secondStart == zone.secondStart
                 && copy.loopStart == zone.loopStart && copy.loopEnd == zone.loopEnd
                 && copy.clippedSamples == zone.clippedSamples && copy.pcm == zone.pcm,
-                ".cksample zone changed in the round trip");
+                ".cks zone changed in the round trip");
         auto player = std::make_unique<NordSampleEngine>();
         player->prepare(48000.0, 512);
-        require(player->loadSample(0, converted).wasOk(), "The player cannot load a .cksample");
+        require(player->loadSample(0, converted).wasOk(), "The player cannot load a .cks");
         juce::File second;
         require(ClassicSoundConvert::convert(file, exportFolder, second).wasOk() && second != converted
                 && converted.existsAsFile(), "Conversion overwrote an existing file");
         juce::MemoryBlock bytes;
-        require(converted.loadFileAsData(bytes) && bytes.getSize() > 64, "Cannot reread the .cksample");
+        require(converted.loadFileAsData(bytes) && bytes.getSize() > 64, "Cannot reread the .cks");
         require(second.replaceWithData(bytes.getData(), bytes.getSize() - 10)
                 && ClassicSoundFile::readSample(second, reread, std::numeric_limits<std::uint64_t>::max()).failed(),
-                "A truncated .cksample was accepted");
+                "A truncated .cks was accepted");
     }
 
     static void require(bool condition, const char* message)

@@ -3,13 +3,13 @@
 #include "ClassicSoundFile.h"
 #include "NordLegacySampleDecoder.h"
 
-// NPNO / NSMP -> .ckpiano / .cksample. Used by the Classic Converter app; the player itself only reads the result.
+// NPNO / NSMP -> .ckp / .cks. Used by the Classic Converter app; the player itself only reads the result.
 namespace ClassicSoundConvert
 {
 inline juce::String outputExtension(const juce::File& source)
 {
-    if (source.hasFileExtension(".npno")) return ".ckpiano";
-    if (source.hasFileExtension(".nsmp;.nsmp3;.nsmp4")) return ".cksample";
+    if (source.hasFileExtension(".npno")) return ".ckp";
+    if (source.hasFileExtension(".nsmp;.nsmp3;.nsmp4")) return ".cks";
     return {};
 }
 
@@ -24,7 +24,7 @@ inline juce::Result convert(const juce::File& source, const juce::File& folder, 
     if (const auto made = folder.createDirectory(); made.failed()) return made;
     const auto destination = folder.getNonexistentChildFile(source.getFileNameWithoutExtension(), extension, true);
 
-    if (extension == ".ckpiano")
+    if (extension == ".ckp")
     {
         ClassicSoundFile::PianoWriter writer(destination);
         NordPianoDecoder::Instrument piano;

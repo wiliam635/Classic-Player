@@ -321,7 +321,7 @@ if(CLASSIC_PLAYER_BUILD_WEBUI_APP)
     classic_player_attach_continuous_pad_resources(ClassicPlayerApp)
 endif()
 
-# Stand-alone tool that converts NPNO / NSMP files into .ckpiano / .cksample, one at a time.
+# Stand-alone tool that converts NPNO / NSMP files into .ckp / .cks, one at a time.
 juce_add_gui_app(ClassicConverter
     PRODUCT_NAME "Classic Converter"
     COMPANY_NAME "Classic Keys"

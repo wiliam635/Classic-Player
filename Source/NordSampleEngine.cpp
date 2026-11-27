@@ -131,7 +131,7 @@ juce::Result NordSampleEngine::prepareSample(const juce::File& file,
         decoded = cacheInstrument(file, std::move(decoded));
         return juce::Result::ok();
     }
-    const auto result = file.hasFileExtension(".cksample")
+    const auto result = file.hasFileExtension(".cks")
         ? ClassicSoundFile::readSample(file, *decoded, maxDecodedBytes)
         : file.hasFileExtension(".nsmp4")
         ? NordSampleDecoder::decode(file, *decoded, maxDecodedBytes)

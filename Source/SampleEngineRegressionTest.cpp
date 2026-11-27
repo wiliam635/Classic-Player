@@ -66,13 +66,13 @@ struct SampleEngineRegressionTests
                 "NPNO preload cache copied instead of sharing decoded PCM");
     }
 
-    // .ckpiano: lossless FLAC round trip, loading through the player, and rejection of damaged files.
+    // .ckp: lossless FLAC round trip, loading through the player, and rejection of damaged files.
     static void classicPianoFileRoundTrip()
     {
         const auto folder = juce::File::getSpecialLocation(juce::File::tempDirectory)
-            .getChildFile("classic-ckpiano-test-" + juce::String(juce::Time::currentTimeMillis()));
-        require(folder.createDirectory().wasOk(), "Cannot create the .ckpiano test folder");
-        const auto file = folder.getChildFile("test.ckpiano");
+            .getChildFile("classic-ckp-test-" + juce::String(juce::Time::currentTimeMillis()));
+        require(folder.createDirectory().wasOk(), "Cannot create the .ckp test folder");
+        const auto file = folder.getChildFile("test.ckp");
 
         NordPianoDecoder::Instrument expected;
         expected.name = "Classic File Test";
@@ -101,7 +101,7 @@ struct SampleEngineRegressionTests
                                                                 : (n * (i + 3)) % 20000 - 10000));
             expected.strokes.push_back(std::move(stroke));
         }
-        require(ClassicSoundFile::writePiano(file, expected).wasOk(), "Cannot write a .ckpiano");
+        require(ClassicSoundFile::writePiano(file, expected).wasOk(), "Cannot write a .ckp");
 
         const auto same = [&](const NordPianoDecoder::Instrument& loaded)
         {
@@ -110,7 +110,7 @@ struct SampleEngineRegressionTests
                     && loaded.gainTenthsDb == expected.gainTenthsDb && loaded.signedTenthsDbTrim
                     && loaded.velocityScale == expected.velocityScale && loaded.keyMap == expected.keyMap
                     && loaded.fineTune == expected.fineTune && loaded.strokes.size() == expected.strokes.size(),
-                    ".ckpiano header changed in the round trip");
+                    ".ckp header changed in the round trip");
             for (size_t i = 0; i < expected.strokes.size(); ++i)
             {
                 const auto& a = expected.strokes[i];
@@ -118,39 +118,39 @@ struct SampleEngineRegressionTests
                 require(a.rootNote == b.rootNote && a.bank == b.bank && a.velocityLayer == b.velocityLayer
                         && a.trimDb == b.trimDb && a.loopStartFrame == b.loopStartFrame
                         && a.loopEndFrame == b.loopEndFrame && a.interleavedPcm == b.interleavedPcm,
-                        ".ckpiano stroke changed in the round trip");
+                        ".ckp stroke changed in the round trip");
             }
         };
         NordPianoDecoder::Instrument inMemory;
         require(ClassicSoundFile::readPiano(file, inMemory, std::numeric_limits<std::uint64_t>::max()).wasOk(),
-                "Cannot read a .ckpiano into memory");
+                "Cannot read a .ckp into memory");
         same(inMemory);
-        require(ClassicSoundFile::readPiano(file, inMemory, 16).failed(), ".ckpiano ignored the memory budget");
+        require(ClassicSoundFile::readPiano(file, inMemory, 16).failed(), ".ckp ignored the memory budget");
 
         // Through the player: unpacked into the fast-load cache with the loop seams prepared, like an NPNO import.
         const auto categoryFolder = folder.getChildFile("Organ");
-        require(categoryFolder.createDirectory().wasOk(), "Cannot create the .ckpiano category folder");
-        const auto organCopy = categoryFolder.getChildFile("test.ckpiano"); // Organ: no loop preparation
-        require(file.copyFileTo(organCopy), "Cannot copy the .ckpiano");
+        require(categoryFolder.createDirectory().wasOk(), "Cannot create the .ckp category folder");
+        const auto organCopy = categoryFolder.getChildFile("test.ckp"); // Organ: no loop preparation
+        require(file.copyFileTo(organCopy), "Cannot copy the .ckp");
         auto engine = std::make_unique<SampleEngine>();
         std::shared_ptr<NordPianoDecoder::Instrument> prepared;
         require(engine->prepareSample(organCopy, prepared).wasOk() && prepared != nullptr,
-                "The player cannot load a .ckpiano");
+                "The player cannot load a .ckp");
         same(*prepared);
         const auto cache = FastLoadCache::cacheFile(
             FastLoadCache::sourceKey(organCopy, FastLoadCache::Kind::piano));
 
         // One flipped byte inside the audio must be rejected.
         juce::MemoryBlock bytes;
-        require(file.loadFileAsData(bytes) && bytes.getSize() > 600, "Cannot reread the .ckpiano");
+        require(file.loadFileAsData(bytes) && bytes.getSize() > 600, "Cannot reread the .ckp");
         static_cast<char*>(bytes.getData())[bytes.getSize() - 200] ^= 0x5a;
-        const auto broken = folder.getChildFile("broken.ckpiano");
-        require(broken.replaceWithData(bytes.getData(), bytes.getSize()), "Cannot write the damaged .ckpiano");
+        const auto broken = folder.getChildFile("broken.ckp");
+        require(broken.replaceWithData(bytes.getData(), bytes.getSize()), "Cannot write the damaged .ckp");
         require(ClassicSoundFile::readPiano(broken, inMemory, std::numeric_limits<std::uint64_t>::max()).failed(),
-                "A damaged .ckpiano was accepted");
+                "A damaged .ckp was accepted");
         require(broken.replaceWithData(bytes.getData(), bytes.getSize() / 2)
                 && ClassicSoundFile::readPiano(broken, inMemory, std::numeric_limits<std::uint64_t>::max()).failed(),
-                "A truncated .ckpiano was accepted");
+                "A truncated .ckp was accepted");
 
         prepared.reset();
         engine.reset();

@@ -253,8 +253,8 @@ juce::Result SampleEngine::prepareSample(const juce::File& file,
     {
         if (prepareLoops) preparePianoLoop(stroke, channels);
     });
-    // A .ckpiano (made by Classic Converter) unpacks its FLAC blocks through the same path.
-    if (const auto result = file.hasFileExtension(".ckpiano")
+    // A .ckp (made by Classic Converter) unpacks its FLAC blocks through the same path.
+    if (const auto result = file.hasFileExtension(".ckp")
             ? ClassicSoundFile::readPiano(file, *decoded, maxDecodedBytes, &streamWriter)
             : NordPianoDecoder::decodeFile(file, *decoded, maxDecodedBytes, &streamWriter); result.failed())
     { decoded.reset(); return result; }
