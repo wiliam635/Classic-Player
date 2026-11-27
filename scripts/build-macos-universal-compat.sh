@@ -52,7 +52,7 @@ configure_and_build() {
     -DCMAKE_BUILD_TYPE=Release
   local -a targets=(
     ClassicPlayer_Standalone ClassicPlayer_VST3 ClassicPlayer_AU
-    ClassicPlayerVst3HostSmokeTest
+    ClassicPlayerVst3HostSmokeTest ClassicConverter
   )
   if [[ "$arch" == "arm64" ]]; then
     # Each regression executable compiles its own JUCE modules. Build and run
@@ -216,6 +216,21 @@ create_universal_plugin() {
     exit 1
   }
 }
+
+# Classic Converter ships beside the installer as its own zip.
+CONVERTER_UNIVERSAL="$ROOT/build/Classic Converter.app"
+CONVERTER_BINARY="Contents/MacOS/Classic Converter"
+ARM_CONVERTER="$ROOT/build/macos-compat-arm64/ClassicConverter_artefacts/Release/Classic Converter.app"
+X64_CONVERTER="$ROOT/build/macos-compat-x86_64/ClassicConverter_artefacts/Release/Classic Converter.app"
+rm -rf "$CONVERTER_UNIVERSAL"
+ditto "$ARM_CONVERTER" "$CONVERTER_UNIVERSAL"
+lipo -create "$ARM_CONVERTER/$CONVERTER_BINARY" "$X64_CONVERTER/$CONVERTER_BINARY" \
+  -output "$CONVERTER_UNIVERSAL/$CONVERTER_BINARY"
+xattr -cr "$CONVERTER_UNIVERSAL"
+codesign --force --deep --sign - "$CONVERTER_UNIVERSAL"
+codesign --verify --deep --strict --verbose=2 "$CONVERTER_UNIVERSAL"
+mkdir -p "$ROOT/outputs/installers"
+ditto -c -k --keepParent "$CONVERTER_UNIVERSAL" "$ROOT/outputs/installers/Classic-Converter-macOS-Universal.zip"
 
 create_universal_plugin VST3 vst3 "Classic Player"
 create_universal_plugin AU component "Classic Player"

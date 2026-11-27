@@ -22,6 +22,7 @@ on:
       - Source/PluginProcessor.h
       - Source/HammondRegressionTest.cpp
       - Source/SampleEngine.cpp
+      - Source/ClassicSoundFile.h
       - Source/SampleEngine.h
       - Source/SampleEngineRegressionTest.cpp
       - Source/NordPianoDecoder.cpp

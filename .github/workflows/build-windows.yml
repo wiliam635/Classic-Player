@@ -85,7 +85,8 @@ jobs:
           if ($sf2Source -notmatch "Do not also enable FluidSynth CC126/127 mode") { throw "Mono SF2 ainda delega CC126/127 ao FluidSynth" }
           if ($sf2Source -notmatch "if \(!monoMode\)") { throw "Sustain mono SF2 não é isolado" }
           $nordSampleSource = Get-Content "Source\NordSampleEngine.cpp" -Raw
-          if ($nordSampleSource -notmatch 'hasFileExtension\("\.nsmp;\.nsmp3;\.nsmp4"\)') { throw "A layer Nord Sample precisa aceitar NSMP, NSMP3 e NSMP4" }
+          if ((Get-Content "Source\ClassicSoundFile.h" -Raw) -notmatch 'hasFileExtension\("\.nsmp;\.nsmp3;\.nsmp4;\.csample"\)') { throw "A layer Nord Sample precisa aceitar NSMP, NSMP3, NSMP4 e CSAMPLE" }
+          if ($nordSampleSource -notmatch 'ClassicSoundFile::isSampleFile') { throw "A layer Nord Sample precisa usar a lista de formatos aceitos" }
           if ($nordSampleSource -notmatch "NordLegacySampleDecoder::decodeFile") { throw "Decoder de NSMP/NSMP3 legado ausente" }
 
       - name: Set up CMake
@@ -100,7 +101,7 @@ jobs:
 
       - name: Build native standalone and VST3 release
         shell: pwsh
-        run: cmake --build build\windows-x64 --target ClassicPlayer_Standalone ClassicPlayer_VST3 ClassicPlayerVst3HostSmokeTest ClassicPlayerSampleEngineTest ClassicPlayerNordSampleTest ClassicPlayerMasterMidiTest --config Release --parallel 2
+        run: cmake --build build\windows-x64 --target ClassicPlayer_Standalone ClassicPlayer_VST3 ClassicPlayerVst3HostSmokeTest ClassicPlayerSampleEngineTest ClassicPlayerNordSampleTest ClassicPlayerMasterMidiTest ClassicConverter --config Release --parallel 2
 
       - name: Verify standalone artifact before packaging
         shell: pwsh
@@ -146,6 +147,13 @@ jobs:
           name: vst3-editor-snapshot-${{ runner.os }}
           path: '**/vst3-host-editor.png'
           if-no-files-found: ignore
+
+      - name: Upload Classic Converter
+        uses: actions/upload-artifact@v4
+        with:
+          name: Classic-Converter-Windows-x64
+          if-no-files-found: error
+          path: build/windows-x64/ClassicConverter_artefacts/Release/Classic Converter.exe
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4

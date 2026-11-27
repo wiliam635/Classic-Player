@@ -1,6 +1,7 @@
 #include "NordSampleEngine.h"
 #include "NordLegacySampleDecoder.h"
 #include "FastLoadCache.h"
+#include "ClassicSoundFile.h"
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -71,7 +72,7 @@ juce::Result NordSampleEngine::loadSample(int layerIndex, const juce::File& file
     std::shared_ptr<NordSampleDecoder::Instrument> prepared)
 {
     if (!juce::isPositiveAndBelow(layerIndex, layerCount) || (prepared == nullptr && !file.existsAsFile())
-        || !file.hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
+        || !ClassicSoundFile::isSampleFile(file))
         return juce::Result::fail("Selecione uma amostra Nord (.nsmp, .nsmp3 ou .nsmp4).");
 
     auto decoded = std::move(prepared);
@@ -112,7 +113,7 @@ juce::Result NordSampleEngine::prepareSample(const juce::File& file,
     std::shared_ptr<NordSampleDecoder::Instrument>& decoded, std::uint64_t maxDecodedBytes)
 {
     const std::lock_guard<std::mutex> prepareGuard(prepareMutex);
-    if (!file.existsAsFile() || !file.hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
+    if (!file.existsAsFile() || !ClassicSoundFile::isSampleFile(file))
         return juce::Result::fail("Selecione uma amostra Nord valida.");
     decoded = findCachedInstrument(file);
     if (decoded != nullptr)
@@ -130,7 +131,9 @@ juce::Result NordSampleEngine::prepareSample(const juce::File& file,
         decoded = cacheInstrument(file, std::move(decoded));
         return juce::Result::ok();
     }
-    const auto result = file.hasFileExtension(".nsmp4")
+    const auto result = file.hasFileExtension(".csample")
+        ? ClassicSoundFile::readSample(file, *decoded, maxDecodedBytes)
+        : file.hasFileExtension(".nsmp4")
         ? NordSampleDecoder::decode(file, *decoded, maxDecodedBytes)
         : NordLegacySampleDecoder::decodeFile(file, *decoded, maxDecodedBytes);
     if (result.failed()) { decoded.reset(); return result; }

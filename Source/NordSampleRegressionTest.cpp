@@ -2,6 +2,7 @@
 #include "NordLegacySampleDecoder.h"
 #include "NordSampleExport.h"
 #include "FastLoadCache.h"
+#include "ClassicSoundConvert.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -164,6 +165,37 @@ struct NordSampleRegressionTests
         exportFolder.findChildFiles(wavFiles, juce::File::findFiles, false, "*.wav");
         require(exported == 1 && wavFiles.size() == 1 && wavFiles[0].getSize() > 44,
                 "NSMP4 zone WAV export did not produce a playable-sized file");
+
+        // Classic Converter path: NSMP -> .csample, read back and loaded by the player.
+        juce::File converted;
+        const auto conversion = ClassicSoundConvert::convert(file, exportFolder, converted);
+        require(conversion.wasOk(), conversion.getErrorMessage().toRawUTF8());
+        require(converted.hasFileExtension(".csample") && converted.existsAsFile()
+                && exportFolder.getNumberOfChildFiles(juce::File::findFiles, "*.part") == 0,
+                "Conversion did not publish exactly one finished .csample");
+        NordSampleDecoder::Instrument reread;
+        require(ClassicSoundFile::readSample(converted, reread, std::numeric_limits<std::uint64_t>::max()).wasOk(),
+                "Cannot read the converted .csample");
+        require(reread.name == instrument.name && reread.gain == instrument.gain && reread.detune == instrument.detune
+                && reread.zones.size() == instrument.zones.size(), ".csample header changed in the round trip");
+        const auto& copy = reread.zones.front();
+        require(copy.root == zone.root && copy.low == zone.low && copy.high == zone.high
+                && copy.velocityLow == zone.velocityLow && copy.velocityHigh == zone.velocityHigh
+                && copy.channels == zone.channels && copy.gain == zone.gain && copy.secondStart == zone.secondStart
+                && copy.loopStart == zone.loopStart && copy.loopEnd == zone.loopEnd
+                && copy.clippedSamples == zone.clippedSamples && copy.pcm == zone.pcm,
+                ".csample zone changed in the round trip");
+        auto player = std::make_unique<NordSampleEngine>();
+        player->prepare(48000.0, 512);
+        require(player->loadSample(0, converted).wasOk(), "The player cannot load a .csample");
+        juce::File second;
+        require(ClassicSoundConvert::convert(file, exportFolder, second).wasOk() && second != converted
+                && converted.existsAsFile(), "Conversion overwrote an existing file");
+        juce::MemoryBlock bytes;
+        require(converted.loadFileAsData(bytes) && bytes.getSize() > 64, "Cannot reread the .csample");
+        require(second.replaceWithData(bytes.getData(), bytes.getSize() - 10)
+                && ClassicSoundFile::readSample(second, reread, std::numeric_limits<std::uint64_t>::max()).failed(),
+                "A truncated .csample was accepted");
     }
 
     static void require(bool condition, const char* message)

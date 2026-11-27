@@ -321,6 +321,22 @@ if(CLASSIC_PLAYER_BUILD_WEBUI_APP)
     classic_player_attach_continuous_pad_resources(ClassicPlayerApp)
 endif()
 
+# Stand-alone tool that converts NPNO / NSMP files into .cpiano / .csample, one at a time.
+juce_add_gui_app(ClassicConverter
+    PRODUCT_NAME "Classic Converter"
+    COMPANY_NAME "Classic Keys"
+    BUNDLE_ID "com.classickeys.classicconverter"
+    VERSION "${PROJECT_VERSION}"
+    ICON_BIG "Resources/classic-player-app-icon.png"
+    ICON_SMALL "Resources/classic-player-app-icon.png")
+target_sources(ClassicConverter PRIVATE
+    Source/ClassicConverterApp.cpp Source/ClassicSoundFile.h Source/ClassicSoundConvert.h
+    Source/NordPianoDecoder.cpp Source/NordSampleDecoder.cpp Source/NordLegacySampleDecoder.cpp)
+target_compile_definitions(ClassicConverter PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(ClassicConverter PRIVATE
+    juce::juce_audio_formats juce::juce_dsp juce::juce_gui_basics
+    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+
 if(CLASSIC_PLAYER_BUILD_TESTS)
     add_executable(ClassicPlayerNordProgramTest Source/NordProgramRegressionTest.cpp)
     target_compile_features(ClassicPlayerNordProgramTest PRIVATE cxx_std_17)
@@ -337,10 +353,10 @@ if(CLASSIC_PLAYER_BUILD_TESTS)
     juce_add_console_app(ClassicPlayerNordSampleTest PRODUCT_NAME "Classic Player Nord Sample Regression Test")
     target_sources(ClassicPlayerNordSampleTest PRIVATE
         Source/NordSampleRegressionTest.cpp Source/NordSampleEngine.cpp Source/NordSampleDecoder.cpp
-        Source/NordLegacySampleDecoder.cpp Source/NordSampleExport.cpp)
+        Source/NordLegacySampleDecoder.cpp Source/NordSampleExport.cpp Source/NordPianoDecoder.cpp)
     target_compile_definitions(ClassicPlayerNordSampleTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
     target_link_libraries(ClassicPlayerNordSampleTest PRIVATE
-        ${CLASSIC_PLAYER_FLUID_TARGET} juce::juce_audio_basics juce::juce_dsp)
+        ${CLASSIC_PLAYER_FLUID_TARGET} juce::juce_audio_basics juce::juce_audio_formats juce::juce_dsp)
     add_test(NAME nord-sample-regression COMMAND ClassicPlayerNordSampleTest)
     if(TARGET ClassicPlayer_VST3)
         juce_add_console_app(ClassicPlayerVst3HostSmokeTest PRODUCT_NAME "Classic Player VST3 Host Smoke Test")

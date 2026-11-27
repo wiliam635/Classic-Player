@@ -1,5 +1,6 @@
 #include "SampleEngine.h"
 #include "FastLoadCache.h"
+#include "ClassicSoundFile.h"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -63,6 +64,98 @@ struct SampleEngineRegressionTests
         const auto cached = engine.cachePiano(source, decoded);
         require(cached == decoded && engine.findCachedPiano(source) == decoded,
                 "NPNO preload cache copied instead of sharing decoded PCM");
+    }
+
+    // .cpiano: lossless FLAC round trip, loading through the player, and rejection of damaged files.
+    static void classicPianoFileRoundTrip()
+    {
+        const auto folder = juce::File::getSpecialLocation(juce::File::tempDirectory)
+            .getChildFile("classic-cpiano-test-" + juce::String(juce::Time::currentTimeMillis()));
+        require(folder.createDirectory().wasOk(), "Cannot create the .cpiano test folder");
+        const auto file = folder.getChildFile("test.cpiano");
+
+        NordPianoDecoder::Instrument expected;
+        expected.name = "Classic File Test";
+        expected.voicing = "Soft";
+        expected.streamVersion = 0x464;
+        expected.channels = 2;
+        expected.gainTenthsDb = -7;
+        expected.signedTenthsDbTrim = true;
+        expected.velocityScale = 37;
+        expected.keyMap.fill(0xff);
+        expected.keyMap[60] = 60;
+        expected.fineTune[60] = -3;
+        for (int i = 0; i < 3; ++i)
+        {
+            NordPianoDecoder::Stroke stroke;
+            stroke.rootNote = 60;
+            stroke.bank = (std::uint8_t) (i == 2 ? 1 : 0);
+            stroke.velocityLayer = (std::uint8_t) (i * 5);
+            stroke.trimDb = (std::uint16_t) (65530 - i);
+            stroke.loopStartFrame = (std::uint32_t) (100 + i);
+            stroke.loopEndFrame = (std::uint32_t) (900 + i);
+            // Odd lengths around the encoder block size, with both extremes of the 16-bit range.
+            const int frames = i == 0 ? 20001 : i == 1 ? 1000 : 8192;
+            for (int n = 0; n < frames * 2; ++n)
+                stroke.interleavedPcm.push_back((std::int16_t) (n % 997 == 0 ? -32768 : n % 991 == 0 ? 32767
+                                                                : (n * (i + 3)) % 20000 - 10000));
+            expected.strokes.push_back(std::move(stroke));
+        }
+        require(ClassicSoundFile::writePiano(file, expected).wasOk(), "Cannot write a .cpiano");
+
+        const auto same = [&](const NordPianoDecoder::Instrument& loaded)
+        {
+            require(loaded.name == expected.name && loaded.voicing == expected.voicing
+                    && loaded.streamVersion == expected.streamVersion && loaded.channels == expected.channels
+                    && loaded.gainTenthsDb == expected.gainTenthsDb && loaded.signedTenthsDbTrim
+                    && loaded.velocityScale == expected.velocityScale && loaded.keyMap == expected.keyMap
+                    && loaded.fineTune == expected.fineTune && loaded.strokes.size() == expected.strokes.size(),
+                    ".cpiano header changed in the round trip");
+            for (size_t i = 0; i < expected.strokes.size(); ++i)
+            {
+                const auto& a = expected.strokes[i];
+                const auto& b = loaded.strokes[i];
+                require(a.rootNote == b.rootNote && a.bank == b.bank && a.velocityLayer == b.velocityLayer
+                        && a.trimDb == b.trimDb && a.loopStartFrame == b.loopStartFrame
+                        && a.loopEndFrame == b.loopEndFrame && a.interleavedPcm == b.interleavedPcm,
+                        ".cpiano stroke changed in the round trip");
+            }
+        };
+        NordPianoDecoder::Instrument inMemory;
+        require(ClassicSoundFile::readPiano(file, inMemory, std::numeric_limits<std::uint64_t>::max()).wasOk(),
+                "Cannot read a .cpiano into memory");
+        same(inMemory);
+        require(ClassicSoundFile::readPiano(file, inMemory, 16).failed(), ".cpiano ignored the memory budget");
+
+        // Through the player: unpacked into the fast-load cache with the loop seams prepared, like an NPNO import.
+        const auto categoryFolder = folder.getChildFile("Organ");
+        require(categoryFolder.createDirectory().wasOk(), "Cannot create the .cpiano category folder");
+        const auto organCopy = categoryFolder.getChildFile("test.cpiano"); // Organ: no loop preparation
+        require(file.copyFileTo(organCopy), "Cannot copy the .cpiano");
+        auto engine = std::make_unique<SampleEngine>();
+        std::shared_ptr<NordPianoDecoder::Instrument> prepared;
+        require(engine->prepareSample(organCopy, prepared).wasOk() && prepared != nullptr,
+                "The player cannot load a .cpiano");
+        same(*prepared);
+        const auto cache = FastLoadCache::cacheFile(
+            FastLoadCache::sourceKey(organCopy, FastLoadCache::Kind::piano));
+
+        // One flipped byte inside the audio must be rejected.
+        juce::MemoryBlock bytes;
+        require(file.loadFileAsData(bytes) && bytes.getSize() > 600, "Cannot reread the .cpiano");
+        static_cast<char*>(bytes.getData())[bytes.getSize() - 200] ^= 0x5a;
+        const auto broken = folder.getChildFile("broken.cpiano");
+        require(broken.replaceWithData(bytes.getData(), bytes.getSize()), "Cannot write the damaged .cpiano");
+        require(ClassicSoundFile::readPiano(broken, inMemory, std::numeric_limits<std::uint64_t>::max()).failed(),
+                "A damaged .cpiano was accepted");
+        require(broken.replaceWithData(bytes.getData(), bytes.getSize() / 2)
+                && ClassicSoundFile::readPiano(broken, inMemory, std::numeric_limits<std::uint64_t>::max()).failed(),
+                "A truncated .cpiano was accepted");
+
+        prepared.reset();
+        engine.reset();
+        cache.deleteFile(); // may stay behind on Windows while the warm-up thread still maps it
+        folder.deleteRecursively();
     }
 
     // A piano too big for RAM is written to the fast-load cache one stroke at a time; loadPiano must then read
@@ -1184,6 +1277,7 @@ struct SampleEngineRegressionTests
     {
         decodedPianoCacheSharesPcm();
         streamedPianoCacheRoundTrip();
+        classicPianoFileRoundTrip();
         halfPedalRelease();
         referenceVelocityLaw();
         referenceControllers();

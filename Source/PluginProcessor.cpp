@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "ClassicSoundFile.h"
 #include "SystemMemory.h"
 #include "VelocityCurve.h"
 #include "NordBundleProgram.h"
@@ -1883,7 +1884,7 @@ juce::Result ClassicPlayerAudioProcessor::loadSoundFont(int layer, const juce::F
         return juce::Result::fail(juce::String::fromUTF8("Layer inválida."));
     if (layerType(layer) != LayerType::sf2)
         return juce::Result::fail("Esta layer aceita arquivos SF2. Use uma layer Nord para importar .npno.");
-    if (file.hasFileExtension(".npno"))
+    if (ClassicSoundFile::isPianoFile(file))
         return juce::Result::fail("Arquivos .npno devem ser carregados em uma layer Nord.");
     if (category.isNotEmpty() && !soundFontCategories().contains(category))
         return juce::Result::fail("Categoria de SoundFont invalida.");
@@ -1919,8 +1920,8 @@ juce::Result ClassicPlayerAudioProcessor::loadNordPiano(int layer, const juce::F
         return juce::Result::fail(juce::String::fromUTF8("Layer inválida."));
     if (layerType(layer) != LayerType::nord)
         return juce::Result::fail("Adicione uma layer Nord para importar um piano .npno.");
-    if (!file.hasFileExtension(".npno"))
-        return juce::Result::fail("A layer Nord aceita somente arquivos .npno.");
+    if (!ClassicSoundFile::isPianoFile(file))
+        return juce::Result::fail("A layer Nord aceita somente arquivos .npno ou .cpiano.");
     if (category.isNotEmpty() && !soundFontCategories().contains(category))
         return juce::Result::fail(juce::String::fromUTF8("Categoria de piano Nord inválida."));
 
@@ -3932,8 +3933,8 @@ juce::Result ClassicPlayerAudioProcessor::importNordPiano(const juce::File& sour
                                                            const juce::String& category,
                                                            juce::File& importedFile) const
 {
-    if (!source.existsAsFile() || !source.hasFileExtension(".npno"))
-        return juce::Result::fail("Selecione um arquivo de piano Nord .npno valido");
+    if (!source.existsAsFile() || !ClassicSoundFile::isPianoFile(source))
+        return juce::Result::fail("Selecione um arquivo de piano .npno ou .cpiano valido");
     if (!soundFontCategories().contains(category))
         return juce::Result::fail("Categoria de piano Nord invalida");
 
@@ -3950,7 +3951,7 @@ juce::Result ClassicPlayerAudioProcessor::importNordPiano(const juce::File& sour
             importedFile = destination;
             return juce::Result::ok();
         }
-        destination = folder.getNonexistentChildFile(source.getFileNameWithoutExtension(), ".npno", true);
+        destination = folder.getNonexistentChildFile(source.getFileNameWithoutExtension(), source.getFileExtension(), true);
     }
     if (!source.copyFileTo(destination))
         return juce::Result::fail("Nao foi possivel copiar o piano Nord para a biblioteca do aplicativo");
@@ -4245,7 +4246,7 @@ juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordPianos(
     if (!soundFontCategories().contains(category)) return result;
     const auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                             .getChildFile("Classic Player").getChildFile("NordPianos").getChildFile(category);
-    folder.findChildFiles(result, juce::File::findFiles, false, "*.npno;*.NPNO");
+    folder.findChildFiles(result, juce::File::findFiles, false, "*.npno;*.NPNO;*.cpiano;*.CPIANO");
     for (const auto& bundle : libraryNordBundles())
     {
         juce::Array<juce::File> files;
@@ -4275,8 +4276,8 @@ juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordPianos(
 
 juce::Result ClassicPlayerAudioProcessor::deleteLibraryNordPiano(const juce::File& file)
 {
-    if (!file.existsAsFile() || !file.hasFileExtension(".npno"))
-        return juce::Result::fail("Selecione um piano Nord .npno valido da biblioteca");
+    if (!file.existsAsFile() || !ClassicSoundFile::isPianoFile(file))
+        return juce::Result::fail("Selecione um piano .npno ou .cpiano valido da biblioteca");
 
     const auto libraryRoot = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                                  .getChildFile("Classic Player").getChildFile("NordPianos");
@@ -4302,8 +4303,8 @@ juce::Result ClassicPlayerAudioProcessor::importNordSample(const juce::File& sou
                                                             const juce::String& category,
                                                             juce::File& importedFile) const
 {
-    if (!source.existsAsFile() || !source.hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
-        return juce::Result::fail(juce::String::fromUTF8("Selecione uma amostra Nord .nsmp, .nsmp3 ou .nsmp4 válida."));
+    if (!source.existsAsFile() || !ClassicSoundFile::isSampleFile(source))
+        return juce::Result::fail(juce::String::fromUTF8("Selecione uma amostra .nsmp, .nsmp3, .nsmp4 ou .csample válida."));
     if (!nordSampleCategories().contains(category))
         return juce::Result::fail(juce::String::fromUTF8("Categoria de amostra Nord inválida."));
     auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
@@ -4333,7 +4334,7 @@ juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordSamples() const
     const auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                             .getChildFile("Classic Player").getChildFile("Nord Samples");
     folder.findChildFiles(result, juce::File::findFiles, true,
-                          "*.nsmp;*.NSMP;*.nsmp3;*.NSMP3;*.nsmp4;*.NSMP4");
+                          "*.nsmp;*.NSMP;*.nsmp3;*.NSMP3;*.nsmp4;*.NSMP4;*.csample;*.CSAMPLE");
     for (const auto& bundle : libraryNordBundles())
         bundle.getChildFile("Samp Lib").findChildFiles(result, juce::File::findFiles, true,
             "*.nsmp;*.NSMP;*.nsmp3;*.NSMP3;*.nsmp4;*.NSMP4");
@@ -4385,7 +4386,7 @@ juce::Result ClassicPlayerAudioProcessor::deleteLibraryNordSample(const juce::Fi
 {
     const auto root = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                           .getChildFile("Classic Player").getChildFile("Nord Samples");
-    if (!file.existsAsFile() || !file.hasFileExtension(".nsmp;.nsmp3;.nsmp4") || !file.isAChildOf(root))
+    if (!file.existsAsFile() || !ClassicSoundFile::isSampleFile(file) || !file.isAChildOf(root))
         return juce::Result::fail(juce::String::fromUTF8("Só é possível excluir uma amostra da biblioteca Nord do Classic Player."));
     for (int layer = 0; layer < Sf2Engine::layerCount; ++layer)
         if (layerType(layer) == LayerType::nordSample
@@ -4722,8 +4723,8 @@ juce::Result ClassicPlayerAudioProcessor::stageLiveSetSlot(int bank, int slot, s
             const auto sourcePath = state.getProperty("sf2Layer" + juce::String(i + 1)).toString();
             if (!(savedType == static_cast<int>(LayerType::sf2) || savedType == static_cast<int>(LayerType::vst)))
                 continue;
-            if (sourcePath.isEmpty() || juce::File(sourcePath).hasFileExtension(".npno")
-                || juce::File(sourcePath).hasFileExtension(".nsmp;.nsmp3;.nsmp4")
+            if (sourcePath.isEmpty() || ClassicSoundFile::isPianoFile(juce::File(sourcePath))
+                || ClassicSoundFile::isSampleFile(juce::File(sourcePath))
                 || engine.getSoundFontPath(i) == sourcePath)
                 continue;
             if (engine.prepareSoundFont(i, juce::File(sourcePath), prepared->soundFonts[(size_t) i]).wasOk())
@@ -4922,9 +4923,9 @@ void ClassicPlayerAudioProcessor::preloadLiveSetBank(int bank)
                 // NPNO and NSMP decoding (including loop preparation) runs on
                 // this worker; slot restore then only attaches a shared PCM
                 // instrument from the bounded cache.
-                if (sample.hasFileExtension(".npno"))
+                if (ClassicSoundFile::isPianoFile(sample))
                     sampleEngine.preloadSample(sample);
-                else if (sample.hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
+                else if (ClassicSoundFile::isSampleFile(sample))
                     nordSampleEngine.preloadSample(sample);
             }
         }
@@ -5794,8 +5795,8 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                     savedType = static_cast<int>(LayerType::sf2);
                 const auto sourcePath = state.getProperty("sf2Layer" + juce::String(i + 1)).toString();
                 if (savedType == static_cast<int>(LayerType::sf2)
-                    && (juce::File(sourcePath).hasFileExtension(".npno")
-                        || juce::File(sourcePath).hasFileExtension(".nsmp;.nsmp3;.nsmp4")))
+                    && (ClassicSoundFile::isPianoFile(juce::File(sourcePath))
+                        || ClassicSoundFile::isSampleFile(juce::File(sourcePath))))
                     continue;
                 if (savedType != static_cast<int>(LayerType::sf2) || sourcePath.isEmpty()
                     || engine.getSoundFontPath(i) == sourcePath)
@@ -6153,10 +6154,10 @@ void ClassicPlayerAudioProcessor::setStateInformation(const void* data, int size
                 // Older test builds stored Nord files under the SF2 layer type.
                 // Promote those paths to the dedicated type when reopening them.
                 if (savedType == static_cast<int>(LayerType::sf2)
-                    && juce::File(savedSourcePath).hasFileExtension(".npno"))
+                    && ClassicSoundFile::isPianoFile(juce::File(savedSourcePath)))
                     savedType = static_cast<int>(LayerType::nord);
                 if (savedType == static_cast<int>(LayerType::sf2)
-                    && juce::File(savedSourcePath).hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
+                    && ClassicSoundFile::isSampleFile(juce::File(savedSourcePath)))
                     savedType = static_cast<int>(LayerType::nordSample);
                 const bool keepLoadedSource = savedSourcePath.isNotEmpty()
                     && previousSourceTypes[(size_t) i] == savedType
@@ -6606,12 +6607,12 @@ void ClassicPlayerAudioProcessor::prepareNordInstruments(const juce::ValueTree& 
         if (path.isEmpty() || soundFontPath(i) == path) continue; // nothing saved, or already loaded in this layer
         const juce::File file(path);
         if (!file.existsAsFile()) continue;
-        if (file.hasFileExtension(".npno"))
+        if (ClassicSoundFile::isPianoFile(file))
         {
             if (sampleEngine.prepareSample(file, pianos[(size_t) i]).wasOk()) paths[(size_t) i] = path;
             else pianos[(size_t) i].reset();
         }
-        else if (file.hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
+        else if (ClassicSoundFile::isSampleFile(file))
         {
             if (nordSampleEngine.prepareSample(file, samples[(size_t) i]).wasOk()) paths[(size_t) i] = path;
             else samples[(size_t) i].reset();
@@ -6651,13 +6652,13 @@ void ClassicPlayerAudioProcessor::restoreLayerPaths(
                 }
             } restoreLog { *this, i, savedPaths[(size_t) i], restoreStartMs, hadPrepared };
             if (layerType(i) == LayerType::nordSample
-                || juce::File(savedPaths[(size_t) i]).hasFileExtension(".nsmp;.nsmp3;.nsmp4"))
+                || ClassicSoundFile::isSampleFile(juce::File(savedPaths[(size_t) i])))
             {
                 if (nordSampleEngine.loadSample(i, juce::File(savedPaths[(size_t) i]),
                                                 std::move(preparedNordSamples[(size_t) i])).failed())
                     juce::Logger::writeToLog("Não foi possível restaurar a amostra Nord da layer " + juce::String(i + 1));
             }
-            else if (juce::File(savedPaths[(size_t) i]).hasFileExtension(".npno"))
+            else if (ClassicSoundFile::isPianoFile(juce::File(savedPaths[(size_t) i])))
             {
                 if (sampleEngine.loadSample(i, juce::File(savedPaths[(size_t) i]),
                                             std::move(preparedPianos[(size_t) i])).wasOk())

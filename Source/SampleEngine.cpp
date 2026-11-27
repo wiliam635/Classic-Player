@@ -1,6 +1,7 @@
 #include "SampleEngine.h"
 #include "LayerEffects.h"
 #include "FastLoadCache.h"
+#include "ClassicSoundFile.h"
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -136,7 +137,7 @@ juce::Result SampleEngine::loadSample(int layer, const juce::File& file,
     if (!juce::isPositiveAndBelow(layer, layerCount) || (prepared == nullptr && !file.existsAsFile()))
         return juce::Result::fail("Arquivo de sample invalido.");
 
-    if (file.getFileExtension().equalsIgnoreCase(".npno"))
+    if (ClassicSoundFile::isPianoFile(file))
     {
         auto decodedPiano = std::move(prepared);
         if (decodedPiano == nullptr)
@@ -224,7 +225,7 @@ juce::Result SampleEngine::prepareSample(const juce::File& file,
     std::shared_ptr<NordPianoDecoder::Instrument>& decoded, std::uint64_t maxDecodedBytes)
 {
     const std::lock_guard<std::mutex> prepareGuard(prepareMutex);
-    if (!file.existsAsFile() || !file.hasFileExtension(".npno"))
+    if (!file.existsAsFile() || !ClassicSoundFile::isPianoFile(file))
         return juce::Result::fail("Selecione um piano Nord NPNO valido.");
     decoded = findCachedPiano(file);
     if (decoded != nullptr)
@@ -252,7 +253,10 @@ juce::Result SampleEngine::prepareSample(const juce::File& file,
     {
         if (prepareLoops) preparePianoLoop(stroke, channels);
     });
-    if (const auto result = NordPianoDecoder::decodeFile(file, *decoded, maxDecodedBytes, &streamWriter); result.failed())
+    // A .cpiano (made by Classic Converter) unpacks its FLAC blocks through the same path.
+    if (const auto result = file.hasFileExtension(".cpiano")
+            ? ClassicSoundFile::readPiano(file, *decoded, maxDecodedBytes, &streamWriter)
+            : NordPianoDecoder::decodeFile(file, *decoded, maxDecodedBytes, &streamWriter); result.failed())
     { decoded.reset(); return result; }
     if (streamWriter.completed())
     {

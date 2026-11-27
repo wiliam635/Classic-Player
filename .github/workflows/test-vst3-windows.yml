@@ -21,6 +21,7 @@ on:
       - Source/HammondRegressionTest.cpp
       - Source/MasterMidiRegressionTest.cpp
       - Source/SampleEngine.cpp
+      - Source/ClassicSoundFile.h
       - Source/SampleEngine.h
       - Source/SampleEngineRegressionTest.cpp
       - Source/NordPianoDecoder.cpp

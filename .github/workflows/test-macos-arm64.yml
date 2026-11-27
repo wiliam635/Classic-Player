@@ -51,7 +51,7 @@ jobs:
           cmake --build build/arm64 --parallel 4 --target \
             ClassicPlayer_Standalone ClassicPlayer_VST3 \
             ClassicPlayerAudioRegressionTest ClassicPlayerSampleEngineTest \
-            ClassicPlayerNordSampleTest ClassicPlayerMasterMidiTest
+            ClassicPlayerNordSampleTest ClassicPlayerMasterMidiTest ClassicConverter
 
       - name: Run regression tests
         run: |
@@ -73,6 +73,11 @@ jobs:
           codesign --force --deep --sign - "$VST3"
           ditto -c -k --keepParent "$APP" "outputs/Classic-Player-perf-macOS-arm64-App.zip"
           ditto -c -k --keepParent "$VST3" "outputs/Classic-Player-perf-macOS-arm64-VST3.zip"
+          CONVERTER="$(find build/arm64 -type d -path '*ClassicConverter_artefacts/Release/Classic Converter.app' -print -quit)"
+          test -d "$CONVERTER"
+          xattr -cr "$CONVERTER"
+          codesign --force --deep --sign - "$CONVERTER"
+          ditto -c -k --keepParent "$CONVERTER" "outputs/Classic-Converter-macOS-arm64.zip"
           git log -1 --format='%H %s' > outputs/COMMIT.txt
 
       - name: Upload test build
