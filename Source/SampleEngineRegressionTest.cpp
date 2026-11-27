@@ -205,6 +205,7 @@ struct SampleEngineRegressionTests
             fluid_settings_setnum(settings, "synth.sample-rate", 48000.0);
             fluid_settings_setint(settings, "synth.reverb.active", 0);
             fluid_settings_setint(settings, "synth.chorus.active", 0);
+            fluid_settings_setnum(settings, "synth.gain", 0.65); // as the player's SF2 layer
             auto* synth = new_fluid_synth(settings);
             const auto id = fluid_synth_sfload(synth, file.getFullPathName().toRawUTF8(), 1);
             std::array<double, 2> rms { -1.0, -1.0 };
@@ -229,6 +230,7 @@ struct SampleEngineRegressionTests
         };
         const auto loud = play(60, 127, 0.02);
         require(loud[0] > 0.001 && loud[1] > 0.001, "The exported SoundFont does not play in stereo");
+        require(loud[0] > 0.15, "The exported SoundFont is much quieter than the format allows");
         const auto soft = play(60, 32, 0.02);
         const auto rangeDb = 20.0 * std::log10(loud[0] / juce::jmax(1.0e-9, soft[0]));
         require(rangeDb > 24.0 && rangeDb < 36.0, "The exported SoundFont does not follow the velocity law");

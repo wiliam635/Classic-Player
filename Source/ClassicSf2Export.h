@@ -12,8 +12,8 @@
 // NPNO piano -> SoundFont 2.04, for use in other players.
 //
 // A SoundFont cannot hold the whole Classic piano engine, so this is an approximation of it: the attack strokes with
-// their velocity layers, loop seams, key tuning, the reference velocity/loudness law, the tone filter (baked into the
-// audio), the decay of held notes (volume envelope) and a short release. Release noises, pedal reflections, soft
+// their velocity layers, loop seams, key tuning, the reference velocity/loudness law, the tone filter and the default
+// "Soft" voicing (baked into the audio), the decay of held notes (volume envelope) and a short release. Release noises, pedal reflections, soft
 // pedal, half pedal and string resonance are not represented.
 //
 // Attenuation values assume the usual 0.4 scaling of the initialAttenuation generator (FluidSynth and most players).
@@ -112,20 +112,46 @@ public:
         // Early decay (2.5 dB/s, at most 4 s) is part of the audio up to the loop, which stays at a constant level.
         const auto earlyLimit = juce::jmin(4.0, item.looped ? (double) item.loopStart / NordPianoDecoder::sampleRate : 4.0);
 
-        std::vector<std::int16_t> output;
+        // The player's default voicing for a newly loaded piano ("Soft"): +1.5 dB below 250 Hz, -1 dB up to
+        // 2 kHz and -9 dB above it.
+        const auto lowPole = std::exp(-juce::MathConstants<double>::twoPi * 250.0 / NordPianoDecoder::sampleRate);
+        const auto highPole = std::exp(-juce::MathConstants<double>::twoPi * 2000.0 / NordPianoDecoder::sampleRate);
+        const auto lowGain = std::pow(10.0, 1.5 / 20.0), midGain = std::pow(10.0, -1.0 / 20.0),
+                   highGain = std::pow(10.0, -9.0 / 20.0);
+
+        std::array<std::vector<float>, 2> shaped;
+        float shapedPeak = 1.0f;
         for (int channel = 0; channel < channels; ++channel)
         {
-            output.assign((size_t) length, 0);
-            double tone = 0.0, air = 0.0;
+            auto& values = shaped[(size_t) channel];
+            values.assign((size_t) length, 0.0f);
+            double tone = 0.0, air = 0.0, low = 0.0, high = 0.0;
             for (int frame = 0; frame < length; ++frame)
             {
                 const auto x = (double) prepared.interleavedPcm[(size_t) (frame * channels + channel)];
                 air += airStep * (x - air);
                 tone += toneStep * (x - tone);
+                const auto filtered = tone + 0.45 * (x - air);
+                low = (1.0 - lowPole) * filtered + lowPole * low;
+                high = (1.0 - highPole) * filtered + highPole * high;
+                const auto voiced = lowGain * low + midGain * (high - low) + highGain * (filtered - high);
                 const auto seconds = juce::jmin(earlyLimit, (double) frame / NordPianoDecoder::sampleRate);
-                const auto value = (tone + 0.45 * (x - air)) * std::pow(10.0, -2.5 * seconds / 20.0);
-                output[(size_t) frame] = (std::int16_t) juce::jlimit(-32768L, 32767L, std::lround(value));
+                values[(size_t) frame] = (float) (voiced * std::pow(10.0, -2.5 * seconds / 20.0));
+                shapedPeak = juce::jmax(shapedPeak, std::abs(values[(size_t) frame]));
             }
+        }
+        // SoundFont zones can only attenuate, so every sample is stored at full scale (same gain on both channels)
+        // and the zones turn it down to the level the player would produce.
+        item.shapedPeakDb = 20.0 * std::log10((double) shapedPeak / 32768.0);
+        const auto normalise = 32400.0 / (double) shapedPeak;
+
+        std::vector<std::int16_t> output;
+        for (int channel = 0; channel < channels; ++channel)
+        {
+            output.assign((size_t) length, 0);
+            for (int frame = 0; frame < length; ++frame)
+                output[(size_t) frame] = (std::int16_t) juce::jlimit(-32768L, 32767L,
+                    std::lround((double) shaped[(size_t) channel][(size_t) frame] * normalise));
             auto& slot = item.sample[(size_t) channel];
             slot.start = sampleFrames;
             slot.frames = (std::uint32_t) length;
@@ -175,7 +201,8 @@ private:
     struct Kept
     {
         int root = 60, layer = 0, trim = 0;
-        double peakDb = 0.0;
+        double peakDb = 0.0;       // first 0.3 s of the unfiltered stroke, as the player measures it
+        double shapedPeakDb = 0.0; // whole stored sample before it was raised to full scale
         bool looped = false;
         std::uint32_t loopStart = 0;
         std::array<Slot, 2> sample {};
@@ -286,14 +313,18 @@ private:
         modulator(0x0102, 8, 0x0d02);
         constexpr int modulatorCount = 4;
 
-        auto loudest = -std::numeric_limits<double>::infinity();
-        for (const auto& zone : zones) loudest = std::max(loudest, zone.db);
+        // Peak level the player would reach in each zone. The loudest full-velocity zone becomes 0 dB attenuation,
+        // so the SoundFont is as loud as the format allows while keeping the piano's own balance.
+        const auto zonePeakDb = [this] (const Zone& zone) { return zone.db + kept[(size_t) zone.stroke].shapedPeakDb; };
+        auto reference = -std::numeric_limits<double>::infinity();
+        for (const auto& zone : zones)
+            if (zone.velocityHigh == 127) reference = std::max(reference, zonePeakDb(zone));
 
         for (const auto& zone : zones)
         {
             const auto& item = kept[(size_t) zone.stroke];
             const auto attenuation = juce::jlimit(0, 1440,
-                juce::roundToInt((loudest - zone.db) * 10.0 / attenuationScale));
+                juce::roundToInt((reference - zonePeakDb(zone)) * 10.0 / attenuationScale));
             const auto middle = (zone.low + zone.high) / 2;
             const auto slope = juce::jlimit(1.5, 9.0, 3.3 + 0.09 * (middle - 48)); // dB per second once looping
             for (int channel = 0; channel < channels; ++channel)
