@@ -8,4 +8,6 @@ result=0
 gradle --no-daemon -p android -PtestAbis=x86_64 :app:connectedDebugAndroidTest || result=$?
 adb logcat -d > android-test-artifacts/logcat.txt || true
 adb pull /sdcard/Android/data/com.classickeys.classicplayer/files/audio-regression android-test-artifacts/ || true
+bash android/check-rotation.sh > android-test-artifacts/rotation.txt 2>&1 || result=$?
+cat android-test-artifacts/rotation.txt
 exit "$result"

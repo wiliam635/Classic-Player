@@ -417,7 +417,7 @@ public final class MainActivity extends Activity {
             EditorUi.applyTheme(saved);
         }
         midiDiagnosticsEnabled=BuildConfig.DEBUG&&getSharedPreferences("midi_diagnostics",MODE_PRIVATE).getBoolean("enabled",false);
-        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
         final Window window = getWindow();
         window.setFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
