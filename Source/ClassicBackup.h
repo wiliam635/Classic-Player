@@ -28,7 +28,7 @@ inline bool safeRelative(const juce::String& path)
 inline bool assetPath(const juce::String& s)
 {
     return juce::File::isAbsolutePath(s) && juce::File(s).hasFileExtension(
-        "sf2;npno;nsmp;nsmp3;nsmp4;cpiano;csample;syx;wav;aif;aiff;flac;mp3;ogg;mid;midi");
+        "sf2;npno;nsmp;nsmp3;nsmp4;ckpiano;cksample;syx;wav;aif;aiff;flac;mp3;ogg;mid;midi");
 }
 template <typename Fn> void walk(juce::XmlElement& xml, const Fn& fn)
 {

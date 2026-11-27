@@ -1921,7 +1921,7 @@ juce::Result ClassicPlayerAudioProcessor::loadNordPiano(int layer, const juce::F
     if (layerType(layer) != LayerType::nord)
         return juce::Result::fail("Adicione uma layer Nord para importar um piano .npno.");
     if (!ClassicSoundFile::isPianoFile(file))
-        return juce::Result::fail("A layer Nord aceita somente arquivos .npno ou .cpiano.");
+        return juce::Result::fail("A layer Nord aceita somente arquivos .npno ou .ckpiano.");
     if (category.isNotEmpty() && !soundFontCategories().contains(category))
         return juce::Result::fail(juce::String::fromUTF8("Categoria de piano Nord inválida."));
 
@@ -3934,7 +3934,7 @@ juce::Result ClassicPlayerAudioProcessor::importNordPiano(const juce::File& sour
                                                            juce::File& importedFile) const
 {
     if (!source.existsAsFile() || !ClassicSoundFile::isPianoFile(source))
-        return juce::Result::fail("Selecione um arquivo de piano .npno ou .cpiano valido");
+        return juce::Result::fail("Selecione um arquivo de piano .npno ou .ckpiano valido");
     if (!soundFontCategories().contains(category))
         return juce::Result::fail("Categoria de piano Nord invalida");
 
@@ -4246,7 +4246,7 @@ juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordPianos(
     if (!soundFontCategories().contains(category)) return result;
     const auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                             .getChildFile("Classic Player").getChildFile("NordPianos").getChildFile(category);
-    folder.findChildFiles(result, juce::File::findFiles, false, "*.npno;*.NPNO;*.cpiano;*.CPIANO");
+    folder.findChildFiles(result, juce::File::findFiles, false, "*.npno;*.NPNO;*.ckpiano;*.CKPIANO");
     for (const auto& bundle : libraryNordBundles())
     {
         juce::Array<juce::File> files;
@@ -4277,7 +4277,7 @@ juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordPianos(
 juce::Result ClassicPlayerAudioProcessor::deleteLibraryNordPiano(const juce::File& file)
 {
     if (!file.existsAsFile() || !ClassicSoundFile::isPianoFile(file))
-        return juce::Result::fail("Selecione um piano .npno ou .cpiano valido da biblioteca");
+        return juce::Result::fail("Selecione um piano .npno ou .ckpiano valido da biblioteca");
 
     const auto libraryRoot = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                                  .getChildFile("Classic Player").getChildFile("NordPianos");
@@ -4304,7 +4304,7 @@ juce::Result ClassicPlayerAudioProcessor::importNordSample(const juce::File& sou
                                                             juce::File& importedFile) const
 {
     if (!source.existsAsFile() || !ClassicSoundFile::isSampleFile(source))
-        return juce::Result::fail(juce::String::fromUTF8("Selecione uma amostra .nsmp, .nsmp3, .nsmp4 ou .csample válida."));
+        return juce::Result::fail(juce::String::fromUTF8("Selecione uma amostra .nsmp, .nsmp3, .nsmp4 ou .cksample válida."));
     if (!nordSampleCategories().contains(category))
         return juce::Result::fail(juce::String::fromUTF8("Categoria de amostra Nord inválida."));
     auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
@@ -4334,7 +4334,7 @@ juce::Array<juce::File> ClassicPlayerAudioProcessor::libraryNordSamples() const
     const auto folder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                             .getChildFile("Classic Player").getChildFile("Nord Samples");
     folder.findChildFiles(result, juce::File::findFiles, true,
-                          "*.nsmp;*.NSMP;*.nsmp3;*.NSMP3;*.nsmp4;*.NSMP4;*.csample;*.CSAMPLE");
+                          "*.nsmp;*.NSMP;*.nsmp3;*.NSMP3;*.nsmp4;*.NSMP4;*.cksample;*.CKSAMPLE");
     for (const auto& bundle : libraryNordBundles())
         bundle.getChildFile("Samp Lib").findChildFiles(result, juce::File::findFiles, true,
             "*.nsmp;*.NSMP;*.nsmp3;*.NSMP3;*.nsmp4;*.NSMP4");

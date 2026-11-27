@@ -1,4 +1,4 @@
-// Classic Converter: turns NPNO pianos and NSMP samples into Classic Player files (.cpiano / .csample).
+// Classic Converter: turns NPNO pianos and NSMP samples into Classic Player files (.ckpiano / .cksample).
 #include "ClassicSoundConvert.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <atomic>

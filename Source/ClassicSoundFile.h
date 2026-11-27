@@ -9,7 +9,7 @@
 #include <memory>
 #include <vector>
 
-// Classic Player instrument files: ".cpiano" (a decoded NPNO piano) and ".csample" (a decoded NSMP sample).
+// Classic Player instrument files: ".ckpiano" (a decoded NPNO piano) and ".cksample" (a decoded NSMP sample).
 //
 // They hold exactly what the vendor decoder produces, before any playback preparation (loop seams are prepared by
 // the player when it unpacks the file, so later engine improvements apply to files converted today). Every stroke or
@@ -28,8 +28,8 @@ constexpr juce::uint32 pianoKind = 1, sampleKind = 2;
 constexpr juce::uint64 blockLimitBytes = 256ull * 1024 * 1024;
 constexpr juce::uint64 totalLimitBytes = 6ull * 1024 * 1024 * 1024;
 
-inline bool isPianoFile(const juce::File& file) { return file.hasFileExtension(".npno;.cpiano"); }
-inline bool isSampleFile(const juce::File& file) { return file.hasFileExtension(".nsmp;.nsmp3;.nsmp4;.csample"); }
+inline bool isPianoFile(const juce::File& file) { return file.hasFileExtension(".npno;.ckpiano"); }
+inline bool isSampleFile(const juce::File& file) { return file.hasFileExtension(".nsmp;.nsmp3;.nsmp4;.cksample"); }
 
 inline juce::Result failure(const char* utf8) { return juce::Result::fail(juce::String::fromUTF8(utf8)); }
 inline juce::Result damaged() { return failure("O arquivo da Classic está incompleto ou corrompido."); }
@@ -306,7 +306,7 @@ inline juce::Result writePiano(const juce::File& destination, const NordPianoDec
     return writer.publish();
 }
 
-// Reads a .cpiano. With a sink that accepts the audio, each stroke is handed over and freed (the returned instrument
+// Reads a .ckpiano. With a sink that accepts the audio, each stroke is handed over and freed (the returned instrument
 // then has the stroke list without PCM, like NordPianoDecoder::decodeFile); otherwise everything stays in RAM within
 // maxDecodedBytes. checkOnly verifies every block and keeps nothing.
 inline juce::Result readPiano(const juce::File& file, NordPianoDecoder::Instrument& destination,
@@ -317,7 +317,7 @@ inline juce::Result readPiano(const juce::File& file, NordPianoDecoder::Instrume
     juce::FileInputStream in(file);
     if (!in.openedOk()) return failure("Não foi possível ler o arquivo de piano da Classic.");
     if (!readFileHeader(in, pianoKind))
-        return failure("Este .cpiano não é válido ou foi criado por uma versão mais nova da Classic Player.");
+        return failure("Este .ckpiano não é válido ou foi criado por uma versão mais nova da Classic Player.");
 
     NordPianoDecoder::Instrument parsed;
     if (!readText(in, parsed.name) || !readText(in, parsed.voicing)) return damaged();
@@ -430,7 +430,7 @@ inline juce::Result readSample(const juce::File& file, NordSampleDecoder::Instru
     juce::FileInputStream in(file);
     if (!in.openedOk()) return failure("Não foi possível ler o arquivo de amostra da Classic.");
     if (!readFileHeader(in, sampleKind))
-        return failure("Este .csample não é válido ou foi criado por uma versão mais nova da Classic Player.");
+        return failure("Este .cksample não é válido ou foi criado por uma versão mais nova da Classic Player.");
 
     NordSampleDecoder::Instrument parsed;
     if (!readText(in, parsed.name)
