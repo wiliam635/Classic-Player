@@ -202,7 +202,7 @@ class ClassicConverterApplication final : public juce::JUCEApplication
 {
 public:
     const juce::String getApplicationName() override { return "Classic Converter"; }
-    const juce::String getApplicationVersion() override { return JUCE_APPLICATION_VERSION_STRING; }
+    const juce::String getApplicationVersion() override { return CLASSIC_CONVERTER_VERSION; }
 
     void initialise(const juce::String&) override
     {

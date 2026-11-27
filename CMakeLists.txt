@@ -332,7 +332,8 @@ juce_add_gui_app(ClassicConverter
 target_sources(ClassicConverter PRIVATE
     Source/ClassicConverterApp.cpp Source/ClassicSoundFile.h Source/ClassicSoundConvert.h
     Source/NordPianoDecoder.cpp Source/NordSampleDecoder.cpp Source/NordLegacySampleDecoder.cpp)
-target_compile_definitions(ClassicConverter PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_compile_definitions(ClassicConverter PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
+    CLASSIC_CONVERTER_VERSION="${PROJECT_VERSION}")
 target_link_libraries(ClassicConverter PRIVATE
     juce::juce_audio_formats juce::juce_dsp juce::juce_gui_basics
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
