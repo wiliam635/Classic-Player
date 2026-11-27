@@ -539,8 +539,8 @@ static constexpr UiTranslation uiTranslations[] {
     { "LAYER SF2", "SF2 LAYER", "CAPA SF2" },
     { "Layer SF2", "SF2 Layer", "Capa SF2" },
     { "Layer SF2 (.sf2)", "SF2 Layer (.sf2)", "Capa SF2 (.sf2)" },
-    { "Layer Nord Piano (.npno)", "Nord Piano Layer (.npno)", "Capa Nord Piano (.npno)" },
-    { "Layer Nord NSMP (.nsmp, .nsmp3, .nsmp4)", "Nord NSMP Layer (.nsmp, .nsmp3, .nsmp4)", "Capa Nord NSMP (.nsmp, .nsmp3, .nsmp4)" },
+    { "Layer Nord Piano (.npno, .ckp)", "Nord Piano Layer (.npno, .ckp)", "Capa Nord Piano (.npno, .ckp)" },
+    { "Layer Nord NSMP (.nsmp, .nsmp3, .nsmp4, .cks)", "Nord NSMP Layer (.nsmp, .nsmp3, .nsmp4, .cks)", "Capa Nord NSMP (.nsmp, .nsmp3, .nsmp4, .cks)" },
     { "Layer DX7 (.syx)", "DX7 Layer (.syx)", "Capa DX7 (.syx)" },
     { "Classic Keys Analog", "Classic Keys Analog", "Classic Keys Analog" },
     { "Layer Drum Pads (8)", "Drum Pads Layer (8)", "Capa Drum Pads (8)" },
@@ -10530,8 +10530,8 @@ ClassicPlayerAudioProcessorEditor::ClassicPlayerAudioProcessorEditor(
     addLayerButton.onClick = [this]
     {
         juce::PopupMenu menu;
-        menu.addItem(2, localizedUiText("Layer Nord Piano (.npno)", uiLanguage));
-        menu.addItem(8, localizedUiText("Layer Nord NSMP (.nsmp, .nsmp3, .nsmp4)", uiLanguage));
+        menu.addItem(2, localizedUiText("Layer Nord Piano (.npno, .ckp)", uiLanguage));
+        menu.addItem(8, localizedUiText("Layer Nord NSMP (.nsmp, .nsmp3, .nsmp4, .cks)", uiLanguage));
         menu.addItem(1, localizedUiText("Layer SF2 (.sf2)", uiLanguage));
         menu.addItem(3, localizedUiText("Layer DX7 (.syx)", uiLanguage));
         menu.addItem(6, localizedUiText("Hammond", uiLanguage));
