@@ -148,6 +148,27 @@ jobs:
           path: '**/vst3-host-editor.png'
           if-no-files-found: ignore
 
+      - name: Package Classic Converter installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\windows\ClassicConverter.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Falha ao criar o instalador do Classic Converter." }
+          $setup = "outputs\converter\Classic-Converter-${env:DOWNLOAD_VERSION}-Windows-x64-Setup.exe"
+          if (-not (Test-Path $setup)) { throw "Instalador do Classic Converter não foi criado." }
+          # Install silently and check that the program lands where the shortcuts point.
+          $dir = Join-Path $env:RUNNER_TEMP "converter-install"
+          $p = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=$dir" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "A instalação silenciosa do Classic Converter falhou: $($p.ExitCode)" }
+          if (-not (Test-Path (Join-Path $dir "Classic Converter.exe"))) { throw "O Classic Converter instalado não foi encontrado." }
+          Get-FileHash -Algorithm SHA256 $setup
+
+      - name: Upload Classic Converter installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Classic-Converter-Setup-Windows-x64
+          if-no-files-found: error
+          path: outputs/converter/Classic-Converter-3.1.0-Windows-x64-Setup.exe
+
       - name: Upload Classic Converter
         uses: actions/upload-artifact@v4
         with:
